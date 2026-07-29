@@ -9,7 +9,8 @@ defmodule OfficeGraphWeb.JsonApi.Router do
       OfficeGraph.Integrations.Domain,
       OfficeGraph.ProposedChanges.Domain,
       OfficeGraph.AgentRuntime.Domain,
-      OfficeGraph.NodeConversations.Domain
+      OfficeGraph.NodeConversations.Domain,
+      OfficeGraph.GitHubIntegration.Domain
     ],
     prefix: "/api/v1"
 end

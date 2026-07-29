@@ -1,12 +1,12 @@
-defmodule OfficeGraph.Verification.Actions.CreateEvidenceCandidate do
+defmodule OfficeGraph.GitHubIntegration.Actions.ReplyToReview do
   @moduledoc false
 
   use Ash.Resource.Actions.Implementation
 
   alias OfficeGraph.CommandSupport.CommandError
+  alias OfficeGraph.GitHubIntegration
+  alias OfficeGraph.GitHubIntegration.CommandResults.OutboundAction
   alias OfficeGraph.Operations
-  alias OfficeGraph.Verification
-  alias OfficeGraph.Verification.CommandResults.CreateEvidenceCandidate
 
   @impl true
   def run(input, _opts, %{actor: session_context}) when is_map(session_context) do
@@ -15,13 +15,12 @@ defmodule OfficeGraph.Verification.Actions.CreateEvidenceCandidate do
     with {:ok, operation} <-
            Operations.start_command(
              session_context,
-             :evidence_candidate_create,
+             :github_review_reply,
              idempotency_key,
              attrs
            ),
-         {:ok, candidate} <-
-           Verification.create_evidence_candidate(session_context, operation, attrs) do
-      CreateEvidenceCandidate.from_result(operation, candidate)
+         {:ok, action} <- GitHubIntegration.reply_to_review(session_context, operation, attrs) do
+      OutboundAction.from_result("reply_to_github_review", operation, action)
     else
       {:error, error} -> {:error, CommandError.new(error)}
     end

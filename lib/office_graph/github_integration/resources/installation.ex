@@ -1,9 +1,132 @@
+defmodule OfficeGraph.GitHubIntegration.CommandInputs.InstallationPermission do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :name, :string,
+      allow_nil?: false,
+      constraints: [match: ~r/^[a-z][a-z0-9_]*$/]
+
+    field :access_level, :string, allow_nil?: false
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_input_type(_constraints), do: :github_installation_permission_input
+end
+
+defmodule OfficeGraph.GitHubIntegration.CommandResults.CredentialBinding do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :id, :uuid, allow_nil?: false
+    field :purpose, :string, allow_nil?: false
+    field :kind, :string, allow_nil?: false
+    field :status, :string, allow_nil?: false
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :github_credential_command_result
+end
+
+defmodule OfficeGraph.GitHubIntegration.CommandResults.BindInstallation do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+  alias OfficeGraph.GitHubIntegration.CommandResults.CredentialBinding
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :installation, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.GitHubIntegration.Installation]
+
+    field :permission_snapshot, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.GitHubIntegration.PermissionSnapshot]
+
+    field :permissions, {:array, :struct},
+      allow_nil?: false,
+      constraints: [items: [instance_of: OfficeGraph.GitHubIntegration.PermissionEntry]]
+
+    field :credentials, {:array, CredentialBinding}, allow_nil?: false
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :bind_github_installation_payload
+
+  def from_result(result) do
+    new(
+      command: "bind_github_installation",
+      operation_id: result.operation.id,
+      affected_ids: [
+        TypedId.new!(type: "github_installation", id: result.installation.id),
+        TypedId.new!(type: "github_permission_snapshot", id: result.permission_snapshot.id)
+      ],
+      installation: result.installation,
+      permission_snapshot: result.permission_snapshot,
+      permissions: result.permissions,
+      credentials: Enum.map(result.credentials, &CredentialBinding.new!/1)
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.GitHubIntegration.CommandResults.BindInstallation do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        installation: %{
+          id: result.installation.id,
+          organization_id: result.installation.organization_id,
+          workspace_id: result.installation.workspace_id,
+          external_installation_id:
+            Integer.to_string(result.installation.external_installation_id),
+          lifecycle_state: result.installation.lifecycle_state,
+          service_principal_id: result.installation.service_principal_id,
+          webhook_principal_id: result.installation.webhook_principal_id
+        },
+        permission_snapshot: %{
+          id: result.permission_snapshot.id,
+          version: result.permission_snapshot.version
+        },
+        permissions:
+          Enum.map(result.permissions, &%{name: &1.name, access_level: &1.access_level}),
+        credentials:
+          Enum.map(
+            result.credentials,
+            &Map.take(&1, [:id, :purpose, :kind, :status])
+          )
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.GitHubIntegration.Installation do
   @moduledoc false
 
   use Ash.Resource,
     domain: OfficeGraph.GitHubIntegration.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "github_installations"
@@ -40,7 +163,8 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -74,6 +198,49 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       validate one_of(:lifecycle_state, ~w(active suspended revoked))
       require_atomic? false
       public? false
+    end
+
+    action :bind_github_installation,
+           OfficeGraph.GitHubIntegration.CommandResults.BindInstallation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :workspace_id, :uuid
+
+      argument :external_installation_id, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/^[1-9][0-9]*$/]
+
+      argument :app_slug, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :account_login, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :account_type, :string, allow_nil?: false
+
+      argument :service_principal_email, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :webhook_principal_email, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :webhook_secret_reference, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :app_private_key_reference, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :permissions,
+               {:array, OfficeGraph.GitHubIntegration.CommandInputs.InstallationPermission},
+               allow_nil?: false
+
+      validate argument_in(:account_type, ~w(organization user))
+
+      run fn input, context ->
+        OfficeGraph.GitHubIntegration.Actions.BindInstallation.run(input, [], context)
+      end
     end
   end
 
@@ -125,9 +292,41 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       attribute_public? true
     end
 
-    has_many :permission_snapshots, OfficeGraph.GitHubIntegration.PermissionSnapshot
+    has_many :permission_snapshots, OfficeGraph.GitHubIntegration.PermissionSnapshot do
+      public? true
+    end
+
     has_many :credential_bindings, OfficeGraph.GitHubIntegration.InstallationCredential
     has_many :sync_outcomes, OfficeGraph.GitHubIntegration.SyncOutcome
-    has_many :outbound_actions, OfficeGraph.GitHubIntegration.OutboundAction
+
+    has_many :outbound_actions, OfficeGraph.GitHubIntegration.OutboundAction do
+      public? true
+    end
+  end
+
+  policies do
+    policy action(:bind_github_installation) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :github_installation_bind}
+    end
+
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       (is_nil(workspace_id) or workspace_id == ^actor(:workspace_id))
+                   )
+    end
+  end
+
+  graphql do
+    type :github_installation
+  end
+
+  json_api do
+    type "github_installation"
   end
 end

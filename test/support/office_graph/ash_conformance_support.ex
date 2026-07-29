@@ -250,43 +250,44 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       duplicate_events:
         {:has_many, OfficeGraph.Integrations.NormalizedIntakeEvent, :id, :duplicate_of_id},
       proposed_changes:
-        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :normalized_event_id}
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :normalized_event_id,
+         true}
     },
     OfficeGraph.ExternalRefs.ExternalReference => %{
       context_entries:
         {:has_many, OfficeGraph.AgentRuntime.ContextEntry, :id, :external_reference_id}
     },
     OfficeGraph.WorkGraph.GraphItem => %{
-      signal: {:has_one, OfficeGraph.WorkGraph.Signal, :id, :graph_item_id},
-      task: {:has_one, OfficeGraph.WorkGraph.Task, :id, :graph_item_id},
-      review_finding: {:has_one, OfficeGraph.WorkGraph.ReviewFinding, :id, :graph_item_id},
+      signal: {:has_one, OfficeGraph.WorkGraph.Signal, :id, :graph_item_id, true},
+      task: {:has_one, OfficeGraph.WorkGraph.Task, :id, :graph_item_id, true},
+      review_finding: {:has_one, OfficeGraph.WorkGraph.ReviewFinding, :id, :graph_item_id, true},
       verification_check:
-        {:has_one, OfficeGraph.WorkGraph.VerificationCheck, :id, :graph_item_id},
-      artifact: {:has_one, OfficeGraph.WorkGraph.Artifact, :id, :graph_item_id},
+        {:has_one, OfficeGraph.WorkGraph.VerificationCheck, :id, :graph_item_id, true},
+      artifact: {:has_one, OfficeGraph.WorkGraph.Artifact, :id, :graph_item_id, true},
       evidence_item: {:has_one, OfficeGraph.WorkGraph.EvidenceItem, :id, :graph_item_id}
     },
     OfficeGraph.WorkGraph.Signal => %{
-      tasks: {:has_many, OfficeGraph.WorkGraph.Task, :id, :source_signal_id}
+      tasks: {:has_many, OfficeGraph.WorkGraph.Task, :id, :source_signal_id, true}
     },
     OfficeGraph.WorkGraph.Task => %{
-      review_findings: {:has_many, OfficeGraph.WorkGraph.ReviewFinding, :id, :task_id}
+      review_findings: {:has_many, OfficeGraph.WorkGraph.ReviewFinding, :id, :task_id, true}
     },
     OfficeGraph.WorkGraph.ReviewFinding => %{
       verification_checks:
-        {:has_many, OfficeGraph.WorkGraph.VerificationCheck, :id, :review_finding_id}
+        {:has_many, OfficeGraph.WorkGraph.VerificationCheck, :id, :review_finding_id, true}
     },
     OfficeGraph.WorkGraph.VerificationCheck => %{
       evidence_candidates:
-        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :verification_check_id},
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :verification_check_id, true},
       evidence_items:
-        {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :verification_check_id},
+        {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :verification_check_id, true},
       verification_results:
-        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :verification_check_id}
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :verification_check_id, true}
     },
     OfficeGraph.WorkGraph.Artifact => %{
       evidence_candidates:
-        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :artifact_id},
-      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :artifact_id}
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :artifact_id, true},
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :artifact_id, true}
     },
     OfficeGraph.WorkGraph.EvidenceCandidate => %{
       evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :candidate_id}
@@ -302,10 +303,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     },
     OfficeGraph.Runs.Run => %{
       evidence_candidates:
-        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :work_run_id},
-      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :work_run_id},
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :work_run_id, true},
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :work_run_id, true},
       verification_results:
-        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :work_run_id},
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :work_run_id, true},
       agent_executions: {:has_many, OfficeGraph.AgentRuntime.AgentExecution, :id, :run_id},
       conversations: {:has_many, OfficeGraph.NodeConversations.Conversation, :id, :run_id}
     },
@@ -320,9 +321,9 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       model_requests: {:has_many, OfficeGraph.AgentRuntime.ModelRequest, :id, :execution_id},
       tool_requests: {:has_many, OfficeGraph.AgentRuntime.ToolRequest, :id, :execution_id},
       approval_requests:
-        {:has_many, OfficeGraph.AgentRuntime.ApprovalRequest, :id, :execution_id},
+        {:has_many, OfficeGraph.AgentRuntime.ApprovalRequest, :id, :execution_id, true},
       context_expansion_requests:
-        {:has_many, OfficeGraph.AgentRuntime.ContextExpansionRequest, :id, :execution_id},
+        {:has_many, OfficeGraph.AgentRuntime.ContextExpansionRequest, :id, :execution_id, true},
       proposed_changes:
         {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :execution_id}
     },
@@ -728,27 +729,28 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         {:belongs_to, OfficeGraph.Identity.Principal, :deleted_by_principal_id, :id}
     },
     OfficeGraph.WorkGraph.Signal => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
       body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
     },
     OfficeGraph.WorkGraph.Task => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
-      source_signal: {:belongs_to, OfficeGraph.WorkGraph.Signal, :source_signal_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
+      source_signal: {:belongs_to, OfficeGraph.WorkGraph.Signal, :source_signal_id, :id, true},
       body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
     },
     OfficeGraph.WorkGraph.ReviewFinding => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
-      task: {:belongs_to, OfficeGraph.WorkGraph.Task, :task_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
+      task: {:belongs_to, OfficeGraph.WorkGraph.Task, :task_id, :id, true},
       body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
     },
     OfficeGraph.WorkGraph.VerificationCheck => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
-      review_finding: {:belongs_to, OfficeGraph.WorkGraph.ReviewFinding, :review_finding_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
+      review_finding:
+        {:belongs_to, OfficeGraph.WorkGraph.ReviewFinding, :review_finding_id, :id, true},
       description_document:
         {:belongs_to, OfficeGraph.Content.Document, :description_document_id, :id}
     },
     OfficeGraph.WorkGraph.Artifact => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true}
     },
     OfficeGraph.WorkGraph.EvidenceCandidate => %{
       verification_check:
@@ -780,17 +782,18 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.WorkPackets.WorkPacket => %{
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       current_version:
-        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :current_version_id, :id},
-      versions: {:has_many, OfficeGraph.WorkPackets.WorkPacketVersion, :id, :work_packet_id}
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :current_version_id, :id, true},
+      versions: {:has_many, OfficeGraph.WorkPackets.WorkPacketVersion, :id, :work_packet_id, true}
     },
     OfficeGraph.WorkPackets.WorkPacketVersion => %{
       work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       source_references:
         {:has_many, OfficeGraph.WorkPackets.WorkPacketSourceReference, :id,
-         :work_packet_version_id},
+         :work_packet_version_id, true},
       required_checks:
-        {:has_many, OfficeGraph.WorkPackets.WorkPacketRequiredCheck, :id, :work_packet_version_id}
+        {:has_many, OfficeGraph.WorkPackets.WorkPacketRequiredCheck, :id, :work_packet_version_id,
+         true}
     },
     OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
       work_packet_version:
@@ -848,21 +851,22 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   @expected_runs_relationships %{
     OfficeGraph.Runs.Run => %{
-      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
+      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id, true},
       work_packet_version:
-        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id,
+         true},
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       initiator_principal:
         {:belongs_to, OfficeGraph.Identity.Principal, :initiator_principal_id, :id},
-      required_checks: {:has_many, OfficeGraph.Runs.RunRequiredCheck, :id, :run_id},
+      required_checks: {:has_many, OfficeGraph.Runs.RunRequiredCheck, :id, :run_id, true},
       execution_observations:
-        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :work_run_id},
+        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :work_run_id, true},
       events: {:has_many, OfficeGraph.Runs.RunEvent, :id, :run_id}
     },
     OfficeGraph.Runs.RunRequiredCheck => %{
       run: {:belongs_to, OfficeGraph.Runs.Run, :run_id, :id},
       verification_check:
-        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id}
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id, true}
     },
     OfficeGraph.Runs.ExecutionObservation => %{
       work_run: {:belongs_to, OfficeGraph.Runs.Run, :work_run_id, :id},
@@ -1568,8 +1572,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   def assert_relationship_contracts!(expected_relationships_by_resource) do
     for {resource, expected_relationships} <- expected_relationships_by_resource do
-      for {name, {type, destination, source_attribute, destination_attribute}} <-
-            expected_relationships do
+      for {name, contract} <- expected_relationships do
+        {type, destination, source_attribute, destination_attribute, public?} =
+          normalize_relationship_contract(contract)
+
         relationship = Ash.Resource.Info.relationship(resource, name)
 
         assert relationship,
@@ -1579,9 +1585,24 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         assert relationship.destination == destination
         assert relationship.source_attribute == source_attribute
         assert relationship.destination_attribute == destination_attribute
-        refute relationship.public?
+
+        assert relationship.public? == public?,
+               "#{inspect(resource)}.#{name} publicness must be #{inspect(public?)}"
       end
     end
+  end
+
+  defp normalize_relationship_contract(
+         {type, destination, source_attribute, destination_attribute}
+       ) do
+    {type, destination, source_attribute, destination_attribute, false}
+  end
+
+  defp normalize_relationship_contract(
+         {type, destination, source_attribute, destination_attribute, public?}
+       )
+       when is_boolean(public?) do
+    {type, destination, source_attribute, destination_attribute, public?}
   end
 
   def capability_policy?(resource, action_name, action_type, capability) do
@@ -1789,8 +1810,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   def manual_graphql_type_surfaces do
     [
-      "lib/office_graph_web/graphql/operator_workflow/types.ex",
-      "lib/office_graph_web/graphql/operator_commands/types.ex"
+      "lib/office_graph_web/graphql/operator_workflow/types.ex"
     ]
     |> Enum.flat_map(fn path ->
       if File.exists?(path) do
@@ -1808,8 +1828,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   def graphql_root_surfaces do
     [
       {:query, "lib/office_graph_web/graphql/common/queries.ex"},
-      {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"},
-      {:mutation, "lib/office_graph_web/graphql/operator_commands/mutations.ex"}
+      {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"}
     ]
     |> Enum.flat_map(fn {root_kind, path} ->
       graphql_root_surfaces_in_file(root_kind, path)

@@ -51,18 +51,6 @@ defmodule OfficeGraphWeb.Router do
         JsonApi.Relationships.Controller,
         :index
 
-    post "/v1/commands/bind-github-installation",
-         JsonApi.OperatorCommands.GitHubController,
-         :bind_installation
-
-    post "/v1/commands/reply-to-github-review",
-         JsonApi.OperatorCommands.GitHubController,
-         :reply_to_review
-
-    post "/v1/commands/update-github-check",
-         JsonApi.OperatorCommands.GitHubController,
-         :update_check
-
     get "/v1/github/installations/:installation_id/health",
         JsonApi.GitHubHealthController,
         :show

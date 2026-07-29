@@ -100,12 +100,12 @@ type CreateEvidenceCandidateResult = Pick<
 
 type AcceptEvidenceResult = Pick<
   AcceptEvidenceMutation["response"]["acceptEvidence"],
-  "evidenceCandidate" | "evidenceItem" | "run" | "verificationResult"
+  "evidenceCandidate" | "evidenceItem"
 >;
 
 type WaiveVerificationCheckResult = Pick<
   WaiveVerificationCheckMutation["response"]["waiveVerificationCheck"],
-  "requiredCheck" | "run" | "verificationResult"
+  "verificationResult"
 >;
 
 type InvokeAgentResult = Pick<
@@ -222,8 +222,6 @@ const acceptEvidenceConfig = {
     return commandMutationSuccess(payload, {
       evidenceCandidate: payload.evidenceCandidate,
       evidenceItem: payload.evidenceItem,
-      verificationResult: payload.verificationResult,
-      run: payload.run,
     });
   },
 } satisfies CommandMutationConfig<
@@ -239,8 +237,6 @@ const waiveVerificationCheckConfig = {
     const payload = response.waiveVerificationCheck;
     return commandMutationSuccess(payload, {
       verificationResult: payload.verificationResult,
-      requiredCheck: payload.requiredCheck,
-      run: payload.run,
     });
   },
 } satisfies CommandMutationConfig<

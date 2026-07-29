@@ -38,13 +38,13 @@ defmodule OfficeGraph.AgentRuntime.Domain do
         relay_id_translations(input: [execution_id: :agent_execution])
       end
 
-      action OfficeGraph.AgentRuntime.ApprovalRequest,
+      action OfficeGraph.AgentRuntime.AgentExecution,
              :resolve_agent_approval,
              :resolve_agent_approval do
         relay_id_translations(input: [approval_request_id: :agent_approval_request])
       end
 
-      action OfficeGraph.AgentRuntime.ContextExpansionRequest,
+      action OfficeGraph.AgentRuntime.AgentExecution,
              :resolve_agent_context_expansion,
              :resolve_agent_context_expansion do
         relay_id_translations(
@@ -94,14 +94,14 @@ defmodule OfficeGraph.AgentRuntime.Domain do
       )
 
       route(
-        OfficeGraph.AgentRuntime.ApprovalRequest,
+        OfficeGraph.AgentRuntime.AgentExecution,
         :post,
         "/commands/resolve-agent-approval",
         :resolve_agent_approval
       )
 
       route(
-        OfficeGraph.AgentRuntime.ContextExpansionRequest,
+        OfficeGraph.AgentRuntime.AgentExecution,
         :post,
         "/commands/resolve-agent-context-expansion",
         :resolve_agent_context_expansion

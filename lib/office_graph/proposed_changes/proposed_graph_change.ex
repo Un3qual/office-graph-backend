@@ -150,7 +150,9 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
       argument :normalized_event_id, :uuid, allow_nil?: false
       argument :proposed_change_ids, {:array, :uuid}, allow_nil?: false
 
-      run OfficeGraph.ProposedChanges.Actions.ApplyProposedChanges
+      run fn input, context ->
+        OfficeGraph.ProposedChanges.Actions.ApplyProposedChanges.run(input, [], context)
+      end
     end
   end
 

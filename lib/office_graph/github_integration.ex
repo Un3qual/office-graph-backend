@@ -7,6 +7,7 @@ defmodule OfficeGraph.GitHubIntegration do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
+      OfficeGraph.CommandSupport,
       OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,

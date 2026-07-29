@@ -154,6 +154,19 @@ Stable safe command errors become typed Ash errors with
 error handlers may sanitize or rename fields, but a single web-layer switch
 over every domain error will be removed.
 
+Resource-bearing result types are compiled with the action-owning resource
+rather than in a standalone result file that embeds that resource. Aggregate
+commands are declared on the aggregate/output resource, and their runners may
+remain in the capability that owns the behavior. This avoids reciprocal
+compile dependencies while preserving the public capability boundary.
+
+When one command affects resources across capability boundaries, its typed
+result returns the primary resource, operation metadata, and `affectedIds`.
+GraphQL callers refetch those generated Relay nodes instead of receiving
+duplicate cross-boundary records in the command payload. This keeps generated
+resource reads authoritative and prevents result structs from becoming a
+second read model.
+
 Alternative considered: keep the shared classifier behind the generated
 actions. Rejected because it would leave transport-independent domain outcomes
 coupled to one compatibility namespace and would not use the packages' error
@@ -197,7 +210,8 @@ provider-callback exceptions. It is not a temporary compatibility ledger.
   before deleting each old transport.
 - **Typed result structs could become another DTO layer.** → Return Ash resource
   records or action metadata first; introduce a result struct only when one
-  command genuinely returns multiple independently meaningful values.
+  command genuinely returns multiple independently meaningful values, and use
+  `affectedIds` plus authoritative node refetches for cross-boundary changes.
 - **Relay IDs can be double-decoded or accepted as raw UUIDs.** → Use
   `relay_id_translations` for generated actions and negative tests for raw,
   malformed, cross-type, missing, and unauthorized IDs.

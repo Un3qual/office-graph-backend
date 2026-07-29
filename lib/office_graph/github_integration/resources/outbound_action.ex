@@ -1,9 +1,71 @@
+defmodule OfficeGraph.GitHubIntegration.CommandResults.OutboundAction do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :action, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.GitHubIntegration.OutboundAction]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :github_outbound_action_payload
+
+  def from_result(command, operation, action) do
+    new(
+      command: command,
+      operation_id: operation.id,
+      affected_ids: [TypedId.new!(type: "github_outbound_action", id: action.id)],
+      action: action
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.GitHubIntegration.CommandResults.OutboundAction do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        action:
+          Map.take(result.action, [
+            :id,
+            :installation_id,
+            :action_kind,
+            :target_type,
+            :target_id,
+            :expected_provider_version,
+            :state,
+            :provider_response_id,
+            :provider_response_version,
+            :failure_class,
+            :failure_code
+          ])
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.GitHubIntegration.OutboundAction do
   @moduledoc false
 
   use Ash.Resource,
     domain: OfficeGraph.GitHubIntegration.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "github_outbound_actions"
@@ -49,7 +111,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -101,6 +164,49 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       require_atomic? false
       public? false
     end
+
+    action :reply_to_github_review,
+           OfficeGraph.GitHubIntegration.CommandResults.OutboundAction do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :installation_id, :uuid, allow_nil?: false
+      argument :review_comment_id, :uuid, allow_nil?: false
+
+      argument :body, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, match: ~r/\S/]
+
+      argument :expected_provider_version, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      run fn input, context ->
+        OfficeGraph.GitHubIntegration.Actions.ReplyToReview.run(input, [], context)
+      end
+    end
+
+    action :update_github_check,
+           OfficeGraph.GitHubIntegration.CommandResults.OutboundAction do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :installation_id, :uuid, allow_nil?: false
+      argument :check_run_id, :uuid, allow_nil?: false
+      argument :status, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :conclusion, :string
+      argument :details_url, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :expected_provider_version, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      run fn input, context ->
+        OfficeGraph.GitHubIntegration.Actions.UpdateCheck.run(input, [], context)
+      end
+    end
   end
 
   identities do
@@ -141,5 +247,36 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
       destination_attribute :id
       attribute_public? true
     end
+  end
+
+  policies do
+    policy action(:reply_to_github_review) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :github_review_reply}
+    end
+
+    policy action(:update_github_check) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :github_check_update}
+    end
+
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       (is_nil(workspace_id) or workspace_id == ^actor(:workspace_id))
+                   )
+    end
+  end
+
+  graphql do
+    type :github_outbound_action
+  end
+
+  json_api do
+    type "github_outbound_action"
   end
 end

@@ -261,7 +261,8 @@ conventions, or a route-specific UI framework.
   product navigation
 - **THEN** the Phoenix app shell MUST mount the route, navigation MUST identify
   `All Runs` as an enabled destination, and the route MUST load its list through
-  `operatorRuns` rather than a JSON adapter or competing server-state cache
+  the AshGraphql-generated `listWorkRuns` Relay connection rather than a manual
+  GraphQL projection, JSON adapter, or competing server-state cache
 
 #### Scenario: Deferred navigation is visible
 
@@ -288,10 +289,9 @@ conventions, or a route-specific UI framework.
 
 Office Graph SHALL expose only canonical `/runs` for the all-runs product
 surface. Its app shell and GraphQL reads SHALL consume the existing shared
-`OfficeGraphWeb.RequestSession` resolution unchanged, including the
-intentionally deferred bootstrap posture, and SHALL NOT add a route-specific
-actor/session creation path, bootstrap fallback, alias, compatibility route, or
-compatibility query.
+authenticated actor context, including the intentionally deferred bootstrap
+posture, and SHALL NOT add a route-specific actor/session creation path,
+bootstrap fallback, alias, compatibility route, or compatibility query.
 
 #### Scenario: Operator requests the canonical route
 
@@ -301,29 +301,34 @@ compatibility query.
 
 #### Scenario: Route resolves a session
 
-- **WHEN** the all-runs list or selected detail read resolves its request actor
-- **THEN** it MUST use the existing shared `RequestSession` resolution without
-  creating a route-local actor, session, bootstrap, or fallback
+- **WHEN** the generated all-runs list or selected mixed-detail read resolves
+  its request actor
+- **THEN** it MUST consume the actor loaded by the shared GraphQL pipeline
+  without creating a route-local actor, session, bootstrap, or fallback
 
 #### Scenario: Route contract is inspected
 
 - **WHEN** route and GraphQL architecture coverage inspects all-runs entry
   points
 - **THEN** it MUST find only the canonical `/runs` route and the documented
-  `operatorRuns` and `operatorRunState` reads, with no alias or compatibility
-  route/query
+  generated `listWorkRuns`, generated `getWorkRun`, and derived
+  `operatorRunState` reads, with no alias or compatibility route/query
 
 ### Requirement: All Runs Preserves Authoritative List And Detail State
 
 Office Graph SHALL render an explicit list, selection, detail, and bounded
-activity state from route-owned Relay reads. It SHALL obtain selected-run
-detail from `operatorRunState(id:)`, including that connection's first bounded
-activity page, and SHALL treat the list and selected-detail reads as independent
-recoverable boundaries.
+activity state from route-owned Relay reads. It SHALL obtain its list from the
+generated `listWorkRuns` connection. It SHALL obtain selected-run resource state
+and relationships from generated `getWorkRun`, including packet, packet
+version, required checks, evidence candidates, evidence items, and verification
+results. It SHALL obtain only derived status, missing-evidence, and bounded
+activity state from `operatorRunState(id:)`. The generated and projection reads
+SHALL share one route-owned detail operation and SHALL remain independently
+recoverable from the list read.
 
 #### Scenario: Authorized run list is empty
 
-- **WHEN** `operatorRuns` returns no authorized edges
+- **WHEN** `listWorkRuns` returns no authorized edges
 - **THEN** the route MUST render a run-specific empty state and MUST clear or
   omit selected-run detail
 
@@ -336,10 +341,19 @@ recoverable boundaries.
 
 #### Scenario: Detail read fails
 
-- **WHEN** `operatorRunState` is missing, forbidden, invalid, stale, or fails
+- **WHEN** `getWorkRun` or `operatorRunState` is missing, forbidden, invalid,
+  stale, or fails
 - **THEN** the list MUST remain visible, stale selected-run detail MUST be
   cleared, and the route MUST render a safe detail error with an explicit
   detail retry that authoritatively re-reads the run
+
+#### Scenario: Selected run detail loads
+
+- **WHEN** the route loads an authorized selected run
+- **THEN** packet, packet-version, required-check, evidence, and verification
+  resource fields MUST resolve through generated AshGraphql resource objects
+  and Relay relationships, while `operatorRunState` MUST provide only the
+  derived status, missing-evidence, and activity projection
 
 #### Scenario: List page read fails
 

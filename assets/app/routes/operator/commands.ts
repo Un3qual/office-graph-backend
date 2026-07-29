@@ -129,15 +129,6 @@ export const OperatorAcceptEvidenceMutation = graphql`
         id
         state
       }
-      verificationResult {
-        id
-        result
-      }
-      run {
-        id
-        executionState
-        verificationState
-      }
     }
   }
 `;
@@ -156,16 +147,6 @@ export const OperatorWaiveVerificationCheckMutation = graphql`
       verificationResult {
         id
         result
-      }
-      requiredCheck {
-        id
-        verificationCheckId
-        state
-      }
-      run {
-        id
-        executionState
-        verificationState
       }
     }
   }

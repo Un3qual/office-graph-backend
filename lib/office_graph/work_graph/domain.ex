@@ -53,6 +53,17 @@ defmodule OfficeGraph.WorkGraph.Domain do
       action OfficeGraph.WorkGraph.EvidenceCandidate, :accept_evidence, :accept_evidence do
         relay_id_translations(input: [evidence_candidate_id: :evidence_candidate])
       end
+
+      action OfficeGraph.WorkGraph.VerificationResult,
+             :waive_verification_check,
+             :waive_verification_check do
+        relay_id_translations(
+          input: [
+            run_id: :work_run,
+            run_required_check_id: :run_required_check
+          ]
+        )
+      end
     end
   end
 
@@ -136,6 +147,13 @@ defmodule OfficeGraph.WorkGraph.Domain do
         :post,
         "/commands/accept-evidence",
         :accept_evidence
+      )
+
+      route(
+        OfficeGraph.WorkGraph.VerificationResult,
+        :post,
+        "/commands/waive-verification-check",
+        :waive_verification_check
       )
     end
   end

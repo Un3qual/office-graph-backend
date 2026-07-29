@@ -135,40 +135,6 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
       change OfficeGraph.Runs.Changes.DeriveObservationIngestedAt
       change OfficeGraph.Runs.Changes.ValidateObservationRunReferences
     end
-
-    action :record_execution_observation,
-           OfficeGraph.Runs.CommandResults.RecordExecutionObservation do
-      argument :idempotency_key, :string,
-        allow_nil?: false,
-        constraints: [match: ~r/\S/]
-
-      argument :run_id, :uuid, allow_nil?: false
-      argument :verification_check_id, :uuid, allow_nil?: false
-      argument :source_graph_item_id, :uuid, allow_nil?: false
-
-      argument :observation_source_kind, :string,
-        allow_nil?: false,
-        constraints: [match: ~r/\S/]
-
-      argument :observation_source_identity, :string,
-        allow_nil?: false,
-        constraints: [match: ~r/\S/]
-
-      argument :observation_idempotency_key, :string,
-        allow_nil?: false,
-        constraints: [match: ~r/\S/]
-
-      argument :observed_status, :string, allow_nil?: false, constraints: [match: ~r/\S/]
-      argument :normalized_status, :string, allow_nil?: false, constraints: [match: ~r/\S/]
-      argument :freshness_state, :string, allow_nil?: false, constraints: [match: ~r/\S/]
-      argument :trust_basis, :string, allow_nil?: false, constraints: [match: ~r/\S/]
-
-      argument :observation_rationale, :string,
-        allow_nil?: false,
-        constraints: [match: ~r/\S/]
-
-      run OfficeGraph.Runs.Actions.RecordExecutionObservation
-    end
   end
 
   identities do
@@ -192,11 +158,6 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     end
 
     policy action(:create) do
-      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
-                    capability: :execution_observation_record}
-    end
-
-    policy action(:record_execution_observation) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
                     capability: :execution_observation_record}
     end

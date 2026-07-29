@@ -1,3 +1,196 @@
+defmodule OfficeGraph.Verification.Actions.CreateEvidenceCandidate do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.CommandSupport.CommandError
+  alias OfficeGraph.Operations
+  alias OfficeGraph.Verification
+  alias OfficeGraph.Verification.CommandResults.CreateEvidenceCandidate
+
+  @impl true
+  def run(input, _opts, %{actor: session_context}) when is_map(session_context) do
+    {idempotency_key, attrs} = Map.pop!(input.arguments, :idempotency_key)
+
+    with {:ok, operation} <-
+           Operations.start_command(
+             session_context,
+             :evidence_candidate_create,
+             idempotency_key,
+             attrs
+           ),
+         {:ok, candidate} <-
+           Verification.create_evidence_candidate(session_context, operation, attrs) do
+      CreateEvidenceCandidate.from_result(operation, candidate)
+    else
+      {:error, error} -> {:error, CommandError.new(error)}
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, CommandError.new(:forbidden)}
+end
+
+defmodule OfficeGraph.Verification.Actions.AcceptEvidence do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.CommandSupport.CommandError
+  alias OfficeGraph.Operations
+  alias OfficeGraph.Verification
+  alias OfficeGraph.Verification.CommandResults.AcceptEvidence
+
+  @impl true
+  def run(input, _opts, %{actor: session_context}) when is_map(session_context) do
+    {idempotency_key, command_input} = Map.pop!(input.arguments, :idempotency_key)
+
+    with {:ok, operation} <-
+           Operations.start_command(
+             session_context,
+             :evidence_accept,
+             idempotency_key,
+             command_input
+           ),
+         {candidate_id, attrs} <- Map.pop!(command_input, :evidence_candidate_id),
+         {:ok, candidate} <-
+           Verification.get_candidate_for_accept_command(session_context, candidate_id),
+         {:ok, result} <-
+           Verification.accept_evidence_candidate(session_context, operation, candidate, attrs) do
+      AcceptEvidence.from_result(operation, result)
+    else
+      {:error, error} -> {:error, CommandError.new(error)}
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, CommandError.new(:forbidden)}
+end
+
+defmodule OfficeGraph.Verification.CommandResults.CreateEvidenceCandidate do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :evidence_candidate, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.WorkGraph.EvidenceCandidate]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :create_evidence_candidate_payload
+
+  def from_result(operation, candidate) do
+    new(
+      command: "create_evidence_candidate",
+      operation_id: operation.id,
+      affected_ids: [TypedId.new!(type: "evidence_candidate", id: candidate.id)],
+      evidence_candidate: candidate
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.Verification.CommandResults.CreateEvidenceCandidate do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        evidence_candidate: %{
+          id: result.evidence_candidate.id,
+          candidate_state: result.evidence_candidate.candidate_state
+        }
+      },
+      options
+    )
+  end
+end
+
+defmodule OfficeGraph.Verification.CommandResults.AcceptEvidence do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :evidence_candidate, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.WorkGraph.EvidenceCandidate]
+
+    field :evidence_item, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.WorkGraph.EvidenceItem]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :accept_evidence_payload
+
+  def from_result(operation, result) do
+    new(
+      command: "accept_evidence",
+      operation_id: operation.id,
+      affected_ids: affected_ids(result),
+      evidence_candidate: result.candidate,
+      evidence_item: result.evidence_item
+    )
+  end
+
+  defp affected_ids(result) do
+    [
+      TypedId.new!(type: "evidence_candidate", id: result.candidate.id),
+      TypedId.new!(type: "evidence_item", id: result.evidence_item.id),
+      TypedId.new!(type: "verification_result", id: result.verification_result.id)
+    ] ++
+      optional_typed_id("verification_check", result.affected_verification_check_id) ++
+      optional_typed_id("run_required_check", result.affected_run_required_check_id) ++
+      optional_typed_id("review_finding", result.affected_review_finding_id) ++
+      optional_typed_id("task", result.affected_task_id) ++
+      optional_typed_id("work_run", result.work_run)
+  end
+
+  defp optional_typed_id(_type, nil), do: []
+
+  defp optional_typed_id(type, id) when is_binary(id),
+    do: [TypedId.new!(type: type, id: id)]
+
+  defp optional_typed_id(type, resource),
+    do: [TypedId.new!(type: type, id: resource.id)]
+end
+
+defimpl Jason.Encoder, for: OfficeGraph.Verification.CommandResults.AcceptEvidence do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        evidence_candidate: %{
+          id: result.evidence_candidate.id,
+          candidate_state: result.evidence_candidate.candidate_state
+        },
+        evidence_item: %{id: result.evidence_item.id, state: result.evidence_item.state}
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
   @moduledoc false
 

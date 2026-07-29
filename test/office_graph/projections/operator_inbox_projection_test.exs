@@ -308,11 +308,11 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
         Projections.operator_run_state(bootstrap.session, run_result.run.id)
       end)
 
-    assert length(run_state.required_checks) == 4
-    assert length(run_state.observations) == 4
-    assert length(run_state.evidence_candidates) == 4
-    assert length(run_state.evidence_items) == 4
-    assert length(run_state.verification_results) == 4
+    assert run_state.child_summary.required_checks == 4
+    assert run_state.child_summary.observations == 4
+    assert run_state.child_summary.evidence_candidates == 4
+    assert run_state.child_summary.evidence_items == 4
+    assert run_state.child_summary.verification_results == 4
     # One bounded detail query plus one aggregate-count query per child source.
     assert QueryCounter.source_count(queries, "run_required_checks") <= 2
     assert QueryCounter.source_count(queries, "execution_observations") <= 2

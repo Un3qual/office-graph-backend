@@ -518,8 +518,6 @@ describe("operator route reads", () => {
               affectedIds: [],
               evidenceCandidate: { id: "candidate_1", candidateState: "accepted" },
               evidenceItem: { id: "evidence_1", state: "accepted" },
-              verificationResult: { id: "result_1", result: "passed" },
-              run: { id: "run_1", executionState: "completed", verificationState: "passed" },
             },
           },
         };
@@ -684,8 +682,6 @@ describe("operator route reads", () => {
               affectedIds: [],
               evidenceCandidate: { id: "candidate_2", candidateState: "accepted" },
               evidenceItem: { id: "evidence_2", state: "accepted" },
-              verificationResult: { id: "result_2", result: "passed" },
-              run: { id: "run_1", executionState: "completed", verificationState: "pending" },
             },
           },
         };

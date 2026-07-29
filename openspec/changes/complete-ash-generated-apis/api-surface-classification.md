@@ -242,53 +242,51 @@ Every current command route is a generated owning-domain action target:
 - `json.post./api/v1/commands/accept-evidence`
 - `json.post./api/v1/commands/waive-verification-check`
 
-`serializer.OfficeGraphWeb.JsonApi.OperatorCommands.Serializer` is generated
-action serialization, not a terminal custom serializer.
+## Generated Command Implementation Files
 
-## Transport Implementation Files
-
-These files are migration inputs and are deleted after their callers move to
-owning Ash actions:
-
-- `lib/office_graph_web/graphql/operator_commands/mutations.ex`
-- `lib/office_graph_web/graphql/operator_commands/types.ex`
-- `lib/office_graph_web/graphql/operator_commands/resolvers/github.ex`
-- `lib/office_graph_web/json_api/operator_commands/github_controller.ex`
-- `lib/office_graph_web/json_api/operator_commands/serializer.ex`
-- `lib/office_graph_web/operator_commands/input.ex`
-
-The manual-intake and proposed-change command surfaces have moved to:
+The command surfaces are owned by these capability modules:
 
 - `lib/office_graph/integrations/actions/submit_manual_intake.ex`
-- `lib/office_graph/integrations/command_results/submit_manual_intake.ex`
+- `lib/office_graph/integrations/normalized_intake_event.ex`
 - `lib/office_graph/proposed_changes/actions/apply_proposed_changes.ex`
 - `lib/office_graph/proposed_changes/command_results/apply_proposed_changes.ex`
 - `lib/office_graph/command_support/command_error.ex`
 - `lib/office_graph/command_support/typed_id.ex`
 - `lib/office_graph/work_packets/actions/create_work_packet.ex`
 - `lib/office_graph/work_packets/actions/create_work_packet_version.ex`
-- `lib/office_graph/work_packets/command_results/packet_mutation.ex`
+- `lib/office_graph/work_packets/resources/work_packet.ex`
 - `lib/office_graph/runs/actions/start_work_run.ex`
 - `lib/office_graph/runs/actions/record_execution_observation.ex`
-- `lib/office_graph/runs/command_results/start_work_run.ex`
-- `lib/office_graph/runs/command_results/record_execution_observation.ex`
-- `lib/office_graph/verification/actions/create_evidence_candidate.ex`
-- `lib/office_graph/verification/actions/accept_evidence.ex`
-- `lib/office_graph/verification/actions/waive_verification_check.ex`
-- `lib/office_graph/verification/command_results/create_evidence_candidate.ex`
-- `lib/office_graph/verification/command_results/accept_evidence.ex`
-- `lib/office_graph/verification/command_results/waive_verification_check.ex`
+- `lib/office_graph/runs/run.ex`
+- `lib/office_graph/work_graph/resources/evidence_candidate.ex`
+- `lib/office_graph/work_graph/resources/verification_result.ex`
 - `lib/office_graph/agent_runtime/actions/invoke_agent.ex`
 - `lib/office_graph/agent_runtime/actions/cancel_agent_execution.ex`
 - `lib/office_graph/agent_runtime/actions/resolve_agent_approval.ex`
 - `lib/office_graph/agent_runtime/actions/resolve_agent_context_expansion.ex`
-- `lib/office_graph/agent_runtime/command_results/execution_mutation.ex`
-- `lib/office_graph/agent_runtime/command_results/approval_resolution.ex`
-- `lib/office_graph/agent_runtime/command_results/context_expansion_resolution.ex`
+- `lib/office_graph/agent_runtime/resources/agent_execution.ex`
 - `lib/office_graph/node_conversations/actions/start_run_conversation.ex`
 - `lib/office_graph/node_conversations/actions/append_conversation_message.ex`
-- `lib/office_graph/node_conversations/command_results/start_run_conversation.ex`
-- `lib/office_graph/node_conversations/command_results/append_conversation_message.ex`
+- `lib/office_graph/node_conversations/conversation.ex`
+- `lib/office_graph/node_conversations/conversation_message.ex`
+- `lib/office_graph/github_integration/actions/bind_installation.ex`
+- `lib/office_graph/github_integration/actions/reply_to_review.ex`
+- `lib/office_graph/github_integration/actions/update_check.ex`
+- `lib/office_graph/github_integration/resources/installation.ex` owns the
+  installation command input, credential summary, and aggregate result types
+  beside the resource action that uses them
+- `lib/office_graph/github_integration/resources/installation.ex`
+- `lib/office_graph/github_integration/resources/outbound_action.ex`
+
+Resource-bearing typed results are colocated with their action-owning resource
+compilation unit. This keeps the generated action declaration and its result
+contract together without creating a reciprocal compile dependency between a
+resource module and a standalone result module that embeds that resource.
+
+Commands that coordinate records across capability boundaries return their
+primary resource, operation metadata, and `affectedIds`. Clients refetch the
+authoritative generated resource nodes instead of receiving duplicate
+cross-boundary records in a transport result.
 
 The following general-purpose web transport helpers remain only to serve
 accepted custom projections or provider callbacks. Generated AshGraphql and

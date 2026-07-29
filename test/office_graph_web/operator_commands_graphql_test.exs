@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
+defmodule OfficeGraphWeb.GeneratedCommandsGraphQLTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Audit.AuditRecord
@@ -428,15 +428,22 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     assert accepted_required_check.state == "satisfied"
 
+    accepted_run =
+      Ash.get!(
+        Run,
+        relay_internal_id(started["run"]["id"], :work_run),
+        authorize?: false
+      )
+
     before_stale_waiver = command_record_snapshot()
 
     stale_waiver =
       raw_command(conn, :waive_verification_check, %{
         idempotencyKey: unique_key("stale-waive"),
-        runId: accepted["run"]["id"],
+        runId: started["run"]["id"],
         runRequiredCheckId: second_required_check["id"],
         expectedExecutionState: "queued",
-        expectedVerificationState: accepted["run"]["verificationState"],
+        expectedVerificationState: accepted_run.verification_state,
         reason: "This stale request must not waive the check.",
         policyBasis: "owner_exception"
       })
@@ -446,10 +453,10 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     waiver_input = %{
       idempotencyKey: unique_key("waive"),
-      runId: accepted["run"]["id"],
+      runId: started["run"]["id"],
       runRequiredCheckId: second_required_check["id"],
-      expectedExecutionState: accepted["run"]["executionState"],
-      expectedVerificationState: accepted["run"]["verificationState"],
+      expectedExecutionState: accepted_run.execution_state,
+      expectedVerificationState: accepted_run.verification_state,
       reason: "The second check is governed by an approved exception.",
       policyBasis: "owner_exception"
     }
@@ -462,9 +469,17 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "work_run"
     ])
 
-    assert waived["requiredCheck"]["id"] == second_required_check["id"]
-    assert waived["requiredCheck"]["state"] == "waived"
-    assert waived["run"]["verificationState"] == "verified"
+    waived_required_check =
+      Ash.get!(
+        RunRequiredCheck,
+        relay_internal_id(second_required_check["id"], :run_required_check),
+        authorize?: false
+      )
+
+    verified_run = Ash.get!(Run, accepted_run.id, authorize?: false)
+
+    assert waived_required_check.state == "waived"
+    assert verified_run.verification_state == "verified"
 
     commands = [
       {:submit_manual_intake, intake_input, intake, :body, "Changed intake body."},
@@ -526,7 +541,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         acceptancePolicyBasis: "owner_acceptance"
       })
 
-    assert accepted["run"] == nil
     refute Enum.any?(accepted["affectedIds"], &(&1["type"] == "work_run"))
     assert Enum.any?(accepted["affectedIds"], &(&1["type"] == "verification_check"))
 
@@ -537,10 +551,9 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     verification_result =
       Ash.get!(
         VerificationResult,
-        relay_internal_id(
-          accepted["verificationResult"]["id"],
-          :work_graph_verification_result
-        ),
+        accepted["affectedIds"]
+        |> Enum.find(&(&1["type"] == "verification_result"))
+        |> Map.fetch!("id"),
         authorize?: false
       )
 
@@ -666,20 +679,19 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         prefix: "graphql-waive-only"
       )
 
-    waived =
-      conn
-      |> Ash.PlugHelpers.set_actor(waive_only)
-      |> command(:waive_verification_check, %{
-        idempotencyKey: unique_key("waive-only"),
-        runId: run_result.run.id,
-        runRequiredCheckId: required_check.id,
-        expectedExecutionState: run_result.run.execution_state,
-        expectedVerificationState: run_result.run.verification_state,
-        reason: "Approved least-capability exception.",
-        policyBasis: "owner_exception"
-      })
+    conn
+    |> Ash.PlugHelpers.set_actor(waive_only)
+    |> command(:waive_verification_check, %{
+      idempotencyKey: unique_key("waive-only"),
+      runId: run_result.run.id,
+      runRequiredCheckId: required_check.id,
+      expectedExecutionState: run_result.run.execution_state,
+      expectedVerificationState: run_result.run.verification_state,
+      reason: "Approved least-capability exception.",
+      policyBasis: "owner_exception"
+    })
 
-    assert waived["requiredCheck"]["state"] == "waived"
+    assert Ash.get!(RunRequiredCheck, required_check.id, authorize?: false).state == "waived"
   end
 
   test "apply commands without read or apply grants return a safe forbidden error", %{conn: conn} do
@@ -925,8 +937,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         command operationId affectedIds { type id }
         evidenceCandidate { id candidateState }
         evidenceItem { id state }
-        verificationResult { id result }
-        run { id executionState verificationState }
       }
     }
     """
@@ -938,8 +948,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       waiveVerificationCheck(input: $input) {
         command operationId affectedIds { type id }
         verificationResult { id result }
-        requiredCheck { id state }
-        run { id executionState verificationState }
       }
     }
     """

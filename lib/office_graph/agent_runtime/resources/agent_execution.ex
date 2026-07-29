@@ -1,3 +1,204 @@
+defmodule OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :execution, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+    field :context_package_id, :uuid
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :agent_execution_mutation_payload
+
+  def from_invocation(result) do
+    new(
+      command: "invoke_agent",
+      operation_id: result.operation.id,
+      affected_ids: [TypedId.new!(type: "agent_execution", id: result.execution.id)],
+      execution: result.execution,
+      context_package_id: result.context_package.id
+    )
+  end
+
+  def from_cancellation(operation, result) do
+    new(
+      command: "cancel_agent_execution",
+      operation_id: operation.id,
+      affected_ids: [TypedId.new!(type: "agent_execution", id: result.execution.id)],
+      execution: result.execution,
+      context_package_id: nil
+    )
+  end
+end
+
+defimpl Jason.Encoder, for: OfficeGraph.AgentRuntime.CommandResults.ExecutionMutation do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        execution: %{
+          id: result.execution.id,
+          state: result.execution.state,
+          state_version: result.execution.state_version,
+          current_step_key: result.execution.current_step_key
+        },
+        context_package_id: result.context_package_id
+      },
+      options
+    )
+  end
+end
+
+defmodule OfficeGraph.AgentRuntime.CommandResults.ApprovalResolution do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :request, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ApprovalRequest]
+
+    field :execution, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :resolve_agent_approval_payload
+
+  def from_result(operation, result) do
+    new(
+      command: "resolve_agent_approval",
+      operation_id: operation.id,
+      affected_ids: [
+        TypedId.new!(type: "agent_approval_request", id: result.request.id),
+        TypedId.new!(type: "agent_execution", id: result.execution.id)
+      ],
+      request: result.request,
+      execution: result.execution
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.AgentRuntime.CommandResults.ApprovalResolution do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        request: %{
+          id: result.request.id,
+          state: result.request.state,
+          version: result.request.version,
+          resolution_operation_id: result.request.resolution_operation_id
+        },
+        execution: %{
+          id: result.execution.id,
+          state: result.execution.state,
+          state_version: result.execution.state_version,
+          current_step_key: result.execution.current_step_key
+        }
+      },
+      options
+    )
+  end
+end
+
+defmodule OfficeGraph.AgentRuntime.CommandResults.ContextExpansionResolution do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :request, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.ContextExpansionRequest]
+
+    field :execution, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.AgentRuntime.AgentExecution]
+
+    field :context_package_id, :uuid
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :resolve_agent_context_expansion_payload
+
+  def from_result(operation, result) do
+    new(
+      command: "resolve_agent_context_expansion",
+      operation_id: operation.id,
+      affected_ids: [
+        TypedId.new!(type: "agent_context_expansion_request", id: result.request.id),
+        TypedId.new!(type: "agent_execution", id: result.execution.id)
+      ],
+      request: result.request,
+      execution: result.execution,
+      context_package_id: result.context_package && result.context_package.id
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.AgentRuntime.CommandResults.ContextExpansionResolution do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        request: %{
+          id: result.request.id,
+          state: result.request.state,
+          version: result.request.version,
+          resolution_operation_id: result.request.resolution_operation_id
+        },
+        execution: %{
+          id: result.execution.id,
+          state: result.execution.state,
+          state_version: result.execution.state_version,
+          current_step_key: result.execution.current_step_key
+        },
+        context_package_id: result.context_package_id
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.AgentRuntime.AgentExecution do
   @moduledoc false
 
@@ -142,7 +343,9 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
 
       validate argument_in(:autonomy_mode, ~w(human_supervised bounded_automatic))
 
-      run OfficeGraph.AgentRuntime.Actions.InvokeAgent
+      run fn input, context ->
+        OfficeGraph.AgentRuntime.Actions.InvokeAgent.run(input, [], context)
+      end
     end
 
     action :cancel_agent_execution,
@@ -154,7 +357,51 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
       argument :execution_id, :uuid, allow_nil?: false
       argument :expected_state_version, :integer, allow_nil?: false, constraints: [min: 1]
 
-      run OfficeGraph.AgentRuntime.Actions.CancelAgentExecution
+      run fn input, context ->
+        OfficeGraph.AgentRuntime.Actions.CancelAgentExecution.run(input, [], context)
+      end
+    end
+
+    action :resolve_agent_approval,
+           OfficeGraph.AgentRuntime.CommandResults.ApprovalResolution do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :approval_request_id, :uuid, allow_nil?: false
+      argument :expected_version, :integer, allow_nil?: false, constraints: [min: 1]
+      argument :decision, :string, allow_nil?: false
+
+      argument :resolution_reason, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/, max_length: 2_000]
+
+      validate argument_in(:decision, ~w(approved denied cancelled))
+
+      run fn input, context ->
+        OfficeGraph.AgentRuntime.Actions.ResolveAgentApproval.run(input, [], context)
+      end
+    end
+
+    action :resolve_agent_context_expansion,
+           OfficeGraph.AgentRuntime.CommandResults.ContextExpansionResolution do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :context_expansion_request_id, :uuid, allow_nil?: false
+      argument :expected_version, :integer, allow_nil?: false, constraints: [min: 1]
+      argument :decision, :string, allow_nil?: false
+
+      argument :resolution_reason, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/, max_length: 2_000]
+
+      validate argument_in(:decision, ~w(approved denied cancelled))
+
+      run fn input, context ->
+        OfficeGraph.AgentRuntime.Actions.ResolveAgentContextExpansion.run(input, [], context)
+      end
     end
   end
 
@@ -272,6 +519,16 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
 
     policy action(:cancel_agent_execution) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :agent_cancel}
+    end
+
+    policy action(:resolve_agent_approval) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :agent_approval_resolve}
+    end
+
+    policy action(:resolve_agent_context_expansion) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :agent_context_expansion_resolve}
     end
 
     policy action_type(:read) do

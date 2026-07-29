@@ -1,8 +1,10 @@
-defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
+defmodule OfficeGraphWeb.GeneratedCommandsJsonTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Foundation
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
+  alias OfficeGraph.Runs.{Run, RunRequiredCheck}
+  alias OfficeGraph.WorkGraph.VerificationResult
 
   import OfficeGraph.SessionCaseHelpers
 
@@ -323,7 +325,15 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
       accepted = command(conn, "accept-evidence", accept_input)
       assert accepted["command"] == "accept_evidence"
       assert accepted["evidence_item"]["state"] == "accepted"
-      assert accepted["verification_result"]["result"] == "passed"
+
+      verification_result_id =
+        accepted["affected_ids"]
+        |> Enum.find(&(&1["type"] == "verification_result"))
+        |> Map.fetch!("id")
+
+      assert Ash.get!(VerificationResult, verification_result_id, authorize?: false).result ==
+               "passed"
+
       assert command(conn, "accept-evidence", accept_input) == accepted
 
       assert MapSet.subset?(
@@ -346,12 +356,14 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
           &(&1["verification_check_id"] == second["id"])
         )
 
+      accepted_run = Ash.get!(Run, started["run"]["id"], authorize?: false)
+
       waiver_input = %{
         idempotency_key: unique_key("waive"),
-        run_id: accepted["run"]["id"],
+        run_id: accepted_run.id,
         run_required_check_id: second_required_check["id"],
-        expected_execution_state: accepted["run"]["execution_state"],
-        expected_verification_state: accepted["run"]["verification_state"],
+        expected_execution_state: accepted_run.execution_state,
+        expected_verification_state: accepted_run.verification_state,
         reason: "The second check is governed by an approved exception.",
         policy_basis: "owner_exception"
       }
@@ -388,9 +400,12 @@ defmodule OfficeGraphWeb.OperatorCommandsJsonTest do
 
       waived = command(conn, "waive-verification-check", waiver_input)
       assert waived["command"] == "waive_verification_check"
-      assert waived["required_check"]["state"] == "waived"
       assert waived["verification_result"]["result"] == "waived"
-      assert waived["run"]["verification_state"] == "verified"
+
+      assert Ash.get!(RunRequiredCheck, second_required_check["id"], authorize?: false).state ==
+               "waived"
+
+      assert Ash.get!(Run, accepted_run.id, authorize?: false).verification_state == "verified"
       assert command(conn, "waive-verification-check", waiver_input) == waived
     end
   end

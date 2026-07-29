@@ -15,7 +15,8 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
       OfficeGraph.Integrations.Domain,
       OfficeGraph.ProposedChanges.Domain,
       OfficeGraph.AgentRuntime.Domain,
-      OfficeGraph.NodeConversations.Domain
+      OfficeGraph.NodeConversations.Domain,
+      OfficeGraph.GitHubIntegration.Domain
     ]
 
   alias OfficeGraphWeb.GraphQL.Common.NodeResolver
@@ -23,8 +24,6 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
   import_types(OfficeGraphWeb.GraphQL.Common.Queries)
   import_types(OfficeGraphWeb.GraphQL.OperatorWorkflow.Types)
   import_types(OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries)
-  import_types(OfficeGraphWeb.GraphQL.OperatorCommands.Types)
-  import_types(OfficeGraphWeb.GraphQL.OperatorCommands.Mutations)
 
   node interface do
     resolve_type(fn value, _ -> NodeResolver.resolve_type(value) end)
@@ -41,6 +40,5 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
   end
 
   mutation do
-    import_fields(:operator_command_mutations)
   end
 end

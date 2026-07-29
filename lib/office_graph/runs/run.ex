@@ -1,3 +1,142 @@
+defmodule OfficeGraph.Runs.CommandResults.StartWorkRun do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :run, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Runs.Run]
+
+    field :required_checks, {:array, :struct},
+      allow_nil?: false,
+      constraints: [items: [instance_of: OfficeGraph.Runs.RunRequiredCheck]]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :start_work_run_payload
+
+  def from_result(operation, result) do
+    new(
+      command: "start_work_run",
+      operation_id: operation.id,
+      affected_ids:
+        [TypedId.new!(type: "work_run", id: result.run.id)] ++
+          Enum.map(
+            result.required_checks,
+            &TypedId.new!(type: "run_required_check", id: &1.id)
+          ),
+      run: result.run,
+      required_checks: result.required_checks
+    )
+  end
+end
+
+defimpl Jason.Encoder, for: OfficeGraph.Runs.CommandResults.StartWorkRun do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        run: run_result(result.run),
+        required_checks: Enum.map(result.required_checks, &required_check_result/1)
+      },
+      options
+    )
+  end
+
+  defp run_result(run) do
+    %{
+      id: run.id,
+      work_packet_version_id: run.work_packet_version_id,
+      execution_state: run.execution_state,
+      verification_state: run.verification_state,
+      aggregate_state: run.aggregate_state
+    }
+  end
+
+  defp required_check_result(required_check) do
+    %{
+      id: required_check.id,
+      verification_check_id: required_check.verification_check_id,
+      state: required_check.state
+    }
+  end
+end
+
+defmodule OfficeGraph.Runs.CommandResults.RecordExecutionObservation do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :observation, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Runs.ExecutionObservation]
+
+    field :run, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Runs.Run]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :record_execution_observation_payload
+
+  def from_result(operation, result) do
+    new(
+      command: "record_execution_observation",
+      operation_id: operation.id,
+      affected_ids: [
+        TypedId.new!(type: "execution_observation", id: result.observation.id),
+        TypedId.new!(type: "work_run", id: result.run.id)
+      ],
+      observation: result.observation,
+      run: result.run
+    )
+  end
+end
+
+defimpl Jason.Encoder, for: OfficeGraph.Runs.CommandResults.RecordExecutionObservation do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        observation: %{
+          id: result.observation.id,
+          normalized_status: result.observation.normalized_status
+        },
+        run: %{
+          id: result.run.id,
+          work_packet_version_id: result.run.work_packet_version_id,
+          execution_state: result.run.execution_state,
+          verification_state: result.run.verification_state,
+          aggregate_state: result.run.aggregate_state
+        }
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.Runs.Run do
   @moduledoc false
 
@@ -185,7 +324,45 @@ defmodule OfficeGraph.Runs.Run do
       argument :reason, :string, allow_nil?: false, constraints: [match: ~r/\S/]
       argument :authority_posture, :string, allow_nil?: false, constraints: [match: ~r/\S/]
 
-      run OfficeGraph.Runs.Actions.StartWorkRun
+      run fn input, context ->
+        OfficeGraph.Runs.Actions.StartWorkRun.run(input, [], context)
+      end
+    end
+
+    action :record_execution_observation,
+           OfficeGraph.Runs.CommandResults.RecordExecutionObservation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :run_id, :uuid, allow_nil?: false
+      argument :verification_check_id, :uuid, allow_nil?: false
+      argument :source_graph_item_id, :uuid, allow_nil?: false
+
+      argument :observation_source_kind, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :observation_source_identity, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :observation_idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :observed_status, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :normalized_status, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :freshness_state, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :trust_basis, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :observation_rationale, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      run fn input, context ->
+        OfficeGraph.Runs.Actions.RecordExecutionObservation.run(input, [], context)
+      end
     end
   end
 
@@ -221,6 +398,11 @@ defmodule OfficeGraph.Runs.Run do
 
     policy action(:start_work_run) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :work_run_start}
+    end
+
+    policy action(:record_execution_observation) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :execution_observation_record}
     end
   end
 

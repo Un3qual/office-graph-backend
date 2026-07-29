@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<89f84858c73e7fe853a90537d21e34a4>>
+ * @generated SignedSource<<49b4b1ee77aed7c87e421a3798310d7e>>
  * @lightSyntaxTransform
  */
 
@@ -35,15 +35,6 @@ export type OperatorAcceptEvidenceMutation$data = {
       readonly state: string;
     };
     readonly operationId: string;
-    readonly run: {
-      readonly executionState: string;
-      readonly id: string;
-      readonly verificationState: string;
-    } | null | undefined;
-    readonly verificationResult: {
-      readonly id: string;
-      readonly result: string;
-    };
   };
 };
 export type OperatorAcceptEvidenceMutation = {
@@ -151,51 +142,6 @@ v2 = [
           }
         ],
         "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "WorkGraphVerificationResult",
-        "kind": "LinkedField",
-        "name": "verificationResult",
-        "plural": false,
-        "selections": [
-          (v1/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "result",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "WorkRun",
-        "kind": "LinkedField",
-        "name": "run",
-        "plural": false,
-        "selections": [
-          (v1/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "executionState",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "verificationState",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
       }
     ],
     "storageKey": null
@@ -219,16 +165,16 @@ return {
     "selections": (v2/*:: as any*/)
   },
   "params": {
-    "cacheID": "a77e098986b83758f67391d091878f3b",
+    "cacheID": "44447d30a7c3711dae9e6b2c63c11db5",
     "id": null,
     "metadata": {},
     "name": "OperatorAcceptEvidenceMutation",
     "operationKind": "mutation",
-    "text": "mutation OperatorAcceptEvidenceMutation(\n  $input: AcceptEvidenceInput!\n) {\n  acceptEvidence(input: $input) {\n    command\n    operationId\n    affectedIds {\n      type\n      id\n    }\n    evidenceCandidate {\n      id\n      candidateState\n    }\n    evidenceItem {\n      id\n      state\n    }\n    verificationResult {\n      id\n      result\n    }\n    run {\n      id\n      executionState\n      verificationState\n    }\n  }\n}\n"
+    "text": "mutation OperatorAcceptEvidenceMutation(\n  $input: AcceptEvidenceInput!\n) {\n  acceptEvidence(input: $input) {\n    command\n    operationId\n    affectedIds {\n      type\n      id\n    }\n    evidenceCandidate {\n      id\n      candidateState\n    }\n    evidenceItem {\n      id\n      state\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "c5c6df8c0df7c459c1bc0ea720f0afa5";
+(node as any).hash = "f47f91ab86ad6cb7120bdb8bb0a0d2bd";
 
 export default node;

@@ -188,12 +188,10 @@ describe("operator command workflow", () => {
     );
   });
 
-  it("maps evidence acceptance results including a nullable run", async () => {
+  it("maps evidence acceptance results", async () => {
     const result = {
       evidenceCandidate: { id: "candidate-1", candidateState: "accepted" },
       evidenceItem: { id: "evidence-1", state: "accepted" },
-      verificationResult: { id: "result-1", result: "passed" },
-      run: null,
     };
 
     await expectCommandSuccess(
@@ -216,8 +214,6 @@ describe("operator command workflow", () => {
   it("maps verification-waiver results", async () => {
     const result = {
       verificationResult: { id: "result-1", result: "waived" },
-      requiredCheck: { id: "required-1", verificationCheckId: "check-1", state: "waived" },
-      run: { id: "run-1", executionState: "completed", verificationState: "passed" },
     };
 
     await expectCommandSuccess(

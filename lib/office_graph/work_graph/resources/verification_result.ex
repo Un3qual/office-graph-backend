@@ -1,3 +1,103 @@
+defmodule OfficeGraph.Verification.Actions.WaiveVerificationCheck do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.CommandSupport.CommandError
+  alias OfficeGraph.Operations
+  alias OfficeGraph.Verification
+  alias OfficeGraph.Verification.CommandResults.WaiveVerificationCheck
+
+  @impl true
+  def run(input, _opts, %{actor: session_context}) when is_map(session_context) do
+    {idempotency_key, command_input} = Map.pop!(input.arguments, :idempotency_key)
+
+    with {:ok, operation} <-
+           Operations.start_command(
+             session_context,
+             :verification_waive,
+             idempotency_key,
+             command_input
+           ),
+         {run_id, command_input} <- Map.pop!(command_input, :run_id),
+         {required_check_id, attrs} <- Map.pop!(command_input, :run_required_check_id),
+         {:ok, run} <- Verification.get_run_for_waive_command(session_context, run_id),
+         {:ok, required_check} <-
+           Verification.get_required_check_for_waive_command(
+             session_context,
+             required_check_id
+           ),
+         {:ok, result} <-
+           Verification.waive_required_check(
+             session_context,
+             operation,
+             run,
+             required_check,
+             attrs
+           ) do
+      WaiveVerificationCheck.from_result(operation, result)
+    else
+      {:error, error} -> {:error, CommandError.new(error)}
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, CommandError.new(:forbidden)}
+end
+
+defmodule OfficeGraph.Verification.CommandResults.WaiveVerificationCheck do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :verification_result, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.WorkGraph.VerificationResult]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :waive_verification_check_payload
+
+  def from_result(operation, result) do
+    new(
+      command: "waive_verification_check",
+      operation_id: operation.id,
+      affected_ids: [
+        TypedId.new!(type: "verification_result", id: result.verification_result.id),
+        TypedId.new!(type: "run_required_check", id: result.required_check.id),
+        TypedId.new!(type: "work_run", id: result.run.id)
+      ],
+      verification_result: result.verification_result
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.Verification.CommandResults.WaiveVerificationCheck do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        verification_result: %{
+          id: result.verification_result.id,
+          result: result.verification_result.result
+        }
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.WorkGraph.VerificationResult do
   @moduledoc false
 
@@ -122,9 +222,37 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
 
       change OfficeGraph.WorkGraph.VerificationResult.ValidateResultEvidence
     end
+
+    action :waive_verification_check,
+           OfficeGraph.Verification.CommandResults.WaiveVerificationCheck do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :run_id, :uuid, allow_nil?: false
+      argument :run_required_check_id, :uuid, allow_nil?: false
+
+      argument :expected_execution_state, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :expected_verification_state, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :reason, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :policy_basis, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      run OfficeGraph.Verification.Actions.WaiveVerificationCheck
+    end
   end
 
   policies do
+    policy action(:waive_verification_check) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :verification_waive}
+    end
+
     policy action_type(:read) do
       authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
     end

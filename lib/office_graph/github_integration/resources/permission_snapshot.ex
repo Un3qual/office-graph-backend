@@ -3,7 +3,9 @@ defmodule OfficeGraph.GitHubIntegration.PermissionSnapshot do
 
   use Ash.Resource,
     domain: OfficeGraph.GitHubIntegration.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "github_permission_snapshots"
@@ -31,7 +33,8 @@ defmodule OfficeGraph.GitHubIntegration.PermissionSnapshot do
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -61,6 +64,30 @@ defmodule OfficeGraph.GitHubIntegration.PermissionSnapshot do
 
     has_many :entries, OfficeGraph.GitHubIntegration.PermissionEntry do
       destination_attribute :permission_snapshot_id
+      public? true
     end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     installation.organization_id == ^actor(:organization_id) and
+                       (is_nil(installation.workspace_id) or
+                          installation.workspace_id == ^actor(:workspace_id))
+                   )
+    end
+  end
+
+  graphql do
+    type :github_permission_snapshot
+    paginate_relationship_with(entries: :relay)
+  end
+
+  json_api do
+    type "github_permission_snapshot"
   end
 end

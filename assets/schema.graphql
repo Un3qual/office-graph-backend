@@ -3,6 +3,35 @@ schema {
   query: RootQueryType
 }
 
+type GithubOutboundActionPayload {
+  operationId: ID!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+  action: GithubOutboundAction!
+}
+
+type GithubCredentialCommandResult {
+  status: String!
+  purpose: String!
+  kind: String!
+  id: ID!
+}
+
+type BindGithubInstallationPayload {
+  permissions: [GithubPermissionEntry!]!
+  permissionSnapshot: GithubPermissionSnapshot!
+  operationId: ID!
+  installation: GithubInstallation!
+  credentials: [GithubCredentialCommandResult]!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+input GithubInstallationPermissionInput {
+  name: String!
+  accessLevel: String!
+}
+
 type AppendConversationMessagePayload {
   operationId: ID!
   message: ConversationMessage!
@@ -68,15 +97,6 @@ type RecordExecutionObservationPayload {
   affectedIds: [OperatorTypedId]!
 }
 
-type WaiveVerificationCheckPayload {
-  verificationResult: WorkGraphVerificationResult!
-  run: WorkRun!
-  requiredCheck: RunRequiredCheck!
-  operationId: ID!
-  command: String!
-  affectedIds: [OperatorTypedId]!
-}
-
 type StartWorkRunPayload {
   run: WorkRun!
   requiredChecks: [RunRequiredCheck!]!
@@ -93,9 +113,14 @@ type WorkPacketCommandPayload {
   affectedIds: [OperatorTypedId]!
 }
 
-type AcceptEvidencePayload {
+type WaiveVerificationCheckPayload {
   verificationResult: WorkGraphVerificationResult!
-  run: WorkRun
+  operationId: ID!
+  command: String!
+  affectedIds: [OperatorTypedId]!
+}
+
+type AcceptEvidencePayload {
   operationId: ID!
   evidenceItem: EvidenceItem!
   evidenceCandidate: EvidenceCandidate!
@@ -113,6 +138,16 @@ type CreateEvidenceCandidatePayload {
   evidenceCandidate: EvidenceCandidate!
   command: String!
   affectedIds: [OperatorTypedId]!
+}
+
+input WaiveVerificationCheckInput {
+  idempotencyKey: String!
+  runId: ID!
+  runRequiredCheckId: ID!
+  expectedExecutionState: String!
+  expectedVerificationState: String!
+  reason: String!
+  policyBasis: String!
 }
 
 enum WorkGraphVerificationResultSortField {
@@ -3613,21 +3648,6 @@ type WorkPacket implements Node {
   ): WorkPacketVersionConnection!
 }
 
-input RecordExecutionObservationInput {
-  idempotencyKey: String!
-  runId: ID!
-  verificationCheckId: ID!
-  sourceGraphItemId: ID!
-  observationSourceKind: String!
-  observationSourceIdentity: String!
-  observationIdempotencyKey: String!
-  observedStatus: String!
-  normalizedStatus: String!
-  freshnessState: String!
-  trustBasis: String!
-  observationRationale: String!
-}
-
 enum ExecutionObservationSortField {
   ID
   STEP_KEY
@@ -4081,16 +4101,6 @@ type ExecutionObservation implements Node {
   workspaceId: ID!
 }
 
-input WaiveVerificationCheckInput {
-  idempotencyKey: String!
-  runId: ID!
-  runRequiredCheckId: ID!
-  expectedExecutionState: String!
-  expectedVerificationState: String!
-  reason: String!
-  policyBasis: String!
-}
-
 enum RunRequiredCheckSortField {
   ID
   POSITION
@@ -4275,6 +4285,21 @@ type RunRequiredCheck implements Node {
   organizationId: ID!
   workspaceId: ID!
   verificationCheck: VerificationCheck!
+}
+
+input RecordExecutionObservationInput {
+  idempotencyKey: String!
+  runId: ID!
+  verificationCheckId: ID!
+  sourceGraphItemId: ID!
+  observationSourceKind: String!
+  observationSourceIdentity: String!
+  observationIdempotencyKey: String!
+  observedStatus: String!
+  normalizedStatus: String!
+  freshnessState: String!
+  trustBasis: String!
+  observationRationale: String!
 }
 
 input StartWorkRunInput {
@@ -5360,14 +5385,6 @@ type ProposedGraphChange implements Node {
   workspaceId: ID!
 }
 
-input ResolveAgentContextExpansionInput {
-  idempotencyKey: String!
-  contextExpansionRequestId: ID!
-  expectedVersion: Int!
-  decision: String!
-  resolutionReason: String!
-}
-
 enum AgentContextExpansionRequestSortField {
   ID
   STEP_KEY
@@ -5882,14 +5899,6 @@ type AgentContextExpansionRequest implements Node {
   execution: AgentExecution!
 }
 
-input ResolveAgentApprovalInput {
-  idempotencyKey: String!
-  approvalRequestId: ID!
-  expectedVersion: Int!
-  decision: String!
-  resolutionReason: String!
-}
-
 enum AgentApprovalRequestSortField {
   ID
   STEP_KEY
@@ -6381,6 +6390,22 @@ type AgentApprovalRequest implements Node {
   organizationId: ID!
   workspaceId: ID!
   execution: AgentExecution!
+}
+
+input ResolveAgentContextExpansionInput {
+  idempotencyKey: String!
+  contextExpansionRequestId: ID!
+  expectedVersion: Int!
+  decision: String!
+  resolutionReason: String!
+}
+
+input ResolveAgentApprovalInput {
+  idempotencyKey: String!
+  approvalRequestId: ID!
+  expectedVersion: Int!
+  decision: String!
+  resolutionReason: String!
 }
 
 input CancelAgentExecutionInput {
@@ -7497,6 +7522,1040 @@ type Conversation implements Node {
   ): AgentExecutionConnection!
 }
 
+input UpdateGithubCheckInput {
+  idempotencyKey: String!
+  installationId: ID!
+  checkRunId: ID!
+  status: String!
+  conclusion: String
+  detailsUrl: String!
+  expectedProviderVersion: String!
+}
+
+input ReplyToGithubReviewInput {
+  idempotencyKey: String!
+  installationId: ID!
+  reviewCommentId: ID!
+  body: String!
+  expectedProviderVersion: String!
+}
+
+enum GithubOutboundActionSortField {
+  ID
+  ACTION_KIND
+  TARGET_TYPE
+  TARGET_ID
+  EXPECTED_PROVIDER_VERSION
+  STATE
+  PROVIDER_RESPONSE_ID
+  PROVIDER_RESPONSE_VERSION
+  FAILURE_CLASS
+  FAILURE_CODE
+  ATTEMPTED_AT
+  COMPLETED_AT
+  INSERTED_AT
+  UPDATED_AT
+  INSTALLATION_ID
+  OPERATION_ID
+  ORGANIZATION_ID
+  PRINCIPAL_ID
+  WORKSPACE_ID
+}
+
+":github_outbound_action connection"
+type GithubOutboundActionConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":github_outbound_action edges"
+  edges: [GithubOutboundActionEdge!]
+}
+
+":github_outbound_action edge"
+type GithubOutboundActionEdge {
+  "Cursor"
+  cursor: String!
+
+  ":github_outbound_action node"
+  node: GithubOutboundAction!
+}
+
+input GithubOutboundActionFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterInstallationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubOutboundActionFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubOutboundActionFilterCompletedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubOutboundActionFilterAttemptedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubOutboundActionFilterFailureCode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterFailureClass {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterProviderResponseVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterProviderResponseId {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterExpectedProviderVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterTargetId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterTargetType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterActionKind {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubOutboundActionFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubOutboundActionFilterInput {
+  and: [GithubOutboundActionFilterInput!]
+  or: [GithubOutboundActionFilterInput!]
+  not: [GithubOutboundActionFilterInput!]
+  id: GithubOutboundActionFilterId
+  actionKind: GithubOutboundActionFilterActionKind
+  targetType: GithubOutboundActionFilterTargetType
+  targetId: GithubOutboundActionFilterTargetId
+  expectedProviderVersion: GithubOutboundActionFilterExpectedProviderVersion
+  state: GithubOutboundActionFilterState
+  providerResponseId: GithubOutboundActionFilterProviderResponseId
+  providerResponseVersion: GithubOutboundActionFilterProviderResponseVersion
+  failureClass: GithubOutboundActionFilterFailureClass
+  failureCode: GithubOutboundActionFilterFailureCode
+  attemptedAt: GithubOutboundActionFilterAttemptedAt
+  completedAt: GithubOutboundActionFilterCompletedAt
+  insertedAt: GithubOutboundActionFilterInsertedAt
+  updatedAt: GithubOutboundActionFilterUpdatedAt
+  installationId: GithubOutboundActionFilterInstallationId
+  operationId: GithubOutboundActionFilterOperationId
+  organizationId: GithubOutboundActionFilterOrganizationId
+  principalId: GithubOutboundActionFilterPrincipalId
+  workspaceId: GithubOutboundActionFilterWorkspaceId
+  installation: GithubInstallationFilterInput
+}
+
+input GithubOutboundActionSortInput {
+  order: SortOrder
+  field: GithubOutboundActionSortField!
+}
+
+type GithubOutboundAction implements Node {
+  id: ID!
+  actionKind: String!
+  targetType: String!
+  targetId: ID!
+  expectedProviderVersion: String!
+  state: String!
+  providerResponseId: String
+  providerResponseVersion: String
+  failureClass: String
+  failureCode: String
+  attemptedAt: DateTime
+  completedAt: DateTime
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  installationId: ID
+  operationId: ID
+  organizationId: ID!
+  principalId: ID!
+  workspaceId: ID
+  installation: GithubInstallation
+}
+
+enum GithubPermissionEntrySortField {
+  ID
+  NAME
+  ACCESS_LEVEL
+  INSERTED_AT
+  UPDATED_AT
+  PERMISSION_SNAPSHOT_ID
+}
+
+":github_permission_entry connection"
+type GithubPermissionEntryConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":github_permission_entry edges"
+  edges: [GithubPermissionEntryEdge!]
+}
+
+":github_permission_entry edge"
+type GithubPermissionEntryEdge {
+  "Cursor"
+  cursor: String!
+
+  ":github_permission_entry node"
+  node: GithubPermissionEntry!
+}
+
+input GithubPermissionEntryFilterPermissionSnapshotId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubPermissionEntryFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubPermissionEntryFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubPermissionEntryFilterAccessLevel {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubPermissionEntryFilterName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubPermissionEntryFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubPermissionEntryFilterInput {
+  and: [GithubPermissionEntryFilterInput!]
+  or: [GithubPermissionEntryFilterInput!]
+  not: [GithubPermissionEntryFilterInput!]
+  id: GithubPermissionEntryFilterId
+  name: GithubPermissionEntryFilterName
+  accessLevel: GithubPermissionEntryFilterAccessLevel
+  insertedAt: GithubPermissionEntryFilterInsertedAt
+  updatedAt: GithubPermissionEntryFilterUpdatedAt
+  permissionSnapshotId: GithubPermissionEntryFilterPermissionSnapshotId
+  permissionSnapshot: GithubPermissionSnapshotFilterInput
+}
+
+input GithubPermissionEntrySortInput {
+  order: SortOrder
+  field: GithubPermissionEntrySortField!
+}
+
+type GithubPermissionEntry implements Node {
+  id: ID!
+  name: String!
+  accessLevel: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  permissionSnapshotId: ID
+  permissionSnapshot: GithubPermissionSnapshot
+}
+
+enum GithubPermissionSnapshotSortField {
+  ID
+  VERSION
+  CAPTURED_AT
+  INSERTED_AT
+  UPDATED_AT
+  INSTALLATION_ID
+  OPERATION_ID
+}
+
+":github_permission_snapshot connection"
+type GithubPermissionSnapshotConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":github_permission_snapshot edges"
+  edges: [GithubPermissionSnapshotEdge!]
+}
+
+":github_permission_snapshot edge"
+type GithubPermissionSnapshotEdge {
+  "Cursor"
+  cursor: String!
+
+  ":github_permission_snapshot node"
+  node: GithubPermissionSnapshot!
+}
+
+input GithubPermissionSnapshotFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubPermissionSnapshotFilterInstallationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubPermissionSnapshotFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubPermissionSnapshotFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubPermissionSnapshotFilterCapturedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubPermissionSnapshotFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input GithubPermissionSnapshotFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubPermissionSnapshotFilterInput {
+  and: [GithubPermissionSnapshotFilterInput!]
+  or: [GithubPermissionSnapshotFilterInput!]
+  not: [GithubPermissionSnapshotFilterInput!]
+  id: GithubPermissionSnapshotFilterId
+  version: GithubPermissionSnapshotFilterVersion
+  capturedAt: GithubPermissionSnapshotFilterCapturedAt
+  insertedAt: GithubPermissionSnapshotFilterInsertedAt
+  updatedAt: GithubPermissionSnapshotFilterUpdatedAt
+  installationId: GithubPermissionSnapshotFilterInstallationId
+  operationId: GithubPermissionSnapshotFilterOperationId
+  installation: GithubInstallationFilterInput
+  entries: GithubPermissionEntryFilterInput
+}
+
+input GithubPermissionSnapshotSortInput {
+  order: SortOrder
+  field: GithubPermissionSnapshotSortField!
+}
+
+type GithubPermissionSnapshot implements Node {
+  id: ID!
+  version: Int!
+  capturedAt: DateTime!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  installationId: ID
+  operationId: ID
+  installation: GithubInstallation
+  entries(
+    "How to sort the records in the response"
+    sort: [GithubPermissionEntrySortInput]
+
+    "A filter to limit the results"
+    filter: GithubPermissionEntryFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): GithubPermissionEntryConnection!
+}
+
+input BindGithubInstallationInput {
+  idempotencyKey: String!
+  workspaceId: ID
+  externalInstallationId: String!
+  appSlug: String!
+  accountLogin: String!
+  accountType: String!
+  servicePrincipalEmail: String!
+  webhookPrincipalEmail: String!
+  webhookSecretReference: String!
+  appPrivateKeyReference: String!
+  permissions: [GithubInstallationPermissionInput!]!
+}
+
+enum GithubInstallationSortField {
+  ID
+  EXTERNAL_INSTALLATION_ID
+  APP_SLUG
+  ACCOUNT_LOGIN
+  ACCOUNT_TYPE
+  LIFECYCLE_STATE
+  INSERTED_AT
+  UPDATED_AT
+  ORGANIZATION_ID
+  WORKSPACE_ID
+  SERVICE_PRINCIPAL_ID
+  WEBHOOK_PRINCIPAL_ID
+  CURRENT_PERMISSION_SNAPSHOT_ID
+  OPERATION_ID
+}
+
+":github_installation connection"
+type GithubInstallationConnection {
+  "Page information"
+  pageInfo: PageInfo!
+
+  ":github_installation edges"
+  edges: [GithubInstallationEdge!]
+}
+
+":github_installation edge"
+type GithubInstallationEdge {
+  "Cursor"
+  cursor: String!
+
+  ":github_installation node"
+  node: GithubInstallation!
+}
+
+input GithubInstallationFilterOperationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterCurrentPermissionSnapshotId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterWebhookPrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterServicePrincipalId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterOrganizationId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterUpdatedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubInstallationFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input GithubInstallationFilterLifecycleState {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubInstallationFilterAccountType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubInstallationFilterAccountLogin {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubInstallationFilterAppSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input GithubInstallationFilterExternalInstallationId {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input GithubInstallationFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input GithubInstallationFilterInput {
+  and: [GithubInstallationFilterInput!]
+  or: [GithubInstallationFilterInput!]
+  not: [GithubInstallationFilterInput!]
+  id: GithubInstallationFilterId
+  externalInstallationId: GithubInstallationFilterExternalInstallationId
+  appSlug: GithubInstallationFilterAppSlug
+  accountLogin: GithubInstallationFilterAccountLogin
+  accountType: GithubInstallationFilterAccountType
+  lifecycleState: GithubInstallationFilterLifecycleState
+  insertedAt: GithubInstallationFilterInsertedAt
+  updatedAt: GithubInstallationFilterUpdatedAt
+  organizationId: GithubInstallationFilterOrganizationId
+  workspaceId: GithubInstallationFilterWorkspaceId
+  servicePrincipalId: GithubInstallationFilterServicePrincipalId
+  webhookPrincipalId: GithubInstallationFilterWebhookPrincipalId
+  currentPermissionSnapshotId: GithubInstallationFilterCurrentPermissionSnapshotId
+  operationId: GithubInstallationFilterOperationId
+  currentPermissionSnapshot: GithubPermissionSnapshotFilterInput
+  permissionSnapshots: GithubPermissionSnapshotFilterInput
+  outboundActions: GithubOutboundActionFilterInput
+}
+
+input GithubInstallationSortInput {
+  order: SortOrder
+  field: GithubInstallationSortField!
+}
+
+type GithubInstallation implements Node {
+  id: ID!
+  externalInstallationId: Int!
+  appSlug: String!
+  accountLogin: String!
+  accountType: String!
+  lifecycleState: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  organizationId: ID
+  workspaceId: ID
+  servicePrincipalId: ID
+  webhookPrincipalId: ID
+  currentPermissionSnapshotId: ID
+  operationId: ID
+  currentPermissionSnapshot: GithubPermissionSnapshot
+  permissionSnapshots(
+    "How to sort the records in the response"
+    sort: [GithubPermissionSnapshotSortInput]
+
+    "A filter to limit the results"
+    filter: GithubPermissionSnapshotFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [GithubPermissionSnapshot!]!
+  outboundActions(
+    "How to sort the records in the response"
+    sort: [GithubOutboundActionSortInput]
+
+    "A filter to limit the results"
+    filter: GithubOutboundActionFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [GithubOutboundAction!]!
+}
+
 interface Node {
   "The ID of the object."
   id: ID!
@@ -7517,6 +8576,98 @@ type RootQueryType {
   operatorRunState(id: ID!): OperatorRunState!
   operatorRunCommandOptionPage(after: String, first: Int!, id: ID!, kind: String!): OperatorRunCommandOptionChoiceConnection
   node(id: ID!): Node
+  getGithubInstallation(
+    "The id of the record"
+    id: ID!
+  ): GithubInstallation
+  listGithubInstallations(
+    "How to sort the records in the response"
+    sort: [GithubInstallationSortInput]
+
+    "A filter to limit the results"
+    filter: GithubInstallationFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): GithubInstallationConnection
+  getGithubPermissionSnapshot(
+    "The id of the record"
+    id: ID!
+  ): GithubPermissionSnapshot
+  listGithubPermissionSnapshots(
+    "How to sort the records in the response"
+    sort: [GithubPermissionSnapshotSortInput]
+
+    "A filter to limit the results"
+    filter: GithubPermissionSnapshotFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): GithubPermissionSnapshotConnection
+  getGithubPermissionEntry(
+    "The id of the record"
+    id: ID!
+  ): GithubPermissionEntry
+  listGithubPermissionEntries(
+    "How to sort the records in the response"
+    sort: [GithubPermissionEntrySortInput]
+
+    "A filter to limit the results"
+    filter: GithubPermissionEntryFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): GithubPermissionEntryConnection
+  getGithubOutboundAction(
+    "The id of the record"
+    id: ID!
+  ): GithubOutboundAction
+  listGithubOutboundActions(
+    "How to sort the records in the response"
+    sort: [GithubOutboundActionSortInput]
+
+    "A filter to limit the results"
+    filter: GithubOutboundActionFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): GithubOutboundActionConnection
   getConversation(
     "The id of the record"
     id: ID!
@@ -8069,12 +9220,12 @@ type RootMutationType {
   applyProposedChanges(input: ApplyProposedChangesInput!): ApplyProposedChangesPayload!
   submitManualIntake(input: SubmitManualIntakeInput!): SubmitManualIntakePayload!
   startWorkRun(input: StartWorkRunInput!): StartWorkRunPayload!
-  waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
   recordExecutionObservation(input: RecordExecutionObservationInput!): RecordExecutionObservationPayload!
   createWorkPacket(input: CreateWorkPacketInput!): WorkPacketCommandPayload!
   createWorkPacketVersion(input: CreateWorkPacketVersionInput!): WorkPacketCommandPayload!
   createEvidenceCandidate(input: CreateEvidenceCandidateInput!): CreateEvidenceCandidatePayload!
   acceptEvidence(input: AcceptEvidenceInput!): AcceptEvidencePayload!
+  waiveVerificationCheck(input: WaiveVerificationCheckInput!): WaiveVerificationCheckPayload!
 }
 
 """
@@ -8084,101 +9235,6 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
-
-input GithubInstallationPermissionInput {
-  name: String!
-  accessLevel: String!
-}
-
-input BindGithubInstallationInput {
-  idempotencyKey: String!
-  workspaceId: ID
-  externalInstallationId: String!
-  appSlug: String!
-  accountLogin: String!
-  accountType: String!
-  servicePrincipalEmail: String!
-  webhookPrincipalEmail: String!
-  webhookSecretReference: String!
-  appPrivateKeyReference: String!
-  permissions: [GithubInstallationPermissionInput!]!
-}
-
-type GithubInstallationCommandResult {
-  id: ID!
-  organizationId: ID!
-  workspaceId: ID
-  externalInstallationId: String!
-  lifecycleState: String!
-  servicePrincipalId: ID!
-  webhookPrincipalId: ID!
-}
-
-type GithubPermissionSnapshotCommandResult {
-  id: ID!
-  version: Int!
-}
-
-type GithubPermissionCommandResult {
-  name: String!
-  accessLevel: String!
-}
-
-type GithubCredentialCommandResult {
-  id: ID!
-  purpose: String!
-  kind: String!
-  status: String!
-}
-
-type BindGithubInstallationPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  installation: GithubInstallationCommandResult!
-  permissionSnapshot: GithubPermissionSnapshotCommandResult!
-  permissions: [GithubPermissionCommandResult!]!
-  credentials: [GithubCredentialCommandResult!]!
-}
-
-input ReplyToGithubReviewInput {
-  idempotencyKey: String!
-  installationId: ID!
-  reviewCommentId: ID!
-  body: String!
-  expectedProviderVersion: String!
-}
-
-input UpdateGithubCheckInput {
-  idempotencyKey: String!
-  installationId: ID!
-  checkRunId: ID!
-  status: String!
-  conclusion: String
-  detailsUrl: String!
-  expectedProviderVersion: String!
-}
-
-type GithubOutboundActionCommandResult {
-  id: ID!
-  installationId: ID!
-  actionKind: String!
-  targetType: String!
-  targetId: ID!
-  expectedProviderVersion: String!
-  state: String!
-  providerResponseId: String
-  providerResponseVersion: String
-  failureClass: String
-  failureCode: String
-}
-
-type GithubOutboundActionPayload {
-  command: String!
-  operationId: ID!
-  affectedIds: [OperatorTypedId!]!
-  action: GithubOutboundActionCommandResult!
-}
 
 type OperatorSource {
   identity: String!

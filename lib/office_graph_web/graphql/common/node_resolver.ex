@@ -10,7 +10,8 @@ defmodule OfficeGraphWeb.GraphQL.Common.NodeResolver do
     OfficeGraph.WorkPackets.Domain,
     OfficeGraph.Runs.Domain,
     OfficeGraph.AgentRuntime.Domain,
-    OfficeGraph.NodeConversations.Domain
+    OfficeGraph.NodeConversations.Domain,
+    OfficeGraph.GitHubIntegration.Domain
   ]
 
   @custom_node_types [

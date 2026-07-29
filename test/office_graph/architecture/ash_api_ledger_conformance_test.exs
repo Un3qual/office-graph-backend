@@ -37,16 +37,7 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     assert missing_surface_ids == [],
            "#{@api_surface_classification} is missing:\n#{format_errors(missing_surface_ids)}"
 
-    migration_helpers = [
-      "lib/office_graph_web/graphql/operator_commands/resolvers/github.ex",
-      "lib/office_graph_web/operator_commands/input.ex"
-    ]
-
-    missing_helpers =
-      Enum.reject(migration_helpers, &String.contains?(classification, "`#{&1}`"))
-
-    assert missing_helpers == [],
-           "#{@api_surface_classification} is missing:\n#{format_errors(missing_helpers)}"
+    refute classification =~ "OfficeGraphWeb.OperatorCommands"
   end
 
   test "manual GraphQL and JSON API surfaces are covered by migration ledger entries" do
@@ -189,31 +180,37 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       |> Enum.uniq()
       |> Enum.sort()
 
-    expected_resource_types = [
-      "agent_approval_request",
-      "agent_context_expansion_request",
-      "agent_execution",
-      "artifact",
-      "conversation",
-      "conversation_message",
-      "evidence_candidate",
-      "evidence_item",
-      "execution_observation",
-      "graph_item",
-      "normalized_intake_event",
-      "proposed_graph_change",
-      "review_finding",
-      "run_required_check",
-      "signal",
-      "task",
-      "verification_check",
-      "work_graph_verification_result",
-      "work_packet",
-      "work_packet_required_check",
-      "work_packet_source_reference",
-      "work_packet_version",
-      "work_run"
-    ]
+    expected_resource_types =
+      [
+        "agent_approval_request",
+        "agent_context_expansion_request",
+        "agent_execution",
+        "artifact",
+        "conversation",
+        "conversation_message",
+        "evidence_candidate",
+        "evidence_item",
+        "execution_observation",
+        "graph_item",
+        "github_installation",
+        "github_outbound_action",
+        "github_permission_entry",
+        "github_permission_snapshot",
+        "normalized_intake_event",
+        "proposed_graph_change",
+        "review_finding",
+        "run_required_check",
+        "signal",
+        "task",
+        "verification_check",
+        "work_graph_verification_result",
+        "work_packet",
+        "work_packet_required_check",
+        "work_packet_source_reference",
+        "work_packet_version",
+        "work_run"
+      ]
+      |> Enum.sort()
 
     assert generated_resource_types == expected_resource_types
     schema_types = Absinthe.Schema.types(OfficeGraphWeb.GraphQL.Schema)
@@ -383,41 +380,31 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
           "lib/office_graph_web/graphql/common/errors.ex",
           "lib/office_graph_web/graphql/common/queries.ex",
           "lib/office_graph_web/graphql/operator_workflow/types.ex",
-          "lib/office_graph_web/graphql/operator_workflow/queries.ex",
-          "lib/office_graph_web/graphql/operator_commands/types.ex",
-          "lib/office_graph_web/graphql/operator_commands/mutations.ex"
+          "lib/office_graph_web/graphql/operator_workflow/queries.ex"
         ] do
       assert File.exists?(required_path),
              "Expected GraphQL transport module file #{required_path}"
     end
   end
 
-  test "operator command resolvers remain transport-only" do
-    resolver_paths =
-      "lib/office_graph_web/graphql/operator_commands/resolvers/*.ex"
+  test "generated commands have no operator command compatibility namespace" do
+    paths = [
+      "lib/office_graph_web/operator_commands",
+      "lib/office_graph_web/graphql/operator_commands",
+      "lib/office_graph_web/json_api/operator_commands"
+    ]
+
+    assert Enum.all?(paths, &(not File.dir?(&1))),
+           "generated commands must not retain operator_commands transport folders"
+
+    modules =
+      "lib/**/*.ex"
       |> Path.wildcard()
-      |> Enum.sort()
+      |> Enum.flat_map(&modules_in_file/1)
 
-    assert length(resolver_paths) == 1
-
-    for path <- resolver_paths do
-      source = File.read!(path)
-      resolver_body = source |> String.split("\n") |> tl() |> Enum.join("\n")
-
-      refute source =~ "Repo.", "#{path} must not perform direct repository operations"
-      refute source =~ "Ash.Changeset", "#{path} must not build Ash changesets"
-      refute resolver_body =~ "Resolvers.", "#{path} must not call another resolver"
-
-      refute source =~ "defp validate_",
-             "#{path} must leave command validation inside the owning domain"
-
-      assert source =~ "Input.parse", "#{path} must parse transport input"
-
-      assert source =~ "RequestSession.resolve_resolution",
-             "#{path} must resolve request sessions"
-
-      assert source =~ "Operations.start_command", "#{path} must start server-owned commands"
-    end
+    refute Enum.any?(modules, fn {_path, module} ->
+             String.starts_with?(module, "OfficeGraphWeb.OperatorCommands")
+           end)
   end
 
   test "old compatibility GraphQL modules stay retired" do
