@@ -10,6 +10,8 @@ defmodule OfficeGraph.Identity.PrincipalProfile do
     table "principal_profiles"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names principal_id: "principal_profiles_principal_id_index"
   end
 
   attributes do
@@ -40,6 +42,15 @@ defmodule OfficeGraph.Identity.PrincipalProfile do
 
     create :create do
       accept [:id, :principal_id, :display_name]
+    end
+
+    create :ensure do
+      public? false
+      accept [:principal_id, :display_name]
+      upsert? true
+      upsert_identity :principal_id
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

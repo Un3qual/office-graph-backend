@@ -10,6 +10,9 @@ defmodule OfficeGraph.Identity.Session do
     table "sessions"
     repo OfficeGraph.Repo
     migrate? false
+
+    identity_index_names unique_context:
+                           "sessions_principal_id_organization_id_workspace_id_purpose_inde"
   end
 
   attributes do
@@ -79,6 +82,15 @@ defmodule OfficeGraph.Identity.Session do
         :trace_id,
         :revoked_at
       ]
+    end
+
+    create :ensure_local_owner do
+      public? false
+      accept [:principal_id, :organization_id, :workspace_id, :purpose]
+      upsert? true
+      upsert_identity :unique_context
+      upsert_fields []
+      return_skipped_upsert? true
     end
 
     update :revoke do

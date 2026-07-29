@@ -139,6 +139,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
         [
           "lib/office_graph/authorization.ex",
           "lib/office_graph/content.ex",
+          "lib/office_graph/identity.ex",
           "lib/office_graph/tenancy.ex"
         ],
         fn path ->

@@ -3,76 +3,65 @@ defmodule OfficeGraph.Identity do
   Public boundary for principals, profiles, credentials, and local bootstrap identity.
   """
 
-  use Boundary, deps: [OfficeGraph.Repo, OfficeGraph.Tenancy], exports: [SessionContext]
+  use Boundary, deps: [OfficeGraph.Tenancy], exports: [SessionContext]
 
   alias OfficeGraph.Identity.{
     ExternalIdentityReconciliation,
     HumanSessions,
+    OidcLoginTransaction,
     Principal,
-    PrincipalProfile,
     Session,
     SessionContext
   }
 
-  alias OfficeGraph.Repo
-
   require Ash.Query
 
+  @identity_constraints ~w[
+    principals_email_index
+    principal_profiles_principal_id_index
+    sessions_principal_id_organization_id_workspace_id_purpose_inde
+  ]
+
   def ensure_owner(attrs) do
-    Repo.transaction(fn ->
-      principal =
-        get_or_create!(
-          Principal,
-          [email: attrs[:owner_email]],
-          %{
-            email: attrs[:owner_email],
-            kind: "human",
-            status: "active"
-          }
-        )
-
-      profile =
-        get_or_create!(
-          PrincipalProfile,
-          [principal_id: principal.id],
-          %{
-            principal_id: principal.id,
-            display_name: attrs[:owner_name]
-          }
-        )
-
-      %{principal: principal, profile: profile}
+    with_identity_retry(fn ->
+      Principal
+      |> Ash.ActionInput.for_action(:ensure_owner, %{
+        email: attrs[:owner_email],
+        display_name: attrs[:owner_name]
+      })
+      |> Ash.run_action(authorize?: false)
     end)
+    |> normalize_identity_write()
   end
 
   def ensure_session_context(principal, tenant, capabilities) do
-    Repo.transaction(fn ->
-      session =
-        get_or_create!(
-          Session,
-          [
-            principal_id: principal.id,
-            organization_id: tenant.organization.id,
-            workspace_id: tenant.workspace.id,
-            purpose: "local_owner"
-          ],
-          %{
-            principal_id: principal.id,
-            organization_id: tenant.organization.id,
-            workspace_id: tenant.workspace.id,
-            purpose: "local_owner"
-          }
-        )
+    result =
+      with_identity_retry(fn ->
+        Session
+        |> Ash.Changeset.for_create(:ensure_local_owner, %{
+          principal_id: principal.id,
+          organization_id: tenant.organization.id,
+          workspace_id: tenant.workspace.id,
+          purpose: "local_owner"
+        })
+        |> Ash.create(authorize?: false)
+      end)
 
-      %SessionContext{
-        principal_id: principal.id,
-        session_id: session.id,
-        organization_id: tenant.organization.id,
-        workspace_id: tenant.workspace.id,
-        capabilities: MapSet.new(capabilities),
-        trusted?: true
-      }
-    end)
+    case result do
+      {:ok, session} ->
+        {:ok,
+         %SessionContext{
+           principal_id: principal.id,
+           session_id: session.id,
+           organization_id: tenant.organization.id,
+           workspace_id: tenant.workspace.id,
+           capabilities: MapSet.new(capabilities),
+           trusted?: true
+         }}
+
+      {:error, _storage_error} ->
+        {:error, :identity_storage_unavailable}
+    end
   end
 
   def validate_session_context(
@@ -163,17 +152,21 @@ defmodule OfficeGraph.Identity do
 
   def ensure_system_principal(email, kind)
       when is_binary(email) and kind in ["agent", "service", "webhook"] do
-    principal =
-      get_or_create!(
-        Principal,
-        [email: email],
-        %{email: email, kind: kind, status: "active"}
-      )
+    result =
+      with_identity_retry(fn ->
+        Principal
+        |> Ash.Changeset.for_create(:ensure, %{
+          email: email,
+          kind: kind,
+          status: "active"
+        })
+        |> Ash.create(authorize?: false)
+      end)
 
-    if principal.kind == kind and principal.status == "active" do
-      {:ok, principal}
-    else
-      {:error, :forbidden}
+    case result do
+      {:ok, %Principal{kind: ^kind, status: "active"} = principal} -> {:ok, principal}
+      {:ok, _mismatched_principal} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
 
@@ -199,19 +192,11 @@ defmodule OfficeGraph.Identity do
 
   def store_oidc_login_transaction(expires_at_unix) when is_integer(expires_at_unix) do
     with {:ok, expires_at} <- DateTime.from_unix(expires_at_unix) do
-      case Repo.query(
-             """
-             WITH expired_transactions AS (
-               DELETE FROM oidc_login_transactions
-               WHERE expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
-             )
-             INSERT INTO oidc_login_transactions (expires_at, inserted_at)
-             VALUES ($1, CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
-             RETURNING id
-             """,
-             [expires_at]
-           ) do
-        {:ok, %{rows: [[transaction_id]]}} -> {:ok, Ecto.UUID.load!(transaction_id)}
+      OidcLoginTransaction
+      |> Ash.ActionInput.for_action(:store_login_transaction, %{expires_at: expires_at})
+      |> Ash.run_action(authorize?: false)
+      |> case do
+        {:ok, transaction} -> {:ok, transaction.id}
         {:error, _storage_error} -> {:error, :identity_storage_unavailable}
       end
     end
@@ -221,15 +206,15 @@ defmodule OfficeGraph.Identity do
 
   def store_oidc_login_transaction(transaction_id, expires_at_unix)
       when is_binary(transaction_id) and is_integer(expires_at_unix) do
-    with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id),
+    with {:ok, transaction_id} <- Ash.Type.UUID.cast_input(transaction_id, []),
          {:ok, expires_at} <- DateTime.from_unix(expires_at_unix),
          {:ok, _transaction} <-
-           OfficeGraph.Identity.OidcLoginTransaction
+           OidcLoginTransaction
            |> Ash.Changeset.for_create(:create, %{
              id: transaction_id,
              expires_at: expires_at
            })
-           |> Ash.create() do
+           |> Ash.create(authorize?: false) do
       :ok
     else
       :error -> {:error, :invalid_login_transaction}
@@ -241,18 +226,13 @@ defmodule OfficeGraph.Identity do
     do: {:error, :invalid_login_transaction}
 
   def consume_oidc_login_transaction(transaction_id) when is_binary(transaction_id) do
-    with {:ok, transaction_id} <- Ecto.UUID.cast(transaction_id) do
-      case Repo.query(
-             """
-             DELETE FROM oidc_login_transactions
-             WHERE id = $1
-             RETURNING expires_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
-             """,
-             [Ecto.UUID.dump!(transaction_id)]
-           ) do
-        {:ok, %{rows: [[true]]}} -> :ok
-        {:ok, %{rows: []}} -> {:error, :invalid_login_transaction}
-        {:ok, %{rows: [[false]]}} -> {:error, :invalid_login_transaction}
+    with {:ok, transaction_id} <- Ash.Type.UUID.cast_input(transaction_id, []) do
+      OidcLoginTransaction
+      |> Ash.ActionInput.for_action(:consume_login_transaction, %{id: transaction_id})
+      |> Ash.run_action(authorize?: false)
+      |> case do
+        {:ok, true} -> :ok
+        {:ok, false} -> {:error, :invalid_login_transaction}
         {:error, _storage_error} -> {:error, :identity_storage_unavailable}
       end
     else
@@ -270,44 +250,29 @@ defmodule OfficeGraph.Identity do
     )
   end
 
-  defp get_or_create!(resource, lookup, attrs) do
-    Repo.get_or_insert!(
-      resource,
-      lookup,
-      attrs,
-      fn resource, _attrs -> insert_contract!(resource) end,
-      &fetch_existing/2
-    )
+  defp with_identity_retry(fun) do
+    case fun.() do
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if identity_conflict?(error), do: fun.(), else: {:error, error}
+
+      result ->
+        result
+    end
   end
 
-  defp fetch_existing(Session, lookup) do
-    lookup = Map.new(lookup)
+  defp identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          Keyword.get(private_vars, :constraint) in @identity_constraints
 
-    Session
-    |> Ash.Query.filter(
-      principal_id == ^lookup.principal_id and
-        organization_id == ^lookup.organization_id and
-        workspace_id == ^lookup.workspace_id and
-        purpose == ^lookup.purpose and
-        is_nil(revoked_at)
-    )
-    |> Ash.read_one(authorize?: false)
+      _other ->
+        false
+    end)
   end
 
-  defp fetch_existing(resource, lookup) do
-    Ash.get(resource, Map.new(lookup), authorize?: false, not_found_error?: false)
-  end
+  defp normalize_identity_write({:ok, result}), do: {:ok, result}
 
-  defp insert_contract!(Principal), do: {"principals", [:email], [:id]}
-
-  defp insert_contract!(PrincipalProfile) do
-    {"principal_profiles", [:principal_id], [:id, :principal_id]}
-  end
-
-  defp insert_contract!(Session) do
-    {"sessions",
-     {:unsafe_fragment,
-      "(principal_id, organization_id, workspace_id, purpose) WHERE revoked_at IS NULL"},
-     [:id, :principal_id, :organization_id, :workspace_id]}
-  end
+  defp normalize_identity_write({:error, _storage_error}),
+    do: {:error, :identity_storage_unavailable}
 end
