@@ -38,6 +38,7 @@ defmodule OfficeGraph.Runs do
 
   @work_run_start_action "work_run.start"
   @execution_observation_record_action "execution_observation.record"
+  @observation_source_identity_constraint "execution_observations_idempotency_key_index"
 
   defguardp is_run_business_error(error)
             when error in [
@@ -292,15 +293,20 @@ defmodule OfficeGraph.Runs do
              :execution_observation_record,
              organization_id: session_context.organization_id
            ) do
-      Run
-      |> Ash.ActionInput.for_action(
-        :persist_observation_contract,
+      input =
         attrs
         |> normalize_observation_attrs()
         |> Map.put(:operation_id, operation.id)
         |> Map.put(:run_id, run.id)
-      )
-      |> Ash.run_action(actor: session_context, authorize?: false)
+
+      run_action = fn ->
+        Run
+        |> Ash.ActionInput.for_action(:persist_observation_contract, input)
+        |> Ash.run_action(actor: session_context, authorize?: false)
+      end
+
+      run_action
+      |> run_with_observation_identity_retry()
       |> case do
         {:ok, %RunMutationResult{} = result} ->
           RunMutationResult.to_observation_result(result)
@@ -309,6 +315,29 @@ defmodule OfficeGraph.Runs do
           {:error, error}
       end
     end
+  end
+
+  defp run_with_observation_identity_retry(run_action) do
+    case run_action.() do
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if observation_identity_conflict?(error), do: run_action.(), else: {:error, error}
+
+      result ->
+        result
+    end
+  end
+
+  defp observation_identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
+        private_vars = private_vars || []
+
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          Keyword.get(private_vars, :constraint) == @observation_source_identity_constraint
+
+      _other ->
+        false
+    end)
   end
 
   def preflight_observation_idempotency(session_context, operation_idempotency_key, attrs)

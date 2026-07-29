@@ -253,7 +253,12 @@ defmodule OfficeGraph.ProposedChanges do
 
   defp find_missing_id(ids, by_id), do: Enum.find(ids, &(not Map.has_key?(by_id, &1)))
 
-  defp maybe_lock(query, true), do: Ash.Query.lock(query, :for_update)
+  defp maybe_lock(query, true) do
+    query
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+  end
+
   defp maybe_lock(query, _lock?), do: query
 
   defp read_existing_for_normalized_event(normalized_event_id, opts) do

@@ -437,7 +437,10 @@ defmodule OfficeGraph.Verification do
   end
 
   defp acceptance_verification_check(session_context, candidate, nil) do
-    lock_scoped(VerificationCheck, session_context, candidate.verification_check_id)
+    WorkGraph.lock_verification_completion_scope(
+      session_context,
+      candidate.verification_check_id
+    )
   end
 
   defp acceptance_verification_check(session_context, candidate, _work_run) do

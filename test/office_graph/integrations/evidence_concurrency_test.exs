@@ -468,8 +468,11 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
 
       assert [successful] = for({:ok, result} <- results, do: result)
 
-      assert [successful.observation.id] ==
-               for({:error, {:observation_idempotency_conflict, id}} <- results, do: id)
+      conflicts =
+        for({:error, {:observation_idempotency_conflict, id}} <- results, do: id)
+
+      assert [successful.observation.id] == conflicts,
+             "expected one typed source-idempotency conflict, got: #{inspect(results)}"
 
       assert 1 ==
                with_unboxed_connection(fn ->
@@ -579,7 +582,9 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       invalid_statuses = for {:error, {:invalid_verification_check_status, id}} <- results, do: id
 
       assert [_success] = successes
-      assert [verification_check.id] == invalid_statuses
+
+      assert [verification_check.id] == invalid_statuses,
+             "expected one typed verification-status loser, got: #{inspect(results)}"
 
       assert 1 ==
                with_unboxed_connection(fn ->

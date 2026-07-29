@@ -18,7 +18,7 @@
 - [x] 3.2 Replace proposed-change transactions with owning actions and preserve all-or-nothing application and typed conflict ordering
 - [x] 3.3 Replace work-packet and run transaction wrappers, observation advisory lock, and child-count SQL with Ash actions, identities, atomics, and aggregates
 - [x] 3.4 Replace evidence acceptance and waiver transactions with action-owned Ash changes and atomic parent verification updates
-- [ ] 3.5 Add concurrent intake, proposal, packet, run, observation, evidence, and waiver tests for replay, stale state, and failure atomicity
+- [x] 3.5 Add concurrent intake, proposal, packet, run, observation, evidence, and waiver tests for replay, stale state, and failure atomicity
 
 ## 4. Replace Work Graph Escapes
 

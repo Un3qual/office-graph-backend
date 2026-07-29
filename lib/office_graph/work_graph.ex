@@ -78,4 +78,7 @@ defmodule OfficeGraph.WorkGraph do
                 verification_check
               ),
               to: VerificationCommands
+
+  defdelegate lock_verification_completion_scope(session_context, verification_check_id),
+    to: VerificationCommands
 end

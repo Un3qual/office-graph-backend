@@ -277,6 +277,13 @@ defmodule OfficeGraph.WorkGraph.VerificationCommands do
     end
   end
 
+  def lock_verification_completion_scope(session_context, verification_check_id) do
+    {verification_check, _review_finding, _task, _review_findings, _verification_checks} =
+      lock_completion_graph!(session_context, verification_check_id)
+
+    {:ok, verification_check}
+  end
+
   defp lock_completion_graph!(session_context, verification_check_id) do
     verification_check_hint =
       VerificationCheck

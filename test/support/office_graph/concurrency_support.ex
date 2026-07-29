@@ -106,6 +106,34 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
     end
   end
 
+  def run_concurrently(funs, timeout \\ 15_000) when is_list(funs) do
+    parent = self()
+    gate = make_ref()
+
+    tasks =
+      Enum.map(funs, fn fun ->
+        Task.async(fn ->
+          send(parent, {gate, :ready, self()})
+
+          receive do
+            {^gate, :go} -> with_unboxed_connection(fun)
+          end
+        end)
+      end)
+
+    ready_pids =
+      Enum.map(tasks, fn _task ->
+        receive do
+          {^gate, :ready, pid} -> pid
+        after
+          timeout -> raise "concurrent test owner did not reach the start gate"
+        end
+      end)
+
+    Enum.each(ready_pids, &send(&1, {gate, :go}))
+    Task.await_many(tasks, timeout)
+  end
+
   def create_concurrency_verification_check(session, label) do
     {:ok, operation} = Operations.start_operation(session, :proposed_change_apply)
 
