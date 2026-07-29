@@ -22,6 +22,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptCommands do
     Installation,
     InstallationCredential,
     StorageResult,
+    WebhookReceiptPersistence,
     WebhookReceiptResult,
     WebhookWorker
   }
@@ -74,11 +75,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptCommands do
            ),
          {:ok, request} <- operation_request(installation, attrs),
          {:ok, operation} <- Operations.start_system_operation(request),
+         :ok <- persistence_ready(:provider_source),
          {:ok, source} <-
            Integrations.ensure_provider_source(
              "github_app:#{installation.app_slug}",
              "GitHub App #{installation.app_slug}"
            ),
+         :ok <- persistence_ready(:archive),
          {:ok, archive, archive_state} <-
            Integrations.archive_system_delivery(operation, source, %{
              external_delivery_id: attrs.delivery_id,
@@ -237,5 +240,12 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptCommands do
     args
     |> WebhookWorker.new()
     |> Oban.insert()
+  end
+
+  defp persistence_ready(stage) do
+    case WebhookReceiptPersistence.before_write(stage) do
+      :ok -> :ok
+      {:error, _error} -> {:error, :integration_storage_unavailable}
+    end
   end
 end
