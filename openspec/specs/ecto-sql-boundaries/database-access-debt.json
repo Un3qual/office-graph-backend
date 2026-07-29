@@ -73,41 +73,6 @@
     {
       "occurrences": [
         [
-          "sha256:00851035e96ed09930f8c97827626a4f2d6cec605329e2219d374ca9f07309bb",
-          "raw_sql",
-          "unsafe_fragment",
-          null,
-          1
-        ],
-        [
-          "sha256:215bcad3a1312b31a76c077ad734e2079b3ee4a321711f966882a94c7a4852c9",
-          "raw_sql",
-          "unsafe_fragment",
-          null,
-          2
-        ],
-        [
-          "sha256:8ea1e9a1dda1595b72556d9289924616265cc4d6479ead2a462ab2100a974b8a",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_binding/3",
-          1
-        ],
-        [
-          "sha256:15c58a7b33b76ba2551fe7291776eec0fd338e1fbdabf928d60d8d3e8df2975e",
-          "raw_sql",
-          "Repo.query!",
-          "lock_installation!/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.GithubIntegration",
-      "path": "lib/office_graph/github_integration.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:81c835afb40120adb878af24cccf7b4a9ab419eb5ebe5d185ec8ee11cc13358b",
           "direct_ecto",
           "Repo.transaction",

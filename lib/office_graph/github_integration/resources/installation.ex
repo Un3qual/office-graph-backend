@@ -200,6 +200,47 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
       public? false
     end
 
+    action :persist_binding_contract, OfficeGraph.GitHubIntegration.BindingResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Authorization.Capability,
+        OfficeGraph.Authorization.PolicyBundle,
+        OfficeGraph.Authorization.Role,
+        OfficeGraph.Authorization.RoleAssignment,
+        OfficeGraph.Authorization.RoleCapability,
+        OfficeGraph.GitHubIntegration.InstallationCredential,
+        OfficeGraph.GitHubIntegration.PermissionEntry,
+        OfficeGraph.GitHubIntegration.PermissionSnapshot,
+        OfficeGraph.Identity.Principal,
+        OfficeGraph.Integrations.IntegrationCredential,
+        OfficeGraph.Operations.OperationCorrelation
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid
+
+      argument :external_installation_id, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :app_slug, :string, allow_nil?: false
+      argument :account_login, :string, allow_nil?: false
+      argument :account_type, :string, allow_nil?: false
+      argument :service_principal_email, :string, allow_nil?: false
+      argument :webhook_principal_email, :string, allow_nil?: false
+      argument :webhook_secret_reference, :string, allow_nil?: false
+      argument :app_private_key_reference, :string, allow_nil?: false
+
+      argument :permissions,
+               {:array, OfficeGraph.GitHubIntegration.CommandInputs.InstallationPermission},
+               allow_nil?: false
+
+      validate argument_in(:account_type, ~w(organization user))
+      run {OfficeGraph.GitHubIntegration.InstallationCommands, mode: :bind}
+    end
+
     action :bind_github_installation,
            OfficeGraph.GitHubIntegration.CommandResults.BindInstallation do
       argument :idempotency_key, :string,

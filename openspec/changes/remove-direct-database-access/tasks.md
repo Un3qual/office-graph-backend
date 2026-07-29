@@ -36,7 +36,7 @@
 
 ## 6. Replace GitHub Integration Escapes
 
-- [ ] 6.1 Replace installation partial identities, advisory lock, and explicit binding transaction with Ash identities, upserts, and action-owned writes
+- [x] 6.1 Replace installation partial identities, advisory lock, and explicit binding transaction with Ash identities, upserts, and action-owned writes
 - [ ] 6.2 Replace outbound enqueue, webhook receipt, reconciliation, failure, and worker transaction wrappers with Ash actions and bulk/upsert behavior
 - [ ] 6.3 Add separate-owner concurrency tests for installation binding, webhook replay, reconciliation ordering, outbound idempotency, revocation, and failure atomicity
 
