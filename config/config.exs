@@ -66,6 +66,10 @@ config :office_graph,
        :authorization_decision_store,
        OfficeGraph.Authorization.DecisionStore.AshAdapter
 
+config :office_graph,
+       :integration_signal_persistence,
+       OfficeGraph.WorkGraph.IntegrationSignalPersistence.Default
+
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,
   queues: [delivery: 10, integrations: 5, agents: 5],

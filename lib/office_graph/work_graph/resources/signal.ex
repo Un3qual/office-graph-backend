@@ -114,6 +114,32 @@ defmodule OfficeGraph.WorkGraph.Signal do
       run {OfficeGraph.WorkGraph.ProposalCommands, mode: :create_signal}
     end
 
+    action :persist_integration_signal_contract, OfficeGraph.WorkGraph.CommandActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Audit.AuditRecord,
+        OfficeGraph.Content.Document,
+        OfficeGraph.Content.DocumentBlock,
+        OfficeGraph.Content.DocumentRevision,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Revisions.Revision,
+        OfficeGraph.WorkGraph.GraphItem,
+        OfficeGraph.WorkGraph.GraphRelationship
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :reference_id, :uuid, allow_nil?: false
+      argument :reference_organization_id, :uuid, allow_nil?: false
+      argument :reference_workspace_id, :uuid, allow_nil?: false
+      argument :title, :string
+      argument :body, :string
+      argument :actionable, :boolean, allow_nil?: false
+
+      run {OfficeGraph.WorkGraph.SystemCommands, mode: :sync_integration_signal}
+    end
+
     update :set_state do
       accept [:state]
       validate one_of(:state, ~w(open closed))

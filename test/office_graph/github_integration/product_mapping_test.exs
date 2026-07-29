@@ -3,7 +3,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
   import OfficeGraph.SessionCaseHelpers
 
-  alias OfficeGraph.{Content, Foundation, GitHubIntegration, Operations, Repo, WorkGraph}
+  alias OfficeGraph.{Content, Foundation, GitHubIntegration, Operations, WorkGraph}
   alias OfficeGraph.ExternalRefs.ExternalReference
 
   alias OfficeGraph.GitHubIntegration.{
@@ -17,6 +17,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
   alias OfficeGraph.GitHubIntegration.SecretStore.TestAdapter, as: SecretStore
   alias OfficeGraph.SoftwareProving.{Repository, ReviewComment, ReviewThread}
+  alias OfficeGraph.WorkGraph.IntegrationSignalPersistenceTestAdapter
   alias OfficeGraph.WorkGraph.{GraphItem, GraphRelationship, RelationshipRequest, Signal}
 
   require Ash.Query
@@ -34,13 +35,13 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
     operation = operation!(context, request)
-    signal_count = Repo.aggregate(Signal, :count)
+    signal_count = Ash.count!(Signal, authorize?: false)
 
     assert {:ok, outcome} = Reconciler.reconcile(operation, request)
     assert outcome.state == "reconciled"
     assert length(outcome.signal_ids) == 2
 
-    assert Repo.aggregate(Signal, :count) == signal_count + 2
+    assert Ash.count!(Signal, authorize?: false) == signal_count + 2
 
     relationships =
       GraphRelationship
@@ -52,7 +53,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert {:ok, replay} = Reconciler.reconcile(operation, request)
     assert replay.id == outcome.id
-    assert Repo.aggregate(Signal, :count) == signal_count + 2
+    assert Ash.count!(Signal, authorize?: false) == signal_count + 2
   end
 
   test "check signals close when healthy and reopen on a later failure" do
@@ -152,7 +153,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert repeated_outcome.signal_ids == [signal_id]
     assert Ash.get!(Signal, signal_id, authorize?: false).state == "open"
-    assert Repo.aggregate(Signal, :count) == 1
+    assert Ash.count!(Signal, authorize?: false) == 1
   end
 
   test "integration signal sync ignores user-authored signals for the same reference" do
@@ -303,7 +304,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
              Ash.get!(Signal, signal_id, authorize?: false).state == "closed"
            end)
 
-    assert Repo.aggregate(Signal, :count) == 2
+    assert Ash.count!(Signal, authorize?: false) == 2
 
     reappeared = %{
       without_prior_work
@@ -323,7 +324,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
              Ash.get!(Signal, signal_id, authorize?: false).state == "open"
            end)
 
-    assert Repo.aggregate(Signal, :count) == 2
+    assert Ash.count!(Signal, authorize?: false) == 2
   end
 
   test "a completed check reopens after a newer authoritative absence" do
@@ -669,7 +670,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
              )
 
     assert pending_outcome.signal_ids == []
-    assert Repo.aggregate(Signal, :count) == 1
+    assert Ash.count!(Signal, authorize?: false) == 1
   end
 
   test "resolved review threads do not create or retain open signals" do
@@ -720,7 +721,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
         delivery_id: "delivery-first-seen-resolved-thread"
       })
 
-    signal_count = Repo.aggregate(Signal, :count)
+    signal_count = Ash.count!(Signal, authorize?: false)
 
     assert {:ok, first_seen_outcome} =
              Reconciler.reconcile(
@@ -729,7 +730,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
              )
 
     assert first_seen_outcome.signal_ids == []
-    assert Repo.aggregate(Signal, :count) == signal_count
+    assert Ash.count!(Signal, authorize?: false) == signal_count
   end
 
   test "fresh thread state closes signals when the provider comment is unchanged" do
@@ -814,7 +815,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
         provider_updated_at: ~U[2026-07-14 13:02:00Z],
         operation_id: open_operation.id
       })
-      |> Repo.ash_update!()
+      |> Ash.update!(authorize?: false)
 
     reference =
       ExternalReference
@@ -868,27 +869,18 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
     operation = operation!(context, request, "signal-storage-unavailable")
-    repository_count = Repo.aggregate(Repository, :count)
-    signal_count = Repo.aggregate(Signal, :count)
+    repository_count = Ash.count!(Repository, authorize?: false)
+    signal_count = Ash.count!(Signal, authorize?: false)
 
-    Repo.query!("""
-    ALTER TABLE graph_items
-    ADD CONSTRAINT test_integration_signal_storage_unavailable
-    CHECK (resource_type <> 'external_reference')
-    """)
+    IntegrationSignalPersistenceTestAdapter.configure!(before_persistence: :unavailable)
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!(
-          "ALTER TABLE graph_items DROP CONSTRAINT test_integration_signal_storage_unavailable"
-        )
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == repository_count
-    assert Repo.aggregate(Signal, :count) == signal_count
+    assert Ash.count!(Repository, authorize?: false) == repository_count
+    assert Ash.count!(Signal, authorize?: false) == signal_count
+
+    IntegrationSignalPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -908,28 +900,18 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
     operation = operation!(context, request, "signal-trace-storage-unavailable")
-    repository_count = Repo.aggregate(Repository, :count)
-    signal_count = Repo.aggregate(Signal, :count)
+    repository_count = Ash.count!(Repository, authorize?: false)
+    signal_count = Ash.count!(Signal, authorize?: false)
 
-    Repo.query!("""
-    ALTER TABLE revisions
-    ADD CONSTRAINT test_integration_signal_trace_storage_unavailable
-    CHECK (revision_type <> 'signal.create')
-    """)
+    IntegrationSignalPersistenceTestAdapter.configure!(before_trace: :unavailable)
 
-    result =
-      try do
-        Reconciler.reconcile(operation, request)
-      after
-        Repo.query!("""
-        ALTER TABLE revisions
-        DROP CONSTRAINT test_integration_signal_trace_storage_unavailable
-        """)
-      end
+    assert {:error, {:retryable, :integration_storage_unavailable}} =
+             Reconciler.reconcile(operation, request)
 
-    assert {:error, {:retryable, :integration_storage_unavailable}} = result
-    assert Repo.aggregate(Repository, :count) == repository_count
-    assert Repo.aggregate(Signal, :count) == signal_count
+    assert Ash.count!(Repository, authorize?: false) == repository_count
+    assert Ash.count!(Signal, authorize?: false) == signal_count
+
+    IntegrationSignalPersistenceTestAdapter.clear!()
 
     assert {:ok, recovered} = Reconciler.reconcile(operation, request)
     assert recovered.state == "reconciled"
@@ -1012,12 +994,12 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     Provider.put(%{{"pull_request", "PR_mapping_44"} => {:ok, mapping_snapshot()}})
     operation = operation!(context, request, "organization-scoped")
-    signal_count = Repo.aggregate(Signal, :count)
+    signal_count = Ash.count!(Signal, authorize?: false)
 
     assert {:ok, outcome} = Reconciler.reconcile(operation, request)
     assert outcome.state == "reconciled"
     assert outcome.signal_ids == []
-    assert Repo.aggregate(Signal, :count) == signal_count
+    assert Ash.count!(Signal, authorize?: false) == signal_count
   end
 
   test "review replies inherit their parent thread and its non-actionable state" do
@@ -1080,7 +1062,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert persisted_reply.parent_comment_id == persisted_parent.id
     assert persisted_reply.review_thread_id == persisted_parent.review_thread_id
-    assert Repo.aggregate(Signal, :count) == 0
+    assert Ash.count!(Signal, authorize?: false) == 0
   end
 
   test "Office Graph review replies do not create follow-up signals" do
@@ -1112,7 +1094,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert {:ok, outcome} = Reconciler.reconcile(operation!(context, request), request)
     assert outcome.signal_ids == []
-    assert Repo.aggregate(Signal, :count) == 0
+    assert Ash.count!(Signal, authorize?: false) == 0
   end
 
   test "untrusted review replies cannot suppress signals with a copied action marker" do
@@ -1143,7 +1125,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     assert {:ok, outcome} = Reconciler.reconcile(operation!(context, request), request)
     assert [_signal_id] = outcome.signal_ids
-    assert Repo.aggregate(Signal, :count) == 1
+    assert Ash.count!(Signal, authorize?: false) == 1
   end
 
   test "concurrent signal mapping reuses the persisted graph item and signal" do
@@ -1173,7 +1155,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
         operation!(context, request, suffix)
       end
 
-    signal_count = Repo.aggregate(Signal, :count)
+    signal_count = Ash.count!(Signal, authorize?: false)
 
     results =
       operations
@@ -1191,7 +1173,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
 
     signal_ids = Enum.map(results, fn {:ok, result} -> result.signal.id end)
     assert signal_ids |> Enum.uniq() |> length() == 1
-    assert Repo.aggregate(Signal, :count) == signal_count + 1
+    assert Ash.count!(Signal, authorize?: false) == signal_count + 1
   end
 
   test "signal mapping rejects malformed and cross-workspace reference maps" do
@@ -1229,7 +1211,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
     assert {:error, :forbidden} =
              WorkGraph.ensure_integration_signal(operation, %{id: reference.id}, attrs)
 
-    assert Repo.aggregate(Signal, :count) == 0
+    assert Ash.count!(Signal, authorize?: false) == 0
   end
 
   defp assert_non_open_pull_request_closes_signals(pull_request_state) do
@@ -1322,20 +1304,25 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
       Operations.start_operation(context.bootstrap.session, :github_review_reply)
 
     action =
-      Repo.ash_create!(OutboundAction, %{
-        id: Ecto.UUID.generate(),
-        installation_id: context.installation.id,
-        operation_id: operation.id,
-        principal_id: context.bootstrap.session.principal_id,
-        organization_id: context.bootstrap.organization.id,
-        workspace_id: context.installation.workspace_id,
-        action_kind: "review_reply",
-        target_type: "review_comment",
-        target_id: Ecto.UUID.generate(),
-        target_node_id: "PRRC_succeeded",
-        expected_provider_version: "v1",
-        reply_body: "Already sent."
-      })
+      Ash.create!(
+        OutboundAction,
+        %{
+          id: Ecto.UUID.generate(),
+          installation_id: context.installation.id,
+          operation_id: operation.id,
+          principal_id: context.bootstrap.session.principal_id,
+          organization_id: context.bootstrap.organization.id,
+          workspace_id: context.installation.workspace_id,
+          action_kind: "review_reply",
+          target_type: "review_comment",
+          target_id: Ecto.UUID.generate(),
+          target_node_id: "PRRC_succeeded",
+          expected_provider_version: "v1",
+          reply_body: "Already sent."
+        },
+        action: :create,
+        authorize?: false
+      )
 
     action
     |> Ash.Changeset.for_update(:record_result, %{
@@ -1343,7 +1330,7 @@ defmodule OfficeGraph.GitHubIntegration.ProductMappingTest do
       provider_response_id: provider_response_id,
       completed_at: DateTime.utc_now()
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
   end
 
   defp operation!(context, request, suffix \\ "v3") do

@@ -1,12 +1,14 @@
 defmodule OfficeGraph.WorkGraph.SystemCommands do
   @moduledoc false
 
-  alias OfficeGraph.{Content, Operations, Repo}
+  alias OfficeGraph.{Content, Operations}
+  alias OfficeGraph.WorkGraph.CommandActionResult
   alias OfficeGraph.WorkGraph.CommandSupport, as: Support
 
   alias OfficeGraph.WorkGraph.{
     GraphItem,
     GraphRelationship,
+    IntegrationSignalPersistence,
     RelationshipCommands,
     RelationshipDefinitions,
     RelationshipRequest,
@@ -14,6 +16,30 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
   }
 
   require Ash.Query
+
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: :sync_integration_signal], _context) do
+    attrs = input.arguments
+
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id) do
+      reference = %{
+        id: attrs.reference_id,
+        organization_id: attrs.reference_organization_id,
+        workspace_id: attrs.reference_workspace_id
+      }
+
+      checkpoint!(:before_persistence)
+
+      CommandActionResult.accepted(
+        sync_signal!(operation, reference, attrs.title, attrs.body, attrs.actionable)
+      )
+    end
+    |> normalize_run_result()
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def ensure_integration_signal(operation, reference, attrs)
       when is_map(operation) and is_map(reference) and is_map(attrs),
@@ -30,12 +56,18 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
          true <- Map.get(reference, :workspace_id) == operation.workspace_id,
          true <- is_boolean(actionable?),
          {:ok, {title, body}} <- signal_content(attrs, actionable?) do
-      transact(fn -> sync_signal!(operation, reference, title, body, actionable?) end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, error} when is_struct(error) -> {:error, :integration_storage_unavailable}
-        {:error, error} -> {:error, error}
-      end
+      Signal
+      |> Ash.ActionInput.for_action(:persist_integration_signal_contract, %{
+        operation_id: operation.id,
+        reference_id: reference.id,
+        reference_organization_id: reference.organization_id,
+        reference_workspace_id: reference.workspace_id,
+        title: title,
+        body: body,
+        actionable: actionable?
+      })
+      |> Ash.run_action(authorize?: false)
+      |> normalize_contract_result()
     else
       false -> {:error, :forbidden}
       error -> error
@@ -55,7 +87,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
     case signal_for_reference(operation.principal_id, reference_item.id) do
       {:ok, nil} -> create_signal!(operation, reference_item, title, body)
       {:ok, signal} -> sync_existing_signal!(operation, signal, title, body)
-      {:error, error} -> Repo.rollback(error)
+      {:error, error} -> Support.rollback(error)
     end
   end
 
@@ -68,7 +100,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
         case signal_for_reference(operation.principal_id, reference_item.id) do
           {:ok, nil} -> %{signal: nil, created?: false, state_changed?: false}
           {:ok, signal} -> transition_signal!(operation, signal, "closed")
-          {:error, error} -> Repo.rollback(error)
+          {:error, error} -> Support.rollback(error)
         end
     end
   end
@@ -95,10 +127,10 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
         if item.organization_id == operation.organization_id and
              item.workspace_id == operation.workspace_id,
            do: item,
-           else: Repo.rollback(:forbidden)
+           else: Support.rollback(:forbidden)
 
       {:error, error} ->
-        Repo.rollback(error)
+        Support.rollback(error)
     end
   end
 
@@ -124,13 +156,13 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
         item
 
       {:ok, nil} ->
-        Repo.rollback(:provider_identity_conflict)
+        Support.rollback(:provider_identity_conflict)
 
       {:ok, _cross_scope} ->
-        Repo.rollback(:forbidden)
+        Support.rollback(:forbidden)
 
       {:error, error} ->
-        Repo.rollback(error)
+        Support.rollback(error)
     end
   end
 
@@ -150,10 +182,10 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
         |> Support.unwrap_ash()
 
       {:ok, _cross_scope} ->
-        Repo.rollback(:forbidden)
+        Support.rollback(:forbidden)
 
       {:error, error} ->
-        Repo.rollback(error)
+        Support.rollback(error)
     end
   end
 
@@ -229,6 +261,7 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
       |> RelationshipCommands.create_system(request)
       |> Support.unwrap_ash()
 
+    checkpoint!(:before_trace)
     Support.trace!(operation, "signal.create", "signal", signal.id)
 
     %{signal: signal, relationship: relationship, created?: true}
@@ -327,5 +360,30 @@ defmodule OfficeGraph.WorkGraph.SystemCommands do
   defp maybe_put(attrs, _key, _value, false), do: attrs
   defp maybe_put(attrs, key, value, true), do: Map.put(attrs, key, value)
 
-  defp transact(fun), do: Repo.transaction(fun)
+  defp checkpoint!(stage) do
+    case IntegrationSignalPersistence.checkpoint(stage) do
+      :ok -> :ok
+      {:error, error} -> Support.rollback(error)
+    end
+  end
+
+  defp normalize_contract_result(result) do
+    result
+    |> Support.normalize_action_result()
+    |> case do
+      {:ok, %CommandActionResult{} = action_result} ->
+        CommandActionResult.to_public_result(action_result)
+
+      {:error, error} when is_struct(error) ->
+        {:error, :integration_storage_unavailable}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp normalize_run_result({:ok, %CommandActionResult{}} = result), do: result
+
+  defp normalize_run_result({:error, error}),
+    do: CommandActionResult.rejected(error)
 end
