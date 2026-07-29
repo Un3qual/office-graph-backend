@@ -1,17 +1,19 @@
 defmodule OfficeGraph.GitHubIntegration.Reconciler do
   @moduledoc false
 
+  @behaviour Ash.Resource.Actions.Implementation
+
   alias OfficeGraph.{
     DurableDelivery,
     ExternalRefs,
     Integrations,
     Operations,
-    Repo,
     SoftwareProving,
     WorkGraph
   }
 
   alias OfficeGraph.GitHubIntegration.{
+    ActionSupport,
     Adapter,
     Installation,
     InstallationCredential,
@@ -67,6 +69,23 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   require Ash.Query
 
+  @impl true
+  def run(input, [mode: :snapshot], _context) do
+    case persist_snapshot_action(input.arguments) do
+      {:ok, outcome} -> {:ok, outcome}
+      {:error, error} -> ActionSupport.rollback(SyncOutcome, error)
+    end
+  end
+
+  def run(input, [mode: :outcome], _context) do
+    case persist_outcome_action(input.arguments) do
+      {:ok, outcome} -> {:ok, outcome}
+      {:error, error} -> ActionSupport.rollback(SyncOutcome, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
+
   def reconcile(operation, %ReconciliationRequest{} = request) do
     with :ok <- Operations.validate_system_operation(operation, :integration_reconcile) do
       case outcome_by_operation(operation.id) do
@@ -91,19 +110,15 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
   def finalize_failure(operation, %ReconciliationRequest{} = request, failure_code) do
     with :ok <- Operations.validate_system_operation(operation, :integration_reconcile),
          :ok <- validate_retry_request_authority(operation, request),
-         {:ok, failure_code_atom} <- persisted_failure_code(failure_code) do
-      StorageResult.run(fn ->
-        Repo.transaction(fn ->
-          lock!("github:sync-outcome:#{operation.id}")
-
-          finalize_failure!(
-            operation,
-            request,
-            failure_code_atom,
-            failure_code
-          )
-        end)
-      end)
+         {:ok, _failure_code_atom} <- persisted_failure_code(failure_code) do
+      persist_outcome_command(operation, %{
+        mode: "finalize_failure",
+        installation_id: request.installation_id,
+        object_type: request.object_type,
+        object_id: request.object_id,
+        delivery_id: request.delivery_id,
+        failure_code: failure_code
+      })
     end
   end
 
@@ -537,28 +552,104 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     do: is_nil(value) or (is_integer(value) and value > 0)
 
   defp reconcile_snapshot(operation, request, installation, source, snapshot) do
-    case Repo.transaction(fn ->
-           lock!("github:sync-outcome:#{operation.id}")
-           lock!("github:#{installation.id}:#{request.object_type}:#{request.object_id}")
+    result =
+      StorageResult.run(fn ->
+        SyncOutcome
+        |> Ash.ActionInput.for_action(:persist_reconciliation_snapshot, %{
+          operation_id: operation.id,
+          installation_id: installation.id,
+          source_id: source.id,
+          request: request,
+          snapshot: snapshot
+        })
+        |> Ash.run_action(authorize?: false)
+        |> ActionSupport.normalize_action_result()
+        |> preserve_reconciliation_error()
+      end)
 
-           case outcome_by_operation(operation.id) do
-             {:ok, nil} ->
-               persist_snapshot!(operation, request, installation, source, snapshot)
+    case result do
+      {:ok, {:reconciliation_error, error}} ->
+        record_failure(operation, request, installation, error)
 
-             {:ok, %SyncOutcome{state: "retryable"}} ->
-               persist_snapshot!(operation, request, installation, source, snapshot)
+      {:ok, outcome} ->
+        replay_outcome(outcome, request)
 
-             {:ok, outcome} ->
-               outcome
+      {:error, :integration_storage_unavailable} ->
+        retryable_storage_error()
+    end
+  end
 
-             {:error, error} ->
-               Repo.rollback(error)
-           end
-         end) do
-      {:ok, outcome} -> replay_outcome(outcome, request)
-      {:error, :integration_storage_unavailable} -> retryable_storage_error()
-      {:error, error} when is_struct(error) -> retryable_storage_error()
-      {:error, error} -> record_failure(operation, request, installation, error)
+  defp preserve_reconciliation_error({:error, error})
+       when is_atom(error) and error != :integration_storage_unavailable,
+    do: {:ok, {:reconciliation_error, error}}
+
+  defp preserve_reconciliation_error(result), do: result
+
+  defp persist_snapshot_action(attrs) do
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id),
+         :ok <- validate_retry_request_authority(operation, attrs.request),
+         {:ok, installation} <-
+           locked_reconciliation_installation(operation, attrs.installation_id),
+         {:ok, source} <- reconciliation_source(attrs.source_id),
+         {:ok, outcome} <- locked_outcome_by_operation(operation.id) do
+      case outcome do
+        nil ->
+          {:ok,
+           persist_snapshot!(
+             operation,
+             attrs.request,
+             installation,
+             source,
+             attrs.snapshot
+           )}
+
+        %SyncOutcome{state: "retryable"} ->
+          {:ok,
+           persist_snapshot!(
+             operation,
+             attrs.request,
+             installation,
+             source,
+             attrs.snapshot
+           )}
+
+        %SyncOutcome{} = outcome ->
+          {:ok, outcome}
+      end
+    end
+  end
+
+  defp locked_reconciliation_installation(operation, installation_id) do
+    Installation
+    |> Ash.Query.filter(id == ^installation_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok,
+       %Installation{
+         organization_id: organization_id,
+         workspace_id: workspace_id,
+         service_principal_id: principal_id,
+         lifecycle_state: "active"
+       } = installation}
+      when organization_id == operation.organization_id and
+             workspace_id == operation.workspace_id and
+             principal_id == operation.principal_id ->
+        {:ok, installation}
+
+      {:ok, _missing_or_invalid} ->
+        {:error, :forbidden}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp reconciliation_source(source_id) do
+    case Integrations.ensure_provider_source("github", "GitHub") do
+      {:ok, %{id: ^source_id} = source} -> {:ok, source}
+      {:ok, _different_source} -> {:error, :forbidden}
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -631,10 +722,6 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     do: snapshot.provider_sequence < pull_request.provider_sequence
 
   defp reconcile_repository!(operation, source, snapshot) do
-    lock!(
-      "github:repository:#{operation.organization_id}:#{operation.workspace_id || "organization"}:#{snapshot.repository.node_id}"
-    )
-
     existing =
       base_by_extension(
         operation,
@@ -851,7 +938,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       end)
 
     if ready == [] do
-      Repo.rollback(:invalid_provider_response)
+      rollback!(:invalid_provider_response)
     else
       {comment_records, reconciled} =
         Enum.reduce(ready, {comment_records, reconciled}, fn comment, {records, items} ->
@@ -1201,7 +1288,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
     case RecordLoader.read(resource, query, authorize?: false) do
       {:ok, records} -> Enum.reject(records, &MapSet.member?(current_ids, &1.id))
-      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+      {:error, _storage_error} -> rollback!(:integration_storage_unavailable)
     end
   end
 
@@ -1222,7 +1309,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
         case RecordLoader.read(ExternalReference, query, authorize?: false) do
           {:ok, references} -> references
-          {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+          {:error, _storage_error} -> rollback!(:integration_storage_unavailable)
         end
     end
   end
@@ -1365,7 +1452,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
             false
 
           {:error, _storage_error} ->
-            Repo.rollback(:integration_storage_unavailable)
+            rollback!(:integration_storage_unavailable)
         end
     end
   end
@@ -1418,10 +1505,10 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         reference
 
       {:error, :integration_storage_unavailable} ->
-        Repo.rollback(:integration_storage_unavailable)
+        rollback!(:integration_storage_unavailable)
 
       {:error, _invalid_reference} ->
-        Repo.rollback(:provider_identity_conflict)
+        rollback!(:provider_identity_conflict)
     end
   end
 
@@ -1443,7 +1530,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
                not_found_error?: false
              ) do
           {:ok, base_record} -> base_record
-          {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+          {:error, _storage_error} -> rollback!(:integration_storage_unavailable)
         end
     end
   end
@@ -1460,7 +1547,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
                not_found_error?: false
              ) do
           {:ok, check_run} -> check_run
-          {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+          {:error, _storage_error} -> rollback!(:integration_storage_unavailable)
         end
     end
   end
@@ -1472,12 +1559,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
         |> Map.put(:organization_id, operation.organization_id)
         |> Map.put(:workspace_id, operation.workspace_id)
         |> Map.put(:check_run_id, check_run_id)
-        |> then(&Repo.ash_create!(CheckRunExtension, &1))
+        |> then(&Ash.create!(CheckRunExtension, &1, action: :create, authorize?: false))
 
       existing ->
         if existing.check_run_id == check_run_id,
           do: existing,
-          else: Repo.rollback(:provider_identity_conflict)
+          else: rollback!(:provider_identity_conflict)
     end
   end
 
@@ -1488,7 +1575,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     |> then(&RecordLoader.read_one(CheckRunExtension, &1, authorize?: false))
     |> case do
       {:ok, extension} -> extension
-      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+      {:error, _storage_error} -> rollback!(:integration_storage_unavailable)
     end
   end
 
@@ -1501,12 +1588,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
           |> Map.put(:workspace_id, operation.workspace_id)
           |> Map.put(base_key, base_id)
 
-        Repo.ash_create!(extension, attrs)
+        Ash.create!(extension, attrs, action: :create, authorize?: false)
 
       existing ->
         if Map.fetch!(existing, base_key) == base_id,
           do: existing,
-          else: Repo.rollback(:provider_identity_conflict)
+          else: rollback!(:provider_identity_conflict)
     end
   end
 
@@ -1516,7 +1603,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     |> then(&RecordLoader.read_one(extension, &1, authorize?: false))
     |> case do
       {:ok, record} -> record
-      {:error, _storage_error} -> Repo.rollback(:integration_storage_unavailable)
+      {:error, _storage_error} -> rollback!(:integration_storage_unavailable)
     end
   end
 
@@ -1579,15 +1666,12 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       retry_at: retry_at
     }
 
-    case StorageResult.run(fn ->
-           Repo.transaction(fn ->
-             lock!("github:sync-outcome:#{operation.id}")
+    attrs =
+      attrs
+      |> Map.put(:mode, "record_failure")
+      |> Map.put(:revoke_installation, failure_code == :installation_revoked)
 
-             outcome = persist_outcome!(operation.id, attrs)
-             persist_installation_failure!(installation, failure_code, outcome)
-             outcome
-           end)
-         end) do
+    case persist_outcome_command(operation, attrs) do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, :integration_storage_unavailable} -> retryable_storage_error()
     end
@@ -1607,28 +1691,40 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       retry_at: nil
     }
 
-    case StorageResult.run(fn ->
-           Repo.transaction(fn ->
-             lock!("github:sync-outcome:#{operation.id}")
-             persist_outcome!(operation.id, attrs)
-           end)
-         end) do
+    case persist_outcome_command(operation, Map.put(attrs, :mode, "record_storage_failure")) do
       {:ok, outcome} -> replay_outcome(outcome, request)
       {:error, :integration_storage_unavailable} -> retryable_storage_error()
     end
   end
 
   defp persist_installation_failure!(
-         installation,
-         :installation_revoked,
+         operation,
+         installation_id,
+         true,
          %SyncOutcome{state: "terminal", failure_code: "installation_revoked"}
        ) do
-    installation
-    |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
-    |> Repo.ash_update!()
+    installation =
+      Installation
+      |> Ash.Query.filter(id == ^installation_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+
+    if installation.organization_id == operation.organization_id and
+         installation.workspace_id == operation.workspace_id and
+         installation.service_principal_id == operation.principal_id do
+      if installation.lifecycle_state == "revoked" do
+        installation
+      else
+        installation
+        |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
+        |> Ash.update!(authorize?: false)
+      end
+    else
+      rollback!(:forbidden)
+    end
   end
 
-  defp persist_installation_failure!(_installation, _failure_code, _outcome), do: :ok
+  defp persist_installation_failure!(_operation, _installation_id, _revoke?, _outcome), do: :ok
 
   defp classify_failure({:rate_limited, %DateTime{} = reset_at}),
     do: {:retryable, :provider_rate_limited, reset_at}
@@ -1697,9 +1793,13 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp persisted_failure_code(_failure_code), do: {:error, :forbidden}
 
-  defp outcome_by_operation(operation_id) do
-    SyncOutcome
-    |> Ash.Query.filter(operation_id == ^operation_id)
+  defp outcome_by_operation(operation_id, opts \\ []) do
+    query =
+      SyncOutcome
+      |> Ash.Query.filter(operation_id == ^operation_id)
+      |> maybe_lock_outcome(opts[:lock?])
+
+    query
     |> then(&RecordLoader.read_one(SyncOutcome, &1, authorize?: false))
     |> case do
       {:ok, outcome} -> {:ok, outcome}
@@ -1707,13 +1807,19 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
     end
   end
 
+  defp locked_outcome_by_operation(operation_id),
+    do: outcome_by_operation(operation_id, lock?: true)
+
+  defp maybe_lock_outcome(query, true), do: Ash.Query.lock(query, :for_update)
+  defp maybe_lock_outcome(query, _lock?), do: query
+
   defp retryable_storage_error,
     do: {:error, {:retryable, :integration_storage_unavailable}}
 
   defp persist_outcome!(operation_id, attrs) do
-    case outcome_by_operation(operation_id) do
+    case locked_outcome_by_operation(operation_id) do
       {:ok, nil} ->
-        Repo.ash_create!(SyncOutcome, attrs)
+        Ash.create!(SyncOutcome, attrs, action: :create, authorize?: false)
 
       {:ok, %SyncOutcome{state: "retryable"} = outcome} ->
         result_attrs =
@@ -1728,52 +1834,55 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
         outcome
         |> Ash.Changeset.for_update(:record_result, result_attrs)
-        |> Repo.ash_update!()
+        |> Ash.update!(authorize?: false)
 
       {:ok, outcome} ->
         outcome
 
       {:error, error} ->
-        Repo.rollback(error)
+        rollback!(error)
     end
   end
 
-  defp finalize_failure!(operation, request, failure_code_atom, failure_code) do
-    case outcome_by_operation(operation.id) do
+  defp finalize_failure!(operation, attrs) do
+    {:ok, failure_code_atom} = persisted_failure_code(attrs.failure_code)
+
+    case locked_outcome_by_operation(operation.id) do
       {:ok, %SyncOutcome{} = outcome} ->
-        if outcome_matches_request?(outcome, request) do
+        if outcome_matches_attrs?(outcome, attrs) do
           cond do
             outcome.state == "retryable" and failure_code_atom in @retryable_failure_codes ->
               terminalize_retry_outcome!(outcome, failure_code_atom)
 
-            outcome.state in @finished_failure_states and outcome.failure_code == failure_code ->
+            outcome.state in @finished_failure_states and
+                outcome.failure_code == attrs.failure_code ->
               outcome
 
             true ->
-              Repo.rollback(:forbidden)
+              rollback!(:forbidden)
           end
         else
-          Repo.rollback(:forbidden)
+          rollback!(:forbidden)
         end
 
       {:ok, nil} when failure_code_atom in @retryable_failure_codes ->
         attrs =
           terminal_outcome_attrs(
             operation,
-            request.installation_id,
-            request.object_type,
-            request.object_id,
-            request.delivery_id,
+            attrs.installation_id,
+            attrs.object_type,
+            attrs.object_id,
+            attrs.delivery_id,
             failure_code_atom
           )
 
         persist_outcome!(operation.id, attrs)
 
       {:ok, nil} ->
-        Repo.rollback(:forbidden)
+        rollback!(:forbidden)
 
       {:error, error} ->
-        Repo.rollback(error)
+        rollback!(error)
     end
   end
 
@@ -1807,31 +1916,19 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       failure_code: Atom.to_string(failure_code),
       retry_at: nil
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
   end
 
   defp terminalize_retry_outcome!(%SyncOutcome{state: "terminal"} = outcome, _failure_code),
     do: outcome
 
   defp terminalize_retry_outcome!(_outcome, _failure_code),
-    do: Repo.rollback(:invalid_sync_outcome_state)
-
-  defp outcome_matches_request?(outcome, request) do
-    outcome.object_type == request.object_type and outcome.object_id == request.object_id and
-      outcome.delivery_id == request.delivery_id
-  end
+    do: rollback!(:invalid_sync_outcome_state)
 
   defp persist_pre_operation(operation, attrs) do
-    StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        lock!("github:sync-outcome:#{operation.id}")
-        outcome = persist_outcome!(operation.id, attrs)
-
-        if pre_operation_outcome?(outcome, attrs),
-          do: outcome,
-          else: Repo.rollback(:forbidden)
-      end)
-    end)
+    attrs
+    |> Map.put(:mode, "pre_operation")
+    |> then(&persist_outcome_command(operation, &1))
   end
 
   defp pre_operation_outcome?(outcome, attrs) do
@@ -1841,11 +1938,91 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
       outcome.failure_class == attrs.failure_class and outcome.failure_code == attrs.failure_code
   end
 
-  defp lock!(key), do: Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
+  defp persist_outcome_command(operation, attrs) do
+    action_attrs =
+      attrs
+      |> Map.take([
+        :mode,
+        :installation_id,
+        :object_type,
+        :object_id,
+        :delivery_id,
+        :state,
+        :failure_class,
+        :failure_code,
+        :retry_at,
+        :revoke_installation
+      ])
+      |> Map.put(:operation_id, operation.id)
+
+    StorageResult.run(fn ->
+      SyncOutcome
+      |> Ash.ActionInput.for_action(:persist_reconciliation_outcome, action_attrs)
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
+    end)
+  end
+
+  defp persist_outcome_action(attrs) do
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id),
+         :ok <-
+           validate_retry_request_authority(operation, %{
+             installation_id: attrs.installation_id
+           }) do
+      case attrs.mode do
+        "record_failure" ->
+          outcome = persist_outcome!(operation.id, outcome_attrs(attrs))
+
+          persist_installation_failure!(
+            operation,
+            attrs.installation_id,
+            attrs.revoke_installation,
+            outcome
+          )
+
+          {:ok, outcome}
+
+        "record_storage_failure" ->
+          {:ok, persist_outcome!(operation.id, outcome_attrs(attrs))}
+
+        "finalize_failure" ->
+          {:ok, finalize_failure!(operation, attrs)}
+
+        "pre_operation" ->
+          outcome = persist_outcome!(operation.id, outcome_attrs(attrs))
+
+          if pre_operation_outcome?(outcome, attrs),
+            do: {:ok, outcome},
+            else: {:error, :forbidden}
+      end
+    end
+  end
+
+  defp outcome_attrs(attrs) do
+    Map.take(attrs, [
+      :installation_id,
+      :operation_id,
+      :object_type,
+      :object_id,
+      :delivery_id,
+      :state,
+      :failure_class,
+      :failure_code,
+      :retry_at
+    ])
+    |> Map.put_new(:signal_ids, [])
+  end
+
+  defp outcome_matches_attrs?(outcome, attrs) do
+    outcome.object_type == attrs.object_type and outcome.object_id == attrs.object_id and
+      outcome.delivery_id == attrs.delivery_id
+  end
 
   defp resource_type(record),
     do: record.__struct__ |> Module.split() |> List.last() |> Macro.underscore()
 
   defp unwrap!({:ok, value}), do: value
-  defp unwrap!({:error, error}), do: Repo.rollback(error)
+  defp unwrap!({:error, error}), do: rollback!(error)
+
+  defp rollback!(error), do: ActionSupport.rollback(SyncOutcome, error)
 end

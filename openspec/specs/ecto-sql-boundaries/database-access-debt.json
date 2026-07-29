@@ -73,55 +73,6 @@
     {
       "occurrences": [
         [
-          "sha256:91083427193ccc8b796833c883ee453f216297f590911c181ac8f7d3d7c86c14",
-          "direct_ecto",
-          "Repo.transaction",
-          "finalize_failure/3",
-          1
-        ],
-        [
-          "sha256:f1d125aa9a0953a646ee8d92ae56e82789da1f48816160eec2fd9d433f1fc9c3",
-          "direct_ecto",
-          "Repo.transaction",
-          "reconcile_snapshot/5",
-          1
-        ],
-        [
-          "sha256:790723ff685f6d815c24f7568c003dc2cac4c2de52d35913e3ec491403dcfe47",
-          "direct_ecto",
-          "Repo.transaction",
-          "record_failure/4",
-          1
-        ],
-        [
-          "sha256:5c39d0a83cc0890cea0271acbbc28758e82c1dbeba939c0e60d1262f43bc724c",
-          "direct_ecto",
-          "Repo.transaction",
-          "record_storage_failure/2",
-          1
-        ],
-        [
-          "sha256:fdd88d7191ebc476531b96b7e1fa71760369e316813d44892844b7915e208cca",
-          "direct_ecto",
-          "Repo.transaction",
-          "persist_pre_operation/2",
-          1
-        ],
-        [
-          "sha256:3a9458f27aaf7b293362316080fd4fe55848adff31f289578b29659ec75c8ee8",
-          "raw_sql",
-          "Repo.query!",
-          "lock!/1",
-          1
-        ]
-      ],
-      "owner": "OfficeGraph.GithubIntegration",
-      "path": "lib/office_graph/github_integration/services/reconciler.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:5cfbe070a73b85a417df5545651fa29a2495cdf6e8a22aeeef1430399dc00c4c",
           "direct_ecto",
           "Repo.transaction",
