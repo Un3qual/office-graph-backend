@@ -581,7 +581,7 @@ defmodule OfficeGraph.GitHubIntegration.Reconciler do
 
   defp preserve_reconciliation_error({:error, error})
        when is_atom(error) and error != :integration_storage_unavailable,
-    do: {:ok, {:reconciliation_error, error}}
+       do: {:ok, {:reconciliation_error, error}}
 
   defp preserve_reconciliation_error(result), do: result
 

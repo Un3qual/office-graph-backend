@@ -11,13 +11,12 @@ defmodule OfficeGraph.NodeConversations do
       OfficeGraph.Operations,
       OfficeGraph.Projections,
       OfficeGraph.ProposedChanges,
-      OfficeGraph.Repo,
       OfficeGraph.Runs,
       OfficeGraph.WorkGraph
     ],
     exports: []
 
-  alias OfficeGraph.{Authorization, Operations, Repo, Runs}
+  alias OfficeGraph.{Authorization, Operations, Runs}
 
   alias OfficeGraph.NodeConversations.{
     ActionSupport,
@@ -25,12 +24,12 @@ defmodule OfficeGraph.NodeConversations do
     ConversationMessage
   }
 
+  alias OfficeGraph.NodeConversations.Projections.ConversationProjection
   alias OfficeGraph.Projections.CommandAffordance
 
   require Ash.Query
 
   @purpose "agent_runtime"
-  @invocation_control_capabilities ~w(agent.invoke)
   @terminal_execution_states ~w(completed failed cancelled)
 
   def start(session_context, operation, %{run_id: run_id, graph_item_id: graph_item_id}) do
@@ -85,12 +84,13 @@ defmodule OfficeGraph.NodeConversations do
          {:ok, referenced_context} <-
            read_referenced_context(session_context, conversation, messages),
          {:ok, agent_state} <-
-           read_agent_state(session_context, run_id, graph_item_id) do
+           ConversationProjection.read_agent_state(session_context, run, graph_item_id) do
       command_affordances =
         command_affordances(session_context, conversation, agent_state, run, graph_item_id)
 
       {:ok,
        agent_state
+       |> Map.from_struct()
        |> Map.drop([
          :invocation_target,
          :executions,
@@ -221,56 +221,11 @@ defmodule OfficeGraph.NodeConversations do
   end
 
   defp read_visible_context_packages(session_context, conversation, package_ids) do
-    case Repo.query(
-           """
-           SELECT package.id::text, package.version, entry.posture, entry.rationale_code,
-                  entry.ordinal
-           FROM agent_context_packages AS package
-           LEFT JOIN agent_context_entries AS entry
-             ON entry.context_package_id = package.id
-            AND entry.organization_id = $2
-            AND entry.workspace_id = $3
-           WHERE package.id = ANY($1::uuid[])
-             AND package.organization_id = $2
-             AND package.workspace_id = $3
-             AND package.run_id = $4
-             AND package.selected_graph_item_id = $5
-           ORDER BY package.id, entry.ordinal
-           """,
-           [
-             Enum.map(package_ids, &Ecto.UUID.dump!/1),
-             Ecto.UUID.dump!(session_context.organization_id),
-             Ecto.UUID.dump!(session_context.workspace_id),
-             Ecto.UUID.dump!(conversation.run_id),
-             Ecto.UUID.dump!(conversation.graph_item_id)
-           ]
-         ) do
-      {:ok, %{rows: rows}} -> {:ok, context_package_map(rows)}
-      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
-    end
-  end
-
-  defp context_package_map(rows) do
-    rows
-    |> Enum.reduce(%{}, fn [package_id, version, posture, rationale_code, _ordinal], acc ->
-      package =
-        Map.get(acc, package_id, %{
-          visibility: "visible",
-          package_id: package_id,
-          version: version,
-          entries: []
-        })
-
-      entries =
-        if is_binary(posture),
-          do: [%{posture: posture, rationale_code: rationale_code} | package.entries],
-          else: package.entries
-
-      Map.put(acc, package_id, %{package | entries: entries})
-    end)
-    |> Map.new(fn {package_id, package} ->
-      {package_id, %{package | entries: Enum.reverse(package.entries)}}
-    end)
+    ConversationProjection.read_visible_context_packages(
+      session_context,
+      conversation,
+      package_ids
+    )
   end
 
   defp project_message_context(message, referenced_context) do
@@ -286,248 +241,6 @@ defmodule OfficeGraph.NodeConversations do
   defp referenced_context_projection(package_id, referenced_context) do
     Map.get(referenced_context, package_id, %{visibility: "redacted"})
   end
-
-  defp read_agent_state(session_context, run_id, graph_item_id) do
-    with {:ok, %{rows: execution_rows}} <-
-           Repo.query(
-             """
-             SELECT id::text, state, state_version, current_step_key, attempt_count,
-                    failure_code, requested_outcome, invocation_mode, origin, autonomy_mode,
-                    organization_binding_id::text, inserted_at, updated_at
-             FROM (
-               SELECT execution.*
-               FROM agent_executions AS execution
-               WHERE execution.organization_id = $1 AND execution.workspace_id = $2
-                 AND execution.run_id = $3 AND execution.graph_item_id = $4
-               ORDER BY
-                 CASE WHEN execution.state IN ('completed', 'failed', 'cancelled') THEN 1 ELSE 0 END,
-                 execution.inserted_at DESC,
-                 execution.id DESC
-               LIMIT 100
-             ) AS bounded_executions
-             ORDER BY inserted_at, id
-             """,
-             scope_params(session_context, run_id, graph_item_id)
-           ),
-         {:ok, %{rows: approval_rows}} <-
-           Repo.query(
-             """
-             SELECT request.id::text, request.execution_id::text, request.step_key,
-                    request.requested_action, request.reason, request.scope_type,
-                    request.scope_id::text, request.capability_key, request.sensitivity,
-                    request.external_write, request.state, request.version, request.expires_at,
-                    request.resolution_reason, request.inserted_at, request.updated_at
-             FROM (
-               SELECT request.*
-               FROM agent_approval_requests AS request
-               JOIN agent_executions AS execution ON execution.id = request.execution_id
-               WHERE execution.organization_id = $1 AND execution.workspace_id = $2
-                 AND execution.run_id = $3 AND execution.graph_item_id = $4
-               ORDER BY
-                 CASE WHEN request.state = 'pending' THEN 0 ELSE 1 END,
-                 request.inserted_at DESC,
-                 request.id DESC
-               LIMIT 100
-             ) AS request
-             ORDER BY request.inserted_at, request.id
-             """,
-             scope_params(session_context, run_id, graph_item_id)
-           ),
-         {:ok, %{rows: expansion_rows}} <-
-           Repo.query(
-             """
-             SELECT request.id::text, request.execution_id::text, request.step_key,
-                    request.target_resource_type, request.target_resource_id::text,
-                    request.target_scope_type, request.target_scope_id::text,
-                    request.access_mode, request.capability_key, request.reason,
-                    request.sensitivity, request.expected_duration_seconds, request.state,
-                    request.version, request.expires_at, request.resolution_reason,
-                    request.inserted_at, request.updated_at
-             FROM (
-               SELECT request.*
-               FROM agent_context_expansion_requests AS request
-               JOIN agent_executions AS execution ON execution.id = request.execution_id
-               WHERE execution.organization_id = $1 AND execution.workspace_id = $2
-                 AND execution.run_id = $3 AND execution.graph_item_id = $4
-               ORDER BY
-                 CASE WHEN request.state = 'pending' THEN 0 ELSE 1 END,
-                 request.inserted_at DESC,
-                 request.id DESC
-               LIMIT 100
-             ) AS request
-             ORDER BY request.inserted_at, request.id
-             """,
-             scope_params(session_context, run_id, graph_item_id)
-           ),
-         {:ok, %{rows: invocation_rows}} <-
-           Repo.query(
-             """
-             SELECT binding.id::text, definition.requested_capabilities,
-                    definition.default_autonomy_mode
-             FROM agent_organization_bindings AS binding
-             JOIN agent_definitions AS definition ON definition.id = binding.definition_id
-             WHERE binding.organization_id = $1 AND binding.workspace_id = $2
-               AND binding.lifecycle_state = 'active'
-               AND definition.lifecycle_state = 'active'
-               AND definition.key = 'run-review'
-             ORDER BY binding.inserted_at, binding.id
-             LIMIT 1
-             """,
-             Enum.take(scope_params(session_context, run_id, graph_item_id), 2)
-           ) do
-      {:ok,
-       %{
-         executions: Enum.map(execution_rows, &execution_projection/1),
-         approval_requests: Enum.map(approval_rows, &approval_projection/1),
-         context_expansion_requests: Enum.map(expansion_rows, &context_expansion_projection/1),
-         invocation_target: invocation_target(invocation_rows)
-       }}
-    else
-      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
-    end
-  end
-
-  defp scope_params(session_context, run_id, graph_item_id) do
-    [
-      Ecto.UUID.dump!(session_context.organization_id),
-      Ecto.UUID.dump!(session_context.workspace_id),
-      Ecto.UUID.dump!(run_id),
-      Ecto.UUID.dump!(graph_item_id)
-    ]
-  end
-
-  defp execution_projection([
-         id,
-         state,
-         state_version,
-         current_step_key,
-         attempt_count,
-         failure_code,
-         requested_outcome,
-         invocation_mode,
-         origin,
-         autonomy_mode,
-         binding_id,
-         inserted_at,
-         updated_at
-       ]) do
-    %{
-      id: id,
-      state: state,
-      state_version: state_version,
-      current_step_key: current_step_key,
-      attempt_count: attempt_count,
-      failure_code: failure_code,
-      requested_outcome: requested_outcome,
-      invocation_mode: invocation_mode,
-      origin: origin,
-      autonomy_mode: autonomy_mode,
-      binding_id: binding_id,
-      inserted_at: utc_datetime(inserted_at),
-      updated_at: utc_datetime(updated_at)
-    }
-  end
-
-  defp approval_projection([
-         id,
-         execution_id,
-         step_key,
-         requested_action,
-         reason,
-         scope_type,
-         scope_id,
-         capability_key,
-         sensitivity,
-         external_write,
-         state,
-         version,
-         expires_at,
-         resolution_reason,
-         inserted_at,
-         updated_at
-       ]) do
-    %{
-      id: id,
-      execution_id: execution_id,
-      step_key: step_key,
-      requested_action: requested_action,
-      reason: reason,
-      scope_type: scope_type,
-      scope_id: scope_id,
-      capability_key: capability_key,
-      sensitivity: sensitivity,
-      external_write: external_write,
-      state: state,
-      version: version,
-      expires_at: utc_datetime(expires_at),
-      resolution_reason: resolution_reason,
-      inserted_at: utc_datetime(inserted_at),
-      updated_at: utc_datetime(updated_at)
-    }
-  end
-
-  defp context_expansion_projection([
-         id,
-         execution_id,
-         step_key,
-         target_resource_type,
-         target_resource_id,
-         target_scope_type,
-         target_scope_id,
-         access_mode,
-         capability_key,
-         reason,
-         sensitivity,
-         expected_duration_seconds,
-         state,
-         version,
-         expires_at,
-         resolution_reason,
-         inserted_at,
-         updated_at
-       ]) do
-    %{
-      id: id,
-      execution_id: execution_id,
-      step_key: step_key,
-      target_resource_type: target_resource_type,
-      target_resource_id: target_resource_id,
-      target_scope_type: target_scope_type,
-      target_scope_id: target_scope_id,
-      access_mode: access_mode,
-      capability_key: capability_key,
-      reason: reason,
-      sensitivity: sensitivity,
-      expected_duration_seconds: expected_duration_seconds,
-      state: state,
-      version: version,
-      expires_at: utc_datetime(expires_at),
-      resolution_reason: resolution_reason,
-      inserted_at: utc_datetime(inserted_at),
-      updated_at: utc_datetime(updated_at)
-    }
-  end
-
-  defp utc_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
-  defp utc_datetime(%DateTime{} = value), do: value
-  defp utc_datetime(nil), do: nil
-
-  defp invocation_target([[binding_id, requested_capabilities, autonomy_mode]]) do
-    delegated_capabilities =
-      requested_capabilities
-      |> Kernel.--(@invocation_control_capabilities)
-      |> Enum.sort()
-
-    if delegated_capabilities != [] do
-      %{
-        binding_id: binding_id,
-        requested_capabilities: delegated_capabilities,
-        autonomy_mode: autonomy_mode
-      }
-    end
-  end
-
-  defp invocation_target(_rows), do: nil
 
   defp command_affordances(session_context, conversation, agent_state, run, graph_item_id) do
     now = DateTime.utc_now()

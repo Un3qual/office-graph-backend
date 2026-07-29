@@ -73,48 +73,6 @@
     {
       "occurrences": [
         [
-          "sha256:f5d135f44c742718b5c5db9c1f848f732340f25788d0e2bdd490f806ee2e3319",
-          "raw_sql",
-          "Repo.query",
-          "read_visible_context_packages/3",
-          1
-        ],
-        [
-          "sha256:6205580591ad46093e49a62207555bb7fb147175507040edaa3e8bae12226e56",
-          "raw_sql",
-          "Repo.query",
-          "read_agent_state/3",
-          1
-        ],
-        [
-          "sha256:fb0e3784ce951d6842f51bf55ebda99c72f38d80c6f40251575fbf2c57f11f58",
-          "raw_sql",
-          "Repo.query",
-          "read_agent_state/3",
-          2
-        ],
-        [
-          "sha256:db050ed7411472dd87bd4ee1c0ad67104e7bd5e6f6384dc6961997ddbdecdaa6",
-          "raw_sql",
-          "Repo.query",
-          "read_agent_state/3",
-          3
-        ],
-        [
-          "sha256:cd11146bbd2d995b9054a37c02c67f38ad5fb4818db1cd8ea6cd9af3c3e97f9d",
-          "raw_sql",
-          "Repo.query",
-          "read_agent_state/3",
-          4
-        ]
-      ],
-      "owner": "OfficeGraph.NodeConversations",
-      "path": "lib/office_graph/node_conversations.ex",
-      "remediation_change": "remove-direct-database-access"
-    },
-    {
-      "occurrences": [
-        [
           "sha256:ea9115b152536d535f6c00afded5fc958ebefad621e653a7d0f7b212ed7c8456",
           "raw_sql",
           "Repo.query",
