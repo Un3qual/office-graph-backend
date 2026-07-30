@@ -7,6 +7,8 @@ defmodule OfficeGraph.Identity do
 
   alias OfficeGraph.Identity.{
     ExternalIdentityReconciliation,
+    DirectoryIdentityResult,
+    ExternalIdentityLink,
     HumanSessions,
     OidcLoginTransaction,
     Principal,
@@ -181,6 +183,33 @@ defmodule OfficeGraph.Identity do
   defdelegate reconcile_oidc_identity_with_evidence(claims, opts),
     to: ExternalIdentityReconciliation,
     as: :reconcile_with_evidence
+
+  def reconcile_directory_identity(attrs) when is_map(attrs) do
+    ExternalIdentityLink
+    |> Ash.ActionInput.for_action(:reconcile_directory_identity, attrs)
+    |> Ash.run_action(authorize?: false)
+    |> case do
+      {:ok, %DirectoryIdentityResult{} = result} ->
+        DirectoryIdentityResult.to_reconciliation_result(result)
+
+      {:error, _storage_error} ->
+        {:error, :identity_storage_unavailable}
+    end
+  end
+
+  def reconcile_directory_identity(_attrs), do: {:error, :invalid_identity_claims}
+
+  def deprovision_directory_identity(attrs) when is_map(attrs) do
+    ExternalIdentityLink
+    |> Ash.ActionInput.for_action(:deprovision_directory_identity, attrs)
+    |> Ash.run_action(authorize?: false)
+    |> case do
+      {:ok, %DirectoryIdentityResult{status: "deprovisioned"}} -> :ok
+      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+    end
+  end
+
+  def deprovision_directory_identity(_attrs), do: {:error, :invalid_identity_claims}
 
   defdelegate issue_human_session(principal, link, scope, opts),
     to: HumanSessions,

@@ -80,6 +80,30 @@ defmodule OfficeGraph.EnterpriseIdentity.Directory do
       validate one_of(:status, ~w(active disabled deleted)),
         where: [changing(:status)]
     end
+
+    action :apply_event,
+           Module.concat([OfficeGraph, EnterpriseIdentity, DirectoryApplyResult]) do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Identity.Principal,
+        OfficeGraph.Identity.ExternalIdentityLink,
+        OfficeGraph.EnterpriseIdentity.DirectoryUser,
+        OfficeGraph.EnterpriseIdentity.DirectoryGroup,
+        OfficeGraph.EnterpriseIdentity.DirectoryMembership
+      ]
+
+      argument :directory_id, :uuid, allow_nil?: false
+      argument :operation_id, :uuid, allow_nil?: false
+
+      argument :event,
+               OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent,
+               allow_nil?: false
+
+      run Module.concat([OfficeGraph, EnterpriseIdentity, Actions, ApplyDirectoryEvent])
+    end
   end
 
   identities do

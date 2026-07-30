@@ -373,6 +373,36 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
       run OfficeGraph.Identity.Actions.ReconcileExternalIdentity
     end
+
+    action :reconcile_directory_identity,
+           Module.concat([OfficeGraph, Identity, DirectoryIdentityResult]) do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Identity.Principal]
+
+      argument :provider_tenant, :string, allow_nil?: false
+      argument :subject, :string, allow_nil?: false
+      argument :verified_email, :string, allow_nil?: false
+      argument :current_principal_id, :uuid
+      argument :current_principal_origin, :string
+
+      run Module.concat([OfficeGraph, Identity, Actions, ReconcileDirectoryIdentity])
+    end
+
+    action :deprovision_directory_identity,
+           Module.concat([OfficeGraph, Identity, DirectoryIdentityResult]) do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Identity.Principal]
+
+      argument :provider_tenant, :string, allow_nil?: false
+      argument :principal_id, :uuid
+      argument :external_identity_link_id, :uuid
+      argument :principal_origin, :string
+      argument :disabled_at, :utc_datetime_usec, allow_nil?: false
+
+      run Module.concat([OfficeGraph, Identity, Actions, DeprovisionDirectoryIdentity])
+    end
   end
 
   identities do

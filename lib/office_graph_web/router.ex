@@ -42,6 +42,7 @@ defmodule OfficeGraphWeb.Router do
     pipe_through :api
 
     post "/v1/webhooks/github", GitHubWebhookController, :create
+    post "/v1/webhooks/workos", WorkOSWebhookController, :create
   end
 
   scope "/api", OfficeGraphWeb do

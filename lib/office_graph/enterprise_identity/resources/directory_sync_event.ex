@@ -90,6 +90,47 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectorySyncEvent do
 
       require_atomic? false
     end
+
+    action :record_receipt,
+           Module.concat([OfficeGraph, EnterpriseIdentity, DirectoryReceiptResult]) do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Integrations.ExternalSource,
+        OfficeGraph.Integrations.RawArchive
+      ]
+
+      argument :event,
+               OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent,
+               allow_nil?: false
+
+      argument :raw_body, :string, allow_nil?: false, constraints: [trim?: false]
+
+      run Module.concat([OfficeGraph, EnterpriseIdentity, Actions, RecordDirectoryReceipt])
+    end
+
+    action :process_event,
+           Module.concat([OfficeGraph, EnterpriseIdentity, DirectoryProcessingResult]) do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Integrations.RawArchive,
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Identity.Principal,
+        OfficeGraph.Identity.ExternalIdentityLink,
+        OfficeGraph.EnterpriseIdentity.DirectoryUser,
+        OfficeGraph.EnterpriseIdentity.DirectoryGroup,
+        OfficeGraph.EnterpriseIdentity.DirectoryMembership
+      ]
+
+      argument :sync_event_id, :uuid, allow_nil?: false
+      argument :provider_event_id, :string, allow_nil?: false
+
+      run Module.concat([OfficeGraph, EnterpriseIdentity, Actions, ProcessDirectorySyncEvent])
+    end
   end
 
   identities do

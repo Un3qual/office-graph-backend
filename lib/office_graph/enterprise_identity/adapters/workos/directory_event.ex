@@ -1,27 +1,17 @@
 defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent do
   @moduledoc false
 
-  @enforce_keys [
-    :provider_event_id,
-    :event_type,
-    :directory_id,
-    :resource_kind,
-    :action,
-    :provider_occurred_at,
-    :data
-  ]
+  use Ash.TypedStruct
 
-  defstruct @enforce_keys
-
-  @type t :: %__MODULE__{
-          provider_event_id: String.t(),
-          event_type: String.t(),
-          directory_id: String.t(),
-          resource_kind: :user | :group | :membership,
-          action: :upsert | :delete | :add | :remove,
-          provider_occurred_at: DateTime.t(),
-          data: map()
-        }
+  typed_struct do
+    field :provider_event_id, :string, allow_nil?: false
+    field :event_type, :string, allow_nil?: false
+    field :directory_id, :string, allow_nil?: false
+    field :resource_kind, :atom, allow_nil?: false
+    field :action, :atom, allow_nil?: false
+    field :provider_occurred_at, :utc_datetime_usec, allow_nil?: false
+    field :data, :map, allow_nil?: false
+  end
 
   @maximum_body_bytes 1_000_000
   @maximum_identity_bytes 255
@@ -156,7 +146,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent do
   end
 
   defp new_event(common, directory_id, data) do
-    %__MODULE__{
+    new!(
       provider_event_id: common.provider_event_id,
       event_type: common.event_type,
       directory_id: directory_id,
@@ -164,7 +154,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent do
       action: common.action,
       provider_occurred_at: common.provider_occurred_at,
       data: data
-    }
+    )
   end
 
   defp primary_email(emails) when is_list(emails) do

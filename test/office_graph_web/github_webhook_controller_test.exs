@@ -53,7 +53,7 @@ defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
              |> json_response(422)
   end
 
-  test "raw body buffering is limited to the GitHub webhook endpoint" do
+  test "raw body buffering is limited to the signed webhook endpoints" do
     graphql_conn = Plug.Test.conn(:post, "/api/graphql", ~s({"query":"{ __typename }"}))
 
     assert {:ok, _body, graphql_conn} = RawBodyReader.read_body(graphql_conn, [])
@@ -63,6 +63,11 @@ defmodule OfficeGraphWeb.GitHubWebhookControllerTest do
 
     assert {:ok, _body, webhook_conn} = RawBodyReader.read_body(webhook_conn, [])
     assert RawBodyReader.body(webhook_conn) == ~s({"action":"opened"})
+
+    workos_conn = Plug.Test.conn(:post, "/api/v1/webhooks/workos", ~s({"event":"test"}))
+
+    assert {:ok, _body, workos_conn} = RawBodyReader.read_body(workos_conn, [])
+    assert RawBodyReader.body(workos_conn) == ~s({"event":"test"})
   end
 
   defp post_raw(conn, body, headers) do

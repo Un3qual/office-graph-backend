@@ -83,17 +83,19 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookContractTest do
     assert event.directory_id == "directory_01"
     assert event.resource_kind == :user
     assert event.action == :upsert
-    assert event.provider_occurred_at == ~U[2026-07-29 20:00:00.000Z]
+    assert DateTime.compare(event.provider_occurred_at, ~U[2026-07-29 20:00:00.000Z]) == :eq
 
-    assert event.data == %{
+    assert %{
              provider_user_id: "directory_user_01",
              idp_id: "idp_user_01",
              email: "person@example.com",
              first_name: "Ada",
              last_name: "Lovelace",
              status: "active",
-             provider_updated_at: ~U[2026-07-29 19:59:00.000Z]
-           }
+             provider_updated_at: provider_updated_at
+           } = event.data
+
+    assert DateTime.compare(provider_updated_at, ~U[2026-07-29 19:59:00.000Z]) == :eq
 
     refute inspect(event) =~ "administrator"
     refute inspect(event) =~ "do-not-trust"

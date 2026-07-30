@@ -9,6 +9,7 @@ defmodule OfficeGraph do
       CommandSupport.CommandError,
       CommandSupport.TypedId,
       DurableDelivery,
+      EnterpriseIdentity,
       GitHubIntegration,
       Identity.SessionContext,
       Integrations,

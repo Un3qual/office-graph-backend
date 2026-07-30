@@ -19,5 +19,8 @@ defmodule OfficeGraphWeb.RawBodyReader do
   defp maybe_append_raw_body(%Plug.Conn{request_path: "/api/v1/webhooks/github"} = conn, body),
     do: append_raw_body(conn, body)
 
+  defp maybe_append_raw_body(%Plug.Conn{request_path: "/api/v1/webhooks/workos"} = conn, body),
+    do: append_raw_body(conn, body)
+
   defp maybe_append_raw_body(conn, _body), do: conn
 end
