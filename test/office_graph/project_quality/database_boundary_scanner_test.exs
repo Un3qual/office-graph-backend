@@ -28,6 +28,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert String.starts_with?(occurrence.fingerprint, "sha256:")
   end
 
+  test "classifies repository operations through an explicit alias" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo, as: Database
+
+            def persist(changeset) do
+              Database.query!("SELECT 1", [])
+              Database.insert(changeset)
+            end
+          end
+          """
+        }
+      ])
+
+    assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
+             MapSet.new([
+               {:raw_sql, "Repo.query!"},
+               {:direct_ecto, "Repo.insert"}
+             ])
+  end
+
   test "classifies SQL adapter calls and fragments as raw SQL" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

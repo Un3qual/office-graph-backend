@@ -12,9 +12,12 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
 
   alias OfficeGraph.EnterpriseIdentity.{
     Directory,
-    EnterpriseConnection
+    DirectoryGroup,
+    EnterpriseConnection,
+    ExternalGroupRoleMapping
   }
 
+  alias OfficeGraph.Authorization.Role
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
   alias OfficeGraph.Identity.Session
 
@@ -136,6 +139,59 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
                login.transaction,
                []
              )
+  end
+
+  test "organization-wide mapped identity completes login into the connection workspace" do
+    context = enterprise_context("organization-mapping", "required")
+    email = "#{unique("organization-mapped-user")}@example.test"
+    idp_id = "idp_organization_mapping"
+
+    user = provision_organization_mapped_user(context, email, idp_id)
+
+    assert {:ok,
+            %{
+              organization_id: organization_id,
+              workspace_id: nil
+            }} = Authorization.resolve_login_scope(user.principal_id)
+
+    assert organization_id == context.bootstrap.organization.id
+
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:#{idp_id}",
+         idp_id: idp_id,
+         verified_email: email,
+         first_name: "Grace",
+         last_name: "Hopper",
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    assert {:ok, login} =
+             Authentication.begin_workos_login(
+               context.connection.id,
+               @redirect_uri,
+               trace_id: "organization-mapping-login-start"
+             )
+
+    assert {:ok, completed} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               login.transaction.state,
+               login.transaction,
+               trace_id: "organization-mapping-login-complete",
+               source_surface: "web"
+             )
+
+    assert completed.principal.id == user.principal_id
+    assert completed.session.organization_id == context.bootstrap.organization.id
+    assert completed.session.workspace_id == context.bootstrap.workspace.id
+
+    assert {:ok, session_context} = Authentication.resolve_session(completed.session.id)
+    assert session_context.workspace_id == context.bootstrap.workspace.id
   end
 
   test "browser routes preserve the connection-bound transaction through callback", %{conn: conn} do
@@ -387,6 +443,82 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
       event,
       context.operation.id
     )
+  end
+
+  defp provision_organization_mapped_user(context, email, idp_id) do
+    event_time = ~U[2026-07-30 20:00:00Z]
+
+    assert {:ok, %{status: :applied, resource: user}} =
+             provision_directory_user(context, email, idp_id)
+
+    group_event =
+      DirectoryEvent.new!(
+        provider_event_id: unique("group-event"),
+        event_type: "dsync.group.created",
+        directory_id: context.directory.provider_directory_id,
+        resource_kind: :group,
+        action: :upsert,
+        provider_occurred_at: event_time,
+        data: %{
+          provider_group_id: "directory_group_organization",
+          name: "Organization Engineering",
+          status: "active",
+          provider_updated_at: event_time
+        }
+      )
+
+    assert {:ok, %{status: :applied, resource: %DirectoryGroup{} = group}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               group_event,
+               context.operation.id
+             )
+
+    membership_event =
+      DirectoryEvent.new!(
+        provider_event_id: unique("membership-event"),
+        event_type: "dsync.group.user_added",
+        directory_id: context.directory.provider_directory_id,
+        resource_kind: :membership,
+        action: :add,
+        provider_occurred_at: event_time,
+        data: %{
+          provider_group_id: "directory_group_organization",
+          provider_user_id: "directory_user_01",
+          status: "active",
+          provider_updated_at: event_time
+        }
+      )
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               membership_event,
+               context.operation.id
+             )
+
+    role =
+      Role
+      |> Ash.Query.filter(
+        organization_id == ^context.bootstrap.organization.id and key == "owner"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.create!(
+      ExternalGroupRoleMapping,
+      %{
+        directory_group_id: group.id,
+        role_id: role.id,
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: nil,
+        operation_id: context.operation.id,
+        status: "active"
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    user
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)

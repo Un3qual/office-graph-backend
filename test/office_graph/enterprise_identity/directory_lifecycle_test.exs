@@ -12,7 +12,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     ExternalGroupRoleMapping
   }
 
-  alias OfficeGraph.Authorization.Role
+  alias OfficeGraph.Authorization.{Role, RoleAssignment}
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
   alias OfficeGraph.Identity.{ExternalIdentityLink, Principal}
   alias OfficeGraph.QueryCounter
@@ -511,6 +511,184 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
                connection.id,
                %{status: "disabled"}
              )
+  end
+
+  test "organization-wide connection and mapping management preserve explicit nil scope" do
+    {:ok, bootstrap} =
+      Foundation.bootstrap_local_owner(
+        organization_slug: unique("organization-management-organization"),
+        workspace_slug: unique("organization-management-workspace"),
+        initiative_slug: unique("organization-management-initiative"),
+        owner_email: "#{unique("organization-management-owner")}@example.test"
+      )
+
+    {:ok, webhook_principal} =
+      Identity.ensure_system_principal(
+        "#{unique("organization-management-webhook")}@office-graph.local",
+        "webhook"
+      )
+
+    {:ok, workspace_operation} =
+      Operations.start_operation(bootstrap.session, :enterprise_identity_manage)
+
+    assert {:error, :forbidden} =
+             EnterpriseIdentity.create_connection(
+               bootstrap.session,
+               workspace_operation,
+               %{
+                 workspace_id: nil,
+                 webhook_principal_id: webhook_principal.id,
+                 provider: "workos",
+                 provider_organization_id: unique("denied-workos-organization"),
+                 directory_requirement: "required",
+                 status: "active"
+               }
+             )
+
+    role =
+      Role
+      |> Ash.Query.filter(organization_id == ^bootstrap.organization.id and key == "owner")
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.create!(
+      RoleAssignment,
+      %{
+        principal_id: bootstrap.principal.id,
+        role_id: role.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: nil
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    assert :ok =
+             Authorization.ensure_system_role(
+               webhook_principal,
+               %{organization_id: bootstrap.organization.id, workspace_id: nil},
+               [:provider_webhook_receive]
+             )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :enterprise_identity_manage)
+
+    assert {:ok, workspace_connection} =
+             EnterpriseIdentity.create_connection(bootstrap.session, operation, %{
+               webhook_principal_id: webhook_principal.id,
+               provider: "workos",
+               provider_organization_id: unique("workspace-workos-organization"),
+               directory_requirement: "required",
+               status: "active"
+             })
+
+    workspace_directory =
+      Ash.create!(
+        Directory,
+        %{
+          connection_id: workspace_connection.id,
+          operation_id: operation.id,
+          provider_directory_id: unique("workspace-managed-directory"),
+          status: "active",
+          provider_updated_at: ~U[2026-07-30 19:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    workspace_group =
+      Ash.create!(
+        DirectoryGroup,
+        %{
+          directory_id: workspace_directory.id,
+          provider_group_id: unique("workspace-managed-group"),
+          name: "Workspace Engineering",
+          status: "active",
+          provider_updated_at: ~U[2026-07-30 20:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:error, :forbidden} =
+             EnterpriseIdentity.create_group_role_mapping(
+               bootstrap.session,
+               operation,
+               %{
+                 workspace_id: nil,
+                 directory_group_id: workspace_group.id,
+                 role_id: role.id,
+                 status: "active"
+               }
+             )
+
+    assert {:ok, connection} =
+             EnterpriseIdentity.create_connection(bootstrap.session, operation, %{
+               workspace_id: nil,
+               webhook_principal_id: webhook_principal.id,
+               provider: "workos",
+               provider_organization_id: unique("organization-workos-organization"),
+               directory_requirement: "required",
+               status: "active"
+             })
+
+    assert connection.workspace_id == nil
+
+    directory =
+      Ash.create!(
+        Directory,
+        %{
+          connection_id: connection.id,
+          operation_id: operation.id,
+          provider_directory_id: unique("organization-managed-directory"),
+          status: "active",
+          provider_updated_at: ~U[2026-07-30 19:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    group =
+      Ash.create!(
+        DirectoryGroup,
+        %{
+          directory_id: directory.id,
+          provider_group_id: unique("organization-managed-group"),
+          name: "Organization Engineering",
+          status: "active",
+          provider_updated_at: ~U[2026-07-30 20:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:ok, mapping} =
+             EnterpriseIdentity.create_group_role_mapping(
+               bootstrap.session,
+               operation,
+               %{
+                 workspace_id: nil,
+                 directory_group_id: group.id,
+                 role_id: role.id,
+                 status: "active"
+               }
+             )
+
+    assert mapping.workspace_id == nil
+
+    assert {:ok, disabled_mapping} =
+             EnterpriseIdentity.set_group_role_mapping_lifecycle(
+               bootstrap.session,
+               operation,
+               mapping.id,
+               %{
+                 workspace_id: nil,
+                 status: "disabled",
+                 disabled_at: DateTime.utc_now()
+               }
+             )
+
+    assert disabled_mapping.workspace_id == nil
+    assert disabled_mapping.status == "disabled"
   end
 
   defp enterprise_context(label) do

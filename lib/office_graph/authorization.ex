@@ -536,8 +536,9 @@ defmodule OfficeGraph.Authorization do
        })
        when is_binary(organization_id) and is_binary(workspace_id) do
     preferred = %{organization_id: organization_id, workspace_id: workspace_id}
+    organization_scope = %{organization_id: organization_id, workspace_id: nil}
 
-    if preferred in scopes do
+    if preferred in scopes or organization_scope in scopes do
       {:ok, preferred}
     else
       {:error, :scope_selection_required}

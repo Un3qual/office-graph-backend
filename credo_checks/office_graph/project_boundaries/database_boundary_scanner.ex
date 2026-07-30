@@ -61,10 +61,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     migration? = migration_path?(path)
     ast = Code.string_to_quoted!(source, file: path, columns: true)
     declarations = function_declarations(ast)
+    aliases = database_alias_declarations(ast)
 
     {_ast, occurrences} =
       Macro.prewalk(ast, [], fn node, occurrences ->
-        case classify_node(node, migration?) do
+        case classify_node(node, migration?, aliases) do
           nil ->
             {node, occurrences}
 
@@ -120,11 +121,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update_all
   ]
 
+  @database_alias_targets [
+    "Ecto.Adapters.SQL",
+    "Ecto.Multi",
+    "OfficeGraph.Repo",
+    "Postgrex"
+  ]
+
   defp classify_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments},
-         _migration?
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments} = node,
+         _migration?,
+         aliases
        ) do
-    receiver = receiver_name(receiver)
+    receiver =
+      receiver
+      |> receiver_name()
+      |> resolve_receiver(aliases, node_line(node))
 
     cond do
       operation in [:query, :query!] and repo_receiver?(receiver) ->
@@ -144,21 +156,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp classify_node({construct, _metadata, arguments}, _migration?)
+  defp classify_node({construct, _metadata, arguments}, _migration?, _aliases)
        when construct in [:fragment, :unsafe_fragment] and is_list(arguments),
        do: {:raw_sql, to_string(construct)}
 
-  defp classify_node({:execute, _metadata, arguments}, true) when is_list(arguments) do
+  defp classify_node({:execute, _metadata, arguments}, true, _aliases)
+       when is_list(arguments) do
     if Enum.any?(arguments, &sql_literal?/1), do: {:raw_sql, "migration.execute"}
   end
 
-  defp classify_node({:insert, _metadata, arguments}, true) when is_list(arguments),
+  defp classify_node({:insert, _metadata, arguments}, true, _aliases) when is_list(arguments),
     do: {:direct_ecto, "migration.insert"}
 
-  defp classify_node({key, value}, true) when key in [:check, :where] and is_binary(value),
-    do: {:raw_sql, "migration.#{key}"}
+  defp classify_node({key, value}, true, _aliases)
+       when key in [:check, :where] and is_binary(value),
+       do: {:raw_sql, "migration.#{key}"}
 
-  defp classify_node(value, true) when is_binary(value) do
+  defp classify_node(value, true, _aliases) when is_binary(value) do
     cond do
       Regex.match?(~r/\bmd5\s*\(/i, value) ->
         {:raw_sql, "migration.md5"}
@@ -171,10 +185,52 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp classify_node({:unsafe_fragment, sql}, _migration?) when is_binary(sql),
+  defp classify_node({:unsafe_fragment, sql}, _migration?, _aliases) when is_binary(sql),
     do: {:raw_sql, "unsafe_fragment"}
 
-  defp classify_node(_node, _migration?), do: nil
+  defp classify_node(_node, _migration?, _aliases), do: nil
+
+  defp database_alias_declarations(ast) do
+    {_ast, declarations} =
+      Macro.prewalk(ast, [], fn
+        {:alias, metadata, arguments} = node, declarations ->
+          case database_alias_declaration(metadata, arguments) do
+            nil -> {node, declarations}
+            declaration -> {node, [declaration | declarations]}
+          end
+
+        node, declarations ->
+          {node, declarations}
+      end)
+
+    Enum.sort_by(declarations, &elem(&1, 0))
+  end
+
+  defp database_alias_declaration(metadata, [target]),
+    do: database_alias_declaration(metadata, target, [])
+
+  defp database_alias_declaration(metadata, [target, options]) when is_list(options),
+    do: database_alias_declaration(metadata, target, options)
+
+  defp database_alias_declaration(_metadata, _arguments), do: nil
+
+  defp database_alias_declaration(metadata, target, options) do
+    target_name = receiver_name(target)
+
+    if target_name in @database_alias_targets do
+      alias_name =
+        options
+        |> Keyword.get(:as)
+        |> case do
+          nil -> target_name |> String.split(".") |> List.last()
+          explicit_alias -> receiver_name(explicit_alias)
+        end
+
+      if is_binary(alias_name) do
+        {Keyword.get(metadata, :line, 1), alias_name, target_name}
+      end
+    end
+  end
 
   defp function_declarations(ast) do
     {_ast, declarations} =
@@ -213,6 +269,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: to_string(name)
 
   defp receiver_name(_receiver), do: nil
+
+  defp resolve_receiver(nil, _aliases, _line), do: nil
+
+  defp resolve_receiver(receiver, aliases, line) do
+    aliases
+    |> Enum.take_while(fn {declaration_line, _alias_name, _target_name} ->
+      declaration_line <= line
+    end)
+    |> Enum.reverse()
+    |> Enum.find_value(receiver, fn
+      {_declaration_line, ^receiver, target_name} -> target_name
+      _other_alias -> nil
+    end)
+  end
 
   defp repo_receiver?(receiver), do: receiver in ["Repo", "OfficeGraph.Repo"]
 

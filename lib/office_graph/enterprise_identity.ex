@@ -113,8 +113,8 @@ defmodule OfficeGraph.EnterpriseIdentity do
 
   def create_connection(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- validate_management_operation(session_context, operation),
-         :ok <- authorize_management(session_context, operation),
-         :ok <- validate_management_scope(session_context, attrs),
+         {:ok, workspace_id} <- management_workspace_id(session_context, attrs),
+         :ok <- authorize_management(session_context, operation, workspace_id),
          {:ok, true} <- Identity.active_system_principal(attrs[:webhook_principal_id]),
          {:ok, connection} <-
            EnterpriseConnection
@@ -130,7 +130,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
              ])
              |> Map.merge(%{
                organization_id: session_context.organization_id,
-               workspace_id: session_context.workspace_id,
+               workspace_id: workspace_id,
                operation_id: operation.id
              })
            )
@@ -161,9 +161,9 @@ defmodule OfficeGraph.EnterpriseIdentity do
 
   def create_group_role_mapping(session_context, operation, attrs) when is_map(attrs) do
     with :ok <- validate_management_operation(session_context, operation),
-         :ok <- authorize_management(session_context, operation),
-         :ok <- validate_management_scope(session_context, attrs),
-         :ok <- validate_mapping_targets(session_context, attrs),
+         {:ok, workspace_id} <- management_workspace_id(session_context, attrs),
+         :ok <- authorize_management(session_context, operation, workspace_id),
+         :ok <- validate_mapping_targets(session_context, attrs, workspace_id),
          {:ok, mapping} <-
            ExternalGroupRoleMapping
            |> Ash.Changeset.for_create(
@@ -172,7 +172,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
              |> Map.take([:directory_group_id, :role_id, :status, :disabled_at])
              |> Map.merge(%{
                organization_id: session_context.organization_id,
-               workspace_id: session_context.workspace_id,
+               workspace_id: workspace_id,
                operation_id: operation.id
              })
            )
@@ -324,36 +324,48 @@ defmodule OfficeGraph.EnterpriseIdentity do
     end
   end
 
-  defp authorize_management(session_context, operation) do
+  defp authorize_management(session_context, operation, workspace_id) do
     Authorization.authorize_operation(
       session_context,
       operation,
       :enterprise_identity_manage,
       organization_id: session_context.organization_id,
-      workspace_id: session_context.workspace_id
+      workspace_id: workspace_id
     )
   end
 
-  defp validate_management_scope(session_context, attrs) do
+  defp management_workspace_id(session_context, attrs) do
     if attrs[:organization_id] in [nil, session_context.organization_id] and
          attrs[:workspace_id] in [nil, session_context.workspace_id] do
-      :ok
+      {:ok, Map.get(attrs, :workspace_id, session_context.workspace_id)}
     else
       {:error, :forbidden}
     end
   end
 
-  defp validate_mapping_targets(session_context, attrs) do
+  defp validate_mapping_targets(session_context, attrs, workspace_id) do
+    group_query =
+      DirectoryGroup
+      |> Ash.Query.filter(
+        id == ^attrs[:directory_group_id] and status == "active" and
+          directory.status == "active" and
+          directory.connection.status == "active" and
+          directory.connection.organization_id == ^session_context.organization_id
+      )
+      |> then(fn query ->
+        if is_nil(workspace_id) do
+          Ash.Query.filter(query, is_nil(directory.connection.workspace_id))
+        else
+          Ash.Query.filter(
+            query,
+            is_nil(directory.connection.workspace_id) or
+              directory.connection.workspace_id == ^workspace_id
+          )
+        end
+      end)
+
     with {:ok, true} <-
-           DirectoryGroup
-           |> Ash.Query.filter(
-             id == ^attrs[:directory_group_id] and status == "active" and
-               directory.status == "active" and
-               directory.connection.status == "active" and
-               directory.connection.organization_id == ^session_context.organization_id and
-               directory.connection.workspace_id == ^session_context.workspace_id
-           )
-           |> Ash.exists(authorize?: false),
+           Ash.exists(group_query, authorize?: false),
          {:ok, true} <-
            OfficeGraph.Authorization.Role
            |> Ash.Query.filter(
@@ -369,9 +381,10 @@ defmodule OfficeGraph.EnterpriseIdentity do
 
   defp set_management_lifecycle(resource, session_context, operation, id, attrs, accepted) do
     with :ok <- validate_management_operation(session_context, operation),
-         :ok <- authorize_management(session_context, operation),
+         {:ok, workspace_id} <- management_workspace_id(session_context, attrs),
+         :ok <- authorize_management(session_context, operation, workspace_id),
          {:ok, record} when not is_nil(record) <-
-           scoped_management_record(resource, id, session_context),
+           scoped_management_record(resource, id, session_context, workspace_id),
          {:ok, updated} <-
            record
            |> Ash.Changeset.for_update(
@@ -388,12 +401,21 @@ defmodule OfficeGraph.EnterpriseIdentity do
     end
   end
 
-  defp scoped_management_record(resource, id, session_context) do
-    resource
-    |> Ash.Query.filter(
-      id == ^id and organization_id == ^session_context.organization_id and
-        workspace_id == ^session_context.workspace_id
-    )
+  defp scoped_management_record(resource, id, session_context, workspace_id) do
+    query =
+      Ash.Query.filter(
+        resource,
+        id == ^id and organization_id == ^session_context.organization_id
+      )
+
+    query
+    |> then(fn query ->
+      if is_nil(workspace_id) do
+        Ash.Query.filter(query, is_nil(workspace_id))
+      else
+        Ash.Query.filter(query, workspace_id == ^workspace_id)
+      end
+    end)
     |> Ash.read_one(authorize?: false)
   end
 
