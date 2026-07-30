@@ -77,6 +77,11 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
     identity_index_names unique_operation: "conversation_messages_operation_index",
                          unique_agent_step: "conversation_messages_agent_step_index"
+
+    custom_indexes do
+      index [:conversation_id, :inserted_at, :id],
+        name: "conversation_messages_conversation_inserted_at_index"
+    end
   end
 
   attributes do

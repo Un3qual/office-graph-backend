@@ -53,6 +53,110 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies imported SQL adapter calls only within their lexical scope" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule ImportedQuery do
+            import Ecto.Adapters.SQL, only: [query: 3]
+
+            def load(repo) do
+              query(repo, "SELECT 1", [])
+            end
+          end
+
+          defmodule UnrelatedQuery do
+            def load(repo) do
+              query(repo, "SELECT 2", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Ecto.Adapters.SQL.query"
+    assert occurrence.function == "load/1"
+    assert occurrence.line == 5
+  end
+
+  test "does not leak repository aliases across sibling modules" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule DatabaseBacked do
+            alias OfficeGraph.Repo, as: Store
+
+            def load(id), do: Store.get!(Example, id)
+          end
+
+          defmodule CacheBacked do
+            def load(id), do: Store.get!(Example, id)
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "Repo.get!"
+    assert occurrence.function == "load/1"
+    assert occurrence.line == 4
+  end
+
+  test "nested aliases shadow repository aliases without changing the outer scope" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Outer do
+            alias OfficeGraph.Repo, as: Store
+
+            def before(id), do: Store.get!(Example, id)
+
+            defmodule Inner do
+              alias OfficeGraph.Cache, as: Store
+
+              def load(id), do: Store.get!(Example, id)
+            end
+
+            def later(id), do: Store.get!(Example, id)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, & &1.function) == ["before/1", "later/1"]
+    assert Enum.all?(occurrences, &(&1.construct == "Repo.get!"))
+  end
+
+  test "classifies database calls in implicit function exception clauses" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo
+
+            def load(id) do
+              :ok
+            rescue
+              _error -> Repo.get!(Example, id)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "Repo.get!"
+    assert occurrence.function == "load/1"
+    assert occurrence.line == 7
+  end
+
   test "classifies SQL adapter calls and fragments as raw SQL" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

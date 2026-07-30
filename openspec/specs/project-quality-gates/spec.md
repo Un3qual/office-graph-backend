@@ -206,3 +206,31 @@ repository receivers before classifying raw SQL and direct Ecto calls.
   receiver that is not `OfficeGraph.Repo` or its explicit alias
 - **THEN** the scanner MUST NOT classify that call as repository database
   access solely from the function name
+
+#### Scenario: Aliases remain within their lexical scope
+
+- **WHEN** a repository alias is followed by a sibling or nested lexical scope
+  that does not inherit it or explicitly shadows it with a non-database module
+- **THEN** the scanner MUST classify calls using the repository alias only
+  where that alias is active and MUST restore the enclosing alias after leaving
+  a nested scope
+
+### Requirement: Database boundary scanning resolves imported operations
+
+The project-local database-boundary scanner SHALL recognize local calls that
+resolve to imported database operations, including import name and arity
+filters.
+
+#### Scenario: SQL adapter query is imported
+
+- **WHEN** tracked Elixir source imports `Ecto.Adapters.SQL.query/3` and invokes
+  `query/3` as a local call
+- **THEN** the canonical Credo boundary check MUST report the same raw-SQL
+  occurrence it would report for `Ecto.Adapters.SQL.query/3`
+
+#### Scenario: Database imports remain within their lexical scope
+
+- **WHEN** an imported database operation is invoked in its declaring scope and
+  a same-named local call appears in an unrelated sibling scope
+- **THEN** the scanner MUST classify only the call whose lexical import resolves
+  to the database operation

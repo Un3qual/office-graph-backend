@@ -60,23 +60,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_elixir_source(path, source) do
     migration? = migration_path?(path)
     ast = Code.string_to_quoted!(source, file: path, columns: true)
-    declarations = function_declarations(ast)
-    aliases = database_alias_declarations(ast)
-
-    {_ast, occurrences} =
-      Macro.prewalk(ast, [], fn node, occurrences ->
-        case classify_node(node, migration?, aliases) do
-          nil ->
-            {node, occurrences}
-
-          {class, construct} ->
-            line = node_line(node)
-            function = function_at_line(declarations, line)
-            occurrence = occurrence(path, line, function, class, construct, node)
-            {node, [occurrence | occurrences]}
-        end
-      end)
-
+    context = %{function: nil, migration?: migration?, path: path}
+    {_environment, occurrences} = scan_node(ast, empty_environment(), context, [])
     Enum.reverse(occurrences)
   end
 
@@ -128,16 +113,165 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Postgrex"
   ]
 
+  defp scan_node({:__block__, _metadata, expressions}, environment, context, occurrences) do
+    scan_sequence(expressions, environment, context, occurrences)
+  end
+
+  defp scan_node({:defmodule, _metadata, arguments}, environment, context, occurrences) do
+    case block_body(arguments) do
+      nil ->
+        {environment, occurrences}
+
+      body ->
+        child_context = %{context | function: nil}
+
+        {_child_environment, occurrences} =
+          scan_node(body, environment, child_context, occurrences)
+
+        {environment, occurrences}
+    end
+  end
+
+  defp scan_node({kind, _metadata, [head, body_options]}, environment, context, occurrences)
+       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
+    child_context = %{context | function: function_signature(head)}
+
+    {_child_environment, occurrences} =
+      scan_children(body_options, environment, child_context, occurrences)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:fn, _metadata, clauses}, environment, context, occurrences) do
+    {_child_environment, occurrences} =
+      scan_children(clauses, environment, context, occurrences)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:alias, metadata, arguments}, environment, _context, occurrences) do
+    {put_aliases(environment, metadata, arguments), occurrences}
+  end
+
+  defp scan_node({:import, metadata, arguments}, environment, _context, occurrences) do
+    {put_import(environment, metadata, arguments), occurrences}
+  end
+
+  defp scan_node(node, environment, context, occurrences) do
+    occurrences =
+      case classify_node(node, context.migration?, environment) do
+        nil ->
+          occurrences
+
+        {class, construct} ->
+          [
+            occurrence(
+              context.path,
+              node_line(node),
+              context.function,
+              class,
+              construct,
+              node
+            )
+            | occurrences
+          ]
+      end
+
+    scan_children(node, environment, context, occurrences)
+  end
+
+  defp scan_sequence(expressions, environment, context, occurrences) do
+    Enum.reduce(expressions, {environment, occurrences}, fn expression,
+                                                            {environment, occurrences} ->
+      scan_node(expression, environment, context, occurrences)
+    end)
+  end
+
+  defp scan_children({_name, metadata, arguments}, environment, context, occurrences)
+       when is_list(metadata) and is_list(arguments) do
+    scan_isolated_children(arguments, environment, context, occurrences)
+  end
+
+  defp scan_children({_key, value}, environment, context, occurrences) do
+    {_child_environment, occurrences} = scan_node(value, environment, context, occurrences)
+    {environment, occurrences}
+  end
+
+  defp scan_children(values, environment, context, occurrences) when is_list(values) do
+    scan_isolated_children(values, environment, context, occurrences)
+  end
+
+  defp scan_children(_node, environment, _context, occurrences),
+    do: {environment, occurrences}
+
+  defp scan_isolated_children(children, environment, context, occurrences) do
+    occurrences =
+      Enum.reduce(children, occurrences, fn child, occurrences ->
+        {_child_environment, occurrences} = scan_node(child, environment, context, occurrences)
+        occurrences
+      end)
+
+    {environment, occurrences}
+  end
+
   defp classify_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments} = node,
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments},
          _migration?,
-         aliases
+         environment
        ) do
     receiver =
       receiver
       |> receiver_name()
-      |> resolve_receiver(aliases, node_line(node))
+      |> resolve_receiver(environment)
 
+    classify_database_operation(receiver, operation)
+  end
+
+  defp classify_node({construct, _metadata, arguments}, _migration?, _environment)
+       when construct in [:fragment, :unsafe_fragment] and is_list(arguments),
+       do: {:raw_sql, to_string(construct)}
+
+  defp classify_node({:execute, _metadata, arguments}, true, _environment)
+       when is_list(arguments) do
+    if Enum.any?(arguments, &sql_literal?/1), do: {:raw_sql, "migration.execute"}
+  end
+
+  defp classify_node({:insert, _metadata, arguments}, true, _environment)
+       when is_list(arguments),
+       do: {:direct_ecto, "migration.insert"}
+
+  defp classify_node({operation, _metadata, arguments}, _migration?, environment)
+       when is_atom(operation) and is_list(arguments) do
+    environment
+    |> imported_receiver(operation, length(arguments))
+    |> classify_database_operation(operation)
+  end
+
+  defp classify_node({key, value}, true, _environment)
+       when key in [:check, :where] and is_binary(value),
+       do: {:raw_sql, "migration.#{key}"}
+
+  defp classify_node(value, true, _environment) when is_binary(value) do
+    cond do
+      Regex.match?(~r/\bmd5\s*\(/i, value) ->
+        {:raw_sql, "migration.md5"}
+
+      Regex.match?(~r/\binsert\s+into\b/i, value) ->
+        {:raw_sql, "migration.insert"}
+
+      true ->
+        nil
+    end
+  end
+
+  defp classify_node({:unsafe_fragment, sql}, _migration?, _environment) when is_binary(sql),
+    do: {:raw_sql, "unsafe_fragment"}
+
+  defp classify_node(_node, _migration?, _environment), do: nil
+
+  defp classify_database_operation(nil, _operation), do: nil
+
+  defp classify_database_operation(receiver, operation) do
     cond do
       operation in [:query, :query!] and repo_receiver?(receiver) ->
         {:raw_sql, "Repo.#{operation}"}
@@ -156,110 +290,139 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp classify_node({construct, _metadata, arguments}, _migration?, _aliases)
-       when construct in [:fragment, :unsafe_fragment] and is_list(arguments),
-       do: {:raw_sql, to_string(construct)}
+  defp empty_environment, do: %{aliases: %{}, imports: []}
 
-  defp classify_node({:execute, _metadata, arguments}, true, _aliases)
-       when is_list(arguments) do
-    if Enum.any?(arguments, &sql_literal?/1), do: {:raw_sql, "migration.execute"}
-  end
+  defp block_body([_head, body_options]) when is_list(body_options),
+    do: Keyword.get(body_options, :do)
 
-  defp classify_node({:insert, _metadata, arguments}, true, _aliases) when is_list(arguments),
-    do: {:direct_ecto, "migration.insert"}
+  defp block_body(_arguments), do: nil
 
-  defp classify_node({key, value}, true, _aliases)
-       when key in [:check, :where] and is_binary(value),
-       do: {:raw_sql, "migration.#{key}"}
+  defp put_aliases(environment, _metadata, [target]),
+    do: apply_aliases(environment, target, [])
 
-  defp classify_node(value, true, _aliases) when is_binary(value) do
-    cond do
-      Regex.match?(~r/\bmd5\s*\(/i, value) ->
-        {:raw_sql, "migration.md5"}
+  defp put_aliases(environment, _metadata, [target, options]) when is_list(options),
+    do: apply_aliases(environment, target, options)
 
-      Regex.match?(~r/\binsert\s+into\b/i, value) ->
-        {:raw_sql, "migration.insert"}
+  defp put_aliases(environment, _metadata, _arguments), do: environment
 
-      true ->
-        nil
-    end
-  end
+  defp apply_aliases(environment, target, options) do
+    bindings =
+      target
+      |> alias_target_names()
+      |> Enum.map(fn target_name ->
+        resolved_target = resolve_receiver(target_name, environment)
 
-  defp classify_node({:unsafe_fragment, sql}, _migration?, _aliases) when is_binary(sql),
-    do: {:raw_sql, "unsafe_fragment"}
-
-  defp classify_node(_node, _migration?, _aliases), do: nil
-
-  defp database_alias_declarations(ast) do
-    {_ast, declarations} =
-      Macro.prewalk(ast, [], fn
-        {:alias, metadata, arguments} = node, declarations ->
-          case database_alias_declaration(metadata, arguments) do
-            nil -> {node, declarations}
-            declaration -> {node, [declaration | declarations]}
+        alias_name =
+          options
+          |> Keyword.get(:as)
+          |> case do
+            nil -> target_name |> String.split(".") |> List.last()
+            explicit_alias -> receiver_name(explicit_alias)
           end
 
-        node, declarations ->
-          {node, declarations}
+        {alias_name, resolved_target}
       end)
 
-    Enum.sort_by(declarations, &elem(&1, 0))
+    aliases =
+      Enum.reduce(bindings, environment.aliases, fn
+        {alias_name, target_name}, aliases
+        when is_binary(alias_name) and is_binary(target_name) ->
+          Map.put(aliases, alias_name, target_name)
+
+        _binding, aliases ->
+          aliases
+      end)
+
+    %{environment | aliases: aliases}
   end
 
-  defp database_alias_declaration(metadata, [target]),
-    do: database_alias_declaration(metadata, target, [])
+  defp alias_target_names({{:., _dot_metadata, [prefix, :{}]}, _metadata, suffixes})
+       when is_list(suffixes) do
+    case receiver_name(prefix) do
+      nil ->
+        []
 
-  defp database_alias_declaration(metadata, [target, options]) when is_list(options),
-    do: database_alias_declaration(metadata, target, options)
-
-  defp database_alias_declaration(_metadata, _arguments), do: nil
-
-  defp database_alias_declaration(metadata, target, options) do
-    target_name = receiver_name(target)
-
-    if target_name in @database_alias_targets do
-      alias_name =
-        options
-        |> Keyword.get(:as)
-        |> case do
-          nil -> target_name |> String.split(".") |> List.last()
-          explicit_alias -> receiver_name(explicit_alias)
-        end
-
-      if is_binary(alias_name) do
-        {Keyword.get(metadata, :line, 1), alias_name, target_name}
-      end
+      prefix_name ->
+        Enum.flat_map(suffixes, fn suffix ->
+          case receiver_name(suffix) do
+            nil -> []
+            suffix_name -> ["#{prefix_name}.#{suffix_name}"]
+          end
+        end)
     end
   end
 
-  defp function_declarations(ast) do
-    {_ast, declarations} =
-      Macro.prewalk(ast, [], fn
-        {kind, metadata, [head, _body]} = node, declarations when kind in [:def, :defp] ->
-          {node, [{Keyword.fetch!(metadata, :line), function_signature(head)} | declarations]}
-
-        node, declarations ->
-          {node, declarations}
-      end)
-
-    Enum.sort_by(declarations, &elem(&1, 0))
+  defp alias_target_names(target) do
+    case receiver_name(target) do
+      nil -> []
+      target_name -> [target_name]
+    end
   end
+
+  defp put_import(environment, _metadata, [target]),
+    do: apply_import(environment, target, [])
+
+  defp put_import(environment, _metadata, [target, options]) when is_list(options),
+    do: apply_import(environment, target, options)
+
+  defp put_import(environment, _metadata, _arguments), do: environment
+
+  defp apply_import(environment, target, options) do
+    case target |> receiver_name() |> resolve_receiver(environment) do
+      nil ->
+        environment
+
+      target_name ->
+        declaration = %{
+          except: import_entries(Keyword.get(options, :except)),
+          only: import_entries(Keyword.get(options, :only)),
+          target: target_name
+        }
+
+        %{environment | imports: [declaration | environment.imports]}
+    end
+  end
+
+  defp import_entries(entries) when is_list(entries) do
+    entries
+    |> Enum.flat_map(fn
+      {name, arity} when is_atom(name) and is_integer(arity) -> [{name, arity}]
+      _entry -> []
+    end)
+    |> MapSet.new()
+  end
+
+  defp import_entries(_entries), do: nil
+
+  defp imported_receiver(environment, operation, arity) do
+    Enum.find_value(environment.imports, fn declaration ->
+      if import_applies?(declaration, operation, arity), do: declaration.target
+    end)
+  end
+
+  defp import_applies?(%{only: %MapSet{} = only}, operation, arity),
+    do: MapSet.member?(only, {operation, arity})
+
+  defp import_applies?(
+         %{except: %MapSet{} = except, target: target},
+         operation,
+         arity
+       )
+       when target in @database_alias_targets,
+       do: not MapSet.member?(except, {operation, arity})
+
+  defp import_applies?(%{only: nil, target: target}, _operation, _arity),
+    do: target in @database_alias_targets
+
+  defp import_applies?(_declaration, _operation, _arity), do: false
 
   defp function_signature({:when, _metadata, [head | _guards]}), do: function_signature(head)
 
-  defp function_signature({name, _metadata, arguments}) do
+  defp function_signature({name, _metadata, arguments}) when is_atom(name) do
     "#{name}/#{length(arguments || [])}"
   end
 
-  defp function_at_line(declarations, line) do
-    declarations
-    |> Enum.take_while(fn {declaration_line, _signature} -> declaration_line <= line end)
-    |> List.last()
-    |> case do
-      nil -> nil
-      {_line, signature} -> signature
-    end
-  end
+  defp function_signature(_head), do: nil
 
   defp receiver_name({:__aliases__, _metadata, parts}) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
@@ -270,18 +433,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp receiver_name(_receiver), do: nil
 
-  defp resolve_receiver(nil, _aliases, _line), do: nil
+  defp resolve_receiver(nil, _environment), do: nil
 
-  defp resolve_receiver(receiver, aliases, line) do
-    aliases
-    |> Enum.take_while(fn {declaration_line, _alias_name, _target_name} ->
-      declaration_line <= line
-    end)
-    |> Enum.reverse()
-    |> Enum.find_value(receiver, fn
-      {_declaration_line, ^receiver, target_name} -> target_name
-      _other_alias -> nil
-    end)
+  defp resolve_receiver(receiver, environment) do
+    case String.split(receiver, ".", parts: 2) do
+      [alias_name] ->
+        Map.get(environment.aliases, alias_name, receiver)
+
+      [alias_name, rest] ->
+        case Map.get(environment.aliases, alias_name) do
+          nil -> receiver
+          target -> "#{target}.#{rest}"
+        end
+    end
   end
 
   defp repo_receiver?(receiver), do: receiver in ["Repo", "OfficeGraph.Repo"]
