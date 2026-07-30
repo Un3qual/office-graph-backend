@@ -412,6 +412,37 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
              )
   end
 
+  test "requiring directory provisioning revokes an unprovisioned existing WorkOS session" do
+    context = enterprise_context("session-provisioning-lifecycle", "optional")
+    completed = complete_workos_login!(context, "idp_optional")
+
+    assert {:ok, _session_context} =
+             Authentication.resolve_session(completed.session.id,
+               trace_id: "optional-workos-session"
+             )
+
+    {:ok, operation} =
+      Operations.start_operation(context.bootstrap.session, :enterprise_identity_manage)
+
+    assert {:ok, required_connection} =
+             EnterpriseIdentity.set_connection_lifecycle(
+               context.bootstrap.session,
+               operation,
+               context.connection.id,
+               %{directory_requirement: "required"}
+             )
+
+    assert required_connection.directory_requirement == "required"
+
+    assert {:error, :invalid_session} =
+             Authentication.resolve_session(completed.session.id,
+               trace_id: "required-workos-session"
+             )
+
+    assert %DateTime{} =
+             Ash.get!(Session, completed.session.id, authorize?: false).revoked_at
+  end
+
   test "enterprise identity storage failures use the transient authentication classification" do
     for reason <- [
           :identity_storage_unavailable,

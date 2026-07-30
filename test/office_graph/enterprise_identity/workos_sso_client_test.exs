@@ -150,6 +150,42 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
              })
   end
 
+  test "rejects oversized individual SSO profile fields" do
+    valid_profile = %{
+      "idp_id" => "idp_user_01",
+      "email" => "person@example.com",
+      "first_name" => "Ada",
+      "last_name" => "Lovelace",
+      "organization_id" => "org_01",
+      "connection_id" => "conn_01"
+    }
+
+    for {field, value} <- [
+          {"idp_id", String.duplicate("i", 256)},
+          {"email", String.duplicate("e", 321)},
+          {"first_name", String.duplicate("f", 256)},
+          {"last_name", String.duplicate("l", 256)},
+          {"connection_id", String.duplicate("c", 256)}
+        ] do
+      Process.put(
+        {HTTPClient, :response},
+        {:ok,
+         %{
+           status: 200,
+           headers: %{},
+           body: Jason.encode!(%{"profile" => Map.put(valid_profile, field, value)})
+         }}
+      )
+
+      assert {:error, :invalid_profile} =
+               SsoClient.exchange(%{
+                 config: configuration(),
+                 code: "authorization-code",
+                 redirect_uri: "https://office-graph.test/auth/workos/callback"
+               })
+    end
+  end
+
   test "rejects non-HTTPS WorkOS API configuration" do
     config = %{configuration() | api_base_url: "http://api.workos.test"}
 

@@ -11,6 +11,10 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryUser do
 
     identity_index_names provider_user: "enterprise_directory_users_provider_user_index",
                          idp_user: "enterprise_directory_users_idp_user_index"
+
+    custom_indexes do
+      index [:principal_id], name: "enterprise_directory_users_principal_id_index"
+    end
   end
 
   attributes do

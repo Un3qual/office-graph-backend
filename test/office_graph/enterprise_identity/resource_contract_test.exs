@@ -103,6 +103,18 @@ defmodule OfficeGraph.EnterpriseIdentity.ResourceContractTest do
     end
   end
 
+  test "principal-scoped directory user reads have a declarative lookup index" do
+    assert %AshPostgres.CustomIndex{
+             name: "enterprise_directory_users_principal_id_index",
+             fields: [:principal_id],
+             unique: false
+           } =
+             Enum.find(
+               AshPostgres.DataLayer.Info.custom_indexes(DirectoryUser),
+               &(&1.name == "enterprise_directory_users_principal_id_index")
+             )
+  end
+
   defp relationship_names(resource) do
     resource
     |> Ash.Resource.Info.relationships()

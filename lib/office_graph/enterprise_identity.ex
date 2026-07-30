@@ -331,14 +331,25 @@ defmodule OfficeGraph.EnterpriseIdentity do
   def validate_workos_provisioning(_exchange, _principal_id),
     do: {:error, :directory_provisioning_required}
 
-  def validate_workos_session_connection(connection_id, organization_id, workspace_id)
-      when is_binary(connection_id) and is_binary(organization_id) and
-             is_binary(workspace_id) do
+  def validate_workos_session_basis(%{
+        connection_id: connection_id,
+        principal_id: principal_id,
+        organization_id: organization_id,
+        workspace_id: workspace_id
+      })
+      when is_binary(connection_id) and is_binary(principal_id) and
+             is_binary(organization_id) and is_binary(workspace_id) do
     EnterpriseConnection
     |> Ash.Query.filter(
       id == ^connection_id and provider == "workos" and status == "active" and
         organization_id == ^organization_id and
-        (is_nil(workspace_id) or workspace_id == ^workspace_id)
+        (is_nil(workspace_id) or workspace_id == ^workspace_id) and
+        (directory_requirement == "optional" or
+           exists(
+             directories.users,
+             principal_id == ^principal_id and status == "active" and
+               directory.status == "active"
+           ))
     )
     |> Ash.exists(authorize?: false)
     |> case do
@@ -348,7 +359,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
     end
   end
 
-  def validate_workos_session_connection(_connection_id, _organization_id, _workspace_id),
+  def validate_workos_session_basis(_session_basis),
     do: {:error, :enterprise_connection_unavailable}
 
   defp active_connection(connection_id) do

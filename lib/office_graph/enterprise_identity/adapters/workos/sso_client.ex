@@ -6,6 +6,8 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient do
   alias OfficeGraph.EnterpriseIdentity.SecretStore
 
   @maximum_response_bytes 1_000_000
+  @maximum_identity_bytes 255
+  @maximum_email_bytes 320
   @authorization_path "/sso/authorize"
   @token_path "/sso/token"
 
@@ -105,17 +107,25 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient do
          provider_organization_id
        )
        when is_binary(email) and is_binary(connection_id) do
-    subject_id = profile["idp_id"] || profile["id"]
+    subject_id = normalize_string(profile["idp_id"] || profile["id"])
+    connection_id = String.trim(connection_id)
     email = email |> String.trim() |> String.downcase()
+    first_name = optional_string(profile["first_name"])
+    last_name = optional_string(profile["last_name"])
 
-    if present?(subject_id) and present?(connection_id) and present?(email) do
+    if present?(subject_id) and present?(connection_id) and present?(email) and
+         bounded_string?(subject_id, @maximum_identity_bytes) and
+         bounded_string?(connection_id, @maximum_identity_bytes) and
+         bounded_string?(email, @maximum_email_bytes) and
+         bounded_optional_string?(first_name, @maximum_identity_bytes) and
+         bounded_optional_string?(last_name, @maximum_identity_bytes) do
       {:ok,
        %{
-         subject: "#{connection_id}:#{String.trim(subject_id)}",
-         idp_id: String.trim(subject_id),
+         subject: "#{connection_id}:#{subject_id}",
+         idp_id: subject_id,
          verified_email: email,
-         first_name: optional_string(profile["first_name"]),
-         last_name: optional_string(profile["last_name"]),
+         first_name: first_name,
+         last_name: last_name,
          provider_organization_id: provider_organization_id,
          provider_connection_id: connection_id
        }}
@@ -130,11 +140,24 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient do
   defp optional_string(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
-      trimmed -> String.slice(trimmed, 0, 255)
+      trimmed -> trimmed
     end
   end
 
   defp optional_string(_value), do: nil
+
+  defp normalize_string(value) when is_binary(value), do: String.trim(value)
+  defp normalize_string(_value), do: nil
+
+  defp bounded_string?(value, maximum_bytes) when is_binary(value),
+    do: byte_size(value) <= maximum_bytes
+
+  defp bounded_string?(_value, _maximum_bytes), do: false
+
+  defp bounded_optional_string?(nil, _maximum_bytes), do: true
+
+  defp bounded_optional_string?(value, maximum_bytes),
+    do: bounded_string?(value, maximum_bytes)
 
   defp validate_configuration(config) when is_map(config) do
     with :ok <- validate_https_base_url(config[:api_base_url]),

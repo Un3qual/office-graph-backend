@@ -529,11 +529,12 @@ defmodule OfficeGraph.Authentication do
          } = session_context,
          opts
        ) do
-    case EnterpriseIdentity.validate_workos_session_connection(
-           connection_id,
-           organization_id,
-           workspace_id
-         ) do
+    case EnterpriseIdentity.validate_workos_session_basis(%{
+           connection_id: connection_id,
+           principal_id: session_context.principal_id,
+           organization_id: organization_id,
+           workspace_id: workspace_id
+         }) do
       :ok ->
         :ok
 
