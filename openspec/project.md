@@ -203,11 +203,13 @@ decisions into this file or into formal OpenSpec specs.
   evidence and verification view, focused trace/debug detail, and integration
   settings. Question queues, graph conversations, and agent execution internals
   require workflow justification before becoming default operator-facing words.
-- Enterprise identity testing should not require paid hosted IdPs during
-  normal development. Use a local identity lab with authentik for OIDC, SAML,
-  and SCIM, optional Keycloak for OIDC/SAML compatibility, and a repo-owned
-  fake SCIM client for deterministic contract tests. Hosted vendor smoke tests
-  can be optional later.
+- Routine product development should not require a hosted IdP or a local
+  identity stack. Use explicitly enabled, loopback-only, pre-seeded local
+  identities that issue ordinary Office Graph sessions and exercise real
+  authorization differences. Use WorkOS SSO and Directory Sync for the
+  enterprise adapter without AuthKit or hosted sessions. Retain Authentik only
+  as an optional generic OIDC compatibility fixture, with deterministic fakes
+  for normal enterprise contract tests and optional hosted sandbox smoke tests.
 - MVP custom-role management should have a basic frontend UI and backend
   endpoints for custom roles, external group mappings, and scoped assignments,
   while a polished role-builder experience can wait.

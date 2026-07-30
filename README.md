@@ -43,17 +43,44 @@ Production runtime config enables Postgres TLS by default. Set
 
 ## Local Human Sign-In
 
-Office Graph uses an Authentik-compatible OpenID Connect provider for browser
-sign-in. The repository Compose file starts Postgres only, so run your local
-Authentik identity lab separately and configure an OAuth2/OpenID provider with:
+Routine development does not require WorkOS, Authentik, or another hosted
+identity provider. Prepare the database and deterministic local identities,
+then explicitly enable the loopback-only development provider:
+
+```sh
+docker compose up -d postgres
+nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.setup
+nix --extra-experimental-features 'nix-command flakes' develop --command mix demo.seed
+LOCAL_DEV_AUTH_ENABLED=true \
+nix --extra-experimental-features 'nix-command flakes' develop --command mix phx.server
+```
+
+Open `http://localhost:4000/operator`, `http://localhost:4000/packets`, or
+`http://localhost:4000/runs`. `/auth/login` presents fixed owner, workspace
+administrator, member, and deprovisioned-member fixtures. Each selection issues
+a normal durable Office Graph human session and exercises the fixture's real
+role and capability assignments. Use the product-shell **Sign out** action to
+return to the chooser and test another role.
+
+`LOCAL_DEV_AUTH_ENABLED` is honored only by the development runtime. The
+fixture-selection routes are omitted from production builds, require an exact
+loopback peer, accept only server-owned selector keys, and never seed or repair
+identity data during a browser request. If the chooser reports missing
+fixtures, rerun `mix demo.seed`.
+
+### Optional Authentik Compatibility Testing
+
+Authentik remains an optional generic OIDC integration fixture; it is not
+required for routine local product testing. Run an Authentik identity lab
+separately and configure an OAuth2/OpenID provider with:
 
 - redirect URI: `http://localhost:4000/auth/callback`
 - scopes: `openid`, `profile`, and `email`
 - a user whose verified email is `owner@office-graph.local`
 - an `email_verified` claim with the boolean value `true`
 
-`mix demo.seed` creates the matching local Office Graph owner and optional
-operator-console examples. The login flow links the verified Authentik identity
+`mix demo.seed` creates the matching Office Graph owner and optional
+operator-console examples. The OIDC flow links the verified Authentik identity
 to that existing principal; it does not create an owner or grant capabilities
 from provider claims.
 
@@ -68,8 +95,9 @@ nix --extra-experimental-features 'nix-command flakes' develop --command mix phx
 ```
 
 Replace the example issuer with the exact issuer advertised by your Authentik
-provider. Then open `http://localhost:4000/operator`; unauthenticated requests
-redirect through `/auth/login`.
+provider. With local development authentication also enabled, choose **Use
+optional Authentik OIDC** from `/auth/login`; otherwise `/auth/login` starts the
+OIDC flow directly.
 
 `AUTHENTIK_PREFERRED_ORGANIZATION_ID` and
 `AUTHENTIK_PREFERRED_WORKSPACE_ID` may be set together when a principal belongs
@@ -82,8 +110,9 @@ local-owner bootstrap.
 
 WorkOS is an optional managed enterprise adapter for standalone SSO and
 Directory Sync. Office Graph continues to own principals, sessions,
-authorization, and local Authentik sign-in; it does not use AuthKit or
-WorkOS-hosted sessions.
+authorization, and the local development provider; it does not use AuthKit or
+WorkOS-hosted sessions. Authentik is retained only for optional generic OIDC
+compatibility testing.
 
 Configure global provider access with references rather than secret values:
 
