@@ -151,6 +151,21 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookContractTest do
              )
   end
 
+  test "rejects present optional user fields that are malformed or over limit" do
+    for invalid_first_name <- [42, "", String.duplicate("x", 256)] do
+      assert {:error, :invalid_delivery} =
+               DirectoryEvent.normalize(
+                 event_body("event_optional_user", "dsync.user.updated", %{
+                   "id" => "directory_user_01",
+                   "directory_id" => "directory_01",
+                   "first_name" => invalid_first_name,
+                   "emails" => [%{"primary" => true, "value" => "person@example.com"}],
+                   "state" => "active"
+                 })
+               )
+    end
+  end
+
   defp event_body(id, event, data) do
     Jason.encode!(%{
       "id" => id,

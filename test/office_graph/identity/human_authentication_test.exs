@@ -480,6 +480,40 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert persisted.status == "active"
       assert persisted.linking_state == "linked"
     end
+
+    test "lifecycle updates cannot reassign identity ownership", %{bootstrap: bootstrap} do
+      {:ok, linked} =
+        Identity.reconcile_oidc_identity(
+          claims(bootstrap.principal.email, unique("ownership-subject")),
+          reconciliation_opts()
+        )
+
+      replacement =
+        Ash.create!(
+          Principal,
+          %{
+            email: "#{unique("replacement-principal")}@example.test",
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               linked.external_identity_link
+               |> Ash.Changeset.for_update(:set_lifecycle, %{
+                 status: "disabled",
+                 principal_id: replacement.id
+               })
+               |> Ash.update(authorize?: false)
+
+      persisted =
+        Ash.get!(ExternalIdentityLink, linked.external_identity_link.id, authorize?: false)
+
+      assert persisted.status == "active"
+      assert persisted.principal_id == bootstrap.principal.id
+    end
   end
 
   describe "human session lifecycle" do
@@ -742,6 +776,34 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                AuthenticationEvent
                |> Ash.Query.filter(trace_id == "unrecognized-reason")
                |> Ash.read!(authorize?: false)
+    end
+
+    test "rejects authentication evidence with unsupported event or result values" do
+      for {trace_id, override} <- [
+            {"unsupported-event", %{event: "token_teleported"}},
+            {"unsupported-result", %{result: "maybe"}}
+          ] do
+        attrs =
+          Map.merge(
+            %{
+              event: "login",
+              result: "rejected",
+              reason: "authentication_failed",
+              authentication_method: "oidc",
+              source_surface: "web",
+              trace_id: trace_id
+            },
+            override
+          )
+
+        assert {:error, :invalid_authentication_event} =
+                 Identity.record_authentication_event(attrs)
+
+        assert [] =
+                 AuthenticationEvent
+                 |> Ash.Query.filter(trace_id == ^trace_id)
+                 |> Ash.read!(authorize?: false)
+      end
     end
   end
 

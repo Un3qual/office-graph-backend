@@ -108,6 +108,9 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
     end
   end
 
+  defp select_identity_basis(nil, [], [_existing_link | _rest], _attrs),
+    do: DirectoryIdentityResult.review_required("verified_identifier_conflict")
+
   defp select_identity_basis(
          nil,
          [%Principal{kind: "human", status: "active"} = principal],

@@ -26,6 +26,8 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
     unverified_identifier
     user_logout
   )
+  @event_names ~w(login logout revocation session_validation)
+  @result_names ~w(succeeded rejected)
 
   use Ash.Resource,
     domain: OfficeGraph.Identity.Domain,
@@ -116,6 +118,8 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
         :trace_id
       ]
 
+      validate one_of(:event, @event_names)
+      validate one_of(:result, @result_names)
       validate one_of(:reason, @reason_codes)
     end
   end

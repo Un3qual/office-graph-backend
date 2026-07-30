@@ -16,7 +16,6 @@ defmodule OfficeGraph.EnterpriseIdentity.AuthorizationFacts do
          {:ok, mappings} <- active_mappings(group_ids) do
       scopes =
         mappings
-        |> Enum.filter(&is_binary(&1.workspace_id))
         |> Enum.map(&%{organization_id: &1.organization_id, workspace_id: &1.workspace_id})
         |> Enum.uniq()
 
@@ -106,7 +105,8 @@ defmodule OfficeGraph.EnterpriseIdentity.AuthorizationFacts do
     ExternalGroupRoleMapping
     |> Ash.Query.filter(
       directory_group_id in ^group_ids and status == "active" and
-        organization_id == ^organization_id and workspace_id == ^workspace_id and
+        organization_id == ^organization_id and
+        (is_nil(workspace_id) or workspace_id == ^workspace_id) and
         role_id in ^candidate_role_ids and role.organization_id == ^organization_id and
         directory_group.status == "active" and
         directory_group.directory.status == "active" and

@@ -350,7 +350,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
     end
 
     update :set_lifecycle do
-      accept [:status, :linking_state, :review_reason, :disabled_at, :principal_id]
+      accept [:status, :linking_state, :review_reason, :disabled_at]
 
       validate one_of(:status, ~w(active review_required disabled)),
         where: [changing(:status)]

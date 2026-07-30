@@ -9,6 +9,8 @@ defmodule OfficeGraphWeb.GraphQL.Common.NodeResolver do
     OfficeGraph.WorkGraph.Domain,
     OfficeGraph.WorkPackets.Domain,
     OfficeGraph.Runs.Domain,
+    OfficeGraph.Integrations.Domain,
+    OfficeGraph.ProposedChanges.Domain,
     OfficeGraph.AgentRuntime.Domain,
     OfficeGraph.NodeConversations.Domain,
     OfficeGraph.GitHubIntegration.Domain
@@ -36,7 +38,6 @@ defmodule OfficeGraphWeb.GraphQL.Common.NodeResolver do
     end
   end
 
-  def resolve_type(%{normalized_event_id: _}), do: :operator_workflow_item
   def resolve_type(%{type: "operator_workflow_item"}), do: :operator_workflow_item
   def resolve_type(%{type: "github_integration_health"}), do: :github_integration_health
   def resolve_type(%{type: "operator_packet_workspace"}), do: :operator_packet_workspace

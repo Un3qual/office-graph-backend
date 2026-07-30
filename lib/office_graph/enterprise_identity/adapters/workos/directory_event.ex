@@ -93,16 +93,22 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent do
     with {:ok, directory_id} <- bounded_string(data["directory_id"], @maximum_identity_bytes),
          {:ok, provider_user_id} <- bounded_string(data["id"], @maximum_identity_bytes),
          {:ok, email} <- primary_email(data["emails"]),
+         {:ok, idp_id} <-
+           optional_bounded_string(data["idp_id"], @maximum_identity_bytes),
+         {:ok, first_name} <-
+           optional_bounded_string(data["first_name"], @maximum_identity_bytes),
+         {:ok, last_name} <-
+           optional_bounded_string(data["last_name"], @maximum_identity_bytes),
          {:ok, provider_updated_at} <-
            optional_timestamp(data["updated_at"], common.provider_occurred_at),
          {:ok, status} <- user_status(common.action, data["state"]) do
       {:ok,
        new_event(common, directory_id, %{
          provider_user_id: provider_user_id,
-         idp_id: optional_bounded_string(data["idp_id"], @maximum_identity_bytes),
+         idp_id: idp_id,
          email: email,
-         first_name: optional_bounded_string(data["first_name"], @maximum_identity_bytes),
-         last_name: optional_bounded_string(data["last_name"], @maximum_identity_bytes),
+         first_name: first_name,
+         last_name: last_name,
          status: status,
          provider_updated_at: provider_updated_at
        })}
@@ -190,14 +196,8 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent do
 
   defp nested_identity(_value, _maximum_bytes), do: {:error, :invalid_delivery}
 
-  defp optional_bounded_string(nil, _maximum_bytes), do: nil
-
-  defp optional_bounded_string(value, maximum_bytes) do
-    case bounded_string(value, maximum_bytes) do
-      {:ok, normalized} -> normalized
-      {:error, _reason} -> nil
-    end
-  end
+  defp optional_bounded_string(nil, _maximum_bytes), do: {:ok, nil}
+  defp optional_bounded_string(value, maximum_bytes), do: bounded_string(value, maximum_bytes)
 
   defp bounded_string(value, maximum_bytes)
        when is_binary(value) and byte_size(value) <= maximum_bytes do

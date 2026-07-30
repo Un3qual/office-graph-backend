@@ -213,6 +213,50 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert is_nil(user.external_identity_link_id)
   end
 
+  test "existing email links without a compatible principal use the conflict review reason" do
+    context = enterprise_context("incompatible-email-link")
+    email = "linked-conflict@example.test"
+
+    incompatible_principal =
+      Ash.create!(
+        Principal,
+        %{
+          email: "different-#{email}",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      ExternalIdentityLink,
+      %{
+        principal_id: incompatible_principal.id,
+        provider: "oidc",
+        provider_tenant: "https://identity.example.test",
+        subject: unique("incompatible-subject"),
+        verified_email: email,
+        status: "active",
+        linking_state: "linked",
+        first_linked_at: ~U[2026-07-29 19:00:00Z]
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    assert {:ok, %{status: :review_required, resource: user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(~U[2026-07-29 20:00:00Z], %{email: email}),
+               context.operation.id
+             )
+
+    assert user.review_reason == "verified_identifier_conflict"
+    assert is_nil(user.principal_id)
+    assert is_nil(user.external_identity_link_id)
+  end
+
   test "active group mappings contribute exact live authorization facts" do
     context = enterprise_context("mapped-authorization")
     event_time = ~U[2026-07-29 20:00:00Z]
@@ -300,6 +344,50 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              )
 
     assert membership.status == "active"
+  end
+
+  test "organization-wide group mappings provide organization login scope and workspace authority" do
+    fixture = mapped_authorization_context("organization-wide-mapping")
+
+    fixture.mapping
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "disabled",
+      disabled_at: DateTime.utc_now()
+    })
+    |> Ash.update!(authorize?: false)
+
+    organization_mapping =
+      Ash.create!(
+        ExternalGroupRoleMapping,
+        %{
+          directory_group_id: fixture.group.id,
+          role_id: fixture.mapping.role_id,
+          organization_id: fixture.scope.organization_id,
+          workspace_id: nil,
+          operation_id: fixture.mapping.operation_id,
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:ok,
+            %{
+              organization_id: organization_id,
+              workspace_id: nil
+            }} = Authorization.resolve_login_scope(fixture.user.principal_id)
+
+    assert organization_id == fixture.scope.organization_id
+
+    assert :ok =
+             Authorization.authorize_principal(
+               fixture.user.principal_id,
+               fixture.scope.organization_id,
+               fixture.scope.workspace_id,
+               :skeleton_read
+             )
+
+    assert organization_mapping.workspace_id == nil
   end
 
   test "every inactive enterprise fact layer removes mapped authority on the next read" do

@@ -102,6 +102,51 @@ defmodule OfficeGraphWeb.GeneratedCommandsGraphQLTest do
     assert_error_code(conflict, "idempotency_conflict")
   end
 
+  test "generated intake and proposed change IDs refetch through root Relay nodes", %{conn: conn} do
+    intake =
+      command(conn, :submit_manual_intake, %{
+        idempotencyKey: unique_key("relay-node-intake"),
+        sourceIdentity: "manual:relay-node-intake",
+        replayIdentity: unique_key("relay-node-replay"),
+        body: "Refetch generated intake and proposed change nodes."
+      })
+
+    [proposed_change_id | _rest] = proposed_change_ids(intake)
+
+    response =
+      raw_graphql(
+        conn,
+        """
+        query GeneratedIntakeNodes($eventId: ID!, $changeId: ID!) {
+          event: node(id: $eventId) {
+            id
+            __typename
+          }
+          change: node(id: $changeId) {
+            id
+            __typename
+          }
+        }
+        """,
+        %{
+          eventId: normalized_event_id(intake),
+          changeId: proposed_change_id
+        }
+      )
+
+    assert response["errors"] in [nil, []]
+
+    assert response["data"]["event"] == %{
+             "id" => normalized_event_id(intake),
+             "__typename" => "NormalizedIntakeEvent"
+           }
+
+    assert response["data"]["change"] == %{
+             "id" => proposed_change_id,
+             "__typename" => "ProposedGraphChange"
+           }
+  end
+
   test "manual intake preserves leading and trailing body whitespace", %{conn: conn} do
     body = "\n  pasted log line  \n"
 
