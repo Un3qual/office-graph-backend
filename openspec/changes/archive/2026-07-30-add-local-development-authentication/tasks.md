@@ -29,5 +29,5 @@
 ## 5. Document And Verify The Change
 
 - [x] 5.1 Update local setup documentation with the Postgres, migration/setup, `mix demo.seed`, opt-in local-auth, role-switching, optional Authentik, and WorkOS enterprise test paths
-- [ ] 5.2 Run focused authentication, Identity, Authorization, seed, controller, route, and frontend tests plus Relay generation, typecheck, lint, formatting, and compilation with warnings as errors
-- [ ] 5.3 Run strict OpenSpec validation, architecture and raw-SQL policy gates, the canonical `bin/verify` suite, and a final diff review for production route leakage, request-time bootstrap, arbitrary impersonation, read-modify-write races, and unrelated changes
+- [x] 5.2 Run focused authentication, Identity, Authorization, seed, controller, route, and frontend tests plus Relay generation, typecheck, lint, formatting, and compilation with warnings as errors
+- [x] 5.3 Run strict OpenSpec validation, architecture and raw-SQL policy gates, the canonical `bin/verify` suite, and a final diff review for production route leakage, request-time bootstrap, arbitrary impersonation, read-modify-write races, and unrelated changes
