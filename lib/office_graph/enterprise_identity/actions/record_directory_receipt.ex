@@ -101,14 +101,14 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.RecordDirectoryReceipt do
          raw_body
        ) do
     with {:ok, existing} <- locked_sync_event(event.provider_event_id) do
-      case existing do
-        nil when archive_status == :created ->
+      case {existing, archive_status} do
+        {nil, :created} ->
           create_and_enqueue(archive, operation, directory, event, raw_body)
 
-        %DirectorySyncEvent{} = existing ->
+        {%DirectorySyncEvent{} = existing, _archive_status} ->
           replay(existing, archive, operation, directory, event, raw_body)
 
-        nil ->
+        {nil, _archive_status} ->
           {:error, :event_conflict}
       end
     end
