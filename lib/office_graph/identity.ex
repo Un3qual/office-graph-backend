@@ -10,8 +10,10 @@ defmodule OfficeGraph.Identity do
     DirectoryIdentityResult,
     ExternalIdentityLink,
     HumanSessions,
+    LocalDevelopmentIdentity,
     OidcLoginTransaction,
     Principal,
+    PrincipalProfile,
     Session,
     SessionContext
   }
@@ -35,6 +37,57 @@ defmodule OfficeGraph.Identity do
     end)
     |> normalize_identity_write()
   end
+
+  def ensure_local_development_identity(attrs) when is_map(attrs) do
+    Principal
+    |> Ash.ActionInput.for_action(:ensure_local_development_identity, %{
+      provider: attrs[:provider],
+      provider_tenant: attrs[:provider_tenant],
+      subject: attrs[:subject],
+      email: attrs[:email],
+      display_name: attrs[:display_name],
+      principal_status: attrs[:principal_status],
+      link_status: attrs[:link_status]
+    })
+    |> Ash.run_action(authorize?: false)
+    |> normalize_identity_write()
+  end
+
+  def ensure_local_development_identity(_attrs),
+    do: {:error, :local_development_fixture_missing}
+
+  def local_development_identity(attrs) when is_map(attrs) do
+    with {:ok, %ExternalIdentityLink{} = link} <-
+           Ash.get(
+             ExternalIdentityLink,
+             %{
+               provider: attrs[:provider],
+               provider_tenant: attrs[:provider_tenant],
+               subject: attrs[:subject]
+             },
+             authorize?: false,
+             not_found_error?: false
+           ),
+         {:ok, %Principal{} = principal} <-
+           Ash.get(Principal, link.principal_id,
+             authorize?: false,
+             not_found_error?: false
+           ),
+         {:ok, %PrincipalProfile{} = profile} <-
+           Ash.get(PrincipalProfile, %{principal_id: principal.id},
+             authorize?: false,
+             not_found_error?: false
+           ),
+         true <- exact_local_development_identity?(attrs, principal, link) do
+      LocalDevelopmentIdentity.from_records(principal, profile, link)
+    else
+      {:error, _storage_error} -> {:error, :identity_storage_unavailable}
+      _missing_or_drifted -> {:error, :local_development_fixture_missing}
+    end
+  end
+
+  def local_development_identity(_attrs),
+    do: {:error, :local_development_fixture_missing}
 
   def ensure_session_context(principal, tenant, capabilities) do
     result =
@@ -309,6 +362,19 @@ defmodule OfficeGraph.Identity do
       {:ok, %Principal{status: "active"}},
       Ash.get(Principal, principal_id, authorize?: false, not_found_error?: false)
     )
+  end
+
+  defp exact_local_development_identity?(attrs, principal, link) do
+    expected_email = attrs[:email]
+
+    is_binary(expected_email) and
+      principal.email == String.downcase(expected_email) and
+      principal.kind == "human" and
+      link.principal_id == principal.id and
+      link.provider == attrs[:provider] and
+      link.provider_tenant == attrs[:provider_tenant] and
+      link.subject == attrs[:subject] and
+      link.verified_email == String.downcase(expected_email)
   end
 
   defp with_identity_retry(fun) do

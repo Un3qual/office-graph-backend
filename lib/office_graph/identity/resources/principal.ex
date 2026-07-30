@@ -153,6 +153,27 @@ defmodule OfficeGraph.Identity.Principal do
 
       run OfficeGraph.Identity.Actions.EnsureOwner
     end
+
+    action :ensure_local_development_identity,
+           OfficeGraph.Identity.LocalDevelopmentIdentity do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Identity.PrincipalProfile,
+        OfficeGraph.Identity.ExternalIdentityLink
+      ]
+
+      argument :provider, :string, allow_nil?: false
+      argument :provider_tenant, :string, allow_nil?: false
+      argument :subject, :string, allow_nil?: false
+      argument :email, :string, allow_nil?: false
+      argument :display_name, :string, allow_nil?: false
+      argument :principal_status, :string, allow_nil?: false
+      argument :link_status, :string, allow_nil?: false
+
+      run OfficeGraph.Identity.Actions.EnsureLocalDevelopmentIdentity
+    end
   end
 
   identities do

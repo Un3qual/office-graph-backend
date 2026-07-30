@@ -350,6 +350,30 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
       validate one_of(:linking_state, ~w(linked review_required))
     end
 
+    create :ensure_local_development do
+      public? false
+
+      accept [
+        :principal_id,
+        :provider,
+        :provider_tenant,
+        :subject,
+        :verified_email,
+        :status,
+        :linking_state,
+        :first_linked_at,
+        :disabled_at
+      ]
+
+      upsert? true
+      upsert_identity :provider_subject
+      upsert_fields []
+      return_skipped_upsert? true
+
+      validate one_of(:status, ~w(active disabled))
+      validate one_of(:linking_state, ~w(linked))
+    end
+
     update :record_authentication do
       accept [:last_authenticated_at]
     end
