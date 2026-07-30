@@ -36,6 +36,20 @@ defmodule OfficeGraph.AgentRuntime.PersistenceResourceTest do
            )
   end
 
+  test "agent executions declare the focused run history-read index" do
+    assert Enum.any?(
+             AshPostgres.DataLayer.Info.custom_indexes(OfficeGraph.AgentRuntime.AgentExecution),
+             &match?(
+               %AshPostgres.CustomIndex{
+                 name: "agent_executions_run_graph_item_inserted_at_id_index",
+                 fields: [:run_id, :graph_item_id, :inserted_at, :id],
+                 unique: false
+               },
+               &1
+             )
+           )
+  end
+
   test "runtime resources expose typed lifecycle, scope, and provenance attributes" do
     assert_attributes(OfficeGraph.AgentRuntime.AgentDefinition, [
       :key,

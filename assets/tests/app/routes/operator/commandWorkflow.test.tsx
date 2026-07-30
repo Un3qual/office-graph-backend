@@ -82,6 +82,45 @@ describe("operator command workflow", () => {
     expect(result.current.state).toEqual({ status: "idle" });
   });
 
+  it("uses the raw affected event ID for authoritative inbox selection", async () => {
+    const request = deferredRequest();
+    const environment = relayEnvironment(request.fetch);
+    const { result } = renderHook(() => useSubmitManualIntakeCommand(), {
+      wrapper: relayWrapper(environment),
+    });
+
+    act(() => {
+      result.current.submit({
+        idempotencyKey: "intake-raw-id",
+        sourceIdentity: "manual:test",
+        replayIdentity: "paste:raw-id",
+        body: "Select the submitted intake row.",
+      });
+    });
+
+    act(() => {
+      request.resolve({
+        data: {
+          submitManualIntake: {
+            command: "submit_manual_intake",
+            operationId: "operation-raw-id",
+            affectedIds: [
+              { type: "normalized_intake_event", id: "018f5ec7-1234-7000-8000-123456789abc" },
+              { type: "proposed_graph_change", id: "018f5ec7-1234-7000-8000-abcdef123456" },
+            ],
+            normalizedEvent: { id: "Tm9ybWFsaXplZEludGFrZUV2ZW50OjAxOGY1ZWM3" },
+            proposedChanges: [{ id: "UHJvcG9zZWRHcmFwaENoYW5nZTowMThmNWVjNw==" }],
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(result.current.state.status).toBe("success"));
+    expect(result.current.state).toMatchObject({
+      result: { normalizedEventId: "018f5ec7-1234-7000-8000-123456789abc" },
+    });
+  });
+
   it("maps proposed-change application results", async () => {
     const result = {
       signal: { id: "signal-1" },

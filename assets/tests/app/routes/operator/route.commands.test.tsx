@@ -349,7 +349,7 @@ describe("operator route reads", () => {
         }
 
         return support.workflowConnectionResponse(
-          submitted ? [newItem, firstItem] : [firstItem],
+          submitted ? [firstItem, newItem] : [firstItem],
           variables,
           submitted ? {} : { hasNextPage: true, endCursor: "cursor_1" },
         );
@@ -363,7 +363,7 @@ describe("operator route reads", () => {
               command: "submit_manual_intake",
               operationId: "operation_intake_new",
               affectedIds: [{ type: "normalized_intake_event", id: "evt_new" }],
-              normalizedEvent: { id: "evt_new" },
+              normalizedEvent: { id: "Tm9ybWFsaXplZEludGFrZUV2ZW50OmV2dF9uZXc=" },
               proposedChanges: [{ id: "change_new" }],
             },
           },

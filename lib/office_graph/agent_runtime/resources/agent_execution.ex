@@ -320,6 +320,11 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
     identity_index_names unique_operation: "agent_executions_operation_index",
                          unique_binding_run_idempotency:
                            "agent_executions_binding_run_idempotency_index"
+
+    custom_indexes do
+      index [:run_id, :graph_item_id, :inserted_at, :id],
+        name: "agent_executions_run_graph_item_inserted_at_id_index"
+    end
   end
 
   attributes do

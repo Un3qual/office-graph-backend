@@ -138,8 +138,16 @@ const submitManualIntakeConfig = {
   toVariables: (input: SubmitManualIntakeVariables["input"]) => ({ input }),
   mapSuccess(response) {
     const payload = response.submitManualIntake;
+    const normalizedEventAffectedId = payload.affectedIds.find(
+      (affectedId) => affectedId?.type === "normalized_intake_event",
+    );
+
+    if (!normalizedEventAffectedId) {
+      throw new Error("Manual intake response omitted its normalized event affected ID.");
+    }
+
     return commandMutationSuccess(payload, {
-      normalizedEventId: payload.normalizedEvent.id,
+      normalizedEventId: normalizedEventAffectedId.id,
       proposedChangeIds: payload.proposedChanges.map(({ id }) => id),
     });
   },
