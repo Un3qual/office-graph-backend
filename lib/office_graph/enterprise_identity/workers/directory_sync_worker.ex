@@ -9,6 +9,9 @@ defmodule OfficeGraph.EnterpriseIdentity.Workers.DirectorySyncWorker do
   alias OfficeGraph.EnterpriseIdentity
 
   @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(30)
+
+  @impl Oban.Worker
   def perform(%Oban.Job{
         args: %{
           "sync_event_id" => sync_event_id,
