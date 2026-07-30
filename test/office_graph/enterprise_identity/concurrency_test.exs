@@ -9,6 +9,8 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
     EnterpriseConnection
   }
 
+  alias OfficeGraph.Identity.{ExternalIdentityLink, Principal}
+
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
 
   require Ash.Query
@@ -85,6 +87,69 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
       assert membership_count == 1
     after
       cleanup(cleanup_attrs)
+    end
+  end
+
+  test "deprovisioning and SSO reconciliation serialize on the principal" do
+    {context, cleanup_attrs} = enterprise_context("deprovision-sso-race")
+    created_user_email = "directory-created-#{System.unique_integer([:positive])}@example.test"
+
+    try do
+      {:ok, %{status: :applied, resource: directory_user}} =
+        with_unboxed_connection(fn ->
+          EnterpriseIdentity.apply_directory_event(
+            context.directory.id,
+            user_event(created_user_email, "directory_user_race"),
+            context.operation.id
+          )
+        end)
+
+      assert directory_user.principal_origin == "created"
+
+      [deprovision_result, sso_result] =
+        [
+          fn ->
+            EnterpriseIdentity.apply_directory_event(
+              context.directory.id,
+              user_event(
+                created_user_email,
+                "directory_user_race",
+                "suspended",
+                ~U[2026-07-29 21:00:00Z]
+              ),
+              context.operation.id
+            )
+          end,
+          fn ->
+            Identity.reconcile_workos_sso_identity(
+              %{
+                subject: "connection_race:idp_user_race",
+                verified_email: created_user_email
+              },
+              context.connection.provider_organization_id
+            )
+          end
+        ]
+        |> run_concurrently()
+
+      assert {:ok, %{status: :applied}} = deprovision_result
+      assert match?({:ok, _linked}, sso_result) or match?({:review, _reason}, sso_result)
+
+      with_unboxed_connection(fn ->
+        principal = Ash.get!(Principal, directory_user.principal_id, authorize?: false)
+
+        active_sso_link? =
+          ExternalIdentityLink
+          |> Ash.Query.filter(
+            principal_id == ^principal.id and provider == "workos_sso" and
+              status == "active" and linking_state == "linked"
+          )
+          |> Ash.exists?(authorize?: false)
+
+        refute principal.status == "disabled" and active_sso_link?
+      end)
+    after
+      cleanup(Keyword.put(cleanup_attrs, :created_user_email, created_user_email))
     end
   end
 
@@ -185,28 +250,39 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
             operation.id
           )
 
-        %{directory: directory, operation: operation, user: user, group: group}
+        %{
+          connection: connection,
+          directory: directory,
+          operation: operation,
+          user: user,
+          group: group
+        }
       end)
 
     {context, Keyword.put(attrs, :webhook_email, webhook_email)}
   end
 
-  defp user_event(email) do
+  defp user_event(
+         email,
+         provider_user_id \\ "directory_user_01",
+         status \\ "active",
+         provider_updated_at \\ ~U[2026-07-29 20:00:00Z]
+       ) do
     %DirectoryEvent{
       provider_event_id: "user-event",
       event_type: "dsync.user.created",
       directory_id: "bound-by-action",
       resource_kind: :user,
       action: :upsert,
-      provider_occurred_at: ~U[2026-07-29 20:00:00Z],
+      provider_occurred_at: provider_updated_at,
       data: %{
-        provider_user_id: "directory_user_01",
-        idp_id: "idp_user_01",
+        provider_user_id: provider_user_id,
+        idp_id: String.replace_prefix(provider_user_id, "directory_", "idp_"),
         email: email,
         first_name: nil,
         last_name: nil,
-        status: "active",
-        provider_updated_at: ~U[2026-07-29 20:00:00Z]
+        status: status,
+        provider_updated_at: provider_updated_at
       }
     }
   end
@@ -251,6 +327,10 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
 
       if webhook_email = attrs[:webhook_email] do
         OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_owner_principal!(webhook_email)
+      end
+
+      if created_user_email = attrs[:created_user_email] do
+        OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_owner_principal!(created_user_email)
       end
     end)
   end

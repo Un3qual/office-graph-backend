@@ -60,9 +60,9 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
   def run(input, _opts, _context) do
     attrs = input.arguments
 
-    with {:ok, subject_link} <-
+    with {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
+         {:ok, subject_link} <-
            locked_subject_link(attrs.provider_tenant, attrs.subject),
-         {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
          {:ok, email_links} <- locked_links_for_email(attrs.verified_email) do
       select_identity_basis(subject_link, principals, email_links, attrs)
     end
@@ -224,14 +224,15 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
   def run(input, _opts, _context) do
     attrs = input.arguments
 
-    with :ok <- disable_link(attrs.external_identity_link_id, attrs.disabled_at),
+    with {:ok, principal} <- locked_principal(attrs.principal_id),
+         :ok <- disable_link(attrs.external_identity_link_id, attrs.disabled_at),
          :ok <-
            disable_sso_links(
              attrs.principal_id,
              attrs.provider_tenant,
              attrs.disabled_at
            ),
-         :ok <- maybe_disable_created_principal(attrs) do
+         :ok <- maybe_disable_created_principal(attrs, principal) do
       DirectoryIdentityResult.deprovisioned()
     end
   end
@@ -284,25 +285,23 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
     end
   end
 
-  defp maybe_disable_created_principal(%{
-         principal_id: principal_id,
-         principal_origin: "created"
-       })
+  defp maybe_disable_created_principal(
+         %{principal_id: principal_id, principal_origin: "created"},
+         %Principal{} = principal
+       )
        when is_binary(principal_id) do
-    with {:ok, false} <- other_active_identity_basis?(principal_id),
-         {:ok, %Principal{} = principal} <- locked_principal(principal_id) do
+    with {:ok, false} <- other_active_identity_basis?(principal_id) do
       principal
       |> Ash.Changeset.for_update(:set_status, %{status: "disabled"})
       |> Ash.update(authorize?: false)
       |> normalize_ok()
     else
       {:ok, true} -> :ok
-      {:ok, nil} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  defp maybe_disable_created_principal(_attrs), do: :ok
+  defp maybe_disable_created_principal(_attrs, _principal), do: :ok
 
   defp other_active_identity_basis?(principal_id) do
     ExternalIdentityLink
@@ -319,7 +318,9 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
     |> Ash.read_one(authorize?: false)
   end
 
-  defp locked_principal(principal_id) do
+  defp locked_principal(nil), do: {:ok, nil}
+
+  defp locked_principal(principal_id) when is_binary(principal_id) do
     Principal
     |> Ash.Query.filter(id == ^principal_id)
     |> Ash.Query.lock(:for_update)
@@ -347,9 +348,9 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
   def run(input, _opts, _context) do
     attrs = input.arguments
 
-    with {:ok, subject_link} <-
+    with {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
+         {:ok, subject_link} <-
            locked_subject_link(attrs.provider_tenant, attrs.subject),
-         {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
          {:ok, email_links} <- locked_links_for_email(attrs.verified_email) do
       reconcile(subject_link, principals, email_links, attrs)
     end
