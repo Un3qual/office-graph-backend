@@ -166,6 +166,48 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalIdentityLink do
     attributes: [principal_id: :uuid, verified_email: :string]
 end
 
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseConnection do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "enterprise_identity_connections",
+    attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectory do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "enterprise_directories",
+    attributes: [connection_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectoryUser do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "enterprise_directory_users",
+    attributes: [directory_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectoryGroup do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "enterprise_directory_groups",
+    attributes: [directory_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectoryMembership do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "enterprise_directory_memberships",
+    attributes: [directory_user_id: :uuid, directory_group_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectorySyncEvent do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "enterprise_directory_sync_events",
+    attributes: [connection_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalGroupRoleMapping do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "external_group_role_mappings",
+    attributes: [organization_id: :uuid]
+end
+
 defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalSource do
   use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
     table: "external_sources",
@@ -376,6 +418,13 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Domain do
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.EvidenceItem
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExecutionObservation
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalIdentityLink
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseConnection
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectory
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectoryUser
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectoryGroup
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectoryMembership
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.EnterpriseDirectorySyncEvent
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalGroupRoleMapping
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ExternalSource
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.GraphItem
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.GraphRelationship
@@ -430,7 +479,14 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     EvidenceItem,
     ExecutionObservation,
     ExternalIdentityLink,
+    EnterpriseConnection,
+    EnterpriseDirectory,
+    EnterpriseDirectoryGroup,
+    EnterpriseDirectoryMembership,
+    EnterpriseDirectorySyncEvent,
+    EnterpriseDirectoryUser,
     ExternalSource,
+    ExternalGroupRoleMapping,
     GraphItem,
     GraphRelationship,
     Initiative,
@@ -631,6 +687,8 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
   def cleanup_tenancy_scope!(organization_slug) do
     organization_ids = organization_ids(organization_slug)
 
+    Enum.each(organization_ids, &cleanup_enterprise_identity_scope!/1)
+
     role_ids =
       Role
       |> Ash.Query.filter(organization_id in ^organization_ids)
@@ -643,6 +701,12 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     AuthenticationEvent
     |> Ash.Query.filter(organization_id in ^organization_ids)
     |> destroy_all!()
+
+    for resource <- [AuthorizationDecision, OperationCorrelation] do
+      resource
+      |> Ash.Query.filter(organization_id in ^organization_ids)
+      |> destroy_all!()
+    end
 
     for resource <- [
           RoleAssignment,
@@ -661,6 +725,51 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     Organization
     |> Ash.Query.filter(id in ^organization_ids)
     |> destroy_all!()
+  end
+
+  defp cleanup_enterprise_identity_scope!(organization_id) do
+    connection_ids =
+      EnterpriseConnection
+      |> Ash.Query.filter(organization_id == ^organization_id)
+      |> ids!()
+
+    directory_ids =
+      EnterpriseDirectory
+      |> Ash.Query.filter(connection_id in ^connection_ids)
+      |> ids!()
+
+    user_ids =
+      EnterpriseDirectoryUser
+      |> Ash.Query.filter(directory_id in ^directory_ids)
+      |> ids!()
+
+    group_ids =
+      EnterpriseDirectoryGroup
+      |> Ash.Query.filter(directory_id in ^directory_ids)
+      |> ids!()
+
+    ExternalGroupRoleMapping
+    |> Ash.Query.filter(organization_id == ^organization_id)
+    |> destroy_all!()
+
+    EnterpriseDirectoryMembership
+    |> Ash.Query.filter(directory_user_id in ^user_ids or directory_group_id in ^group_ids)
+    |> destroy_all!()
+
+    EnterpriseDirectorySyncEvent
+    |> Ash.Query.filter(connection_id in ^connection_ids)
+    |> destroy_all!()
+
+    for {resource, ids} <- [
+          {EnterpriseDirectoryUser, user_ids},
+          {EnterpriseDirectoryGroup, group_ids},
+          {EnterpriseDirectory, directory_ids},
+          {EnterpriseConnection, connection_ids}
+        ] do
+      resource
+      |> Ash.Query.filter(id in ^ids)
+      |> destroy_all!()
+    end
   end
 
   defp cleanup_jobs!(organization_id) do

@@ -48,6 +48,7 @@ defmodule OfficeGraph.Operations do
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
+    enterprise_identity_manage: "enterprise_identity.manage",
     integration_reconcile: "integration.reconcile",
     verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"

@@ -8,11 +8,14 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     DirectoryGroup,
     DirectoryMembership,
     DirectoryUser,
-    EnterpriseConnection
+    EnterpriseConnection,
+    ExternalGroupRoleMapping
   }
 
+  alias OfficeGraph.Authorization.Role
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
   alias OfficeGraph.Identity.{ExternalIdentityLink, Principal}
+  alias OfficeGraph.QueryCounter
 
   require Ash.Query
 
@@ -210,6 +213,218 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert is_nil(user.external_identity_link_id)
   end
 
+  test "active group mappings contribute exact live authorization facts" do
+    context = enterprise_context("mapped-authorization")
+    event_time = ~U[2026-07-29 20:00:00Z]
+
+    {:ok, %{resource: user}} =
+      EnterpriseIdentity.apply_directory_event(
+        context.directory.id,
+        user_event(event_time),
+        context.operation.id
+      )
+
+    {:ok, %{resource: group}} =
+      EnterpriseIdentity.apply_directory_event(
+        context.directory.id,
+        group_event(event_time),
+        context.operation.id
+      )
+
+    {:ok, %{resource: membership}} =
+      EnterpriseIdentity.apply_directory_event(
+        context.directory.id,
+        membership_event(event_time, "active"),
+        context.operation.id
+      )
+
+    role =
+      Role
+      |> Ash.Query.filter(
+        organization_id == ^context.bootstrap.organization.id and key == "owner"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    mapping =
+      Ash.create!(
+        ExternalGroupRoleMapping,
+        %{
+          directory_group_id: group.id,
+          role_id: role.id,
+          organization_id: context.bootstrap.organization.id,
+          workspace_id: context.bootstrap.workspace.id,
+          operation_id: context.operation.id,
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    scope = %{
+      organization_id: context.bootstrap.organization.id,
+      workspace_id: context.bootstrap.workspace.id
+    }
+
+    assert {:ok, ^scope} = Authorization.resolve_login_scope(user.principal_id)
+
+    {authorization_result, queries} =
+      QueryCounter.count(fn ->
+        Authorization.authorize_principal(
+          user.principal_id,
+          scope.organization_id,
+          scope.workspace_id,
+          :skeleton_read
+        )
+      end)
+
+    assert :ok = authorization_result
+    assert QueryCounter.source_count(queries, "enterprise_directory_memberships") == 1
+    assert QueryCounter.source_count(queries, "external_group_role_mappings") == 1
+
+    mapping
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "disabled",
+      disabled_at: DateTime.utc_now()
+    })
+    |> Ash.update!(authorize?: false)
+
+    assert {:error, :no_login_scope} =
+             Authorization.resolve_login_scope(user.principal_id)
+
+    assert {:error, :forbidden} =
+             Authorization.authorize_principal(
+               user.principal_id,
+               scope.organization_id,
+               scope.workspace_id,
+               :skeleton_read
+             )
+
+    assert membership.status == "active"
+  end
+
+  test "every inactive enterprise fact layer removes mapped authority on the next read" do
+    for layer <- [:connection, :directory, :user, :group, :membership, :mapping] do
+      fixture = mapped_authorization_context("inactive-#{layer}")
+
+      assert :ok =
+               Authorization.authorize_principal(
+                 fixture.user.principal_id,
+                 fixture.scope.organization_id,
+                 fixture.scope.workspace_id,
+                 :skeleton_read
+               )
+
+      disable_authorization_layer(fixture, layer)
+
+      assert {:error, :no_login_scope} =
+               Authorization.resolve_login_scope(fixture.user.principal_id)
+
+      assert {:error, :forbidden} =
+               Authorization.authorize_principal(
+                 fixture.user.principal_id,
+                 fixture.scope.organization_id,
+                 fixture.scope.workspace_id,
+                 :skeleton_read
+               )
+    end
+  end
+
+  test "connection and mapping management require current scoped authority and operations" do
+    {:ok, bootstrap} =
+      Foundation.bootstrap_local_owner(
+        organization_slug: unique("management-organization"),
+        workspace_slug: unique("management-workspace"),
+        initiative_slug: unique("management-initiative"),
+        owner_email: "#{unique("management-owner")}@example.test"
+      )
+
+    {:ok, webhook_principal} =
+      Identity.ensure_system_principal(
+        "#{unique("management-webhook")}@office-graph.local",
+        "webhook"
+      )
+
+    {:ok, operation} =
+      Operations.start_operation(bootstrap.session, :enterprise_identity_manage)
+
+    assert {:ok, connection} =
+             EnterpriseIdentity.create_connection(bootstrap.session, operation, %{
+               webhook_principal_id: webhook_principal.id,
+               provider: "workos",
+               provider_organization_id: unique("managed-workos-organization"),
+               directory_requirement: "required",
+               status: "active"
+             })
+
+    directory =
+      Ash.create!(
+        Directory,
+        %{
+          connection_id: connection.id,
+          operation_id: operation.id,
+          provider_directory_id: unique("managed-directory"),
+          status: "active",
+          provider_updated_at: ~U[2026-07-29 19:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    group =
+      Ash.create!(
+        DirectoryGroup,
+        %{
+          directory_id: directory.id,
+          provider_group_id: unique("managed-group"),
+          name: "Managed Engineering",
+          status: "active",
+          provider_updated_at: ~U[2026-07-29 20:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    role =
+      Role
+      |> Ash.Query.filter(organization_id == ^bootstrap.organization.id and key == "owner")
+      |> Ash.read_one!(authorize?: false)
+
+    assert {:ok, mapping} =
+             EnterpriseIdentity.create_group_role_mapping(
+               bootstrap.session,
+               operation,
+               %{
+                 directory_group_id: group.id,
+                 role_id: role.id,
+                 status: "active"
+               }
+             )
+
+    assert mapping.operation_id == operation.id
+    assert mapping.organization_id == bootstrap.organization.id
+    assert mapping.workspace_id == bootstrap.workspace.id
+
+    assert {:ok, disabled_mapping} =
+             EnterpriseIdentity.set_group_role_mapping_lifecycle(
+               bootstrap.session,
+               operation,
+               mapping.id,
+               %{status: "disabled", disabled_at: DateTime.utc_now()}
+             )
+
+    assert disabled_mapping.status == "disabled"
+
+    forged_session = %{bootstrap.session | organization_id: Ecto.UUID.generate()}
+
+    assert {:error, :forbidden} =
+             EnterpriseIdentity.set_connection_lifecycle(
+               forged_session,
+               operation,
+               connection.id,
+               %{status: "disabled"}
+             )
+  end
+
   defp enterprise_context(label) do
     {:ok, bootstrap} =
       Foundation.bootstrap_local_owner(
@@ -287,6 +502,117 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
       operation: operation,
       webhook_principal: webhook_principal
     }
+  end
+
+  defp mapped_authorization_context(label) do
+    context = enterprise_context(label)
+    event_time = ~U[2026-07-29 20:00:00Z]
+
+    {:ok, %{resource: user}} =
+      EnterpriseIdentity.apply_directory_event(
+        context.directory.id,
+        user_event(event_time),
+        context.operation.id
+      )
+
+    {:ok, %{resource: group}} =
+      EnterpriseIdentity.apply_directory_event(
+        context.directory.id,
+        group_event(event_time),
+        context.operation.id
+      )
+
+    {:ok, %{resource: membership}} =
+      EnterpriseIdentity.apply_directory_event(
+        context.directory.id,
+        membership_event(event_time, "active"),
+        context.operation.id
+      )
+
+    role =
+      Role
+      |> Ash.Query.filter(
+        organization_id == ^context.bootstrap.organization.id and key == "owner"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    mapping =
+      Ash.create!(
+        ExternalGroupRoleMapping,
+        %{
+          directory_group_id: group.id,
+          role_id: role.id,
+          organization_id: context.bootstrap.organization.id,
+          workspace_id: context.bootstrap.workspace.id,
+          operation_id: context.operation.id,
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Map.merge(context, %{
+      user: user,
+      group: group,
+      membership: membership,
+      mapping: mapping,
+      scope: %{
+        organization_id: context.bootstrap.organization.id,
+        workspace_id: context.bootstrap.workspace.id
+      }
+    })
+  end
+
+  defp disable_authorization_layer(fixture, :connection) do
+    fixture.connection
+    |> Ash.Changeset.for_update(:set_lifecycle, %{status: "disabled"})
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp disable_authorization_layer(fixture, :directory) do
+    fixture.directory
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "disabled",
+      provider_updated_at: ~U[2026-07-29 21:00:00Z]
+    })
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp disable_authorization_layer(fixture, :user) do
+    fixture.user
+    |> Ash.Changeset.for_update(:synchronize, %{
+      status: "suspended",
+      provider_updated_at: ~U[2026-07-29 21:00:00Z]
+    })
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp disable_authorization_layer(fixture, :group) do
+    fixture.group
+    |> Ash.Changeset.for_update(:synchronize, %{
+      status: "deleted",
+      provider_updated_at: ~U[2026-07-29 21:00:00Z]
+    })
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp disable_authorization_layer(fixture, :membership) do
+    fixture.membership
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "removed",
+      removed_at: ~U[2026-07-29 21:00:00Z],
+      provider_updated_at: ~U[2026-07-29 21:00:00Z]
+    })
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp disable_authorization_layer(fixture, :mapping) do
+    fixture.mapping
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "disabled",
+      disabled_at: ~U[2026-07-29 21:00:00Z]
+    })
+    |> Ash.update!(authorize?: false)
   end
 
   defp user_event(provider_updated_at, overrides \\ %{}) do

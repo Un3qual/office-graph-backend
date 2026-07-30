@@ -35,6 +35,7 @@ config :office_graph,
   workos_http_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.Httpc,
   workos_secret_store: OfficeGraph.EnterpriseIdentity.SecretStore.Environment,
   workos_sso_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient,
+  external_role_facts: OfficeGraph.EnterpriseIdentity.AuthorizationFacts,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 

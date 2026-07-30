@@ -78,6 +78,58 @@ the default eight-hour session lifetime. Missing or partial OIDC configuration
 fails closed with `Authentication unavailable`; it never falls back to the
 local-owner bootstrap.
 
+## WorkOS Enterprise Identity
+
+WorkOS is an optional managed enterprise adapter for standalone SSO and
+Directory Sync. Office Graph continues to own principals, sessions,
+authorization, and local Authentik sign-in; it does not use AuthKit or
+WorkOS-hosted sessions.
+
+Configure global provider access with references rather than secret values:
+
+```sh
+WORKOS_CLIENT_ID=client_... \
+WORKOS_API_KEY_REFERENCE=env:WORKOS_API_KEY \
+WORKOS_WEBHOOK_SECRET_REFERENCE=env:WORKOS_WEBHOOK_SECRET \
+WORKOS_API_KEY=sk_... \
+WORKOS_WEBHOOK_SECRET=whsec_... \
+nix --extra-experimental-features 'nix-command flakes' develop --command mix phx.server
+```
+
+`WORKOS_API_BASE_URL` defaults to `https://api.workos.com`.
+`WORKOS_SESSION_TTL_SECONDS` optionally overrides the default eight-hour Office
+Graph session lifetime. The production environment secret adapter accepts only
+`env:VARIABLE_NAME` references. Secret values, access tokens, and raw WorkOS
+profile payloads are never stored in enterprise identity resources.
+
+Each customer binding is an authorized `EnterpriseConnection` record naming
+the exact Office Graph organization/workspace and WorkOS organization. The
+browser entry point is `/auth/workos/:connection_id/login`; callback parameters
+cannot select or change that connection. Group memberships grant authority only
+through explicit active `ExternalGroupRoleMapping` records to existing Office
+Graph roles at the exact mapping scope.
+
+Configure the WorkOS Directory Sync webhook as:
+
+```text
+https://YOUR_OFFICE_GRAPH_HOST/api/v1/webhooks/workos
+```
+
+The endpoint verifies the WorkOS timestamped signature against the exact raw
+request body before it archives or processes a delivery. Rotating an API or
+webhook key requires changing only the value behind its configured secret
+reference; restart the release after environment-backed rotation so runtime
+configuration is refreshed. Disable the affected connection during a
+connection-specific incident.
+
+Normal tests use deterministic SSO, HTTP, signature, and secret-store fakes and
+require no WorkOS account. An optional sandbox smoke test should use a
+non-production WorkOS organization, create the connection through
+`OfficeGraph.EnterpriseIdentity`'s authorized management API, verify one SSO
+login and one Directory Sync delivery, and then disable the sandbox connection.
+Never put sandbox credentials or provider payloads in fixtures or source
+control.
+
 ## GitHub App Runtime
 
 Development and production use the live GitHub App adapter. Set

@@ -246,6 +246,16 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
              )
 
     assert completed.principal.id == context.bootstrap.principal.id
+
+    assert {:ok, %{status: :applied, resource: directory_user}} =
+             provision_directory_user(
+               context,
+               context.bootstrap.principal.email,
+               "idp_optional"
+             )
+
+    assert directory_user.principal_id == completed.principal.id
+    assert directory_user.principal_origin == "reused"
   end
 
   test "disabled connections and cross-provider transactions fail closed" do
@@ -352,7 +362,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     }
   end
 
-  defp provision_directory_user(context, email) do
+  defp provision_directory_user(context, email, idp_id \\ "idp_user_01") do
     event =
       DirectoryEvent.new!(
         provider_event_id: unique("event"),
@@ -363,7 +373,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
         provider_occurred_at: ~U[2026-07-29 20:00:00Z],
         data: %{
           provider_user_id: "directory_user_01",
-          idp_id: "idp_user_01",
+          idp_id: idp_id,
           email: email,
           first_name: "Ada",
           last_name: "Lovelace",
@@ -372,12 +382,11 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
         }
       )
 
-    assert {:ok, %{status: :applied}} =
-             EnterpriseIdentity.apply_directory_event(
-               context.directory.id,
-               event,
-               context.operation.id
-             )
+    EnterpriseIdentity.apply_directory_event(
+      context.directory.id,
+      event,
+      context.operation.id
+    )
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)

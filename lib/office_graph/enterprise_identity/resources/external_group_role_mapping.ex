@@ -85,7 +85,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ExternalGroupRoleMapping do
 
     update :set_lifecycle do
       public? false
-      accept [:status, :disabled_at]
+      accept [:operation_id, :status, :disabled_at]
 
       change set_attribute(:active_identity_slot, nil)
 

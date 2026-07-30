@@ -206,11 +206,12 @@ The terminal projection identity classification is:
 
 ## Manual JSON Routes
 
-The provider-owned webhook is the sole provider-callback exception:
+Provider-owned webhooks are the only provider-callback exceptions:
 
 | Surface | Terminal class |
 |---|---|
 | `json.post./api/v1/webhooks/github` | provider callback |
+| `json.post./api/v1/webhooks/workos` | provider callback |
 
 The following reads move to generated resources or generated typed query
 actions:
@@ -296,6 +297,7 @@ AshJsonApi paths use their owning-domain error handlers and actor context:
 - `lib/office_graph_web/json_api/common/errors.ex`
 - `lib/office_graph_web/request_session.ex`
 - `lib/office_graph_web/controllers/github_webhook_controller.ex`
+- `lib/office_graph_web/controllers/workos_webhook_controller.ex`
 - `lib/office_graph_web/json_api/relationships/controller.ex`
 - `lib/office_graph_web/json_api/github_health_controller.ex`
 - `lib/office_graph_web/json_api/conversations_controller.ex`

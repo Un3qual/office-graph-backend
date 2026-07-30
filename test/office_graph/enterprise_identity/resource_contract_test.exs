@@ -58,7 +58,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ResourceContractTest do
              ])
 
     assert relationship_names(DirectoryGroup) ==
-             MapSet.new([:directory, :memberships])
+             MapSet.new([:directory, :memberships, :role_mappings])
 
     assert relationship_names(DirectoryMembership) ==
              MapSet.new([:directory_user, :directory_group])

@@ -18,14 +18,17 @@ defmodule OfficeGraph.EnterpriseIdentity do
     ActionSupport,
     Directory,
     DirectoryApplyResult,
+    DirectoryGroup,
     DirectoryProcessingResult,
     DirectorySyncEvent,
     DirectoryUser,
-    EnterpriseConnection
+    EnterpriseConnection,
+    ExternalGroupRoleMapping
   }
 
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
   alias OfficeGraph.EnterpriseIdentity.WebhookReceipt
+  alias OfficeGraph.{Authorization, Identity, Operations}
 
   require Ash.Query
 
@@ -107,6 +110,106 @@ defmodule OfficeGraph.EnterpriseIdentity do
   end
 
   def fail_sync_event(_sync_event_id, _reason), do: {:error, :unknown_sync_event}
+
+  def create_connection(session_context, operation, attrs) when is_map(attrs) do
+    with :ok <- validate_management_operation(session_context, operation),
+         :ok <- authorize_management(session_context, operation),
+         :ok <- validate_management_scope(session_context, attrs),
+         {:ok, true} <- Identity.active_system_principal(attrs[:webhook_principal_id]),
+         {:ok, connection} <-
+           EnterpriseConnection
+           |> Ash.Changeset.for_create(
+             :create,
+             attrs
+             |> Map.take([
+               :provider,
+               :provider_organization_id,
+               :directory_requirement,
+               :status,
+               :webhook_principal_id
+             ])
+             |> Map.merge(%{
+               organization_id: session_context.organization_id,
+               workspace_id: session_context.workspace_id,
+               operation_id: operation.id
+             })
+           )
+           |> Ash.create(authorize?: false) do
+      {:ok, connection}
+    else
+      {:ok, false} -> {:error, :forbidden}
+      {:error, _reason} = error -> normalize_management_error(error)
+    end
+  end
+
+  def create_connection(_session_context, _operation, _attrs), do: {:error, :forbidden}
+
+  def set_connection_lifecycle(session_context, operation, connection_id, attrs)
+      when is_binary(connection_id) and is_map(attrs) do
+    set_management_lifecycle(
+      EnterpriseConnection,
+      session_context,
+      operation,
+      connection_id,
+      attrs,
+      [:directory_requirement, :status]
+    )
+  end
+
+  def set_connection_lifecycle(_session_context, _operation, _connection_id, _attrs),
+    do: {:error, :forbidden}
+
+  def create_group_role_mapping(session_context, operation, attrs) when is_map(attrs) do
+    with :ok <- validate_management_operation(session_context, operation),
+         :ok <- authorize_management(session_context, operation),
+         :ok <- validate_management_scope(session_context, attrs),
+         :ok <- validate_mapping_targets(session_context, attrs),
+         {:ok, mapping} <-
+           ExternalGroupRoleMapping
+           |> Ash.Changeset.for_create(
+             :create,
+             attrs
+             |> Map.take([:directory_group_id, :role_id, :status, :disabled_at])
+             |> Map.merge(%{
+               organization_id: session_context.organization_id,
+               workspace_id: session_context.workspace_id,
+               operation_id: operation.id
+             })
+           )
+           |> Ash.create(authorize?: false) do
+      {:ok, mapping}
+    else
+      {:error, _reason} = error -> normalize_management_error(error)
+    end
+  end
+
+  def create_group_role_mapping(_session_context, _operation, _attrs),
+    do: {:error, :forbidden}
+
+  def set_group_role_mapping_lifecycle(
+        session_context,
+        operation,
+        mapping_id,
+        attrs
+      )
+      when is_binary(mapping_id) and is_map(attrs) do
+    set_management_lifecycle(
+      ExternalGroupRoleMapping,
+      session_context,
+      operation,
+      mapping_id,
+      attrs,
+      [:status, :disabled_at]
+    )
+  end
+
+  def set_group_role_mapping_lifecycle(
+        _session_context,
+        _operation,
+        _mapping_id,
+        _attrs
+      ),
+      do: {:error, :forbidden}
 
   def prepare_workos_login(connection_id, redirect_uri, state)
       when is_binary(connection_id) and is_binary(redirect_uri) and is_binary(state) do
@@ -209,6 +312,102 @@ defmodule OfficeGraph.EnterpriseIdentity do
       {:error, _storage_error} -> {:error, :enterprise_connection_unavailable}
     end
   end
+
+  defp validate_management_operation(session_context, operation) do
+    with :ok <- Operations.validate_operation_context(session_context, operation),
+         :ok <-
+           Operations.validate_operation_action(
+             operation,
+             "enterprise_identity.manage"
+           ) do
+      :ok
+    end
+  end
+
+  defp authorize_management(session_context, operation) do
+    Authorization.authorize_operation(
+      session_context,
+      operation,
+      :enterprise_identity_manage,
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id
+    )
+  end
+
+  defp validate_management_scope(session_context, attrs) do
+    if attrs[:organization_id] in [nil, session_context.organization_id] and
+         attrs[:workspace_id] in [nil, session_context.workspace_id] do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp validate_mapping_targets(session_context, attrs) do
+    with {:ok, true} <-
+           DirectoryGroup
+           |> Ash.Query.filter(
+             id == ^attrs[:directory_group_id] and status == "active" and
+               directory.status == "active" and
+               directory.connection.status == "active" and
+               directory.connection.organization_id == ^session_context.organization_id and
+               directory.connection.workspace_id == ^session_context.workspace_id
+           )
+           |> Ash.exists(authorize?: false),
+         {:ok, true} <-
+           OfficeGraph.Authorization.Role
+           |> Ash.Query.filter(
+             id == ^attrs[:role_id] and organization_id == ^session_context.organization_id
+           )
+           |> Ash.exists(authorize?: false) do
+      :ok
+    else
+      {:ok, false} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :enterprise_identity_storage_unavailable}
+    end
+  end
+
+  defp set_management_lifecycle(resource, session_context, operation, id, attrs, accepted) do
+    with :ok <- validate_management_operation(session_context, operation),
+         :ok <- authorize_management(session_context, operation),
+         {:ok, record} when not is_nil(record) <-
+           scoped_management_record(resource, id, session_context),
+         {:ok, updated} <-
+           record
+           |> Ash.Changeset.for_update(
+             :set_lifecycle,
+             attrs
+             |> Map.take(accepted)
+             |> Map.put(:operation_id, operation.id)
+           )
+           |> Ash.update(authorize?: false) do
+      {:ok, updated}
+    else
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, _reason} = error -> normalize_management_error(error)
+    end
+  end
+
+  defp scoped_management_record(resource, id, session_context) do
+    resource
+    |> Ash.Query.filter(
+      id == ^id and organization_id == ^session_context.organization_id and
+        workspace_id == ^session_context.workspace_id
+    )
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp normalize_management_error({:error, reason})
+       when reason in [
+              :forbidden,
+              :integration_storage_unavailable,
+              :identity_storage_unavailable,
+              :enterprise_identity_storage_unavailable
+            ],
+       do: {:error, reason}
+
+  defp normalize_management_error({:error, _reason}),
+    do: {:error, :enterprise_identity_storage_unavailable}
 
   defp workos_configuration(connection) do
     config = Application.get_env(:office_graph, :workos_enterprise, [])

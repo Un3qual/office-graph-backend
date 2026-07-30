@@ -14,6 +14,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
 
   alias OfficeGraph.Integrations.RawArchive
   alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
 
   require Ash.Query
 
@@ -163,6 +164,55 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
     assert DirectoryUser |> Ash.Query.filter(id == ^user.id) |> Ash.count!(authorize?: false) == 1
   end
 
+  test "worker retries a missing dependency and later applies the same archived event" do
+    context = enterprise_context("worker-retry")
+
+    body =
+      membership_body(
+        "event_worker_retry",
+        context.directory.provider_directory_id
+      )
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(signed_headers(body), body)
+
+    [job] =
+      all_enqueued(
+        worker: DirectorySyncWorker,
+        args: %{"provider_event_id" => "event_worker_retry"}
+      )
+
+    assert {:error, :directory_dependency_missing} =
+             DirectorySyncWorker.perform(%{job | attempt: 1, max_attempts: 10})
+
+    sync_event =
+      DirectorySyncEvent
+      |> Ash.Query.filter(provider_event_id == "event_worker_retry")
+      |> Ash.read_one!(authorize?: false)
+
+    assert sync_event.status == "pending"
+    assert is_nil(sync_event.processed_at)
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               dependency_event(:user),
+               context.operation.id
+             )
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               dependency_event(:group),
+               context.operation.id
+             )
+
+    assert :ok = DirectorySyncWorker.perform(%{job | attempt: 2, max_attempts: 10})
+
+    applied = Ash.get!(DirectorySyncEvent, sync_event.id, authorize?: false)
+    assert applied.status == "applied"
+    assert applied.result == "applied"
+  end
+
   defp enterprise_context(label) do
     {:ok, bootstrap} =
       Foundation.bootstrap_local_owner(
@@ -233,7 +283,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
         authorize?: false
       )
 
-    %{connection: connection, directory: directory}
+    %{connection: connection, directory: directory, operation: setup_operation}
   end
 
   defp user_body(event_id, directory_id) do
@@ -252,6 +302,57 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
         "emails" => [%{"primary" => true, "value" => "Person@Example.TEST"}]
       }
     })
+  end
+
+  defp membership_body(event_id, directory_id) do
+    Jason.encode!(%{
+      "id" => event_id,
+      "event" => "dsync.group.user_added",
+      "created_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "data" => %{
+        "directory_id" => directory_id,
+        "group" => %{"id" => "directory_group_01"},
+        "user" => %{"id" => "directory_user_01"},
+        "updated_at" => DateTime.to_iso8601(DateTime.utc_now())
+      }
+    })
+  end
+
+  defp dependency_event(:user) do
+    DirectoryEvent.new!(
+      provider_event_id: unique("dependency-user-event"),
+      event_type: "dsync.user.created",
+      directory_id: "bound-by-action",
+      resource_kind: :user,
+      action: :upsert,
+      provider_occurred_at: ~U[2026-07-29 20:00:00Z],
+      data: %{
+        provider_user_id: "directory_user_01",
+        idp_id: "idp_user_01",
+        email: "person@example.test",
+        first_name: "Ada",
+        last_name: "Lovelace",
+        status: "active",
+        provider_updated_at: ~U[2026-07-29 20:00:00Z]
+      }
+    )
+  end
+
+  defp dependency_event(:group) do
+    DirectoryEvent.new!(
+      provider_event_id: unique("dependency-group-event"),
+      event_type: "dsync.group.created",
+      directory_id: "bound-by-action",
+      resource_kind: :group,
+      action: :upsert,
+      provider_occurred_at: ~U[2026-07-29 20:00:00Z],
+      data: %{
+        provider_group_id: "directory_group_01",
+        name: "Engineering",
+        status: "active",
+        provider_updated_at: ~U[2026-07-29 20:00:00Z]
+      }
+    )
   end
 
   defp signed_headers(body) do

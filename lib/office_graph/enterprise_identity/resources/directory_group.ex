@@ -38,6 +38,10 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryGroup do
     has_many :memberships, OfficeGraph.EnterpriseIdentity.DirectoryMembership do
       destination_attribute :directory_group_id
     end
+
+    has_many :role_mappings, OfficeGraph.EnterpriseIdentity.ExternalGroupRoleMapping do
+      destination_attribute :directory_group_id
+    end
   end
 
   actions do

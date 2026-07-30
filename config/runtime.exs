@@ -47,6 +47,13 @@ config :office_graph, :human_oidc,
   preferred_scope: preferred_scope,
   session_ttl_seconds: System.get_env("HUMAN_SESSION_TTL_SECONDS")
 
+config :office_graph, :workos_enterprise,
+  api_base_url: System.get_env("WORKOS_API_BASE_URL", "https://api.workos.com"),
+  client_id: System.get_env("WORKOS_CLIENT_ID"),
+  api_key_reference: System.get_env("WORKOS_API_KEY_REFERENCE"),
+  webhook_secret_reference: System.get_env("WORKOS_WEBHOOK_SECRET_REFERENCE"),
+  session_ttl_seconds: System.get_env("WORKOS_SESSION_TTL_SECONDS")
+
 if github_app_id = System.get_env("GITHUB_APP_ID") do
   config :office_graph, :github_app_id, github_app_id
 end

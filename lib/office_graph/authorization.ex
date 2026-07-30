@@ -3,7 +3,7 @@ defmodule OfficeGraph.Authorization do
   Public boundary for authorization decisions and capability checks.
   """
 
-  use Boundary, deps: [OfficeGraph.Identity], exports: [Domain]
+  use Boundary, deps: [OfficeGraph.Identity], exports: [Domain, ExternalRoleFacts]
 
   alias OfficeGraph.Authorization.{
     Capability,
@@ -116,10 +116,17 @@ defmodule OfficeGraph.Authorization do
            |> Ash.Query.filter(principal_id == ^principal_id and not is_nil(workspace_id))
            |> Ash.read(authorize?: false) do
         {:ok, assignments} ->
-          assignments
-          |> Enum.map(&%{organization_id: &1.organization_id, workspace_id: &1.workspace_id})
-          |> Enum.uniq()
-          |> select_login_scope(preferred_scope)
+          with {:ok, external_scopes} <-
+                 external_role_facts().login_scopes(principal_id) do
+            assignments
+            |> Enum.map(&%{organization_id: &1.organization_id, workspace_id: &1.workspace_id})
+            |> Kernel.++(external_scopes)
+            |> Enum.uniq()
+            |> select_login_scope(preferred_scope)
+          else
+            {:error, _storage_error} ->
+              {:error, :authorization_storage_unavailable}
+          end
 
         {:error, _storage_error} ->
           {:error, :authorization_storage_unavailable}
@@ -400,8 +407,16 @@ defmodule OfficeGraph.Authorization do
         {:ok, %Capability{id: capability_id}} ->
           with {:ok, role_ids} <- role_ids_for_capability(capability_id, organization_id),
                {:ok, granted?} <-
-                 role_assignment_exists(principal_id, organization_id, workspace_id, role_ids) do
-            {:ok, granted?}
+                 role_assignment_exists(principal_id, organization_id, workspace_id, role_ids),
+               {:ok, externally_granted?} <-
+                 external_role_granted?(
+                   granted?,
+                   principal_id,
+                   organization_id,
+                   workspace_id,
+                   role_ids
+                 ) do
+            {:ok, granted? or externally_granted?}
           end
 
         {:ok, nil} ->
@@ -483,6 +498,29 @@ defmodule OfficeGraph.Authorization do
 
   defp role_assignment_exists(_principal_id, _organization_id, _workspace_id, _role_ids),
     do: {:ok, false}
+
+  defp external_role_granted?(true, _principal_id, _organization_id, _workspace_id, _role_ids),
+    do: {:ok, false}
+
+  defp external_role_granted?(false, principal_id, organization_id, workspace_id, role_ids) do
+    case external_role_facts().role_ids(
+           principal_id,
+           organization_id,
+           workspace_id,
+           role_ids
+         ) do
+      {:ok, external_role_ids} -> {:ok, external_role_ids != []}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp external_role_facts do
+    Application.get_env(
+      :office_graph,
+      :external_role_facts,
+      OfficeGraph.Authorization.ExternalRoleFacts.Empty
+    )
+  end
 
   defp normalize_exists_result({:ok, exists?}), do: {:ok, exists?}
 

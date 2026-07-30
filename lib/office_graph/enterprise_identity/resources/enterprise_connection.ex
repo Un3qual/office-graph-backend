@@ -87,7 +87,7 @@ defmodule OfficeGraph.EnterpriseIdentity.EnterpriseConnection do
 
     update :set_lifecycle do
       public? false
-      accept [:directory_requirement, :status]
+      accept [:operation_id, :directory_requirement, :status]
 
       validate one_of(:directory_requirement, ~w(optional required)),
         where: [changing(:directory_requirement)]
