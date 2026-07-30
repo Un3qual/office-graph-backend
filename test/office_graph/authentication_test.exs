@@ -25,8 +25,12 @@ defmodule OfficeGraph.AuthenticationTest do
     original_config = Application.get_env(:office_graph, :human_oidc)
     original_client = Application.get_env(:office_graph, :human_oidc_client)
 
+    original_local_development =
+      Application.get_env(:office_graph, :local_development_authentication)
+
     Application.put_env(:office_graph, :human_oidc_client, TestAdapter)
     Application.put_env(:office_graph, :human_oidc, oidc_config())
+    Application.put_env(:office_graph, :local_development_authentication, enabled: false)
 
     TestAdapter.put(%{
       authorization_uri: {:ok, "https://authentik.office-graph.local/authorize"},
@@ -36,6 +40,7 @@ defmodule OfficeGraph.AuthenticationTest do
     on_exit(fn ->
       restore_env(:human_oidc, original_config)
       restore_env(:human_oidc_client, original_client)
+      restore_env(:local_development_authentication, original_local_development)
     end)
 
     :ok
@@ -474,7 +479,7 @@ defmodule OfficeGraph.AuthenticationTest do
           trace_id: "logout-login"
         )
 
-      assert {:ok, %{provider_logout_uri: nil}} =
+      assert {:ok, %{authentication_method: "oidc", provider_logout_uri: nil}} =
                Authentication.logout(issued.session.id,
                  trace_id: "logout-trace",
                  post_logout_redirect_uri: "http://localhost:4000/"
@@ -484,6 +489,109 @@ defmodule OfficeGraph.AuthenticationTest do
                Identity.resolve_human_session(issued.session.id)
 
       assert TestAdapter.calls(:logout_uri) == 1
+    end
+  end
+
+  describe "local development authentication" do
+    test "issues and revalidates an ordinary human session from a fixed fixture key" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-login")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("workspace_admin",
+                 trace_id: "local-login",
+                 source_surface: "web"
+               )
+
+      assert completed.session.authentication_method == "local_development"
+      assert completed.session.purpose == "human_web"
+
+      assert {:ok, resolved} =
+               Authentication.resolve_session(completed.session.id,
+                 trace_id: "local-resolve",
+                 source_surface: "web"
+               )
+
+      assert resolved.principal_id ==
+               seeded.fixtures["workspace_admin"].identity.principal.id
+
+      assert resolved.organization_id == seeded.bootstrap.organization.id
+      assert resolved.workspace_id == seeded.bootstrap.workspace.id
+    end
+
+    test "rejects unknown and disabled fixtures with bounded durable evidence" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-rejections")
+
+      assert {:error, :local_development_fixture_missing} =
+               Authentication.complete_local_development_login("not-a-fixture",
+                 trace_id: "local-missing",
+                 source_surface: "web"
+               )
+
+      assert {:error, :identity_disabled} =
+               Authentication.complete_local_development_login("deprovisioned_member",
+                 trace_id: "local-disabled",
+                 source_surface: "web"
+               )
+
+      missing_event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "local-missing")
+        |> Ash.read_one!(authorize?: false)
+
+      disabled_event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "local-disabled")
+        |> Ash.read_one!(authorize?: false)
+
+      assert missing_event.reason == "local_development_fixture_missing"
+      assert missing_event.principal_id == nil
+      assert disabled_event.reason == "identity_disabled"
+
+      assert disabled_event.principal_id ==
+               seeded.fixtures["deprovisioned_member"].identity.principal.id
+    end
+
+    test "revokes a local session when the development provider is disabled" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      _seeded = local_development_seed("local-provider-disable")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-provider-login",
+                 source_surface: "web"
+               )
+
+      Application.put_env(:office_graph, :local_development_authentication, enabled: false)
+
+      assert {:error, :invalid_session} =
+               Authentication.resolve_session(completed.session.id,
+                 trace_id: "local-provider-disabled",
+                 source_surface: "web"
+               )
+
+      assert {:error, :invalid_session} =
+               Identity.resolve_human_session(completed.session.id)
+    end
+
+    test "logout reports local authentication after revoking its durable session" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      _seeded = local_development_seed("local-logout")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("owner",
+                 trace_id: "local-logout-login",
+                 source_surface: "web"
+               )
+
+      assert {:ok, %{authentication_method: "local_development", provider_logout_uri: nil}} =
+               Authentication.logout(completed.session.id,
+                 trace_id: "local-logout"
+               )
+
+      assert {:error, :invalid_session} =
+               Identity.resolve_human_session(completed.session.id)
     end
   end
 
@@ -546,6 +654,20 @@ defmodule OfficeGraph.AuthenticationTest do
       )
 
     bootstrap
+  end
+
+  defp local_development_seed(prefix) do
+    {:ok, seeded} =
+      Foundation.seed_local_development_fixtures(
+        organization_name: "Local Development #{prefix}",
+        organization_slug: unique("#{prefix}-org"),
+        workspace_name: "Development",
+        workspace_slug: unique("#{prefix}-workspace"),
+        initiative_name: "Local Authentication",
+        initiative_slug: unique("#{prefix}-initiative")
+      )
+
+    seeded
   end
 
   defp claims(email, subject) do

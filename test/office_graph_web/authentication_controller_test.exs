@@ -19,7 +19,11 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     original_config = Application.get_env(:office_graph, :human_oidc)
     original_client = Application.get_env(:office_graph, :human_oidc_client)
 
+    original_local_development =
+      Application.get_env(:office_graph, :local_development_authentication)
+
     Application.put_env(:office_graph, :human_oidc_client, TestAdapter)
+    Application.put_env(:office_graph, :local_development_authentication, enabled: false)
 
     Application.put_env(:office_graph, :human_oidc,
       issuer: @issuer,
@@ -37,6 +41,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     on_exit(fn ->
       restore_env(:human_oidc, original_config)
       restore_env(:human_oidc_client, original_client)
+      restore_env(:local_development_authentication, original_local_development)
     end)
 
     :ok
@@ -142,6 +147,7 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     conn = get(conn, ~p"/auth/login")
 
     assert response(conn, 503) == "Authentication unavailable"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     refute get_session(conn, :oidc_login_transaction)
     assert [request_id] = get_resp_header(conn, "x-request-id")
 
@@ -152,6 +158,123 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert event.authentication_method == "oidc"
     assert event.source_surface == "web"
     assert event.trace_id == request_id
+  end
+
+  test "enabled loopback development login renders fixed choices and preserves a safe return target",
+       %{conn: conn} do
+    enable_local_development_authentication()
+    _seeded = local_development_seed("chooser")
+
+    conn = get(conn, ~p"/auth/login?return_to=/runs")
+    body = html_response(conn, 200)
+
+    assert body =~ "Local development sign in"
+    assert body =~ ~s(value="owner")
+    assert body =~ ~s(value="workspace_admin")
+    assert body =~ ~s(value="member")
+    assert body =~ ~s(value="deprovisioned_member")
+    assert body =~ ~s(href="/auth/login?provider=oidc")
+    refute body =~ ~s(name="return_to")
+    assert get_session(conn, :authentication_return_to) == "/runs"
+  end
+
+  test "development login uses CSRF and issues a fixed fixture session", %{conn: conn} do
+    enable_local_development_authentication()
+    seeded = local_development_seed("fixture-login")
+
+    chooser_conn = get(conn, ~p"/auth/login?return_to=/packets")
+    csrf_token = csrf_token!(html_response(chooser_conn, 200))
+
+    login_conn =
+      chooser_conn
+      |> recycle()
+      |> enforce_csrf()
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/login", %{
+        "_csrf_token" => csrf_token,
+        "fixture" => "member"
+      })
+
+    assert redirected_to(login_conn) == "/packets"
+    assert %{"human_session_id" => session_id} = get_session(login_conn)
+
+    assert {:ok, session} =
+             OfficeGraph.Authentication.resolve_session(session_id,
+               trace_id: "fixture-login-resolve",
+               source_surface: "test"
+             )
+
+    assert session.principal_id == seeded.fixtures["member"].identity.principal.id
+    assert session.authentication_method == "local_development"
+  end
+
+  test "development login rejects missing CSRF evidence", %{conn: conn} do
+    enable_local_development_authentication()
+    _seeded = local_development_seed("csrf")
+
+    assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+      conn
+      |> enforce_csrf()
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/login", %{"fixture" => "owner"})
+    end
+  end
+
+  test "development login does not seed missing fixtures from the request", %{conn: conn} do
+    enable_local_development_authentication()
+    assert Ash.count!(Organization, authorize?: false) == 0
+
+    chooser_conn = get(conn, ~p"/auth/login")
+    csrf_token = csrf_token!(html_response(chooser_conn, 200))
+
+    login_conn =
+      chooser_conn
+      |> recycle()
+      |> enforce_csrf()
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/login", %{
+        "_csrf_token" => csrf_token,
+        "fixture" => "owner"
+      })
+
+    assert html_response(login_conn, 503) =~ "mix demo.seed"
+    assert Ash.count!(Organization, authorize?: false) == 0
+  end
+
+  test "development routes require explicit enablement and an exact loopback peer", %{conn: conn} do
+    disabled_conn =
+      conn
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/login", %{})
+
+    assert response(disabled_conn, 404) == "Not found"
+    assert get_resp_header(disabled_conn, "content-type") == ["text/plain; charset=utf-8"]
+
+    enable_local_development_authentication()
+
+    remote_conn =
+      build_conn()
+      |> Map.put(:remote_ip, {192, 0, 2, 10})
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/login", %{})
+
+    assert response(remote_conn, 404) == "Not found"
+
+    oidc_conn =
+      build_conn()
+      |> Map.put(:remote_ip, {192, 0, 2, 10})
+      |> get(~p"/auth/login")
+
+    assert redirected_to(oidc_conn) == "https://authentik.office-graph.local/authorize"
+  end
+
+  test "explicit OIDC selection remains available from the development chooser", %{conn: conn} do
+    enable_local_development_authentication()
+
+    conn = get(conn, ~p"/auth/login?provider=oidc&return_to=/runs")
+
+    assert redirected_to(conn) == "https://authentik.office-graph.local/authorize"
+    assert get_session(conn, :oidc_login_transaction).return_to == "/runs"
   end
 
   test "callback clears a mismatched-state cookie without calling the provider", %{conn: conn} do
@@ -306,6 +429,92 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert response(conn, 503) == "Logout unavailable"
     assert get_session(conn, :human_session_id) == issued.session.id
     refute conn.private.plug_session_info == :drop
+  end
+
+  test "local development logout revokes and returns directly to the chooser", %{conn: conn} do
+    enable_local_development_authentication()
+    _seeded = local_development_seed("local-web-logout")
+
+    {:ok, completed} =
+      OfficeGraph.Authentication.complete_local_development_login("owner",
+        trace_id: "local-web-logout-login",
+        source_surface: "web"
+      )
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: completed.session.id})
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/logout")
+
+    assert redirected_to(conn) == "/auth/login"
+    assert conn.private.plug_session_info == :drop
+    assert {:error, :invalid_session} = Identity.resolve_human_session(completed.session.id)
+  end
+
+  test "identity switching revokes the prior session before issuing the next one", %{conn: conn} do
+    enable_local_development_authentication()
+    seeded = local_development_seed("local-switch")
+
+    {:ok, owner} =
+      OfficeGraph.Authentication.complete_local_development_login("owner",
+        trace_id: "local-switch-owner",
+        source_surface: "web"
+      )
+
+    chooser_conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: owner.session.id})
+      |> get(~p"/auth/login?return_to=/runs")
+
+    switch_conn =
+      chooser_conn
+      |> recycle()
+      |> enforce_csrf()
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/switch", %{
+        "_csrf_token" => csrf_token!(html_response(chooser_conn, 200)),
+        "fixture" => "member"
+      })
+
+    assert redirected_to(switch_conn) == "/runs"
+    new_session_id = get_session(switch_conn, :human_session_id)
+    assert new_session_id != owner.session.id
+    assert {:error, :invalid_session} = Identity.resolve_human_session(owner.session.id)
+    assert {:ok, member} = Identity.resolve_human_session(new_session_id)
+    assert member.principal_id == seeded.fixtures["member"].identity.principal.id
+  end
+
+  test "identity switching preserves the current cookie when revocation fails", %{conn: conn} do
+    enable_local_development_authentication()
+    _seeded = local_development_seed("local-switch-failure")
+
+    {:ok, owner} =
+      OfficeGraph.Authentication.complete_local_development_login("owner",
+        trace_id: "local-switch-failure-owner",
+        source_surface: "web"
+      )
+
+    chooser_conn =
+      conn
+      |> Plug.Test.init_test_session(%{human_session_id: owner.session.id})
+      |> get(~p"/auth/login")
+
+    HumanSessionPersistenceTestAdapter.configure!(revoke: {:error, :database_unavailable})
+
+    switch_conn =
+      chooser_conn
+      |> recycle()
+      |> enforce_csrf()
+      |> put_req_header("origin", OfficeGraphWeb.Endpoint.url())
+      |> post(~p"/auth/development/switch", %{
+        "_csrf_token" => csrf_token!(html_response(chooser_conn, 200)),
+        "fixture" => "member"
+      })
+
+    assert html_response(switch_conn, 503) =~ "temporarily unavailable"
+    assert get_session(switch_conn, :human_session_id) == owner.session.id
+    assert {:ok, _current} = Identity.resolve_human_session(owner.session.id)
   end
 
   test "product pages redirect anonymous requests to login", %{conn: conn} do
@@ -532,6 +741,33 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
       )
 
     bootstrap
+  end
+
+  defp local_development_seed(prefix) do
+    {:ok, seeded} =
+      Foundation.seed_local_development_fixtures(
+        organization_name: "Local Development #{prefix}",
+        organization_slug: unique("#{prefix}-org"),
+        workspace_name: "Development",
+        workspace_slug: unique("#{prefix}-workspace"),
+        initiative_name: "Local Authentication",
+        initiative_slug: unique("#{prefix}-initiative")
+      )
+
+    seeded
+  end
+
+  defp enable_local_development_authentication do
+    Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+  end
+
+  defp csrf_token!(body) do
+    [_, token] = Regex.run(~r/name="_csrf_token" value="([^"]+)"/, body)
+    token
+  end
+
+  defp enforce_csrf(conn) do
+    update_in(conn.private, &Map.delete(&1, :plug_skip_csrf_protection))
   end
 
   defp claims(email, subject) do

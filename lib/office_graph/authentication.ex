@@ -12,6 +12,7 @@ defmodule OfficeGraph.Authentication do
     exports: [LocalDevelopmentFixtures, OidcClient]
 
   alias OfficeGraph.{Authorization, EnterpriseIdentity, Identity}
+  alias OfficeGraph.Authentication.{LocalDevelopment, LocalDevelopmentFixtures}
   alias OfficeGraph.Authentication.OidcClient.Oidcc, as: OidccClient
 
   @login_transaction_ttl_seconds 10 * 60
@@ -246,6 +247,62 @@ defmodule OfficeGraph.Authentication do
   def complete_workos_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 
+  def complete_local_development_login(fixture_key, opts)
+      when is_binary(fixture_key) and is_list(opts) do
+    trace_id = Keyword.get_lazy(opts, :trace_id, &Ecto.UUID.generate/0)
+    source_surface = Keyword.get(opts, :source_surface, "web")
+
+    with :ok <- local_development_available(),
+         {:ok, fixture} <- fetch_local_development_fixture(fixture_key),
+         {:ok, linked} <- Identity.local_development_identity(fixture) do
+      result =
+        with :ok <- validate_local_development_identity(linked),
+             {:ok, scope} <- Authorization.resolve_login_scope(linked.principal.id),
+             {:ok, issued} <-
+               Identity.issue_human_session(
+                 linked.principal,
+                 linked.external_identity_link,
+                 scope,
+                 authentication_method: "local_development",
+                 source_surface: source_surface,
+                 trace_id: trace_id,
+                 ttl_seconds: @default_session_ttl_seconds
+               ) do
+          {:ok, Map.merge(issued, linked)}
+        end
+
+      finalize_login_result(
+        result,
+        trace_id,
+        source_surface,
+        linked,
+        "local_development"
+      )
+    else
+      {:error, _reason} = error ->
+        finalize_login_result(
+          error,
+          trace_id,
+          source_surface,
+          nil,
+          "local_development"
+        )
+    end
+  end
+
+  def complete_local_development_login(_fixture_key, opts) when is_list(opts) do
+    finalize_login_result(
+      {:error, :local_development_fixture_missing},
+      Keyword.get_lazy(opts, :trace_id, &Ecto.UUID.generate/0),
+      Keyword.get(opts, :source_surface, "web"),
+      nil,
+      "local_development"
+    )
+  end
+
+  def complete_local_development_login(_fixture_key, _opts),
+    do: {:error, :local_development_fixture_missing}
+
   def resolve_session(session_id, opts \\ [])
 
   def resolve_session(session_id, opts) when is_list(opts) do
@@ -266,6 +323,11 @@ defmodule OfficeGraph.Authentication do
 
   def transient_storage_error?(reason), do: reason in @transient_storage_errors
 
+  def oidc_available?, do: match?({:ok, _config}, configuration())
+  def local_development_enabled?, do: LocalDevelopment.enabled?()
+  def local_development_fixtures, do: LocalDevelopmentFixtures.all()
+  def local_development_fixture(key), do: LocalDevelopmentFixtures.fetch(key)
+
   def logout(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
     post_logout_redirect_uri = Keyword.get(opts, :post_logout_redirect_uri)
@@ -275,6 +337,7 @@ defmodule OfficeGraph.Authentication do
          :ok <- Identity.revoke_human_session(session_id, trace_id: trace_id) do
       {:ok,
        %{
+         authentication_method: authentication_method,
          provider_logout_uri: provider_logout_uri(authentication_method, post_logout_redirect_uri)
        }}
     end
@@ -491,6 +554,7 @@ defmodule OfficeGraph.Authentication do
               :identity_review_required,
               :identity_disabled,
               :principal_disabled,
+              :local_development_fixture_missing,
               :no_login_scope,
               :scope_selection_required,
               :invalid_scope,
@@ -546,7 +610,66 @@ defmodule OfficeGraph.Authentication do
     end
   end
 
+  defp validate_current_authentication_basis(
+         %{authentication_method: "local_development"} = session_context,
+         opts
+       ) do
+    result =
+      if LocalDevelopment.enabled?() do
+        validate_exact_local_development_session(session_context)
+      else
+        {:error, :invalid_session}
+      end
+
+    case result do
+      :ok ->
+        :ok
+
+      {:error, :identity_storage_unavailable} = error ->
+        error
+
+      {:error, _invalid_basis} ->
+        Identity.reject_human_session(
+          session_context,
+          "identity_disabled",
+          ensure_rejection_trace(opts)
+        )
+    end
+  end
+
   defp validate_current_authentication_basis(_session_context, _opts), do: :ok
+
+  defp validate_exact_local_development_session(session_context) do
+    Enum.reduce_while(
+      LocalDevelopmentFixtures.all(),
+      {:error, :invalid_session},
+      fn fixture, _not_matched ->
+        case Identity.local_development_identity(fixture) do
+          {:ok, linked} ->
+            if linked.principal.id == session_context.principal_id and
+                 linked.external_identity_link.id ==
+                   session_context.external_identity_link_id and
+                 linked.principal.status == "active" and
+                 linked.external_identity_link.status == "active" and
+                 linked.external_identity_link.linking_state == "linked" do
+              {:halt, :ok}
+            else
+              {:cont, {:error, :invalid_session}}
+            end
+
+          {:error, :identity_storage_unavailable} = error ->
+            {:halt, error}
+
+          {:error, :local_development_fixture_missing} ->
+            {:cont, {:error, :invalid_session}}
+        end
+      end
+    )
+  end
+
+  defp ensure_rejection_trace(opts) do
+    Keyword.put_new_lazy(opts, :trace_id, &Ecto.UUID.generate/0)
+  end
 
   defp validate_current_session_scope(session_context, opts) do
     scope = %{
@@ -594,6 +717,30 @@ defmodule OfficeGraph.Authentication do
       {:error, :authentication_unavailable}
     end
   end
+
+  defp local_development_available do
+    if LocalDevelopment.enabled?() do
+      :ok
+    else
+      {:error, :authentication_unavailable}
+    end
+  end
+
+  defp fetch_local_development_fixture(fixture_key) do
+    case LocalDevelopmentFixtures.fetch(fixture_key) do
+      {:ok, fixture} -> {:ok, fixture}
+      :error -> {:error, :local_development_fixture_missing}
+    end
+  end
+
+  defp validate_local_development_identity(%{
+         principal: %{kind: "human", status: "active"},
+         external_identity_link: %{status: "active", linking_state: "linked"}
+       }),
+       do: :ok
+
+  defp validate_local_development_identity(_disabled_or_drifted),
+    do: {:error, :identity_disabled}
 
   defp oidc_client do
     Application.get_env(

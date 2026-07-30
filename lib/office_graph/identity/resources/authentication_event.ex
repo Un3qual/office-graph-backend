@@ -15,6 +15,7 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
     invalid_login_transaction
     invalid_scope
     invalid_session
+    local_development_fixture_missing
     login_completed
     no_login_scope
     principal_disabled

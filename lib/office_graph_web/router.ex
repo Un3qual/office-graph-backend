@@ -19,6 +19,11 @@ defmodule OfficeGraphWeb.Router do
     plug OfficeGraphWeb.RequireHumanSessionPlug
   end
 
+  pipeline :local_development_authentication do
+    plug OfficeGraphWeb.Authentication.LocalDevelopmentPlug
+    plug :protect_from_forgery
+  end
+
   pipeline :graphql do
     plug :fetch_session
     plug OfficeGraphWeb.SameOriginRequestPlug
@@ -72,6 +77,19 @@ defmodule OfficeGraphWeb.Router do
     get "/auth/workos/callback", AuthenticationController, :workos_callback
     get "/auth/logged-out", AuthenticationController, :logged_out
     post "/auth/logout", AuthenticationController, :logout
+  end
+
+  if Application.compile_env(
+       :office_graph,
+       :local_development_auth_routes,
+       false
+     ) do
+    scope "/", OfficeGraphWeb.Authentication do
+      pipe_through [:browser_session, :local_development_authentication]
+
+      post "/auth/development/login", LocalDevelopmentController, :login
+      post "/auth/development/switch", LocalDevelopmentController, :switch
+    end
   end
 
   scope "/", OfficeGraphWeb do

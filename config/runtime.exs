@@ -27,6 +27,11 @@ if config_env() == :test and System.get_env("OFFICE_GRAPH_TEST_SQL_LOG") in ~w(t
   config :office_graph, OfficeGraph.Repo, log: :debug
 end
 
+config :office_graph, :local_development_authentication,
+  enabled:
+    config_env() == :dev and
+      System.get_env("LOCAL_DEV_AUTH_ENABLED") in ~w(true 1)
+
 oidc_preferred_organization_id = System.get_env("AUTHENTIK_PREFERRED_ORGANIZATION_ID")
 oidc_preferred_workspace_id = System.get_env("AUTHENTIK_PREFERRED_WORKSPACE_ID")
 

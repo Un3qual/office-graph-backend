@@ -1,6 +1,7 @@
 import Config
 
 config :office_graph, allow_local_api_owner_bootstrap: true
+config :office_graph, local_development_auth_routes: true
 config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
 config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.TestAdapter
 

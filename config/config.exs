@@ -30,6 +30,7 @@ config :office_graph,
     OfficeGraph.NodeConversations.Domain
   ],
   allow_local_api_owner_bootstrap: false,
+  local_development_auth_routes: false,
   human_oidc: [],
   human_oidc_client: OfficeGraph.Authentication.OidcClient.Oidcc,
   workos_http_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.Httpc,
