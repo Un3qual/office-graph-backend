@@ -68,6 +68,8 @@ defmodule OfficeGraphWeb.Router do
 
     get "/auth/login", AuthenticationController, :login
     get "/auth/callback", AuthenticationController, :callback
+    get "/auth/workos/:connection_id/login", AuthenticationController, :workos_login
+    get "/auth/workos/callback", AuthenticationController, :workos_callback
     get "/auth/logged-out", AuthenticationController, :logged_out
     post "/auth/logout", AuthenticationController, :logout
   end

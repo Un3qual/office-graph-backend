@@ -79,6 +79,8 @@ defmodule OfficeGraph.EnterpriseIdentity.Directory do
 
       validate one_of(:status, ~w(active disabled deleted)),
         where: [changing(:status)]
+
+      require_atomic? false
     end
 
     action :apply_event,

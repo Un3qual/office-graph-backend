@@ -4,10 +4,14 @@ defmodule OfficeGraph.Authentication do
   """
 
   use Boundary,
-    deps: [OfficeGraph.Authorization, OfficeGraph.Identity],
+    deps: [
+      OfficeGraph.Authorization,
+      OfficeGraph.EnterpriseIdentity,
+      OfficeGraph.Identity
+    ],
     exports: [OidcClient]
 
-  alias OfficeGraph.{Authorization, Identity}
+  alias OfficeGraph.{Authorization, EnterpriseIdentity, Identity}
   alias OfficeGraph.Authentication.OidcClient.Oidcc, as: OidccClient
 
   @login_transaction_ttl_seconds 10 * 60
@@ -20,6 +24,8 @@ defmodule OfficeGraph.Authentication do
     result =
       with {:ok, config} <- configuration() do
         transaction = %{
+          provider: :oidc,
+          enterprise_connection_id: nil,
           state: random_value(),
           nonce: random_value(),
           pkce_verifier: random_value(),
@@ -60,6 +66,59 @@ defmodule OfficeGraph.Authentication do
   end
 
   def begin_login(_redirect_uri, _opts), do: {:error, :invalid_redirect_uri}
+
+  def begin_workos_login(connection_id, redirect_uri, opts \\ [])
+
+  def begin_workos_login(connection_id, redirect_uri, opts)
+      when is_binary(connection_id) and is_binary(redirect_uri) and is_list(opts) do
+    transaction = %{
+      provider: :workos,
+      enterprise_connection_id: connection_id,
+      state: random_value(),
+      redirect_uri: redirect_uri,
+      return_to: Keyword.get(opts, :return_to, @default_return_to),
+      issued_at_unix: System.system_time(:second)
+    }
+
+    result =
+      with {:ok, prepared} <-
+             EnterpriseIdentity.prepare_workos_login(
+               connection_id,
+               redirect_uri,
+               transaction.state
+             ),
+           {:ok, transaction_id} <-
+             Identity.store_oidc_login_transaction(
+               transaction.issued_at_unix + @login_transaction_ttl_seconds
+             ) do
+        {:ok,
+         %{
+           authorization_uri: prepared.authorization_uri,
+           transaction: Map.put(transaction, :id, transaction_id)
+         }}
+      end
+
+    finalize_login_result(
+      result,
+      Keyword.get(opts, :trace_id),
+      Keyword.get(opts, :source_surface, "web"),
+      nil,
+      "workos_sso"
+    )
+  end
+
+  def begin_workos_login(_connection_id, _redirect_uri, opts) when is_list(opts) do
+    finalize_login_result(
+      {:error, :enterprise_connection_unavailable},
+      Keyword.get(opts, :trace_id),
+      Keyword.get(opts, :source_surface, "web"),
+      nil,
+      "workos_sso"
+    )
+  end
+
+  def begin_workos_login(_connection_id, _redirect_uri, _opts),
+    do: {:error, :enterprise_connection_unavailable}
 
   def complete_login(code, callback_state, %{id: transaction_id} = transaction, opts)
       when is_binary(transaction_id) and is_list(opts) do
@@ -118,6 +177,69 @@ defmodule OfficeGraph.Authentication do
   def complete_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 
+  def complete_workos_login(code, callback_state, %{id: transaction_id} = transaction, opts)
+      when is_binary(transaction_id) and is_list(opts) do
+    trace_id = Keyword.get_lazy(opts, :trace_id, &Ecto.UUID.generate/0)
+    source_surface = Keyword.get(opts, :source_surface, "web")
+
+    with :ok <- Identity.consume_oidc_login_transaction(transaction_id),
+         :ok <- validate_workos_callback(code, callback_state, transaction),
+         {:ok, exchange} <-
+           EnterpriseIdentity.exchange_workos_code(
+             transaction.enterprise_connection_id,
+             code,
+             transaction.redirect_uri
+           ),
+         {:ok, linked} <-
+           reconcile_workos_identity(
+             exchange.profile,
+             exchange.provider_organization_id
+           ) do
+      result =
+        with :ok <-
+               EnterpriseIdentity.validate_workos_provisioning(
+                 exchange,
+                 linked.principal.id
+               ),
+             {:ok, scope} <-
+               Authorization.resolve_login_scope(linked.principal.id, %{
+                 organization_id: exchange.organization_id,
+                 workspace_id: exchange.workspace_id
+               }),
+             {:ok, issued} <-
+               Identity.issue_human_session(
+                 linked.principal,
+                 linked.external_identity_link,
+                 scope,
+                 authentication_method: "workos_sso",
+                 source_surface: source_surface,
+                 trace_id: trace_id,
+                 ttl_seconds: exchange.session_ttl_seconds
+               ) do
+          {:ok, Map.merge(issued, linked)}
+        end
+
+      finalize_login_result(result, trace_id, source_surface, linked, "workos_sso")
+    else
+      {:error, _reason} = error ->
+        finalize_login_result(error, trace_id, source_surface, nil, "workos_sso")
+    end
+  end
+
+  def complete_workos_login(_code, _callback_state, _transaction, opts)
+      when is_list(opts) do
+    finalize_login_result(
+      {:error, :invalid_login_transaction},
+      Keyword.get(opts, :trace_id),
+      Keyword.get(opts, :source_surface, "web"),
+      nil,
+      "workos_sso"
+    )
+  end
+
+  def complete_workos_login(_code, _callback_state, _transaction, _opts),
+    do: {:error, :invalid_login_transaction}
+
   def resolve_session(session_id, opts \\ []) do
     case Identity.resolve_human_session(session_id, opts) do
       {:ok, session_context} -> validate_current_session_scope(session_context, opts)
@@ -174,6 +296,14 @@ defmodule OfficeGraph.Authentication do
   defp validate_callback(_code, _callback_state, _transaction),
     do: {:error, :invalid_login_transaction}
 
+  defp validate_workos_callback(code, callback_state, transaction)
+       when is_binary(code) and is_binary(callback_state) and is_map(transaction) do
+    validate_workos_transaction(transaction, callback_state)
+  end
+
+  defp validate_workos_callback(_code, _callback_state, _transaction),
+    do: {:error, :invalid_login_transaction}
+
   defp validate_transaction(
          %{
            id: id,
@@ -182,7 +312,7 @@ defmodule OfficeGraph.Authentication do
            pkce_verifier: pkce_verifier,
            redirect_uri: redirect_uri,
            issued_at_unix: issued_at_unix
-         },
+         } = transaction,
          callback_state
        )
        when is_binary(id) and is_binary(state) and is_binary(nonce) and is_binary(pkce_verifier) and
@@ -190,7 +320,8 @@ defmodule OfficeGraph.Authentication do
               is_binary(callback_state) do
     age = System.system_time(:second) - issued_at_unix
 
-    if secure_state_match?(state, callback_state) and nonce != "" and pkce_verifier != "" and
+    if oidc_transaction?(transaction) and secure_state_match?(state, callback_state) and
+         nonce != "" and pkce_verifier != "" and
          redirect_uri != "" and age >= 0 and age <= @login_transaction_ttl_seconds do
       :ok
     else
@@ -201,27 +332,93 @@ defmodule OfficeGraph.Authentication do
   defp validate_transaction(_transaction, _callback_state),
     do: {:error, :invalid_login_transaction}
 
+  defp validate_workos_transaction(
+         %{
+           id: id,
+           provider: :workos,
+           enterprise_connection_id: connection_id,
+           state: state,
+           redirect_uri: redirect_uri,
+           issued_at_unix: issued_at_unix
+         },
+         callback_state
+       )
+       when is_binary(id) and is_binary(connection_id) and is_binary(state) and
+              is_binary(redirect_uri) and is_integer(issued_at_unix) and
+              is_binary(callback_state) do
+    age = System.system_time(:second) - issued_at_unix
+
+    if secure_state_match?(state, callback_state) and connection_id != "" and
+         redirect_uri != "" and age >= 0 and age <= @login_transaction_ttl_seconds do
+      :ok
+    else
+      {:error, :invalid_login_transaction}
+    end
+  end
+
+  defp validate_workos_transaction(_transaction, _callback_state),
+    do: {:error, :invalid_login_transaction}
+
+  defp oidc_transaction?(%{provider: provider, enterprise_connection_id: connection_id}),
+    do: provider == :oidc and is_nil(connection_id)
+
+  defp oidc_transaction?(transaction),
+    do: not Map.has_key?(transaction, :provider)
+
   defp secure_state_match?(expected, actual) when byte_size(expected) == byte_size(actual),
     do: :crypto.hash_equals(expected, actual)
 
   defp secure_state_match?(_expected, _actual), do: false
 
-  defp finalize_login_result(result, trace_id, source_surface, linked) do
-    case maybe_record_rejection(result, trace_id, source_surface, linked) do
+  defp reconcile_workos_identity(profile, provider_tenant) do
+    case Identity.reconcile_workos_sso_identity(profile, provider_tenant) do
+      {:ok, linked} -> {:ok, linked}
+      {:review, _reason} -> {:error, :identity_review_required}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp finalize_login_result(
+         result,
+         trace_id,
+         source_surface,
+         linked,
+         authentication_method \\ "oidc"
+       ) do
+    case maybe_record_rejection(
+           result,
+           trace_id,
+           source_surface,
+           linked,
+           authentication_method
+         ) do
       :ok -> result
       {:error, _reason} = error -> error
     end
   end
 
-  defp maybe_record_rejection({:ok, _completed}, _trace_id, _source_surface, _linked), do: :ok
+  defp maybe_record_rejection(
+         {:ok, _completed},
+         _trace_id,
+         _source_surface,
+         _linked,
+         _authentication_method
+       ),
+       do: :ok
 
-  defp maybe_record_rejection({:error, reason}, trace_id, source_surface, linked)
+  defp maybe_record_rejection(
+         {:error, reason},
+         trace_id,
+         source_surface,
+         linked,
+         authentication_method
+       )
        when is_binary(trace_id) and trace_id != "" and is_binary(source_surface) do
     attrs = %{
       event: "login",
       result: "rejected",
       reason: bounded_reason(reason),
-      authentication_method: "oidc",
+      authentication_method: authentication_method,
       source_surface: source_surface,
       trace_id: trace_id
     }
@@ -254,7 +451,14 @@ defmodule OfficeGraph.Authentication do
     end
   end
 
-  defp maybe_record_rejection(_result, _trace_id, _source_surface, _linked), do: :ok
+  defp maybe_record_rejection(
+         _result,
+         _trace_id,
+         _source_surface,
+         _linked,
+         _authentication_method
+       ),
+       do: :ok
 
   defp bounded_reason(reason)
        when reason in [
@@ -270,7 +474,10 @@ defmodule OfficeGraph.Authentication do
               :scope_selection_required,
               :invalid_scope,
               :identity_storage_unavailable,
-              :authorization_storage_unavailable
+              :authorization_storage_unavailable,
+              :enterprise_connection_unavailable,
+              :directory_provisioning_required,
+              :enterprise_identity_storage_unavailable
             ],
        do: reason
 

@@ -211,6 +211,29 @@ defmodule OfficeGraph.Identity do
 
   def deprovision_directory_identity(_attrs), do: {:error, :invalid_identity_claims}
 
+  def reconcile_workos_sso_identity(profile, provider_tenant)
+      when is_map(profile) and is_binary(provider_tenant) do
+    attrs = %{
+      provider_tenant: provider_tenant,
+      subject: profile[:subject],
+      verified_email: profile[:verified_email]
+    }
+
+    ExternalIdentityLink
+    |> Ash.ActionInput.for_action(:reconcile_workos_sso_identity, attrs)
+    |> Ash.run_action(authorize?: false)
+    |> case do
+      {:ok, %DirectoryIdentityResult{} = result} ->
+        DirectoryIdentityResult.to_reconciliation_result(result)
+
+      {:error, _storage_error} ->
+        {:error, :identity_storage_unavailable}
+    end
+  end
+
+  def reconcile_workos_sso_identity(_profile, _provider_tenant),
+    do: {:error, :invalid_identity_claims}
+
   defdelegate issue_human_session(principal, link, scope, opts),
     to: HumanSessions,
     as: :issue

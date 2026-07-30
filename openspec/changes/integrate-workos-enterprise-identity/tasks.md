@@ -1,6 +1,6 @@
 ## 1. Lock The Enterprise Identity Contract
 
-- [ ] 1.1 Add WorkOS SSO adapter contract tests for organization-bound redirects, one-time callback state, normalized profile exchange, unavailable configuration, and no persisted provider tokens or raw attributes
+- [x] 1.1 Add WorkOS SSO adapter contract tests for organization-bound redirects, one-time callback state, normalized profile exchange, unavailable configuration, and no persisted provider tokens or raw attributes
 - [x] 1.2 Add WorkOS webhook signature and receipt tests for exact raw-body HMAC verification, clock skew, unknown directories, supported event shapes, duplicate hashes, conflicting replays, and bounded errors
 - [ ] 1.3 Add directory lifecycle contract tests for user, group, and membership create/update/remove/restore plus stale-event ordering and Oban retry
 - [ ] 1.4 Add identity and authorization tests for directory-first and SSO-first reconciliation, conflicts, required provisioning, deprovisioning, group-to-role mapping, removal, scope isolation, and query-count bounds
@@ -33,9 +33,9 @@
 
 ## 5. Wire SSO And Mapped Authorization
 
-- [ ] 5.1 Generalize the browser login transaction to capture provider and enterprise connection without weakening local OIDC nonce, PKCE, expiry, and one-time consumption
-- [ ] 5.2 Add WorkOS login and callback orchestration that loads the captured connection, exchanges through the adapter, reconciles `workos_sso`, enforces required directory provisioning, and issues the existing Office Graph session
-- [ ] 5.3 Add WorkOS web routes/controller behavior while preserving safe return paths, passive local logout, local OIDC routes, and bounded authentication evidence
+- [x] 5.1 Generalize the browser login transaction to capture provider and enterprise connection without weakening local OIDC nonce, PKCE, expiry, and one-time consumption
+- [x] 5.2 Add WorkOS login and callback orchestration that loads the captured connection, exchanges through the adapter, reconciles `workos_sso`, enforces required directory provisioning, and issues the existing Office Graph session
+- [x] 5.3 Add WorkOS web routes/controller behavior while preserving safe return paths, passive local logout, local OIDC routes, and bounded authentication evidence
 - [ ] 5.4 Extend login-scope and capability evaluation with active directory membership plus explicit active group-role mappings using bounded set-based Ash reads
 - [ ] 5.5 Prove disabled connections, directories, users, groups, memberships, mappings, links, and principals all fail closed on session or authorization reuse
 

@@ -31,6 +31,31 @@ defmodule OfficeGraphWeb.AuthenticationController do
     complete_callback(conn, params["code"], params["state"], transaction)
   end
 
+  def workos_login(conn, %{"connection_id" => connection_id} = params) do
+    return_to = safe_return_to(params["return_to"])
+
+    case Authentication.begin_workos_login(connection_id, workos_callback_uri(),
+           return_to: return_to,
+           trace_id: trace_id(conn),
+           source_surface: "web"
+         ) do
+      {:ok, login} ->
+        conn
+        |> put_session(:oidc_login_transaction, login.transaction)
+        |> redirect(external: login.authorization_uri)
+
+      {:error, _unavailable} ->
+        send_resp(conn, 503, "Authentication unavailable")
+    end
+  end
+
+  def workos_callback(conn, params) do
+    transaction = get_session(conn, :oidc_login_transaction)
+    conn = delete_session(conn, :oidc_login_transaction)
+
+    complete_workos_callback(conn, params["code"], params["state"], transaction)
+  end
+
   def logout(conn, _params) do
     result =
       case get_session(conn, :human_session_id) do
@@ -110,6 +135,31 @@ defmodule OfficeGraphWeb.AuthenticationController do
     end
   end
 
+  defp complete_workos_callback(conn, code, callback_state, transaction) do
+    case Authentication.complete_workos_login(code, callback_state, transaction,
+           trace_id: trace_id(conn),
+           source_surface: "web"
+         ) do
+      {:ok, completed} ->
+        conn
+        |> configure_session(renew: true)
+        |> clear_session()
+        |> put_session(:human_session_id, completed.session.id)
+        |> redirect(to: safe_return_to(Map.get(transaction, :return_to)))
+
+      {:error, reason}
+      when reason in [
+             :identity_storage_unavailable,
+             :authorization_storage_unavailable,
+             :enterprise_identity_storage_unavailable
+           ] ->
+        send_resp(conn, 503, "Authentication unavailable")
+
+      {:error, _reason} ->
+        send_resp(conn, 401, "Authentication failed")
+    end
+  end
+
   defp safe_return_to(return_to) when is_binary(return_to) do
     decoded_return_to = fully_decode(return_to)
 
@@ -139,6 +189,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
   end
 
   defp callback_uri, do: "#{OfficeGraphWeb.Endpoint.url()}/auth/callback"
+  defp workos_callback_uri, do: "#{OfficeGraphWeb.Endpoint.url()}/auth/workos/callback"
   defp logged_out_uri, do: "#{OfficeGraphWeb.Endpoint.url()}#{@logged_out_path}"
 
   defp trace_id(conn) do

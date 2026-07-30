@@ -98,6 +98,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
 
     assert profile == %{
              subject: "conn_01:idp_user_01",
+             idp_id: "idp_user_01",
              verified_email: "person@example.com",
              first_name: "Ada",
              last_name: "Lovelace",

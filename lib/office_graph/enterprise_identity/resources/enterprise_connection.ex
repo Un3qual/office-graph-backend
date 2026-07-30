@@ -94,6 +94,8 @@ defmodule OfficeGraph.EnterpriseIdentity.EnterpriseConnection do
 
       validate one_of(:status, ~w(active disabled)),
         where: [changing(:status)]
+
+      require_atomic? false
     end
   end
 

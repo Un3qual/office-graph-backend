@@ -403,6 +403,19 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
       run Module.concat([OfficeGraph, Identity, Actions, DeprovisionDirectoryIdentity])
     end
+
+    action :reconcile_workos_sso_identity,
+           Module.concat([OfficeGraph, Identity, DirectoryIdentityResult]) do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Identity.Principal]
+
+      argument :provider_tenant, :string, allow_nil?: false
+      argument :subject, :string, allow_nil?: false
+      argument :verified_email, :string, allow_nil?: false
+
+      run Module.concat([OfficeGraph, Identity, Actions, ReconcileWorkOSSsoIdentity])
+    end
   end
 
   identities do

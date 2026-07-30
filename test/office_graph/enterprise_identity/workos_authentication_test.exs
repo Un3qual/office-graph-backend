@@ -1,0 +1,387 @@
+defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
+  use OfficeGraphWeb.ConnCase, async: false
+
+  alias OfficeGraph.{
+    Authentication,
+    Authorization,
+    EnterpriseIdentity,
+    Foundation,
+    Identity,
+    Operations
+  }
+
+  alias OfficeGraph.EnterpriseIdentity.{
+    Directory,
+    EnterpriseConnection
+  }
+
+  alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
+  alias OfficeGraph.Identity.Session
+
+  require Ash.Query
+
+  @moduletag :unauthenticated
+
+  @redirect_uri "https://office-graph.test/auth/workos/callback"
+
+  defmodule SsoClient do
+    @behaviour OfficeGraph.EnterpriseIdentity.EnterpriseSsoClient
+
+    @impl true
+    def authorization_uri(request) do
+      send(self(), {:workos_authorization_request, request})
+      Process.get({__MODULE__, :authorization_uri}, {:error, :provider_unavailable})
+    end
+
+    @impl true
+    def exchange(request) do
+      send(self(), {:workos_exchange_request, request})
+      Process.get({__MODULE__, :exchange}, {:error, :provider_unavailable})
+    end
+  end
+
+  setup do
+    original_config = Application.get_env(:office_graph, :workos_enterprise)
+    original_client = Application.get_env(:office_graph, :workos_sso_client)
+
+    Application.put_env(:office_graph, :workos_enterprise,
+      api_base_url: "https://api.workos.test",
+      api_key_reference: "test-secret://workos/api-key",
+      client_id: "client_01",
+      session_ttl_seconds: 3_600
+    )
+
+    Application.put_env(:office_graph, :workos_sso_client, SsoClient)
+
+    Process.put(
+      {SsoClient, :authorization_uri},
+      {:ok, "https://api.workos.test/sso/authorize"}
+    )
+
+    on_exit(fn ->
+      restore_env(:workos_enterprise, original_config)
+      restore_env(:workos_sso_client, original_client)
+    end)
+
+    :ok
+  end
+
+  test "connection-bound WorkOS login issues an Office Graph session" do
+    context = enterprise_context("success", "required")
+    provision_directory_user(context, context.bootstrap.principal.email)
+
+    assert {:ok, login} =
+             Authentication.begin_workos_login(
+               context.connection.id,
+               @redirect_uri,
+               return_to: "/runs",
+               trace_id: "workos-login-start"
+             )
+
+    assert login.authorization_uri == "https://api.workos.test/sso/authorize"
+
+    assert %{
+             provider: :workos,
+             enterprise_connection_id: connection_id,
+             return_to: "/runs"
+           } = login.transaction
+
+    assert connection_id == context.connection.id
+
+    assert_received {:workos_authorization_request, request}
+    assert request.config.provider_organization_id == context.connection.provider_organization_id
+    assert request.redirect_uri == @redirect_uri
+    assert request.state == login.transaction.state
+
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:idp_user_01",
+         idp_id: "idp_user_01",
+         verified_email: context.bootstrap.principal.email,
+         first_name: "Ada",
+         last_name: "Lovelace",
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    assert {:ok, completed} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               login.transaction.state,
+               login.transaction,
+               trace_id: "workos-login-complete",
+               source_surface: "web"
+             )
+
+    assert completed.principal.id == context.bootstrap.principal.id
+    assert completed.external_identity_link.provider == "workos_sso"
+
+    assert completed.external_identity_link.provider_tenant ==
+             context.connection.provider_organization_id
+
+    session = Ash.get!(Session, completed.session.id, authorize?: false)
+    assert session.principal_id == context.bootstrap.principal.id
+
+    assert_received {:workos_exchange_request, exchange_request}
+    assert exchange_request.code == "authorization-code"
+    assert exchange_request.redirect_uri == @redirect_uri
+
+    assert {:error, :invalid_login_transaction} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               login.transaction.state,
+               login.transaction,
+               []
+             )
+  end
+
+  test "browser routes preserve the connection-bound transaction through callback", %{conn: conn} do
+    context = enterprise_context("browser", "required")
+    provision_directory_user(context, context.bootstrap.principal.email)
+
+    login_conn =
+      get(
+        conn,
+        "/auth/workos/#{context.connection.id}/login",
+        %{"return_to" => "/runs"}
+      )
+
+    assert redirected_to(login_conn) == "https://api.workos.test/sso/authorize"
+
+    transaction = get_session(login_conn, :oidc_login_transaction)
+    assert transaction.enterprise_connection_id == context.connection.id
+    assert transaction.provider == :workos
+
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:idp_user_01",
+         idp_id: "idp_user_01",
+         verified_email: context.bootstrap.principal.email,
+         first_name: "Ada",
+         last_name: "Lovelace",
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    callback_conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get("/auth/workos/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
+
+    assert redirected_to(callback_conn) == "/runs"
+    assert is_binary(get_session(callback_conn, :human_session_id))
+    refute get_session(callback_conn, :oidc_login_transaction)
+  end
+
+  test "required directory provisioning refuses an otherwise valid SSO identity" do
+    context = enterprise_context("provisioning-required", "required")
+
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:idp_user_missing",
+         idp_id: "idp_user_missing",
+         verified_email: context.bootstrap.principal.email,
+         first_name: nil,
+         last_name: nil,
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    {:ok, login} =
+      Authentication.begin_workos_login(context.connection.id, @redirect_uri, [])
+
+    assert {:error, :directory_provisioning_required} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               login.transaction.state,
+               login.transaction,
+               []
+             )
+
+    refute Session
+           |> Ash.Query.filter(
+             principal_id == ^context.bootstrap.principal.id and purpose == "human_web"
+           )
+           |> Ash.exists?(authorize?: false)
+  end
+
+  test "optional provisioning preserves verified-email linking policy" do
+    context = enterprise_context("optional", "optional")
+
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:idp_optional",
+         idp_id: "idp_optional",
+         verified_email: context.bootstrap.principal.email,
+         first_name: nil,
+         last_name: nil,
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    {:ok, login} =
+      Authentication.begin_workos_login(context.connection.id, @redirect_uri, [])
+
+    assert {:ok, completed} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               login.transaction.state,
+               login.transaction,
+               []
+             )
+
+    assert completed.principal.id == context.bootstrap.principal.id
+  end
+
+  test "disabled connections and cross-provider transactions fail closed" do
+    context = enterprise_context("disabled", "required")
+
+    context.connection
+    |> Ash.Changeset.for_update(:set_lifecycle, %{status: "disabled"})
+    |> Ash.update!(authorize?: false)
+
+    assert {:error, :enterprise_connection_unavailable} =
+             Authentication.begin_workos_login(context.connection.id, @redirect_uri, [])
+
+    assert {:error, :invalid_login_transaction} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               "state",
+               %{
+                 id: Ecto.UUID.generate(),
+                 provider: :oidc,
+                 enterprise_connection_id: context.connection.id,
+                 state: "state",
+                 redirect_uri: @redirect_uri,
+                 issued_at_unix: System.system_time(:second)
+               },
+               []
+             )
+  end
+
+  defp enterprise_context(label, directory_requirement) do
+    {:ok, bootstrap} =
+      Foundation.bootstrap_local_owner(
+        organization_slug: unique("#{label}-organization"),
+        workspace_slug: unique("#{label}-workspace"),
+        initiative_slug: unique("#{label}-initiative"),
+        owner_email: "#{unique(label)}@example.test"
+      )
+
+    {:ok, webhook_principal} =
+      Identity.ensure_system_principal(
+        "#{unique("#{label}-webhook")}@office-graph.local",
+        "webhook"
+      )
+
+    assert :ok =
+             Authorization.ensure_system_role(
+               webhook_principal,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id
+               },
+               [:provider_webhook_receive]
+             )
+
+    {:ok, request} =
+      Operations.new_system_operation_request(%{
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        principal_id: webhook_principal.id,
+        action: :provider_webhook_receive,
+        authority_basis: "workos:test:#{label}",
+        causation_key: "workos:test:#{label}",
+        idempotency_scope: "workos:test",
+        idempotency_key: label
+      })
+
+    {:ok, operation} = Operations.start_system_operation(request)
+
+    connection =
+      Ash.create!(
+        EnterpriseConnection,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          webhook_principal_id: webhook_principal.id,
+          operation_id: operation.id,
+          provider: "workos",
+          provider_organization_id: unique("workos-organization"),
+          directory_requirement: directory_requirement,
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    directory =
+      Ash.create!(
+        Directory,
+        %{
+          connection_id: connection.id,
+          operation_id: operation.id,
+          provider_directory_id: unique("workos-directory"),
+          status: "active",
+          provider_updated_at: ~U[2026-07-29 19:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    %{
+      bootstrap: bootstrap,
+      connection: connection,
+      directory: directory,
+      operation: operation
+    }
+  end
+
+  defp provision_directory_user(context, email) do
+    event =
+      DirectoryEvent.new!(
+        provider_event_id: unique("event"),
+        event_type: "dsync.user.created",
+        directory_id: context.directory.provider_directory_id,
+        resource_kind: :user,
+        action: :upsert,
+        provider_occurred_at: ~U[2026-07-29 20:00:00Z],
+        data: %{
+          provider_user_id: "directory_user_01",
+          idp_id: "idp_user_01",
+          email: email,
+          first_name: "Ada",
+          last_name: "Lovelace",
+          status: "active",
+          provider_updated_at: ~U[2026-07-29 20:00:00Z]
+        }
+      )
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               event,
+               context.operation.id
+             )
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
+  defp restore_env(key, value), do: Application.put_env(:office_graph, key, value)
+
+  defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
+end

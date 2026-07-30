@@ -5,6 +5,9 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
     authentication_failed
     authentication_unavailable
     authorization_storage_unavailable
+    directory_provisioning_required
+    enterprise_connection_unavailable
+    enterprise_identity_storage_unavailable
     identity_disabled
     identity_review_required
     identity_storage_unavailable

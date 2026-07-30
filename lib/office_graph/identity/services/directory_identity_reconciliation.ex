@@ -329,3 +329,137 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
   defp normalize_ok({:ok, _record}), do: :ok
   defp normalize_ok({:error, _reason} = error), do: error
 end
+
+defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.Identity.{
+    DirectoryIdentityResult,
+    ExternalIdentityLink,
+    Principal
+  }
+
+  require Ash.Query
+
+  @impl true
+  def run(input, _opts, _context) do
+    attrs = input.arguments
+
+    with {:ok, subject_link} <-
+           locked_subject_link(attrs.provider_tenant, attrs.subject),
+         {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
+         {:ok, email_links} <- locked_links_for_email(attrs.verified_email) do
+      reconcile(subject_link, principals, email_links, attrs)
+    end
+  end
+
+  defp reconcile(
+         %ExternalIdentityLink{
+           status: "active",
+           linking_state: "linked",
+           principal_id: principal_id,
+           verified_email: verified_email
+         } = link,
+         principals,
+         email_links,
+         attrs
+       )
+       when is_binary(principal_id) do
+    with true <- verified_email == attrs.verified_email,
+         %Principal{kind: "human", status: "active"} = principal <-
+           Enum.find(principals, &(&1.id == principal_id)),
+         true <- compatible_links?(email_links, principal.id) do
+      with {:ok, authenticated_link} <-
+             link
+             |> Ash.Changeset.for_update(:record_authentication, %{
+               last_authenticated_at: DateTime.utc_now()
+             })
+             |> Ash.update(authorize?: false) do
+        DirectoryIdentityResult.linked(principal, authenticated_link, "reused")
+      end
+    else
+      _conflict -> DirectoryIdentityResult.review_required("verified_identifier_conflict")
+    end
+  end
+
+  defp reconcile(%ExternalIdentityLink{}, _principals, _email_links, _attrs),
+    do: DirectoryIdentityResult.review_required("provider_subject_conflict")
+
+  defp reconcile(
+         nil,
+         [%Principal{kind: "human", status: "active"} = principal],
+         email_links,
+         attrs
+       ) do
+    if compatible_links?(email_links, principal.id) do
+      with {:ok, link} <- create_sso_link(principal, attrs) do
+        DirectoryIdentityResult.linked(principal, link, "reused")
+      end
+    else
+      DirectoryIdentityResult.review_required("verified_identifier_conflict")
+    end
+  end
+
+  defp reconcile(nil, [_ineligible], _email_links, _attrs),
+    do: DirectoryIdentityResult.review_required("ineligible_principal")
+
+  defp reconcile(nil, _ambiguous_or_missing, _email_links, _attrs),
+    do: DirectoryIdentityResult.review_required("ambiguous_verified_identifier")
+
+  defp compatible_links?(links, principal_id) do
+    Enum.all?(links, fn link ->
+      link.principal_id == principal_id and link.status == "active" and
+        link.linking_state == "linked"
+    end)
+  end
+
+  defp create_sso_link(principal, attrs) do
+    now = DateTime.utc_now()
+
+    ExternalIdentityLink
+    |> Ash.Changeset.for_create(:create, %{
+      principal_id: principal.id,
+      provider: "workos_sso",
+      provider_tenant: attrs.provider_tenant,
+      subject: attrs.subject,
+      verified_email: attrs.verified_email,
+      status: "active",
+      linking_state: "linked",
+      first_linked_at: now,
+      last_authenticated_at: now
+    })
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> consume_notifications()
+  end
+
+  defp locked_subject_link(provider_tenant, subject) do
+    ExternalIdentityLink
+    |> Ash.Query.filter(
+      provider == "workos_sso" and provider_tenant == ^provider_tenant and
+        subject == ^subject
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp locked_links_for_email(email) do
+    ExternalIdentityLink
+    |> Ash.Query.filter(verified_email == ^email)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp locked_principals_for_email(email) do
+    Principal
+    |> Ash.Query.filter(string_downcase(string_trim(email)) == ^email)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read(authorize?: false)
+  end
+
+  defp consume_notifications({:ok, record, _notifications}), do: {:ok, record}
+  defp consume_notifications({:error, error}), do: {:error, error}
+end

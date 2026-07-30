@@ -112,6 +112,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient do
       {:ok,
        %{
          subject: "#{connection_id}:#{String.trim(subject_id)}",
+         idp_id: String.trim(subject_id),
          verified_email: email,
          first_name: optional_string(profile["first_name"]),
          last_name: optional_string(profile["last_name"]),
