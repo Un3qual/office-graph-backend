@@ -3,15 +3,15 @@
 - [ ] 1.1 Add failing Phoenix tests for development-build, explicit-enable, loopback, CSRF, fixed-selector, safe-return-target, and production-unavailable route behavior
 - [ ] 1.2 Add failing authentication and session tests for eligible fixture issuance, locked identity revalidation, bounded rejection evidence, session reuse, logout, and identity switching
 - [ ] 1.3 Add failing setup tests for idempotent owner, workspace-administrator, member, and deprovisioned fixtures with no request-time repair or duplicate identity and authorization facts
-- [ ] 1.4 Add failing authorization behavior tests that distinguish the seeded owner, workspace-administrator, member, and deprovisioned profiles through real capability checks
+- [x] 1.4 Add failing authorization behavior tests that distinguish the seeded owner, workspace-administrator, member, and deprovisioned profiles through real capability checks
 - [ ] 1.5 Add failing browser and frontend tests for correctly typed authentication errors, provider choices, sign-out/switch navigation, and preservation of the requested product route
 
 ## 2. Seed Deterministic Identity And Role Fixtures
 
-- [ ] 2.1 Add one typed development fixture manifest with stable selector keys, expected emails, local-development subjects, lifecycle, scope, role keys, and centralized capability profiles
-- [ ] 2.2 Add idempotent Foundation, Identity, and Authorization Ash actions that reconcile the manifest without direct Ecto, explicit `Repo.transaction`, raw SQL, or browser-controlled identity facts
-- [ ] 2.3 Create active `local_development` external identity links for eligible fixtures and retain a disabled identity basis plus historical role assignment for the deprovisioned fixture
-- [ ] 2.4 Extend `mix demo.seed` to invoke fixture reconciliation before optional workflow examples and report an actionable bounded summary
+- [x] 2.1 Add one typed development fixture manifest with stable selector keys, expected emails, local-development subjects, lifecycle, scope, role keys, and centralized capability profiles
+- [x] 2.2 Add idempotent Foundation, Identity, and Authorization Ash actions that reconcile the manifest without direct Ecto, explicit `Repo.transaction`, raw SQL, or browser-controlled identity facts
+- [x] 2.3 Create active `local_development` external identity links for eligible fixtures and retain a disabled identity basis plus historical role assignment for the deprovisioned fixture
+- [x] 2.4 Extend `mix demo.seed` to invoke fixture reconciliation before optional workflow examples and report an actionable bounded summary
 
 ## 3. Add The Gated Local Development Provider
 

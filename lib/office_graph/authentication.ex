@@ -9,7 +9,7 @@ defmodule OfficeGraph.Authentication do
       OfficeGraph.EnterpriseIdentity,
       OfficeGraph.Identity
     ],
-    exports: [OidcClient]
+    exports: [LocalDevelopmentFixtures, OidcClient]
 
   alias OfficeGraph.{Authorization, EnterpriseIdentity, Identity}
   alias OfficeGraph.Authentication.OidcClient.Oidcc, as: OidccClient

@@ -60,6 +60,22 @@ defmodule OfficeGraph.Authorization.ReferenceCatalog do
   def recognized_capabilities, do: @recognized_capabilities
   def system_capabilities, do: @system_capabilities
 
+  def capability_keys(actions) when is_list(actions) do
+    actions
+    |> Enum.reduce_while({:ok, []}, fn action, {:ok, keys} ->
+      case Map.fetch(@recognized_capabilities, action) do
+        {:ok, key} -> {:cont, {:ok, [key | keys]}}
+        :error -> {:halt, {:error, :unknown_capability_action}}
+      end
+    end)
+    |> case do
+      {:ok, keys} -> {:ok, keys |> Enum.uniq() |> Enum.sort()}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def capability_keys(_actions), do: {:error, :unknown_capability_action}
+
   def recognized_capability_keys do
     @recognized_capabilities
     |> Map.values()

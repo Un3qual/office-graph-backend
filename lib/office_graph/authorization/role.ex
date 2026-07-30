@@ -16,6 +16,24 @@ defmodule OfficeGraph.Authorization.RoleSetup do
   end
 end
 
+defmodule OfficeGraph.Authorization.LocalDevelopmentRoleSetup do
+  @moduledoc false
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :role, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Authorization.Role]
+
+    field :role_assignment, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.Authorization.RoleAssignment]
+
+    field :capabilities, {:array, :string}, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.Authorization.Actions.EnsureRole do
   @moduledoc false
 
@@ -23,12 +41,15 @@ defmodule OfficeGraph.Authorization.Actions.EnsureRole do
 
   alias OfficeGraph.Authorization.{
     Capability,
+    LocalDevelopmentRoleSetup,
     PolicyBundle,
     Role,
     RoleAssignment,
     RoleCapability,
     RoleSetup
   }
+
+  require Ash.Query
 
   @impl true
   def run(input, [mode: :owner], _context) do
@@ -92,6 +113,34 @@ defmodule OfficeGraph.Authorization.Actions.EnsureRole do
     end
   end
 
+  def run(input, [mode: :local_development], _context) do
+    attrs = input.arguments
+
+    with {:ok, capabilities_by_key} <- ensure_capabilities(attrs.capability_keys),
+         {:ok, role} <-
+           ensure(Role, %{
+             organization_id: attrs.organization_id,
+             key: attrs.role_key,
+             name: attrs.role_name
+           }),
+         :ok <-
+           ensure_role_capabilities(role.id, capabilities_by_key, attrs.capability_keys),
+         :ok <- validate_exact_role_capabilities(role.id, capabilities_by_key),
+         {:ok, role_assignment} <-
+           ensure(RoleAssignment, %{
+             principal_id: attrs.principal_id,
+             role_id: role.id,
+             organization_id: attrs.organization_id,
+             workspace_id: attrs.workspace_id
+           }) do
+      LocalDevelopmentRoleSetup.new(
+        role: role,
+        role_assignment: role_assignment,
+        capabilities: attrs.capability_keys
+      )
+    end
+  end
+
   defp ensure_capabilities(keys) do
     Enum.reduce_while(keys, {:ok, %{}}, fn key, {:ok, capabilities_by_key} ->
       case ensure(Capability, %{key: key, description: key}) do
@@ -116,6 +165,27 @@ defmodule OfficeGraph.Authorization.Actions.EnsureRole do
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
+  end
+
+  defp validate_exact_role_capabilities(role_id, capabilities_by_key) do
+    expected_ids = capabilities_by_key |> Map.values() |> Enum.map(& &1.id) |> MapSet.new()
+
+    RoleCapability
+    |> Ash.Query.filter(role_id == ^role_id)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, memberships} ->
+        actual_ids = memberships |> Enum.map(& &1.capability_id) |> MapSet.new()
+
+        if MapSet.equal?(actual_ids, expected_ids) do
+          :ok
+        else
+          {:error, "local development role capability drift"}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
   defp ensure(resource, attrs) do
@@ -233,6 +303,27 @@ defmodule OfficeGraph.Authorization.Role do
       argument :capability_keys, {:array, :string}, allow_nil?: false
 
       run {OfficeGraph.Authorization.Actions.EnsureRole, mode: :system}
+    end
+
+    action :ensure_local_development_role,
+           OfficeGraph.Authorization.LocalDevelopmentRoleSetup do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Authorization.Capability,
+        OfficeGraph.Authorization.RoleCapability,
+        OfficeGraph.Authorization.RoleAssignment
+      ]
+
+      argument :principal_id, :uuid, allow_nil?: false
+      argument :organization_id, :uuid, allow_nil?: false
+      argument :workspace_id, :uuid, allow_nil?: false
+      argument :role_key, :string, allow_nil?: false
+      argument :role_name, :string, allow_nil?: false
+      argument :capability_keys, {:array, :string}, allow_nil?: false
+
+      run {OfficeGraph.Authorization.Actions.EnsureRole, mode: :local_development}
     end
   end
 

@@ -2,6 +2,7 @@ defmodule OfficeGraph.Identity.LocalDevelopmentIdentityTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.Authentication.LocalDevelopmentFixtures
+  alias OfficeGraph.Authorization.ReferenceCatalog
   alias OfficeGraph.Identity
 
   test "local development fixtures expose only stable server-owned keys" do
@@ -19,6 +20,19 @@ defmodule OfficeGraph.Identity.LocalDevelopmentIdentityTest do
                fixture.provider_tenant == "office_graph_development" and
                is_atom(fixture.role_profile)
            end)
+
+    {:ok, admin} = LocalDevelopmentFixtures.fetch("workspace_admin")
+    {:ok, member} = LocalDevelopmentFixtures.fetch("member")
+
+    assert :proposed_change_apply in admin.actions
+    refute :enterprise_identity_manage in admin.actions
+
+    assert member.actions ==
+             ~w(skeleton_read durable_delivery_read manual_intake_submit conversation_write)a
+
+    assert Enum.all?(admin.actions ++ member.actions, &is_atom/1)
+    assert {:ok, _keys} = ReferenceCatalog.capability_keys(admin.actions)
+    assert {:error, :unknown_capability_action} = ReferenceCatalog.capability_keys([:unknown])
   end
 
   test "identity setup is idempotent and does not reactivate disabled facts" do

@@ -120,6 +120,36 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
     end
   end
 
+  describe "seed_local_development_fixtures/1" do
+    test "replays all identity and role fixtures without duplicates" do
+      attrs = unique_bootstrap_attrs("local-development-fixtures")
+
+      assert {:ok, first} = Foundation.seed_local_development_fixtures(attrs)
+      assert {:ok, second} = Foundation.seed_local_development_fixtures(attrs)
+
+      assert Map.keys(first.fixtures) |> Enum.sort() ==
+               ~w(deprovisioned_member member owner workspace_admin)
+
+      for key <- Map.keys(first.fixtures) do
+        first_fixture = first.fixtures[key]
+        second_fixture = second.fixtures[key]
+
+        assert first_fixture.identity.principal.id == second_fixture.identity.principal.id
+
+        assert first_fixture.identity.external_identity_link.id ==
+                 second_fixture.identity.external_identity_link.id
+
+        assert first_fixture.role_assignment.id == second_fixture.role_assignment.id
+        assert first_fixture.role_assignment.role_id == second_fixture.role_assignment.role_id
+      end
+
+      deprovisioned = first.fixtures["deprovisioned_member"]
+      assert deprovisioned.identity.principal.status == "disabled"
+      assert deprovisioned.identity.external_identity_link.status == "disabled"
+      assert deprovisioned.role_assignment.workspace_id == first.bootstrap.workspace.id
+    end
+  end
+
   describe "authorize/3" do
     test "allows owner skeleton actions and denies a principal without capabilities" do
       assert {:ok, bootstrap} = Foundation.bootstrap_local_owner([])

@@ -54,6 +54,32 @@ defmodule OfficeGraph.Authorization do
     end
   end
 
+  def ensure_local_development_role(principal, tenant, fixture)
+      when is_map(fixture) do
+    with role_profile when role_profile in [:workspace_admin, :member] <-
+           fixture[:role_profile],
+         {:ok, capability_keys} <- ReferenceCatalog.capability_keys(fixture[:actions]) do
+      input = %{
+        principal_id: principal.id,
+        organization_id: tenant.organization.id,
+        workspace_id: tenant.workspace.id,
+        role_key: Atom.to_string(role_profile),
+        role_name: local_development_role_name(role_profile),
+        capability_keys: capability_keys
+      }
+
+      case run_role_action_with_identity_retry(:ensure_local_development_role, input) do
+        {:ok, role_setup} -> {:ok, role_setup}
+        {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+      end
+    else
+      _unknown_profile -> {:error, :forbidden}
+    end
+  end
+
+  def ensure_local_development_role(_principal, _tenant, _fixture),
+    do: {:error, :forbidden}
+
   def authorize(session_context, action, opts \\ [])
 
   def authorize(%{organization_id: organization_id} = session_context, action, opts) do
@@ -222,6 +248,9 @@ defmodule OfficeGraph.Authorization do
       {:error, _storage_error} -> {:error, :integration_storage_unavailable}
     end
   end
+
+  defp local_development_role_name(:workspace_admin), do: "Workspace Administrator"
+  defp local_development_role_name(:member), do: "Workspace Member"
 
   defp system_role_key(principal_id, nil),
     do: "system:#{principal_id}:organization"
