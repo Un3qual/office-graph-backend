@@ -91,6 +91,9 @@ export const RunDetailQuery = graphql`
             state
           }
         }
+        pageInfo {
+          hasNextPage
+        }
       }
       evidenceCandidates(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
         edges {
@@ -100,6 +103,9 @@ export const RunDetailQuery = graphql`
             candidateState
           }
         }
+        pageInfo {
+          hasNextPage
+        }
       }
       evidenceItems(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
         edges {
@@ -107,6 +113,9 @@ export const RunDetailQuery = graphql`
             id
             state
           }
+        }
+        pageInfo {
+          hasNextPage
         }
       }
       verificationResults(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
@@ -117,6 +126,9 @@ export const RunDetailQuery = graphql`
             verificationCheckId
             policyBasis
           }
+        }
+        pageInfo {
+          hasNextPage
         }
       }
     }

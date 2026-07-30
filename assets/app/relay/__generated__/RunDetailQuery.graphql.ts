@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<d1cada609f823981eaf19b3c8c2087bc>>
+ * @generated SignedSource<<d73bb4a4922505e8416d7ef5d9137b0a>>
  * @lightSyntaxTransform
  */
 
@@ -31,6 +31,9 @@ export type RunDetailQuery$data = {
           readonly id: string;
         };
       }> | null | undefined;
+      readonly pageInfo: {
+        readonly hasNextPage: boolean;
+      };
     };
     readonly evidenceItems: {
       readonly edges: ReadonlyArray<{
@@ -39,6 +42,9 @@ export type RunDetailQuery$data = {
           readonly state: string;
         };
       }> | null | undefined;
+      readonly pageInfo: {
+        readonly hasNextPage: boolean;
+      };
     };
     readonly executionState: string;
     readonly id: string;
@@ -50,6 +56,9 @@ export type RunDetailQuery$data = {
           readonly verificationCheckId: string;
         };
       }> | null | undefined;
+      readonly pageInfo: {
+        readonly hasNextPage: boolean;
+      };
     };
     readonly verificationResults: {
       readonly edges: ReadonlyArray<{
@@ -60,6 +69,9 @@ export type RunDetailQuery$data = {
           readonly verificationCheckId: string;
         };
       }> | null | undefined;
+      readonly pageInfo: {
+        readonly hasNextPage: boolean;
+      };
     };
     readonly verificationState: string;
     readonly workPacket: {
@@ -163,7 +175,26 @@ v11 = {
   "name": "state",
   "storageKey": null
 },
-v12 = [
+v12 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "hasNextPage",
+  "storageKey": null
+},
+v13 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "PageInfo",
+  "kind": "LinkedField",
+  "name": "pageInfo",
+  "plural": false,
+  "selections": [
+    (v12/*:: as any*/)
+  ],
+  "storageKey": null
+},
+v14 = [
   (v10/*:: as any*/),
   {
     "kind": "Literal",
@@ -176,7 +207,7 @@ v12 = [
     ]
   }
 ],
-v13 = {
+v15 = {
   "alias": "run",
   "args": (v4/*:: as any*/),
   "concreteType": "WorkRun",
@@ -296,13 +327,14 @@ v13 = {
             }
           ],
           "storageKey": null
-        }
+        },
+        (v13/*:: as any*/)
       ],
       "storageKey": "requiredChecks(first:20,sort:[{\"field\":\"POSITION\",\"order\":\"ASC\"}])"
     },
     {
       "alias": null,
-      "args": (v12/*:: as any*/),
+      "args": (v14/*:: as any*/),
       "concreteType": "EvidenceCandidateConnection",
       "kind": "LinkedField",
       "name": "evidenceCandidates",
@@ -344,13 +376,14 @@ v13 = {
             }
           ],
           "storageKey": null
-        }
+        },
+        (v13/*:: as any*/)
       ],
       "storageKey": "evidenceCandidates(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
     },
     {
       "alias": null,
-      "args": (v12/*:: as any*/),
+      "args": (v14/*:: as any*/),
       "concreteType": "EvidenceItemConnection",
       "kind": "LinkedField",
       "name": "evidenceItems",
@@ -379,13 +412,14 @@ v13 = {
             }
           ],
           "storageKey": null
-        }
+        },
+        (v13/*:: as any*/)
       ],
       "storageKey": "evidenceItems(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
     },
     {
       "alias": null,
-      "args": (v12/*:: as any*/),
+      "args": (v14/*:: as any*/),
       "concreteType": "WorkGraphVerificationResultConnection",
       "kind": "LinkedField",
       "name": "verificationResults",
@@ -428,14 +462,15 @@ v13 = {
             }
           ],
           "storageKey": null
-        }
+        },
+        (v13/*:: as any*/)
       ],
       "storageKey": "verificationResults(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
     }
   ],
   "storageKey": null
 },
-v14 = [
+v16 = [
   (v2/*:: as any*/)
 ];
 return {
@@ -471,7 +506,7 @@ return {
         ],
         "storageKey": null
       },
-      (v13/*:: as any*/)
+      (v15/*:: as any*/)
     ],
     "type": "RootQueryType",
     "abstractKey": null
@@ -495,7 +530,7 @@ return {
         "selections": [
           {
             "alias": null,
-            "args": (v14/*:: as any*/),
+            "args": (v16/*:: as any*/),
             "concreteType": "OperatorRunActivityConnection",
             "kind": "LinkedField",
             "name": "activity",
@@ -561,13 +596,7 @@ return {
                 "name": "pageInfo",
                 "plural": false,
                 "selections": [
-                  {
-                    "alias": null,
-                    "args": null,
-                    "kind": "ScalarField",
-                    "name": "hasNextPage",
-                    "storageKey": null
-                  },
+                  (v12/*:: as any*/),
                   {
                     "alias": null,
                     "args": null,
@@ -583,7 +612,7 @@ return {
           },
           {
             "alias": null,
-            "args": (v14/*:: as any*/),
+            "args": (v16/*:: as any*/),
             "filters": null,
             "handle": "connection",
             "key": "RunActivityFragment_activity",
@@ -596,20 +625,20 @@ return {
         ],
         "storageKey": null
       },
-      (v13/*:: as any*/)
+      (v15/*:: as any*/)
     ]
   },
   "params": {
-    "cacheID": "83b095c82ee02fefa95e4b1835848548",
+    "cacheID": "5c149e3360b01105c8f26a5a05939da5",
     "id": null,
     "metadata": {},
     "name": "RunDetailQuery",
     "operationKind": "query",
-    "text": "query RunDetailQuery(\n  $id: ID!\n  $activityFirst: Int!\n) {\n  ...RunActivityFragment_3DDDxQ\n  operatorRunState(id: $id) {\n    status\n    missingEvidence {\n      verificationCheckId\n      reason\n    }\n    id\n  }\n  run: getWorkRun(id: $id) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n        }\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          claim\n          candidateState\n        }\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n        }\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          policyBasis\n        }\n      }\n    }\n  }\n}\n\nfragment RunActivityFragment_3DDDxQ on RootQueryType {\n  operatorRunState(id: $id) {\n    activity(first: $activityFirst) {\n      edges {\n        node {\n          kind\n          stableId\n          title\n          status\n          __typename\n        }\n        cursor\n      }\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n    }\n    id\n  }\n}\n"
+    "text": "query RunDetailQuery(\n  $id: ID!\n  $activityFirst: Int!\n) {\n  ...RunActivityFragment_3DDDxQ\n  operatorRunState(id: $id) {\n    status\n    missingEvidence {\n      verificationCheckId\n      reason\n    }\n    id\n  }\n  run: getWorkRun(id: $id) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n        }\n      }\n      pageInfo {\n        hasNextPage\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          claim\n          candidateState\n        }\n      }\n      pageInfo {\n        hasNextPage\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n        }\n      }\n      pageInfo {\n        hasNextPage\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          policyBasis\n        }\n      }\n      pageInfo {\n        hasNextPage\n      }\n    }\n  }\n}\n\nfragment RunActivityFragment_3DDDxQ on RootQueryType {\n  operatorRunState(id: $id) {\n    activity(first: $activityFirst) {\n      edges {\n        node {\n          kind\n          stableId\n          title\n          status\n          __typename\n        }\n        cursor\n      }\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n    }\n    id\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "f413ecfe0925103077bdbfe149123ded";
+(node as any).hash = "8011149ac0b3ea2107ec1ce873e04a9c";
 
 export default node;

@@ -236,7 +236,10 @@ export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayl
   };
 }
 
-export function runDetailResponse(state: RunStatePayload = runState()): GraphQLResponse {
+export function runDetailResponse(
+  state: RunStatePayload = runState(),
+  childHasNextPage: Partial<Record<RunChildConnection, boolean>> = {},
+): GraphQLResponse {
   return {
     data: {
       operatorRunState: {
@@ -244,7 +247,7 @@ export function runDetailResponse(state: RunStatePayload = runState()): GraphQLR
         missingEvidence: state.missingEvidence,
         activity: state.activity,
       },
-      run: runResourceResponse(state),
+      run: runResourceResponse(state, childHasNextPage),
     },
   };
 }
@@ -271,7 +274,10 @@ export function runDetailActivityErrorResponse(
   };
 }
 
-function runResourceResponse(state: RunStatePayload) {
+function runResourceResponse(
+  state: RunStatePayload,
+  childHasNextPage: Partial<Record<RunChildConnection, boolean>> = {},
+) {
   return {
     id: state.run.id,
     aggregateState: state.run.aggregateState,
@@ -284,17 +290,29 @@ function runResourceResponse(state: RunStatePayload) {
     workPacketVersion: state.packetVersion,
     requiredChecks: {
       edges: state.requiredChecks.map((node) => ({ node })),
+      pageInfo: {
+        hasNextPage: childHasNextPage.requiredChecks ?? false,
+      },
     },
     evidenceCandidates: {
       edges: state.evidenceCandidates.map(({ state: candidateState, ...node }) => ({
         node: { ...node, candidateState },
       })),
+      pageInfo: {
+        hasNextPage: childHasNextPage.evidenceCandidates ?? false,
+      },
     },
     evidenceItems: {
       edges: state.evidenceItems.map((node) => ({ node })),
+      pageInfo: {
+        hasNextPage: childHasNextPage.evidenceItems ?? false,
+      },
     },
     verificationResults: {
       edges: state.verificationResults.map((node) => ({ node })),
+      pageInfo: {
+        hasNextPage: childHasNextPage.verificationResults ?? false,
+      },
     },
   };
 }
@@ -331,7 +349,10 @@ type PageInfoPayload = RunsConnectionPayload["pageInfo"] & {
   hasPreviousPage: boolean;
   startCursor: string | null;
 };
-type RunDetailPayload = Omit<RunDetailState, "packet" | "packetVersion"> & {
+type RunDetailPayload = Omit<
+  RunDetailState,
+  "packet" | "packetVersion" | "relationshipOverflow"
+> & {
   packet: RunDetailState["packet"] & { id: string };
   packetVersion: (NonNullable<RunDetailState["packetVersion"]> & { id: string }) | null;
 };
@@ -351,3 +372,8 @@ type ActivityNetworkPayload = Omit<ActivityPayload, "edges" | "pageInfo"> & {
   };
 };
 type RunStatePayload = RunDetailPayload & { activity: ActivityNetworkPayload };
+type RunChildConnection =
+  | "requiredChecks"
+  | "evidenceCandidates"
+  | "evidenceItems"
+  | "verificationResults";

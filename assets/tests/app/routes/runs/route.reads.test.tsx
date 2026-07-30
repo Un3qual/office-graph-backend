@@ -438,6 +438,34 @@ describe("all-runs route reads", () => {
     expect(detail).toHaveTextContent("Owner acceptance");
   });
 
+  it("identifies each bounded run relationship when more rows are available", async () => {
+    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      if (request.name === "RunsRouteQuery") {
+        return support.runsConnectionResponse([support.runSummary()]);
+      }
+
+      if (request.name === "RunDetailQuery") {
+        return support.runDetailResponse(support.runState(), {
+          requiredChecks: true,
+          evidenceCandidates: true,
+          evidenceItems: true,
+          verificationResults: true,
+        });
+      }
+
+      throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
+    });
+
+    support.renderWithRelay(network);
+
+    await screen.findByRole("heading", { name: "Newest packet" });
+    const detail = screen.getByRole("region", { name: "Run detail" });
+    expect(detail).toHaveTextContent("More required checks are available.");
+    expect(detail).toHaveTextContent("More evidence candidates are available.");
+    expect(detail).toHaveTextContent("More evidence items are available.");
+    expect(detail).toHaveTextContent("More verification results are available.");
+  });
+
   it("renders selected graph-targeted runs without a packet version", async () => {
     const network = support.createRunsNetwork({
       rows: [support.runSummary()],

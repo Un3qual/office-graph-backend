@@ -59,6 +59,12 @@ export function useRunDetail(runId: string, fetchKey?: number): RunDetailResult 
       verificationResults: (run.verificationResults.edges ?? []).flatMap((edge) =>
         edge?.node ? [edge.node] : [],
       ),
+      relationshipOverflow: {
+        evidenceCandidates: run.evidenceCandidates.pageInfo.hasNextPage,
+        evidenceItems: run.evidenceItems.pageInfo.hasNextPage,
+        requiredChecks: run.requiredChecks.pageInfo.hasNextPage,
+        verificationResults: run.verificationResults.pageInfo.hasNextPage,
+      },
     },
   };
 }

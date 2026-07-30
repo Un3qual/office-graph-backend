@@ -33,6 +33,12 @@ export type RunDetailState = RunProjection & {
   >;
   evidenceItems: Array<ConnectionNode<EvidenceItemConnection>>;
   verificationResults: Array<ConnectionNode<VerificationResultConnection>>;
+  relationshipOverflow: {
+    evidenceCandidates: boolean;
+    evidenceItems: boolean;
+    requiredChecks: boolean;
+    verificationResults: boolean;
+  };
 };
 export type RunDetailResult = {
   activityRef: RunActivityFragment$key;
