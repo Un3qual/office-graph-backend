@@ -460,69 +460,174 @@ export const OperatorRunConversationQuery = graphql`
           }
         }
       }
-      agentExecutions(first: 100, sort: [{ field: INSERTED_AT, order: DESC }]) {
-        edges {
-          node {
-            id
-            state
-            stateVersion
-            currentStepKey
-            attemptCount
-            failureCode
-            requestedOutcome
-            invocationMode
-            origin
-            autonomyMode
-            insertedAt
-            updatedAt
-            approvalRequests(first: 100, sort: [{ field: INSERTED_AT, order: DESC }]) {
-              edges {
-                node {
-                  id
-                  execution { id }
-                  stepKey
-                  requestedAction
-                  reason
-                  scopeType
-                  scopeId
-                  capabilityKey
-                  sensitivity
-                  externalWrite
-                  state
-                  version
-                  expiresAt
-                  resolutionReason
-                  insertedAt
-                }
-              }
-            }
-            contextExpansionRequests(
-              first: 100
-              sort: [{ field: INSERTED_AT, order: DESC }]
-            ) {
-              edges {
-                node {
-                  id
-                  execution { id }
-                  stepKey
-                  targetResourceType
-                  targetResourceId
-                  targetScopeType
-                  targetScopeId
-                  accessMode
-                  capabilityKey
-                  reason
-                  sensitivity
-                  expectedDurationSeconds
-                  state
-                  version
-                  expiresAt
-                  resolutionReason
-                  insertedAt
-                }
-              }
-            }
-          }
+    }
+    activeAgentExecutions: listAgentExecutions(
+      first: 100
+      filter: {
+        runId: { eq: $runId }
+        graphItemId: { eq: $graphItemId }
+        state: {
+          in: ["queued", "running", "waiting_approval", "waiting_context", "retry_scheduled"]
+        }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          state
+          stateVersion
+          currentStepKey
+          attemptCount
+          failureCode
+          requestedOutcome
+          invocationMode
+          origin
+          autonomyMode
+          insertedAt
+          updatedAt
+        }
+      }
+    }
+    terminalAgentExecutions: listAgentExecutions(
+      first: 100
+      filter: {
+        runId: { eq: $runId }
+        graphItemId: { eq: $graphItemId }
+        state: { in: ["completed", "failed", "cancelled"] }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          state
+          stateVersion
+          currentStepKey
+          attemptCount
+          failureCode
+          requestedOutcome
+          invocationMode
+          origin
+          autonomyMode
+          insertedAt
+          updatedAt
+        }
+      }
+    }
+    pendingAgentApprovalRequests: listAgentApprovalRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { eq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          requestedAction
+          reason
+          scopeType
+          scopeId
+          capabilityKey
+          sensitivity
+          externalWrite
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
+      }
+    }
+    resolvedAgentApprovalRequests: listAgentApprovalRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { notEq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          requestedAction
+          reason
+          scopeType
+          scopeId
+          capabilityKey
+          sensitivity
+          externalWrite
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
+      }
+    }
+    pendingAgentContextExpansionRequests: listAgentContextExpansionRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { eq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          targetResourceType
+          targetResourceId
+          targetScopeType
+          targetScopeId
+          accessMode
+          capabilityKey
+          reason
+          sensitivity
+          expectedDurationSeconds
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
+      }
+    }
+    resolvedAgentContextExpansionRequests: listAgentContextExpansionRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { notEq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          targetResourceType
+          targetResourceId
+          targetScopeType
+          targetScopeId
+          accessMode
+          capabilityKey
+          reason
+          sensitivity
+          expectedDurationSeconds
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
         }
       }
     }

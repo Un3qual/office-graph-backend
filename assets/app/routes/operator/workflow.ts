@@ -32,6 +32,8 @@ import {
 } from "./derived";
 import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
 
+const agentHistoryLimit = 100;
+
 type OperatorWorkflowInput = {
   fetchKey?: number;
   inboxPage: OperatorInboxPage;
@@ -153,7 +155,27 @@ function runConversationFromRelay(data: OperatorRunConversationOperation["respon
     projection.messageContexts.map((context) => [context.messageId, context.referencedContext]),
   );
   const conversation = data.conversation;
-  const executions = conversation ? connectionNodes(conversation.agentExecutions).reverse() : [];
+  const executions = conversation
+    ? prioritizedConnectionNodes(data.activeAgentExecutions, data.terminalAgentExecutions).sort(
+        compareInsertedAt,
+      )
+    : [];
+  const approvalRequests = conversation
+    ? prioritizedConnectionNodes(
+        data.pendingAgentApprovalRequests,
+        data.resolvedAgentApprovalRequests,
+      )
+        .sort(compareInsertedAt)
+        .map((request) => ({ ...request, executionId: request.execution.id }))
+    : [];
+  const contextExpansionRequests = conversation
+    ? prioritizedConnectionNodes(
+        data.pendingAgentContextExpansionRequests,
+        data.resolvedAgentContextExpansionRequests,
+      )
+        .sort(compareInsertedAt)
+        .map((request) => ({ ...request, executionId: request.execution.id }))
+    : [];
 
   return {
     ...projection,
@@ -179,21 +201,30 @@ function runConversationFromRelay(data: OperatorRunConversationOperation["respon
           }))
       : [],
     executions,
-    approvalRequests: executions
-      .flatMap((execution) => connectionNodes(execution.approvalRequests))
-      .sort(compareInsertedAt)
-      .map((request) => ({ ...request, executionId: request.execution.id })),
-    contextExpansionRequests: executions
-      .flatMap((execution) => connectionNodes(execution.contextExpansionRequests))
-      .sort(compareInsertedAt)
-      .map((request) => ({ ...request, executionId: request.execution.id })),
+    approvalRequests,
+    contextExpansionRequests,
   };
 }
 
-function connectionNodes<T>(connection: {
-  readonly edges?: ReadonlyArray<{ readonly node: T }> | null;
-}): T[] {
-  return (connection.edges ?? []).map((edge) => edge.node);
+function connectionNodes<T>(
+  connection:
+    | {
+        readonly edges?: ReadonlyArray<{ readonly node: T }> | null;
+      }
+    | null
+    | undefined,
+): T[] {
+  return (connection?.edges ?? []).map((edge) => edge.node);
+}
+
+function prioritizedConnectionNodes<T>(
+  priority: Parameters<typeof connectionNodes<T>>[0],
+  history: Parameters<typeof connectionNodes<T>>[0],
+) {
+  const priorityNodes = connectionNodes(priority);
+  const remaining = Math.max(agentHistoryLimit - priorityNodes.length, 0);
+
+  return priorityNodes.concat(connectionNodes(history).slice(0, remaining));
 }
 
 function compareInsertedAt(

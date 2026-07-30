@@ -45,7 +45,17 @@ defmodule OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.Httpc do
     case :httpc.request(
            method,
            request,
-           [connect_timeout: @connect_timeout, timeout: @request_timeout],
+           [
+             connect_timeout: @connect_timeout,
+             timeout: @request_timeout,
+             ssl: [
+               verify: :verify_peer,
+               cacerts: :public_key.cacerts_get(),
+               customize_hostname_check: [
+                 match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+               ]
+             ]
+           ],
            body_format: :binary
          ) do
       {:ok, {{_http_version, status, _reason}, response_headers, response_body}} ->

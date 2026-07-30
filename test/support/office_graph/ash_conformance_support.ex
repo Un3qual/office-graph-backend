@@ -190,6 +190,8 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   @intentional_non_relationship_uuid_identifiers %{
     {OfficeGraph.Operations.OperationCorrelation, :credential_id} => {:boundary_opaque, :action},
+    {OfficeGraph.Identity.Session, :enterprise_connection_id} =>
+      {:authentication_provenance, :authentication_method},
     {OfficeGraph.Operations.OperationCorrelation, :subject_id} => {:polymorphic, :subject_kind},
     {OfficeGraph.DurableDelivery.DomainEvent, :subject_id} => {:polymorphic, :subject_kind},
     {OfficeGraph.Audit.AuditRecord, :resource_id} => {:polymorphic, :resource_type},

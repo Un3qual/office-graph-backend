@@ -212,6 +212,7 @@ defmodule OfficeGraph.Authentication do
                  linked.external_identity_link,
                  scope,
                  authentication_method: "workos_sso",
+                 enterprise_connection_id: exchange.connection_id,
                  source_surface: source_surface,
                  trace_id: trace_id,
                  ttl_seconds: exchange.session_ttl_seconds
@@ -242,8 +243,13 @@ defmodule OfficeGraph.Authentication do
 
   def resolve_session(session_id, opts \\ []) do
     case Identity.resolve_human_session(session_id, opts) do
-      {:ok, session_context} -> validate_current_session_scope(session_context, opts)
-      {:error, _reason} = error -> error
+      {:ok, session_context} ->
+        with :ok <- validate_current_authentication_basis(session_context, opts) do
+          validate_current_session_scope(session_context, opts)
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -251,10 +257,12 @@ defmodule OfficeGraph.Authentication do
     trace_id = Keyword.get(opts, :trace_id)
     post_logout_redirect_uri = Keyword.get(opts, :post_logout_redirect_uri)
 
-    with :ok <- Identity.revoke_human_session(session_id, trace_id: trace_id) do
+    with {:ok, authentication_method} <-
+           Identity.human_session_authentication_method(session_id),
+         :ok <- Identity.revoke_human_session(session_id, trace_id: trace_id) do
       {:ok,
        %{
-         provider_logout_uri: provider_logout_uri(post_logout_redirect_uri)
+         provider_logout_uri: provider_logout_uri(authentication_method, post_logout_redirect_uri)
        }}
     end
   end
@@ -483,7 +491,8 @@ defmodule OfficeGraph.Authentication do
 
   defp bounded_reason(_reason), do: :authentication_failed
 
-  defp provider_logout_uri(post_logout_redirect_uri) when is_binary(post_logout_redirect_uri) do
+  defp provider_logout_uri("oidc", post_logout_redirect_uri)
+       when is_binary(post_logout_redirect_uri) do
     with {:ok, config} <- configuration(),
          {:ok, uri} <-
            oidc_client().logout_uri(%{
@@ -496,7 +505,34 @@ defmodule OfficeGraph.Authentication do
     end
   end
 
-  defp provider_logout_uri(_post_logout_redirect_uri), do: nil
+  defp provider_logout_uri(_authentication_method, _post_logout_redirect_uri), do: nil
+
+  defp validate_current_authentication_basis(
+         %{
+           authentication_method: "workos_sso",
+           enterprise_connection_id: connection_id,
+           organization_id: organization_id,
+           workspace_id: workspace_id
+         } = session_context,
+         opts
+       ) do
+    case EnterpriseIdentity.validate_workos_session_connection(
+           connection_id,
+           organization_id,
+           workspace_id
+         ) do
+      :ok ->
+        :ok
+
+      {:error, :enterprise_identity_storage_unavailable} = error ->
+        error
+
+      {:error, :enterprise_connection_unavailable} ->
+        Identity.reject_human_session(session_context, "identity_disabled", opts)
+    end
+  end
+
+  defp validate_current_authentication_basis(_session_context, _opts), do: :ok
 
   defp validate_current_session_scope(session_context, opts) do
     scope = %{

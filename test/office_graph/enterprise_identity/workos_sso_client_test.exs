@@ -1,6 +1,7 @@
 defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
   use ExUnit.Case, async: false
 
+  alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.Httpc, as: WorkOSHttpc
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient
 
   @base_url "https://api.workos.test"
@@ -167,6 +168,37 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
              })
   end
 
+  test "production HTTP requests verify the TLS peer and requested hostname" do
+    assert {:module, :httpc} = :code.ensure_loaded(:httpc)
+    parent = self()
+    tracer = spawn(fn -> forward_trace_messages(parent) end)
+    :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+    :erlang.trace_pattern({:httpc, :request, 4}, true, [])
+
+    on_exit(fn ->
+      :erlang.trace_pattern({:httpc, :request, 4}, false, [])
+      :erlang.trace(self(), false, [:call])
+      Process.exit(tracer, :normal)
+    end)
+
+    assert {:error, :network_error} =
+             WorkOSHttpc.request(:get, "https://127.0.0.1:1/workos", %{}, nil)
+
+    assert_receive {:captured_trace,
+                    {:trace, _pid, :call,
+                     {:httpc, :request, [_method, _request, http_options, _response_options]}}}
+
+    ssl_options = Keyword.fetch!(http_options, :ssl)
+
+    assert ssl_options[:verify] == :verify_peer
+    assert [_first_ca | _rest] = ssl_options[:cacerts]
+
+    assert is_function(
+             get_in(ssl_options, [:customize_hostname_check, :match_fun]),
+             2
+           )
+  end
+
   defp configuration do
     %{
       api_base_url: @base_url,
@@ -178,4 +210,12 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
   defp restore_env(key, value), do: Application.put_env(:office_graph, key, value)
+
+  defp forward_trace_messages(parent) do
+    receive do
+      message ->
+        send(parent, {:captured_trace, message})
+        forward_trace_messages(parent)
+    end
+  end
 end

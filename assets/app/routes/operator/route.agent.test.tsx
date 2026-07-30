@@ -28,6 +28,17 @@ describe("operator run agent surface", () => {
     expect(panel).not.toHaveTextContent(/credential|agent administration|role management/i);
   });
 
+  it("keeps active executions and pending gates ahead of saturated terminal history", async () => {
+    const network = agentNetwork({ saturatedAgentHistory: true });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    await screen.findByRole("region", { name: "Agent Activity" });
+    expect(screen.getByRole("button", { name: "Cancel agent execution" })).toBeEnabled();
+    expect(screen.getByLabelText("Approval resolution reason")).toBeVisible();
+    expect(screen.getByLabelText("Context expansion resolution reason")).toBeVisible();
+  });
+
   it("invokes and cancels through independent narrow Relay actions", async () => {
     const invocation = deferredGraphQLResponse();
     const network = agentNetwork({ invocation });
@@ -353,6 +364,7 @@ function agentNetwork({
   invocation,
   noConversation = false,
   onConversationRead,
+  saturatedAgentHistory = false,
   staleApproval = false,
   untargetedPendingGates = false,
   workflowItems = [operatorWorkflowItem()],
@@ -362,6 +374,7 @@ function agentNetwork({
   invocation?: ReturnType<typeof deferredGraphQLResponse>;
   noConversation?: boolean;
   onConversationRead?: () => void;
+  saturatedAgentHistory?: boolean;
   staleApproval?: boolean;
   untargetedPendingGates?: boolean;
   workflowItems?: ReturnType<typeof operatorWorkflowItem>[];
@@ -441,11 +454,13 @@ function agentNetwork({
           }
         : appendScopedSurface;
       return {
-        data: agentQueryResponse(
-          noConversation
-            ? agentSurfaceWithoutConversation(projectedSurface, variables)
-            : projectedSurface,
-        ),
+        data: saturatedAgentHistory
+          ? prioritizedAgentQueryResponse(projectedSurface)
+          : agentQueryResponse(
+              noConversation
+                ? agentSurfaceWithoutConversation(projectedSurface, variables)
+                : projectedSurface,
+            ),
       };
     },
     OperatorInvokeAgentMutation: () =>
@@ -539,29 +554,66 @@ function agentQueryResponse(surface: AgentSurface) {
               },
             })),
           },
-          agentExecutions: {
-            edges: surface.executions.map((execution) => ({
-              node: {
-                ...execution,
-                approvalRequests: {
-                  edges: surface.approvalRequests
-                    .filter((request) => request.executionId === execution.id)
-                    .map((request) => ({
-                      node: { ...request, execution: { id: request.executionId } },
-                    })),
-                },
-                contextExpansionRequests: {
-                  edges: surface.contextExpansionRequests
-                    .filter((request) => request.executionId === execution.id)
-                    .map((request) => ({
-                      node: { ...request, execution: { id: request.executionId } },
-                    })),
-                },
-              },
-            })),
-          },
         }
       : null,
+    activeAgentExecutions: {
+      edges: surface.executions
+        .filter((execution) => !["completed", "failed", "cancelled"].includes(execution.state))
+        .map((node) => ({ node })),
+    },
+    terminalAgentExecutions: {
+      edges: surface.executions
+        .filter((execution) => ["completed", "failed", "cancelled"].includes(execution.state))
+        .map((node) => ({ node })),
+    },
+    pendingAgentApprovalRequests: {
+      edges: surface.approvalRequests
+        .filter((request) => request.state === "pending")
+        .map((request) => ({
+          node: { ...request, execution: { id: request.executionId } },
+        })),
+    },
+    resolvedAgentApprovalRequests: {
+      edges: surface.approvalRequests
+        .filter((request) => request.state !== "pending")
+        .map((request) => ({
+          node: { ...request, execution: { id: request.executionId } },
+        })),
+    },
+    pendingAgentContextExpansionRequests: {
+      edges: surface.contextExpansionRequests
+        .filter((request) => request.state === "pending")
+        .map((request) => ({
+          node: { ...request, execution: { id: request.executionId } },
+        })),
+    },
+    resolvedAgentContextExpansionRequests: {
+      edges: surface.contextExpansionRequests
+        .filter((request) => request.state !== "pending")
+        .map((request) => ({
+          node: { ...request, execution: { id: request.executionId } },
+        })),
+    },
+  };
+}
+
+function prioritizedAgentQueryResponse(surface: AgentSurface) {
+  const response = agentQueryResponse(surface);
+  if (!response.conversation) return response;
+
+  const activeExecution = response.activeAgentExecutions.edges[0].node;
+  const terminalExecutions = Array.from({ length: 100 }, (_unused, index) => ({
+    node: {
+      ...activeExecution,
+      id: `terminal_execution_${index}`,
+      state: "completed",
+      insertedAt: `2026-07-23T${String(index % 24).padStart(2, "0")}:00:00Z`,
+    },
+  }));
+
+  return {
+    ...response,
+    terminalAgentExecutions: { edges: terminalExecutions },
   };
 }
 

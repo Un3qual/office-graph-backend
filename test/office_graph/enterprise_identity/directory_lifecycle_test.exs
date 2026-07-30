@@ -40,6 +40,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     link = Ash.get!(ExternalIdentityLink, user.external_identity_link_id, authorize?: false)
 
     assert principal.email == "person@example.test"
+    assert principal.email == "person@example.test"
     assert principal.kind == "human"
     assert principal.status == "active"
     assert link.principal_id == principal.id
@@ -187,30 +188,113 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert principal.status == "disabled"
   end
 
-  test "ambiguous normalized principals produce deterministic review state" do
-    context = enterprise_context("ambiguous")
-    email = "ambiguous@example.test"
+  test "directory deprovisioning preserves SSO while another directory basis remains active" do
+    context = enterprise_context("multi-directory-deprovision")
+    active_time = ~U[2026-07-29 20:00:00Z]
 
-    for stored_email <- [String.upcase(email), " #{email} "] do
+    assert {:ok, %{resource: %DirectoryUser{} = first_user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(active_time),
+               context.operation.id
+             )
+
+    second_directory =
       Ash.create!(
-        Principal,
-        %{email: stored_email, kind: "human", status: "active"},
+        Directory,
+        %{
+          connection_id: context.connection.id,
+          operation_id: context.operation.id,
+          provider_directory_id: unique("second-workos-directory"),
+          status: "active",
+          provider_updated_at: ~U[2026-07-29 19:00:00Z]
+        },
         action: :create,
         authorize?: false
       )
-    end
 
-    assert {:ok, %{status: :review_required, resource: user}} =
+    assert {:ok, %{resource: %DirectoryUser{} = second_user}} =
+             EnterpriseIdentity.apply_directory_event(
+               second_directory.id,
+               user_event(active_time, %{provider_user_id: "directory_user_02"}),
+               context.operation.id
+             )
+
+    assert second_user.principal_id == first_user.principal_id
+    assert second_user.external_identity_link_id != first_user.external_identity_link_id
+
+    sso_link =
+      Ash.create!(
+        ExternalIdentityLink,
+        %{
+          principal_id: first_user.principal_id,
+          provider: "workos_sso",
+          provider_tenant: context.connection.provider_organization_id,
+          subject: "connection_01:idp_user_01",
+          verified_email: first_user.email,
+          status: "active",
+          linking_state: "linked",
+          first_linked_at: active_time
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(DateTime.add(active_time, 60, :second), %{status: "deleted"}),
+               context.operation.id
+             )
+
+    assert Ash.get!(ExternalIdentityLink, sso_link.id, authorize?: false).status == "active"
+    assert Ash.get!(Principal, first_user.principal_id, authorize?: false).status == "active"
+
+    assert {:ok, linked} =
+             Identity.reconcile_workos_sso_identity(
+               %{
+                 subject: sso_link.subject,
+                 verified_email: first_user.email
+               },
+               context.connection.provider_organization_id
+             )
+
+    assert linked.principal.id == first_user.principal_id
+  end
+
+  test "principal email variants reuse one canonical indexed identity" do
+    context = enterprise_context("canonical-email")
+    email = "canonical@example.test"
+
+    principal =
+      Ash.create!(
+        Principal,
+        %{email: String.upcase(email), kind: "human", status: "active"},
+        action: :ensure,
+        authorize?: false
+      )
+
+    replayed_principal =
+      Ash.create!(
+        Principal,
+        %{email: " #{email} ", kind: "human", status: "active"},
+        action: :ensure,
+        authorize?: false
+      )
+
+    assert replayed_principal.id == principal.id
+    assert replayed_principal.email == email
+
+    assert {:ok, %{status: :applied, resource: user}} =
              EnterpriseIdentity.apply_directory_event(
                context.directory.id,
                user_event(~U[2026-07-29 20:00:00Z], %{email: email}),
                context.operation.id
              )
 
-    assert user.status == "review_required"
-    assert user.review_reason == "ambiguous_verified_identifier"
-    assert is_nil(user.principal_id)
-    assert is_nil(user.external_identity_link_id)
+    assert user.status == "active"
+    assert user.principal_id == principal.id
+    assert is_binary(user.external_identity_link_id)
   end
 
   test "existing email links without a compatible principal use the conflict review reason" do
@@ -444,19 +528,28 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
                status: "active"
              })
 
-    directory =
-      Ash.create!(
-        Directory,
-        %{
-          connection_id: connection.id,
-          operation_id: operation.id,
-          provider_directory_id: unique("managed-directory"),
-          status: "active",
-          provider_updated_at: ~U[2026-07-29 19:00:00Z]
-        },
-        action: :create,
-        authorize?: false
-      )
+    provider_directory_id = unique("managed-directory")
+
+    assert {:ok, directory} =
+             EnterpriseIdentity.bind_directory(bootstrap.session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: provider_directory_id,
+               status: "active",
+               provider_updated_at: ~U[2026-07-29 19:00:00Z]
+             })
+
+    assert directory.connection_id == connection.id
+    assert directory.operation_id == operation.id
+
+    assert {:ok, replayed_directory} =
+             EnterpriseIdentity.bind_directory(bootstrap.session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: provider_directory_id,
+               status: "active",
+               provider_updated_at: ~U[2026-07-29 19:00:00Z]
+             })
+
+    assert replayed_directory.id == directory.id
 
     group =
       Ash.create!(
@@ -503,6 +596,14 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert disabled_mapping.status == "disabled"
 
     forged_session = %{bootstrap.session | organization_id: Ecto.UUID.generate()}
+
+    assert {:error, :forbidden} =
+             EnterpriseIdentity.bind_directory(forged_session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: unique("forged-directory"),
+               status: "active",
+               provider_updated_at: ~U[2026-07-29 19:00:00Z]
+             })
 
     assert {:error, :forbidden} =
              EnterpriseIdentity.set_connection_lifecycle(

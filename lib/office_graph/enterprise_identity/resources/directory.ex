@@ -73,6 +73,25 @@ defmodule OfficeGraph.EnterpriseIdentity.Directory do
       validate one_of(:status, ~w(active disabled deleted))
     end
 
+    create :bind do
+      public? false
+
+      accept [
+        :connection_id,
+        :operation_id,
+        :provider_directory_id,
+        :status,
+        :provider_updated_at
+      ]
+
+      upsert? true
+      upsert_identity :provider_directory
+      upsert_fields []
+      return_skipped_upsert? true
+
+      validate one_of(:status, ~w(active disabled deleted))
+    end
+
     update :set_lifecycle do
       public? false
       accept [:status, :provider_updated_at]

@@ -217,34 +217,45 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert linked.external_identity_link.verified_email == normalized_email
     end
 
-    test "persists review when multiple principals own the normalized identifier" do
-      normalized_email = "#{unique("ambiguous-owner")}@example.test"
+    test "canonicalizes principal email variants before identity upsert" do
+      canonical_email = "#{unique("canonical-owner")}@example.test"
 
-      for email <- [String.upcase(normalized_email), " #{normalized_email} "] do
+      first =
         Ash.create!(
           Principal,
           %{
-            id: Ecto.UUID.generate(),
-            email: email,
+            email: String.upcase(canonical_email),
             kind: "human",
             status: "active"
           },
-          action: :create,
+          action: :ensure,
           authorize?: false
         )
-      end
 
-      assert {:error, :identity_review_required} =
+      replayed =
+        Ash.create!(
+          Principal,
+          %{
+            email: " #{canonical_email} ",
+            kind: "human",
+            status: "active"
+          },
+          action: :ensure,
+          authorize?: false
+        )
+
+      assert first.id == replayed.id
+      assert first.email == canonical_email
+      assert replayed.email == canonical_email
+
+      assert {:ok, linked} =
                Identity.reconcile_oidc_identity(
-                 claims(normalized_email, "ambiguous-owner-subject"),
+                 claims(String.upcase(canonical_email), "canonical-owner-subject"),
                  reconciliation_opts()
                )
 
-      assert %ExternalIdentityLink{
-               principal_id: nil,
-               status: "review_required",
-               review_reason: "ambiguous_verified_identifier"
-             } = link_for_subject("ambiguous-owner-subject")
+      assert linked.principal.id == first.id
+      assert linked.external_identity_link.verified_email == canonical_email
     end
 
     test "persists a stable review state for an unknown verified identifier" do

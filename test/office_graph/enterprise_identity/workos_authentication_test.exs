@@ -43,9 +43,27 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     end
   end
 
+  defmodule OidcLogoutProbe do
+    @behaviour OfficeGraph.Authentication.OidcClient
+
+    @impl true
+    def authorization_uri(_request), do: {:error, :unsupported}
+
+    @impl true
+    def exchange(_request), do: {:error, :unsupported}
+
+    @impl true
+    def logout_uri(request) do
+      send(self(), {:oidc_logout_uri, request})
+      {:ok, "https://authentik.test/logout"}
+    end
+  end
+
   setup do
     original_config = Application.get_env(:office_graph, :workos_enterprise)
     original_client = Application.get_env(:office_graph, :workos_sso_client)
+    original_human_oidc = Application.get_env(:office_graph, :human_oidc)
+    original_human_oidc_client = Application.get_env(:office_graph, :human_oidc_client)
 
     Application.put_env(:office_graph, :workos_enterprise,
       api_base_url: "https://api.workos.test",
@@ -56,6 +74,15 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
 
     Application.put_env(:office_graph, :workos_sso_client, SsoClient)
 
+    Application.put_env(:office_graph, :human_oidc,
+      issuer: "https://authentik.test/application/o/office-graph/",
+      client_id: "office-graph",
+      client_secret: "secret",
+      account_linking_policy: :verified_email_existing_principal
+    )
+
+    Application.put_env(:office_graph, :human_oidc_client, OidcLogoutProbe)
+
     Process.put(
       {SsoClient, :authorization_uri},
       {:ok, "https://api.workos.test/sso/authorize"}
@@ -64,6 +91,8 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     on_exit(fn ->
       restore_env(:workos_enterprise, original_config)
       restore_env(:workos_sso_client, original_client)
+      restore_env(:human_oidc, original_human_oidc)
+      restore_env(:human_oidc_client, original_human_oidc_client)
     end)
 
     :ok
@@ -127,6 +156,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
 
     session = Ash.get!(Session, completed.session.id, authorize?: false)
     assert session.principal_id == context.bootstrap.principal.id
+    assert session.enterprise_connection_id == context.connection.id
 
     assert_received {:workos_exchange_request, exchange_request}
     assert exchange_request.code == "authorization-code"
@@ -340,6 +370,45 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
              )
   end
 
+  test "disabling the issuing connection rejects an existing WorkOS session" do
+    context = enterprise_context("session-connection-lifecycle", "required")
+    provision_directory_user(context, context.bootstrap.principal.email)
+    completed = complete_workos_login!(context, "idp_user_01")
+
+    {:ok, operation} =
+      Operations.start_operation(context.bootstrap.session, :enterprise_identity_manage)
+
+    assert {:ok, disabled_connection} =
+             EnterpriseIdentity.set_connection_lifecycle(
+               context.bootstrap.session,
+               operation,
+               context.connection.id,
+               %{status: "disabled"}
+             )
+
+    assert disabled_connection.status == "disabled"
+
+    assert {:error, :invalid_session} =
+             Authentication.resolve_session(completed.session.id,
+               trace_id: "disabled-workos-session"
+             )
+  end
+
+  test "WorkOS logout revokes locally without contacting the generic OIDC provider" do
+    context = enterprise_context("provider-aware-logout", "required")
+    provision_directory_user(context, context.bootstrap.principal.email)
+    completed = complete_workos_login!(context, "idp_user_01")
+
+    assert {:ok, %{provider_logout_uri: nil}} =
+             Authentication.logout(completed.session.id,
+               trace_id: "workos-logout",
+               post_logout_redirect_uri: "https://office-graph.test/"
+             )
+
+    refute_received {:oidc_logout_uri, _request}
+    assert {:error, :invalid_session} = Authentication.resolve_session(completed.session.id)
+  end
+
   defp enterprise_context(label, directory_requirement) do
     {:ok, bootstrap} =
       Foundation.bootstrap_local_owner(
@@ -519,6 +588,40 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     )
 
     user
+  end
+
+  defp complete_workos_login!(context, idp_id) do
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:#{idp_id}",
+         idp_id: idp_id,
+         verified_email: context.bootstrap.principal.email,
+         first_name: "Ada",
+         last_name: "Lovelace",
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    assert {:ok, login} =
+             Authentication.begin_workos_login(
+               context.connection.id,
+               @redirect_uri,
+               trace_id: unique("workos-login-start")
+             )
+
+    assert {:ok, completed} =
+             Authentication.complete_workos_login(
+               "authorization-code",
+               login.transaction.state,
+               login.transaction,
+               trace_id: unique("workos-login-complete"),
+               source_surface: "web"
+             )
+
+    completed
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)

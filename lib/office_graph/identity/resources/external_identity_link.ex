@@ -234,7 +234,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileExternalIdentity do
 
   defp principals_for_email(verified_email) do
     Principal
-    |> Ash.Query.filter(string_downcase(string_trim(email)) == ^verified_email)
+    |> Ash.Query.filter(email == ^verified_email)
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)

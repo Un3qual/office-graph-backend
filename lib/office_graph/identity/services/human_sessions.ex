@@ -43,6 +43,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
           organization_id: organization_id,
           workspace_id: workspace_id,
           authentication_method: attrs.authentication_method,
+          enterprise_connection_id: attrs.enterprise_connection_id,
           source_surface: attrs.source_surface,
           trace_id: attrs.trace_id,
           ttl_seconds: attrs.ttl_seconds
@@ -107,6 +108,30 @@ defmodule OfficeGraph.Identity.HumanSessions do
   end
 
   def resolve(_session_id, _opts), do: {:error, :invalid_session}
+
+  def authentication_method(session_id) when is_binary(session_id) do
+    case Ash.Type.UUID.cast_input(session_id, []) do
+      {:ok, session_id} ->
+        with_storage_boundary(fn ->
+          case Ash.get(Session, session_id, authorize?: false, not_found_error?: false) do
+            {:ok, %Session{purpose: @purpose, authentication_method: method}}
+            when is_binary(method) ->
+              {:ok, method}
+
+            {:ok, _missing_or_wrong_purpose} ->
+              {:error, :invalid_session}
+
+            {:error, _storage_error} ->
+              {:error, :identity_storage_unavailable}
+          end
+        end)
+
+      :error ->
+        {:error, :invalid_session}
+    end
+  end
+
+  def authentication_method(_session_id), do: {:error, :invalid_session}
 
   def revoke(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)
@@ -188,12 +213,15 @@ defmodule OfficeGraph.Identity.HumanSessions do
     source_surface = Keyword.get(opts, :source_surface)
     trace_id = Keyword.get(opts, :trace_id)
     ttl_seconds = Keyword.get(opts, :ttl_seconds, 8 * 60 * 60)
+    enterprise_connection_id = Keyword.get(opts, :enterprise_connection_id)
 
     if present?(authentication_method) and present?(source_surface) and present?(trace_id) and
-         is_integer(ttl_seconds) and ttl_seconds > 0 do
+         is_integer(ttl_seconds) and ttl_seconds > 0 and
+         valid_enterprise_connection?(authentication_method, enterprise_connection_id) do
       {:ok,
        %{
          authentication_method: authentication_method,
+         enterprise_connection_id: enterprise_connection_id,
          source_surface: source_surface,
          trace_id: trace_id,
          ttl_seconds: ttl_seconds
@@ -219,6 +247,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
            purpose: @purpose,
            external_identity_link_id: external_identity_link_id,
            authentication_method: authentication_method,
+           enterprise_connection_id: enterprise_connection_id,
            issued_at: %DateTime{} = issued_at,
            expires_at: %DateTime{} = expires_at,
            source_surface: source_surface,
@@ -229,6 +258,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
     cond do
       not present?(external_identity_link_id) or not present?(authentication_method) or
         not present?(source_surface) or not present?(trace_id) or
+        not valid_enterprise_connection?(authentication_method, enterprise_connection_id) or
           DateTime.compare(expires_at, issued_at) != :gt ->
         {:reject, session, "invalid_session"}
 
@@ -285,6 +315,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
       organization_id: session.organization_id,
       workspace_id: session.workspace_id,
       external_identity_link_id: session.external_identity_link_id,
+      enterprise_connection_id: session.enterprise_connection_id,
       authentication_method: session.authentication_method,
       capabilities: MapSet.new(),
       trusted?: false
@@ -333,6 +364,10 @@ defmodule OfficeGraph.Identity.HumanSessions do
   rescue
     _error in @storage_exceptions -> {:error, :identity_storage_unavailable}
   end
+
+  defp valid_enterprise_connection?("workos_sso", connection_id), do: present?(connection_id)
+  defp valid_enterprise_connection?(_authentication_method, nil), do: true
+  defp valid_enterprise_connection?(_authentication_method, _connection_id), do: false
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 end

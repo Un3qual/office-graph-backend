@@ -36,6 +36,27 @@ resources rather than WorkOS-specific columns or queryable raw payload JSON.
   permit exactly one current active membership through an in-table lifecycle
   state and ordinary Ash identity
 
+### Requirement: Administrators bind provider directories through the owning boundary
+
+Office Graph SHALL provide an authorized, operation-correlated enterprise
+identity command that binds a provider directory to an existing enterprise
+connection.
+
+#### Scenario: Authorized administrator binds a directory
+
+- **WHEN** an administrator with `enterprise_identity.manage` authority at the
+  connection's exact scope supplies a stable provider directory identifier and
+  lifecycle timestamp
+- **THEN** the owning Ash action MUST create one directory binding linked to
+  that connection and operation
+
+#### Scenario: Concurrent or cross-scope directory binding is attempted
+
+- **WHEN** concurrent commands target the same provider directory or a caller
+  targets a connection outside its authorized scope
+- **THEN** Office Graph MUST retain one logical binding and MUST fail closed
+  rather than rebinding or exposing the foreign directory
+
 ### Requirement: WorkOS webhooks are verified before ingestion
 
 Office Graph SHALL verify the WorkOS timestamped webhook signature over the
@@ -136,10 +157,11 @@ provisioning policy.
 #### Scenario: Directory user is deprovisioned
 
 - **WHEN** WorkOS disables or deletes a directory user
-- **THEN** Office Graph MUST disable the directory identity and matching
-  WorkOS SSO access in-table, make existing affected sessions fail on their
-  next validation, retain historical provenance, and disable the principal
-  only when no accepted active identity basis remains
+- **THEN** Office Graph MUST disable that directory identity in-table, retain
+  historical provenance, and disable matching WorkOS SSO access and a
+  directory-created principal only when no other accepted active directory
+  identity basis remains for that principal and provider tenant
+- **AND** existing affected sessions MUST fail on their next validation
 
 ### Requirement: External groups grant only explicitly mapped roles
 

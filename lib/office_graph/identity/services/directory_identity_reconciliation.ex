@@ -200,7 +200,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
 
   defp locked_principals_for_email(email) do
     Principal
-    |> Ash.Query.filter(string_downcase(string_trim(email)) == ^email)
+    |> Ash.Query.filter(email == ^email)
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)
@@ -230,7 +230,7 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
     with {:ok, principal} <- locked_principal(attrs.principal_id),
          :ok <- disable_link(attrs.external_identity_link_id, attrs.disabled_at),
          :ok <-
-           disable_sso_links(
+           maybe_disable_sso_links(
              attrs.principal_id,
              attrs.provider_tenant,
              attrs.disabled_at
@@ -264,8 +264,6 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
     end
   end
 
-  defp disable_sso_links(nil, _provider_tenant, _disabled_at), do: :ok
-
   defp disable_sso_links(principal_id, provider_tenant, disabled_at) do
     ExternalIdentityLink
     |> Ash.Query.filter(
@@ -285,6 +283,33 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp maybe_disable_sso_links(nil, _provider_tenant, _disabled_at), do: :ok
+
+  defp maybe_disable_sso_links(principal_id, provider_tenant, disabled_at) do
+    with {:ok, active_basis?} <-
+           active_directory_basis?(principal_id, provider_tenant) do
+      if active_basis?,
+        do: :ok,
+        else: disable_sso_links(principal_id, provider_tenant, disabled_at)
+    end
+  end
+
+  defp active_directory_basis?(principal_id, provider_tenant) do
+    ExternalIdentityLink
+    |> Ash.Query.filter(
+      principal_id == ^principal_id and provider == "workos_directory" and
+        provider_tenant == ^provider_tenant and status == "active" and
+        linking_state == "linked"
+    )
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, links} -> {:ok, links != []}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -414,7 +439,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
 
   defp compatible_links?(links, principal_id) do
     Enum.all?(links, fn link ->
-      link.principal_id == principal_id and link.status == "active" and
+      link.principal_id == principal_id and link.status in ["active", "disabled"] and
         link.linking_state == "linked"
     end)
   end
@@ -458,7 +483,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
 
   defp locked_principals_for_email(email) do
     Principal
-    |> Ash.Query.filter(string_downcase(string_trim(email)) == ^email)
+    |> Ash.Query.filter(email == ^email)
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)

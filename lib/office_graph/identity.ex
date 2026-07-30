@@ -76,7 +76,9 @@ defmodule OfficeGraph.Identity do
         if resolved.principal_id == session_context.principal_id and
              resolved.organization_id == session_context.organization_id and
              resolved.workspace_id == session_context.workspace_id and
-             resolved.external_identity_link_id == external_identity_link_id do
+             resolved.external_identity_link_id == external_identity_link_id and
+             resolved.authentication_method == session_context.authentication_method and
+             resolved.enterprise_connection_id == session_context.enterprise_connection_id do
           :ok
         else
           {:error, :forbidden}
@@ -240,6 +242,11 @@ defmodule OfficeGraph.Identity do
 
   defdelegate resolve_human_session(session_id), to: HumanSessions, as: :resolve
   defdelegate resolve_human_session(session_id, opts), to: HumanSessions, as: :resolve
+
+  defdelegate human_session_authentication_method(session_id),
+    to: HumanSessions,
+    as: :authentication_method
+
   defdelegate revoke_human_session(session_id, opts), to: HumanSessions, as: :revoke
   defdelegate record_authentication_event(attrs), to: HumanSessions, as: :record_event
   defdelegate reject_human_session(session_context, reason, opts), to: HumanSessions, as: :reject

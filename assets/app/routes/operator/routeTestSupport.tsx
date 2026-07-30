@@ -82,6 +82,12 @@ function withOperatorTestResponses(network: FetchFunction): FetchFunction {
             messageContexts: [],
           },
           conversation: null,
+          activeAgentExecutions: { edges: [] },
+          terminalAgentExecutions: { edges: [] },
+          pendingAgentApprovalRequests: { edges: [] },
+          resolvedAgentApprovalRequests: { edges: [] },
+          pendingAgentContextExpansionRequests: { edges: [] },
+          resolvedAgentContextExpansionRequests: { edges: [] },
         },
       };
     }

@@ -123,6 +123,7 @@ defmodule OfficeGraph.Identity.Principal do
 
     create :create do
       accept [:id, :email, :kind, :status]
+      change OfficeGraph.Identity.Changes.NormalizePrincipalEmail
       validate one_of(:status, ~w(active inactive disabled))
     end
 
@@ -133,6 +134,7 @@ defmodule OfficeGraph.Identity.Principal do
       upsert_identity :email
       upsert_fields []
       return_skipped_upsert? true
+      change OfficeGraph.Identity.Changes.NormalizePrincipalEmail
       validate one_of(:status, ~w(active inactive disabled))
     end
 

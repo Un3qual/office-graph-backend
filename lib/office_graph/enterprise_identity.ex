@@ -144,6 +144,35 @@ defmodule OfficeGraph.EnterpriseIdentity do
 
   def create_connection(_session_context, _operation, _attrs), do: {:error, :forbidden}
 
+  def bind_directory(session_context, operation, attrs) when is_map(attrs) do
+    with :ok <- validate_management_operation(session_context, operation),
+         {:ok, connection} <-
+           management_connection(session_context, attrs[:connection_id]),
+         :ok <- authorize_management(session_context, operation, connection.workspace_id),
+         {:ok, directory} <-
+           Directory
+           |> Ash.Changeset.for_create(
+             :bind,
+             attrs
+             |> Map.take([:provider_directory_id, :status, :provider_updated_at])
+             |> Map.merge(%{
+               connection_id: connection.id,
+               operation_id: operation.id
+             })
+           )
+           |> Ash.create(authorize?: false),
+         true <-
+           directory.connection_id == connection.id and
+             directory.operation_id == operation.id do
+      {:ok, directory}
+    else
+      false -> {:error, :forbidden}
+      {:error, _reason} = error -> normalize_management_error(error)
+    end
+  end
+
+  def bind_directory(_session_context, _operation, _attrs), do: {:error, :forbidden}
+
   def set_connection_lifecycle(session_context, operation, connection_id, attrs)
       when is_binary(connection_id) and is_map(attrs) do
     set_management_lifecycle(
@@ -302,6 +331,26 @@ defmodule OfficeGraph.EnterpriseIdentity do
   def validate_workos_provisioning(_exchange, _principal_id),
     do: {:error, :directory_provisioning_required}
 
+  def validate_workos_session_connection(connection_id, organization_id, workspace_id)
+      when is_binary(connection_id) and is_binary(organization_id) and
+             is_binary(workspace_id) do
+    EnterpriseConnection
+    |> Ash.Query.filter(
+      id == ^connection_id and provider == "workos" and status == "active" and
+        organization_id == ^organization_id and
+        (is_nil(workspace_id) or workspace_id == ^workspace_id)
+    )
+    |> Ash.exists(authorize?: false)
+    |> case do
+      {:ok, true} -> :ok
+      {:ok, false} -> {:error, :enterprise_connection_unavailable}
+      {:error, _storage_error} -> {:error, :enterprise_identity_storage_unavailable}
+    end
+  end
+
+  def validate_workos_session_connection(_connection_id, _organization_id, _workspace_id),
+    do: {:error, :enterprise_connection_unavailable}
+
   defp active_connection(connection_id) do
     EnterpriseConnection
     |> Ash.Query.filter(id == ^connection_id and provider == "workos" and status == "active")
@@ -342,6 +391,22 @@ defmodule OfficeGraph.EnterpriseIdentity do
       {:error, :forbidden}
     end
   end
+
+  defp management_connection(session_context, connection_id) when is_binary(connection_id) do
+    EnterpriseConnection
+    |> Ash.Query.filter(
+      id == ^connection_id and organization_id == ^session_context.organization_id and
+        status == "active"
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %EnterpriseConnection{} = connection} -> {:ok, connection}
+      {:ok, nil} -> {:error, :forbidden}
+      {:error, _storage_error} -> {:error, :enterprise_identity_storage_unavailable}
+    end
+  end
+
+  defp management_connection(_session_context, _connection_id), do: {:error, :forbidden}
 
   defp validate_mapping_targets(session_context, attrs, workspace_id) do
     group_query =

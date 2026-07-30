@@ -112,6 +112,7 @@ defmodule OfficeGraph.Identity.Actions.IssueHumanSession do
              workspace_id: attrs.workspace_id,
              purpose: @purpose,
              authentication_method: attrs.authentication_method,
+             enterprise_connection_id: attrs.enterprise_connection_id,
              issued_at: now,
              expires_at: DateTime.add(now, attrs.ttl_seconds, :second),
              source_surface: attrs.source_surface,
@@ -309,6 +310,7 @@ defmodule OfficeGraph.Identity.Session do
 
     attribute :purpose, :string, allow_nil?: false, public?: true
     attribute :authentication_method, :string, public?: true
+    attribute :enterprise_connection_id, :uuid, public?: true
     attribute :issued_at, :utc_datetime_usec, public?: true
     attribute :expires_at, :utc_datetime_usec, public?: true
     attribute :source_surface, :string, public?: true
@@ -361,6 +363,7 @@ defmodule OfficeGraph.Identity.Session do
         :workspace_id,
         :purpose,
         :authentication_method,
+        :enterprise_connection_id,
         :issued_at,
         :expires_at,
         :source_surface,
@@ -405,6 +408,7 @@ defmodule OfficeGraph.Identity.Session do
       argument :organization_id, :uuid, allow_nil?: false
       argument :workspace_id, :uuid, allow_nil?: false
       argument :authentication_method, :string, allow_nil?: false
+      argument :enterprise_connection_id, :uuid
       argument :source_surface, :string, allow_nil?: false
       argument :trace_id, :string, allow_nil?: false
       argument :ttl_seconds, :integer, allow_nil?: false, constraints: [min: 1]
