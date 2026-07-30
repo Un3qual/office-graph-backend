@@ -11,6 +11,7 @@ config :office_graph,
   ash_domains: [
     OfficeGraph.Tenancy.Domain,
     OfficeGraph.Identity.Domain,
+    OfficeGraph.EnterpriseIdentity.Domain,
     OfficeGraph.Authorization.Domain,
     OfficeGraph.Operations.Domain,
     OfficeGraph.DurableDelivery.Domain,
@@ -31,6 +32,9 @@ config :office_graph,
   allow_local_api_owner_bootstrap: false,
   human_oidc: [],
   human_oidc_client: OfficeGraph.Authentication.OidcClient.Oidcc,
+  workos_http_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.Httpc,
+  workos_secret_store: OfficeGraph.EnterpriseIdentity.SecretStore.Environment,
+  workos_sso_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 

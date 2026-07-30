@@ -106,6 +106,21 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.SyncOutcome},
     "github_outbound_actions" =>
       {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.OutboundAction},
+    "enterprise_identity_connections" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.EnterpriseConnection},
+    "enterprise_directories" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.Directory},
+    "enterprise_directory_users" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectoryUser},
+    "enterprise_directory_groups" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectoryGroup},
+    "enterprise_directory_memberships" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectoryMembership},
+    "enterprise_directory_sync_events" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectorySyncEvent},
+    "external_group_role_mappings" =>
+      {OfficeGraph.EnterpriseIdentity.Domain,
+       OfficeGraph.EnterpriseIdentity.ExternalGroupRoleMapping},
     "graph_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphItem},
     "relationship_definitions" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipDefinition},

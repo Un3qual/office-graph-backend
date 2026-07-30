@@ -76,11 +76,13 @@ resources:
   archive and operation references, received/provider timestamps, processing
   state, and bounded result.
 
-`OfficeGraph.Authorization` will own `ExternalGroupRoleMapping`, because it is
-an authorization fact linking an active directory group to an existing
-internal role and exact organization/workspace scope. Directory resources do
-not depend back on Authorization; the one-way mapping preserves compile-time
-boundary direction.
+`OfficeGraph.EnterpriseIdentity` will also persist
+`ExternalGroupRoleMapping`, an enterprise identity fact linking an active
+directory group to an existing internal role and exact
+organization/workspace scope. Authorization interprets that fact through a
+configured provider contract and does not depend back on enterprise storage;
+the one-way EnterpriseIdentity-to-Authorization reference preserves
+compile-time boundary direction.
 
 All IDs use generated Ash UUID attributes backed by PostgreSQL 18 `uuidv7()`.
 Relationships supply their foreign-key attributes. Resources use ordinary
@@ -245,8 +247,10 @@ deliveries. Optional credentialed smoke tests may exercise a WorkOS sandbox,
 but they are outside `bin/verify`.
 
 The change adds an AshPostgres-generated forward migration and updated resource
-snapshots. It does not edit the archived initial baseline and introduces no raw
-SQL exception.
+snapshots. It does not edit the archived initial baseline. As already approved
+for the UUIDv7 strategy, the migration has one exact, fingerprinted
+`fragment("uuidv7()")` occurrence that applies PostgreSQL 18's native default
+to the new durable primary keys; no other raw SQL is introduced.
 
 ## Risks / Trade-offs
 
@@ -278,7 +282,8 @@ SQL exception.
 1. Add failing adapter, signature, SSO transaction, directory lifecycle,
    reconciliation, group mapping, authorization, replay, and concurrency tests.
 2. Add the EnterpriseIdentity boundary, domain, typed resources, and
-   Authorization-owned external group mapping.
+   EnterpriseIdentity-owned external group mapping exposed through an
+   Authorization fact-provider contract.
 3. Add fake and production WorkOS SSO, HTTP, and secret adapters.
 4. Add the verified webhook receipt, provider archive, DirectorySyncEvent,
    Oban worker, and transactional Ash event actions.
