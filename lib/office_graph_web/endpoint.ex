@@ -1,6 +1,13 @@
 defmodule OfficeGraphWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :office_graph
 
+  @parser_options Plug.Parsers.init(
+                    parsers: [:urlencoded, :multipart, :json],
+                    pass: ["*/*"],
+                    body_reader: {OfficeGraphWeb.RawBodyReader, :read_body, []},
+                    json_decoder: Phoenix.json_library()
+                  )
+
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
@@ -35,14 +42,18 @@ defmodule OfficeGraphWeb.Endpoint do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
-  plug Plug.Parsers,
-    parsers: [:urlencoded, :multipart, :json],
-    pass: ["*/*"],
-    body_reader: {OfficeGraphWeb.RawBodyReader, :read_body, []},
-    json_decoder: Phoenix.json_library()
+  plug :parse_request_body
 
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
   plug OfficeGraphWeb.Router
+
+  defp parse_request_body(
+         %Plug.Conn{request_path: "/api/v1/webhooks/workos"} = conn,
+         _opts
+       ),
+       do: conn
+
+  defp parse_request_body(conn, _opts), do: Plug.Parsers.call(conn, @parser_options)
 end

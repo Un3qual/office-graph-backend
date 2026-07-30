@@ -241,7 +241,11 @@ defmodule OfficeGraph.Authentication do
   def complete_workos_login(_code, _callback_state, _transaction, _opts),
     do: {:error, :invalid_login_transaction}
 
-  def resolve_session(session_id, opts \\ []) do
+  def resolve_session(session_id, opts \\ [])
+
+  def resolve_session(session_id, opts) when is_list(opts) do
+    opts = Keyword.put_new(opts, :source_surface, "web")
+
     case Identity.resolve_human_session(session_id, opts) do
       {:ok, session_context} ->
         with :ok <- validate_current_authentication_basis(session_context, opts) do
@@ -252,6 +256,8 @@ defmodule OfficeGraph.Authentication do
         error
     end
   end
+
+  def resolve_session(_session_id, _opts), do: {:error, :invalid_session}
 
   def logout(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)

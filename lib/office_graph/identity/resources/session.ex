@@ -277,6 +277,76 @@ defmodule OfficeGraph.Identity.Actions.RevokeHumanSession do
   defp consume_notifications({:error, error}), do: {:error, error}
 end
 
+defmodule OfficeGraph.Identity.Actions.RejectHumanSession do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.Identity.{AuthenticationEvent, Session}
+
+  require Ash.Query
+
+  @purpose "human_web"
+
+  @impl true
+  def run(input, _opts, _context) do
+    attrs = input.arguments
+
+    case locked_session(attrs.session_id) do
+      {:ok, %Session{purpose: @purpose} = session} ->
+        reject(session, attrs)
+
+      {:ok, _missing_or_wrong_purpose} ->
+        {:ok, "invalid"}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp locked_session(session_id) do
+    Session
+    |> Ash.Query.filter(id == ^session_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp reject(session, attrs) do
+    with {:ok, session} <- revoke_if_active(session),
+         {:ok, _event} <-
+           AuthenticationEvent
+           |> Ash.Changeset.for_create(:create, %{
+             principal_id: session.principal_id,
+             external_identity_link_id: session.external_identity_link_id,
+             session_id: session.id,
+             organization_id: session.organization_id,
+             workspace_id: session.workspace_id,
+             event: "session_validation",
+             result: "rejected",
+             reason: attrs.reason,
+             authentication_method: session.authentication_method,
+             source_surface: attrs.source_surface,
+             trace_id: attrs.trace_id
+           })
+           |> Ash.create(authorize?: false, return_notifications?: true)
+           |> consume_notifications() do
+      {:ok, "rejected"}
+    end
+  end
+
+  defp revoke_if_active(%Session{revoked_at: %DateTime{}} = session), do: {:ok, session}
+
+  defp revoke_if_active(session) do
+    session
+    |> Ash.Changeset.for_update(:revoke, %{revoked_at: DateTime.utc_now()})
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> consume_notifications()
+  end
+
+  defp consume_notifications({:ok, record, _notifications}), do: {:ok, record}
+  defp consume_notifications({:error, error}), do: {:error, error}
+end
+
 defmodule OfficeGraph.Identity.Session do
   @moduledoc false
 
@@ -425,6 +495,31 @@ defmodule OfficeGraph.Identity.Session do
       argument :trace_id, :string, allow_nil?: false
 
       run OfficeGraph.Identity.Actions.RevokeHumanSession
+    end
+
+    action :reject_human_session, :string do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.Identity.AuthenticationEvent]
+
+      argument :session_id, :uuid, allow_nil?: false
+      argument :source_surface, :string, allow_nil?: false
+      argument :trace_id, :string, allow_nil?: false
+      argument :reason, :string, allow_nil?: false
+
+      validate argument_in(
+                 :reason,
+                 ~w[
+                   identity_disabled
+                   invalid_scope
+                   invalid_session
+                   principal_disabled
+                   session_expired
+                   session_revoked
+                 ]
+               )
+
+      run OfficeGraph.Identity.Actions.RejectHumanSession
     end
   end
 

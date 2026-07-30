@@ -138,6 +138,63 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert Enum.count(memberships, &(&1.active_identity_slot == "active")) == 1
   end
 
+  test "membership removal applies after its user and group were deleted" do
+    context = enterprise_context("membership-removal-after-dependencies")
+    initial_time = ~U[2026-07-29 20:00:00Z]
+
+    assert {:ok, %{resource: %DirectoryUser{} = user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(initial_time),
+               context.operation.id
+             )
+
+    assert {:ok, %{resource: %DirectoryGroup{} = group}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               group_event(initial_time),
+               context.operation.id
+             )
+
+    assert {:ok, %{resource: %DirectoryMembership{} = membership}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               membership_event(initial_time, "active"),
+               context.operation.id
+             )
+
+    deleted_time = DateTime.add(initial_time, 60, :second)
+
+    assert {:ok, %{resource: %DirectoryUser{status: "deleted"}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(deleted_time, %{status: "deleted"}),
+               context.operation.id
+             )
+
+    assert {:ok, %{resource: %DirectoryGroup{status: "deleted"}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               group_event(deleted_time, %{status: "deleted"}),
+               context.operation.id
+             )
+
+    removed_time = DateTime.add(initial_time, 120, :second)
+
+    assert {:ok, %{status: :applied, resource: removed}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               membership_event(removed_time, "removed"),
+               context.operation.id
+             )
+
+    assert removed.id == membership.id
+    assert removed.directory_user_id == user.id
+    assert removed.directory_group_id == group.id
+    assert removed.status == "removed"
+    assert DateTime.compare(removed.removed_at, removed_time) == :eq
+  end
+
   test "directory deprovisioning disables WorkOS identities and a directory-created principal" do
     context = enterprise_context("deprovision")
     active_time = ~U[2026-07-29 20:00:00Z]
@@ -260,6 +317,104 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              )
 
     assert linked.principal.id == first_user.principal_id
+  end
+
+  test "an IdP subject change enters review and disables the authentication basis" do
+    context = enterprise_context("idp-subject-change")
+    active_time = ~U[2026-07-29 20:00:00Z]
+
+    assert {:ok, %{resource: %DirectoryUser{} = user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(active_time),
+               context.operation.id
+             )
+
+    sso_link =
+      Ash.create!(
+        ExternalIdentityLink,
+        %{
+          principal_id: user.principal_id,
+          provider: "workos_sso",
+          provider_tenant: context.connection.provider_organization_id,
+          subject: "connection_01:idp_user_01",
+          verified_email: user.email,
+          status: "active",
+          linking_state: "linked",
+          first_linked_at: active_time
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    assert {:ok, %{status: :review_required, resource: reviewed_user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(DateTime.add(active_time, 60, :second), %{idp_id: "idp_user_02"}),
+               context.operation.id
+             )
+
+    assert reviewed_user.review_reason == "provider_subject_conflict"
+
+    assert Ash.get!(
+             ExternalIdentityLink,
+             user.external_identity_link_id,
+             authorize?: false
+           ).status == "disabled"
+
+    assert Ash.get!(ExternalIdentityLink, sso_link.id, authorize?: false).status == "disabled"
+  end
+
+  test "a disabled identity basis cannot authorize a new WorkOS SSO subject" do
+    context = enterprise_context("disabled-basis-new-sso-subject")
+    active_time = ~U[2026-07-29 20:00:00Z]
+
+    assert {:ok, %{resource: %DirectoryUser{} = user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(active_time),
+               context.operation.id
+             )
+
+    Ash.create!(
+      ExternalIdentityLink,
+      %{
+        principal_id: user.principal_id,
+        provider: "oidc",
+        provider_tenant: "https://identity.example.test",
+        subject: unique("durable-subject"),
+        verified_email: user.email,
+        status: "active",
+        linking_state: "linked",
+        first_linked_at: active_time
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    assert {:ok, %{resource: %DirectoryUser{status: "deleted"}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(DateTime.add(active_time, 60, :second), %{status: "deleted"}),
+               context.operation.id
+             )
+
+    assert {:review, "verified_identifier_conflict"} =
+             Identity.reconcile_workos_sso_identity(
+               %{
+                 subject: "connection_01:idp_user_rebound",
+                 verified_email: user.email
+               },
+               context.connection.provider_organization_id
+             )
+
+    refute ExternalIdentityLink
+           |> Ash.Query.filter(
+             provider == "workos_sso" and
+               provider_tenant == ^context.connection.provider_organization_id and
+               subject == "connection_01:idp_user_rebound" and status == "active"
+           )
+           |> Ash.exists?(authorize?: false)
   end
 
   test "principal email variants reuse one canonical indexed identity" do
@@ -1000,13 +1155,19 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     event(:user, :upsert, "dsync.user.updated", provider_updated_at, data)
   end
 
-  defp group_event(provider_updated_at) do
-    event(:group, :upsert, "dsync.group.updated", provider_updated_at, %{
-      provider_group_id: "directory_group_01",
-      name: "Engineering",
-      status: "active",
-      provider_updated_at: provider_updated_at
-    })
+  defp group_event(provider_updated_at, overrides \\ %{}) do
+    data =
+      Map.merge(
+        %{
+          provider_group_id: "directory_group_01",
+          name: "Engineering",
+          status: "active",
+          provider_updated_at: provider_updated_at
+        },
+        overrides
+      )
+
+    event(:group, :upsert, "dsync.group.updated", provider_updated_at, data)
   end
 
   defp membership_event(provider_updated_at, status) do

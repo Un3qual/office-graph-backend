@@ -8564,7 +8564,7 @@ interface Node {
 type RootQueryType {
   health: String!
   operatorRunConversation(runId: ID!, graphItemId: ID!): OperatorRunConversation!
-  githubIntegrationHealth(installationId: ID!): GithubIntegrationHealth!
+  githubIntegrationHealth(installationId: ID!, limit: Int): GithubIntegrationHealth!
   graphRelationships(itemId: ID!, direction: String, definitionKeys: [String!], lifecycle: String, limit: Int): [GraphRelationshipView!]!
   operatorWorkflowItems(after: String, first: Int!): OperatorWorkflowItemConnection
   operatorWorkflowItem(id: ID!): OperatorWorkflowItem!

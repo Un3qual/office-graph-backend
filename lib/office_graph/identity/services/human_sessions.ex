@@ -184,22 +184,18 @@ defmodule OfficeGraph.Identity.HumanSessions do
     source_surface = Keyword.get(opts, :source_surface)
 
     if present?(trace_id) and present?(source_surface) do
-      case record_event(%{
-             principal_id: session_context.principal_id,
-             external_identity_link_id: session_context.external_identity_link_id,
-             session_id: session_context.session_id,
-             organization_id: session_context.organization_id,
-             workspace_id: session_context.workspace_id,
-             event: "session_validation",
-             result: "rejected",
-             reason: reason,
-             authentication_method: session_context.authentication_method,
-             source_surface: source_surface,
-             trace_id: trace_id
-           }) do
-        {:ok, _event} -> {:error, :invalid_session}
-        {:error, :identity_storage_unavailable} = error -> error
-        {:error, :invalid_authentication_event} -> {:error, :invalid_session}
+      with :ok <- HumanSessionPersistence.before_access(:event) do
+        with_storage_boundary(fn ->
+          Session
+          |> Ash.ActionInput.for_action(:reject_human_session, %{
+            session_id: session_context.session_id,
+            reason: reason,
+            source_surface: source_surface,
+            trace_id: trace_id
+          })
+          |> Ash.run_action(authorize?: false)
+          |> normalize_reject_result()
+        end)
       end
     else
       {:error, :invalid_session}
@@ -358,6 +354,10 @@ defmodule OfficeGraph.Identity.HumanSessions do
 
   defp normalize_revoke_result({:ok, "invalid"}), do: {:error, :invalid_session}
   defp normalize_revoke_result({:error, _error}), do: {:error, :identity_storage_unavailable}
+
+  defp normalize_reject_result({:ok, "rejected"}), do: {:error, :invalid_session}
+  defp normalize_reject_result({:ok, "invalid"}), do: {:error, :invalid_session}
+  defp normalize_reject_result({:error, _error}), do: {:error, :identity_storage_unavailable}
 
   defp with_storage_boundary(fun) do
     fun.()

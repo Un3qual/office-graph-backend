@@ -28,11 +28,14 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries do
 
     field :github_integration_health, non_null(:github_integration_health) do
       arg(:installation_id, non_null(:id))
+      arg(:limit, :integer)
 
       resolve(fn args, resolution ->
         with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
              {:ok, health} <-
-               Projections.integration_health(session_context, args.installation_id, limit: 20) do
+               Projections.integration_health(session_context, args.installation_id,
+                 limit: Map.get(args, :limit, 20)
+               ) do
           {:ok, health}
         else
           error -> Errors.to_absinthe(error)

@@ -4,10 +4,25 @@ defmodule OfficeGraphWeb.WorkOSWebhookController do
   alias OfficeGraph.EnterpriseIdentity
   alias OfficeGraphWeb.RawBodyReader
 
+  @maximum_body_bytes 1_000_000
+
   def create(conn, _params) do
+    case RawBodyReader.read_body(conn, length: @maximum_body_bytes) do
+      {:ok, raw_body, conn} ->
+        accept(conn, raw_body)
+
+      {:more, _partial_body, conn} ->
+        render_error(conn, :invalid_delivery)
+
+      {:error, _reason} ->
+        render_error(conn, :receipt_unavailable)
+    end
+  end
+
+  defp accept(conn, raw_body) do
     headers = %{"workos-signature" => header(conn, "workos-signature")}
 
-    case EnterpriseIdentity.accept_webhook(headers, RawBodyReader.body(conn)) do
+    case EnterpriseIdentity.accept_webhook(headers, raw_body) do
       {:ok, status} ->
         conn
         |> put_status(:accepted)

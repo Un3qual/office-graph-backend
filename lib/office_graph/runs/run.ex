@@ -216,6 +216,11 @@ defmodule OfficeGraph.Runs.Run do
     foreign_key_names work_packet_id: "runs_work_packet_id_fkey"
 
     identity_index_names unique_operation: "runs_operation_id_unique_index"
+
+    custom_indexes do
+      index [:organization_id, :workspace_id, :inserted_at, :id],
+        name: "runs_scope_inserted_at_id_index"
+    end
   end
 
   attributes do

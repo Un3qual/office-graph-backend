@@ -422,7 +422,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
          email_links,
          attrs
        ) do
-    if compatible_links?(email_links, principal.id) do
+    if compatible_new_subject_links?(email_links, principal.id) do
       with {:ok, link} <- create_sso_link(principal, attrs) do
         DirectoryIdentityResult.linked(principal, link, "reused")
       end
@@ -440,6 +440,13 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
   defp compatible_links?(links, principal_id) do
     Enum.all?(links, fn link ->
       link.principal_id == principal_id and link.status in ["active", "disabled"] and
+        link.linking_state == "linked"
+    end)
+  end
+
+  defp compatible_new_subject_links?(links, principal_id) do
+    Enum.all?(links, fn link ->
+      link.principal_id == principal_id and link.status == "active" and
         link.linking_state == "linked"
     end)
   end

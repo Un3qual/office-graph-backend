@@ -370,7 +370,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
              )
   end
 
-  test "disabling the issuing connection rejects an existing WorkOS session" do
+  test "disabling the issuing connection revokes its WorkOS session permanently" do
     context = enterprise_context("session-connection-lifecycle", "required")
     provision_directory_user(context, context.bootstrap.principal.email)
     completed = complete_workos_login!(context, "idp_user_01")
@@ -391,6 +391,24 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     assert {:error, :invalid_session} =
              Authentication.resolve_session(completed.session.id,
                trace_id: "disabled-workos-session"
+             )
+
+    assert %DateTime{} =
+             Ash.get!(Session, completed.session.id, authorize?: false).revoked_at
+
+    assert {:ok, enabled_connection} =
+             EnterpriseIdentity.set_connection_lifecycle(
+               context.bootstrap.session,
+               operation,
+               context.connection.id,
+               %{status: "active"}
+             )
+
+    assert enabled_connection.status == "active"
+
+    assert {:error, :invalid_session} =
+             Authentication.resolve_session(completed.session.id,
+               trace_id: "re-enabled-workos-session"
              )
   end
 

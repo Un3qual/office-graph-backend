@@ -83,9 +83,11 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
             principal_origin: current && current.principal_origin
           })
 
-        current
-        |> persist_user(directory.id, attrs)
-        |> map_resource_result(&DirectoryApplyResult.review_required/1)
+        with :ok <- maybe_disable_review_identity_basis(directory, current, data) do
+          current
+          |> persist_user(directory.id, attrs)
+          |> map_resource_result(&DirectoryApplyResult.review_required/1)
+        end
 
       {:error, _reason} = error ->
         error
@@ -123,25 +125,38 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
   end
 
   defp reconcile_active_user(directory, current, data) do
-    case Identity.reconcile_directory_identity(%{
-           provider_tenant: directory.connection.provider_organization_id,
-           subject: data.provider_user_id,
-           verified_email: data.email,
-           current_principal_id: current && current.principal_id,
-           current_principal_origin: current && current.principal_origin
-         }) do
-      {:ok,
-       %{
-         principal: principal,
-         external_identity_link: link,
-         principal_origin: principal_origin
-       }} ->
-        {:ok, principal, link, principal_origin}
+    if idp_identity_changed?(current, data) do
+      {:review, "provider_subject_conflict"}
+    else
+      case Identity.reconcile_directory_identity(%{
+             provider_tenant: directory.connection.provider_organization_id,
+             subject: data.provider_user_id,
+             verified_email: data.email,
+             current_principal_id: current && current.principal_id,
+             current_principal_origin: current && current.principal_origin
+           }) do
+        {:ok,
+         %{
+           principal: principal,
+           external_identity_link: link,
+           principal_origin: principal_origin
+         }} ->
+          {:ok, principal, link, principal_origin}
 
-      result ->
-        result
+        result ->
+          result
+      end
     end
   end
+
+  defp idp_identity_changed?(
+         %DirectoryUser{idp_id: current_idp_id},
+         %{idp_id: incoming_idp_id}
+       )
+       when is_binary(current_idp_id),
+       do: current_idp_id != incoming_idp_id
+
+  defp idp_identity_changed?(_current, _data), do: false
 
   defp normalize_user_data(
          %{
@@ -254,9 +269,17 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
   defp apply_membership(directory, data) do
     with {:ok, data} <- normalize_membership_data(data),
          {:ok, user} <-
-           active_directory_user(directory.id, data.provider_user_id),
+           membership_directory_user(
+             directory.id,
+             data.provider_user_id,
+             data.status
+           ),
          {:ok, group} <-
-           active_directory_group(directory.id, data.provider_group_id),
+           membership_directory_group(
+             directory.id,
+             data.provider_group_id,
+             data.status
+           ),
          {:ok, current} <- locked_latest_membership(user.id, group.id) do
       if stale?(current, data.provider_updated_at) do
         DirectoryApplyResult.stale(current)
@@ -343,6 +366,11 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     })
   end
 
+  defp maybe_disable_review_identity_basis(_directory, nil, _data), do: :ok
+
+  defp maybe_disable_review_identity_basis(directory, user, data),
+    do: disable_workos_identity_basis(directory, user, data.provider_updated_at)
+
   defp locked_directory(directory_id) do
     Directory
     |> Ash.Query.filter(id == ^directory_id and status == "active")
@@ -400,6 +428,24 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     )
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
+    |> required_dependency()
+  end
+
+  defp membership_directory_user(directory_id, provider_user_id, "active"),
+    do: active_directory_user(directory_id, provider_user_id)
+
+  defp membership_directory_user(directory_id, provider_user_id, "removed") do
+    directory_id
+    |> locked_directory_user(provider_user_id)
+    |> required_dependency()
+  end
+
+  defp membership_directory_group(directory_id, provider_group_id, "active"),
+    do: active_directory_group(directory_id, provider_group_id)
+
+  defp membership_directory_group(directory_id, provider_group_id, "removed") do
+    directory_id
+    |> locked_directory_group(provider_group_id)
     |> required_dependency()
   end
 

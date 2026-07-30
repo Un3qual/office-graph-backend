@@ -35,8 +35,8 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     installation: installation
   } do
     query = """
-    query GitHubHealth($installationId: ID!) {
-      githubIntegrationHealth(installationId: $installationId) {
+    query GitHubHealth($installationId: ID!, $limit: Int) {
+      githubIntegrationHealth(installationId: $installationId, limit: $limit) {
         id
         installationId
         lifecycle
@@ -54,7 +54,7 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     }
     """
 
-    graphql = graphql(conn, query, %{installationId: installation.id})
+    graphql = graphql(conn, query, %{installationId: installation.id, limit: 50})
 
     json =
       recycle_human_session(conn)
