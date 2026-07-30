@@ -44,5 +44,5 @@
 - [x] 6.1 Add runtime configuration and operator documentation for WorkOS client ID, API/webhook secret references, base URLs, connection binding, Directory Sync webhook URL, local fake adapters, rotation, and optional sandbox smoke tests
 - [x] 6.2 Update recognized capability/setup manifests and architecture ledgers for enterprise identity management and WorkOS webhook receipt
 - [x] 6.3 Generate and review one forward AshPostgres migration plus current resource snapshots without editing the archived initial baseline or adding raw SQL beyond the exact approved PostgreSQL 18 UUIDv7 default fragment
-- [ ] 6.4 Run formatter, compilation with warnings as errors, migration drift, focused WorkOS/directory/auth tests, architecture and smell gates, Dialyzer, dependency audit, frontend verification, and strict OpenSpec validation
-- [ ] 6.5 Run canonical `bin/verify`, confirm the worktree remains free of generated drift, review the final diff for secrets, raw payload promotion, tenant selection, read-modify-write races, N+1 queries, raw SQL, and unrelated behavior changes
+- [x] 6.4 Run formatter, compilation with warnings as errors, migration drift, focused WorkOS/directory/auth tests, architecture and smell gates, Dialyzer, dependency audit, frontend verification, and strict OpenSpec validation
+- [x] 6.5 Run canonical `bin/verify`, confirm the worktree remains free of generated drift, review the final diff for secrets, raw payload promotion, tenant selection, read-modify-write races, N+1 queries, raw SQL, and unrelated behavior changes
