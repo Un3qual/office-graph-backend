@@ -1,6 +1,6 @@
 ## 1. Lock The Development Authentication Contract
 
-- [ ] 1.1 Add failing Phoenix tests for development-build, explicit-enable, loopback, CSRF, fixed-selector, safe-return-target, and production-unavailable route behavior
+- [x] 1.1 Add failing Phoenix tests for development-build, explicit-enable, loopback, CSRF, fixed-selector, safe-return-target, and production-unavailable route behavior
 - [x] 1.2 Add failing authentication and session tests for eligible fixture issuance, locked identity revalidation, bounded rejection evidence, session reuse, logout, and identity switching
 - [x] 1.3 Add failing setup tests for idempotent owner, workspace-administrator, member, and deprovisioned fixtures with no request-time repair or duplicate identity and authorization facts
 - [x] 1.4 Add failing authorization behavior tests that distinguish the seeded owner, workspace-administrator, member, and deprovisioned profiles through real capability checks

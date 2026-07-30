@@ -39,7 +39,7 @@ defmodule OfficeGraph.Identity do
   end
 
   def ensure_local_development_identity(attrs) when is_map(attrs) do
-    Principal
+    ExternalIdentityLink
     |> Ash.ActionInput.for_action(:ensure_local_development_identity, %{
       provider: attrs[:provider],
       provider_tenant: attrs[:provider_tenant],
