@@ -53,6 +53,96 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
     end
   end
 
+  test "directory reconciliation revalidates a principal committed after its eligibility read" do
+    email =
+      "enterprise-concurrency-late-principal-#{System.unique_integer([:positive])}@example.test"
+
+    provider_tenant = "workos-organization-#{System.unique_integer([:positive])}"
+    gate = make_ref()
+    parent = self()
+
+    holder =
+      Task.async(fn ->
+        with_unboxed_connection(fn ->
+          Ash.transact(Principal, fn ->
+            principal =
+              Ash.create!(
+                Principal,
+                %{email: email, kind: "system", status: "inactive"},
+                action: :create,
+                authorize?: false
+              )
+
+            send(parent, {gate, :principal_inserted})
+
+            receive do
+              {^gate, :commit_principal} -> principal
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {^gate, :principal_inserted}, 5_000
+
+    reconciliation =
+      Task.async(fn ->
+        send(parent, {gate, :reconciliation_ready, self()})
+
+        receive do
+          {^gate, :reconcile} ->
+            with_unboxed_connection(fn ->
+              Identity.reconcile_directory_identity(%{
+                provider_tenant: provider_tenant,
+                subject: "directory_user_late_principal",
+                verified_email: email,
+                current_principal_id: nil,
+                current_principal_origin: nil
+              })
+            end)
+        end
+      end)
+
+    assert_receive {^gate, :reconciliation_ready, reconciliation_pid}, 5_000
+
+    Code.ensure_loaded!(OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity)
+
+    :erlang.trace_pattern(
+      {OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity, :locked_links_for_email, 1},
+      [{:_, [], [{:return_trace}]}],
+      [:local]
+    )
+
+    :erlang.trace(reconciliation_pid, true, [:call])
+    send(reconciliation_pid, {gate, :reconcile})
+
+    try do
+      assert_receive {:trace, ^reconciliation_pid, :return_from,
+                      {OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity,
+                       :locked_links_for_email, 1}, {:ok, []}},
+                     5_000
+
+      send(holder.pid, {gate, :commit_principal})
+      assert {:ok, %Principal{kind: "system", status: "inactive"}} = Task.await(holder, 5_000)
+
+      assert {:review, "ineligible_principal"} = Task.await(reconciliation, 5_000)
+    after
+      send(holder.pid, {gate, :commit_principal})
+
+      :erlang.trace_pattern(
+        {OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity, :locked_links_for_email, 1},
+        false,
+        [:local]
+      )
+
+      Task.shutdown(holder, :brutal_kill)
+      Task.shutdown(reconciliation, :brutal_kill)
+
+      with_unboxed_connection(fn ->
+        OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_owner_principal!(email)
+      end)
+    end
+  end
+
   test "separate owners collapse duplicate membership events to one active fact" do
     {context, cleanup_attrs} = enterprise_context("membership-race")
     timestamp = ~U[2026-07-29 20:00:00Z]

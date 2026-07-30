@@ -87,6 +87,10 @@ defmodule OfficeGraph.Identity.OidcLoginTransaction do
   postgres do
     table "oidc_login_transactions"
     repo OfficeGraph.Repo
+
+    custom_indexes do
+      index [:expires_at], name: "oidc_login_transactions_expires_at_index"
+    end
   end
 
   attributes do

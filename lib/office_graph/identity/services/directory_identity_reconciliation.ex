@@ -98,13 +98,19 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
     do: DirectoryIdentityResult.review_required("provider_subject_conflict")
 
   defp select_identity_basis(nil, [], [], attrs) do
-    with {:ok, principal} <- ensure_principal(attrs.verified_email),
+    with {:ok, ensured_principal} <- ensure_principal(attrs.verified_email),
+         {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
+         {:ok, principal} <-
+           eligible_ensured_principal(principals, ensured_principal.id),
          {:ok, link} <- create_directory_link(principal, attrs) do
       DirectoryIdentityResult.linked(
         principal,
         link,
         principal_origin(attrs, principal.id, "created")
       )
+    else
+      {:review, reason} -> DirectoryIdentityResult.review_required(reason)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -204,6 +210,16 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)
+  end
+
+  defp eligible_ensured_principal(principals, ensured_principal_id) do
+    case Enum.find(principals, &(&1.id == ensured_principal_id)) do
+      %Principal{kind: "human", status: "active"} = principal ->
+        {:ok, principal}
+
+      _ineligible_or_missing ->
+        {:review, "ineligible_principal"}
+    end
   end
 
   defp consume_notifications({:ok, record, _notifications}), do: {:ok, record}

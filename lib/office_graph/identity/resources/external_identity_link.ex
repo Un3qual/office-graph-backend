@@ -279,6 +279,11 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
     identity_index_names provider_subject:
                            "external_identity_links_provider_provider_tenant_subject_index"
+
+    custom_indexes do
+      index [:verified_email], name: "external_identity_links_verified_email_index"
+      index [:principal_id], name: "external_identity_links_principal_id_index"
+    end
   end
 
   attributes do

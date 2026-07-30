@@ -17,6 +17,11 @@ defmodule OfficeGraph.Authentication do
   @login_transaction_ttl_seconds 10 * 60
   @default_return_to "/operator"
   @default_session_ttl_seconds 8 * 60 * 60
+  @transient_storage_errors [
+    :identity_storage_unavailable,
+    :authorization_storage_unavailable,
+    :enterprise_identity_storage_unavailable
+  ]
 
   def begin_login(redirect_uri, opts \\ [])
 
@@ -258,6 +263,8 @@ defmodule OfficeGraph.Authentication do
   end
 
   def resolve_session(_session_id, _opts), do: {:error, :invalid_session}
+
+  def transient_storage_error?(reason), do: reason in @transient_storage_errors
 
   def logout(session_id, opts) when is_binary(session_id) and is_list(opts) do
     trace_id = Keyword.get(opts, :trace_id)

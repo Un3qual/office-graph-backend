@@ -412,6 +412,18 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
              )
   end
 
+  test "enterprise identity storage failures use the transient authentication classification" do
+    for reason <- [
+          :identity_storage_unavailable,
+          :authorization_storage_unavailable,
+          :enterprise_identity_storage_unavailable
+        ] do
+      assert Authentication.transient_storage_error?(reason)
+    end
+
+    refute Authentication.transient_storage_error?(:enterprise_connection_unavailable)
+  end
+
   test "WorkOS logout revokes locally without contacting the generic OIDC provider" do
     context = enterprise_context("provider-aware-logout", "required")
     provision_directory_user(context, context.bootstrap.principal.email)
