@@ -168,7 +168,10 @@ defmodule OfficeGraph.Authorization.Actions.EnsureRole do
   end
 
   defp validate_exact_role_capabilities(role_id, capabilities_by_key) do
-    expected_ids = capabilities_by_key |> Map.values() |> Enum.map(& &1.id) |> MapSet.new()
+    expected_ids =
+      capabilities_by_key
+      |> Enum.map(fn {_key, capability} -> capability.id end)
+      |> MapSet.new()
 
     RoleCapability
     |> Ash.Query.filter(role_id == ^role_id)

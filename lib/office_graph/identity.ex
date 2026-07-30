@@ -364,18 +364,20 @@ defmodule OfficeGraph.Identity do
     )
   end
 
-  defp exact_local_development_identity?(attrs, principal, link) do
-    expected_email = attrs[:email]
+  defp exact_local_development_identity?(%{email: expected_email} = attrs, principal, link)
+       when is_binary(expected_email) do
+    normalized_email = String.downcase(expected_email)
 
-    is_binary(expected_email) and
-      principal.email == String.downcase(expected_email) and
+    principal.email == normalized_email and
       principal.kind == "human" and
       link.principal_id == principal.id and
       link.provider == attrs[:provider] and
       link.provider_tenant == attrs[:provider_tenant] and
       link.subject == attrs[:subject] and
-      link.verified_email == String.downcase(expected_email)
+      link.verified_email == normalized_email
   end
+
+  defp exact_local_development_identity?(_attrs, _principal, _link), do: false
 
   defp with_identity_retry(fun) do
     case fun.() do
