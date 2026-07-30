@@ -140,7 +140,6 @@ defmodule OfficeGraph.Authorization.Role do
   postgres do
     table "roles"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_key: "roles_organization_id_key_index"
   end

@@ -316,7 +316,6 @@ defmodule OfficeGraph.AgentRuntime.AgentExecution do
   postgres do
     table "agent_executions"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_operation: "agent_executions_operation_index",
                          unique_binding_run_idempotency:

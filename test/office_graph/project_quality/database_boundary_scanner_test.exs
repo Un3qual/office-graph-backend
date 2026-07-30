@@ -131,6 +131,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies migration data insertion and MD5-derived identifiers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              execute("INSERT INTO examples (id) VALUES (gen_random_uuid())")
+              execute("SELECT md5('example')")
+              insert(:examples, %{id: "application-owned"})
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.count(occurrences, &(&1.construct == "migration.insert")) == 2
+    assert Enum.any?(occurrences, &(&1.construct == "migration.execute"))
+    assert Enum.any?(occurrences, &(&1.construct == "migration.md5"))
+  end
+
   test "classifies a tracked SQL file as one raw SQL occurrence" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([

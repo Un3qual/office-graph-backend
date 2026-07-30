@@ -9,14 +9,6 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
   postgres do
     table "external_references"
     repo OfficeGraph.Repo
-    migrate? false
-
-    identity_index_names unique_workspace_source_external_id:
-                           "external_references_workspace_source_external_id_index",
-                         unique_organization_source_external_id:
-                           "external_references_organization_source_external_id_index",
-                         unique_legacy_source_external_id:
-                           "external_references_source_id_external_id_index"
 
     foreign_key_names source_id: "external_references_source_id_fkey"
   end
@@ -86,17 +78,10 @@ defmodule OfficeGraph.ExternalRefs.ExternalReference do
   end
 
   identities do
-    identity :unique_workspace_source_external_id,
+    identity :unique_scope_source_external_id,
              [:organization_id, :workspace_id, :source_id, :external_id],
-             where: expr(not is_nil(workspace_id))
-
-    identity :unique_organization_source_external_id,
-             [:organization_id, :source_id, :external_id],
-             where: expr(not is_nil(organization_id) and is_nil(workspace_id))
-
-    identity :unique_legacy_source_external_id,
-             [:source_id, :external_id],
-             where: expr(is_nil(organization_id))
+             nils_distinct?: false,
+             field_names: [:source_id, :external_id]
   end
 
   relationships do

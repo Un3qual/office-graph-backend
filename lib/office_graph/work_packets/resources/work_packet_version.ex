@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketVersion do
   postgres do
     table "work_packet_versions"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

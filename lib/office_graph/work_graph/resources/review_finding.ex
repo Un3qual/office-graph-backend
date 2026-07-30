@@ -57,7 +57,6 @@ defmodule OfficeGraph.WorkGraph.ReviewFinding do
   postgres do
     table "review_findings"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

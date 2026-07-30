@@ -41,7 +41,6 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBinding do
   postgres do
     table "agent_organization_bindings"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_definition_organization_workspace:
                            "agent_org_bindings_definition_org_workspace_index",

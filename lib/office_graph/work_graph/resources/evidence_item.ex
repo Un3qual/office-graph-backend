@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
   postgres do
     table "evidence_items"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_acceptance_operation:
                            "evidence_items_acceptance_operation_id_unique_index"
@@ -146,8 +145,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
   end
 
   identities do
-    identity :unique_acceptance_operation, [:acceptance_operation_id],
-      where: expr(not is_nil(acceptance_operation_id))
+    identity :unique_acceptance_operation, [:acceptance_operation_id]
   end
 
   policies do

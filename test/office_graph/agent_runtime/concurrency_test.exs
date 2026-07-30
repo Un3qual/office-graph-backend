@@ -136,6 +136,39 @@ defmodule OfficeGraph.AgentRuntime.ConcurrencyTest do
     assert expansion.state in ["denied", "cancelled"]
   end
 
+  test "separate owners preserve one pending request per gate step" do
+    for kind <- [:approval, :context_expansion] do
+      fixture = with_unboxed_connection(fn -> waiting_execution_fixture(kind) end)
+      register_cleanup(fixture.context.bootstrap)
+
+      {resource, attrs} = pending_request(fixture, kind)
+
+      results =
+        [
+          fn -> create_pending_request(resource, attrs) end,
+          fn -> create_pending_request(resource, attrs) end
+        ]
+        |> run_concurrently()
+
+      assert 1 == Enum.count(results, &match?({:ok, _request}, &1))
+      assert 1 == Enum.count(results, &match?({:error, %Ash.Error.Invalid{}}, &1))
+
+      pending_count =
+        with_unboxed_connection(fn ->
+          resource
+          |> Ash.Query.filter(
+            execution_id == ^fixture.execution.id and
+              step_key == ^fixture.step_key and
+              state == "pending"
+          )
+          |> Ash.read!(authorize?: false)
+          |> length()
+        end)
+
+      assert pending_count == 1
+    end
+  end
+
   test "separate owners serialize cancellation and duplicate lease claims" do
     {context, invoked, cancellation_operations, cancellation_attrs} =
       with_unboxed_connection(fn ->
@@ -287,6 +320,31 @@ defmodule OfficeGraph.AgentRuntime.ConcurrencyTest do
   end
 
   defp waiting_gate_fixture(kind) do
+    fixture = waiting_execution_fixture(kind)
+
+    request =
+      case kind do
+        :approval ->
+          create_approval_request!(
+            fixture.context,
+            fixture.invoked,
+            fixture.execution,
+            fixture.step_key
+          )
+
+        :context_expansion ->
+          create_context_expansion_request!(
+            fixture.context,
+            fixture.invoked,
+            fixture.execution,
+            fixture.step_key
+          )
+      end
+
+    Map.put(fixture, :request, request)
+  end
+
+  defp waiting_execution_fixture(kind) do
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
     step_key = "model:review"
@@ -300,21 +358,17 @@ defmodule OfficeGraph.AgentRuntime.ConcurrencyTest do
       })
       |> Ash.update!(authorize?: false)
 
-    request =
-      case kind do
-        :approval ->
-          create_approval_request!(context, invoked, waiting, step_key)
-
-        :context_expansion ->
-          create_context_expansion_request!(context, invoked, waiting, step_key)
-      end
-
-    %{context: context, execution: waiting, request: request}
+    %{context: context, invoked: invoked, execution: waiting, step_key: step_key}
   end
 
   defp create_approval_request!(_context, invoked, execution, step_key) do
     ApprovalRequest
-    |> Ash.Changeset.for_create(:create, %{
+    |> Ash.Changeset.for_create(:create, approval_request_attrs(invoked, execution, step_key))
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp approval_request_attrs(invoked, execution, step_key) do
+    %{
       execution_id: execution.id,
       authority_snapshot_id: invoked.authority_snapshot.id,
       organization_id: execution.organization_id,
@@ -332,15 +386,22 @@ defmodule OfficeGraph.AgentRuntime.ConcurrencyTest do
       state: "pending",
       version: 1,
       expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
-    })
-    |> Ash.create!(authorize?: false)
+    }
   end
 
   defp create_context_expansion_request!(_context, invoked, execution, step_key) do
+    ContextExpansionRequest
+    |> Ash.Changeset.for_create(
+      :create,
+      context_expansion_request_attrs(invoked, execution, step_key)
+    )
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp context_expansion_request_attrs(invoked, execution, step_key) do
     target = invoked.context_entries |> Enum.sort_by(& &1.ordinal) |> hd()
 
-    ContextExpansionRequest
-    |> Ash.Changeset.for_create(:create, %{
+    %{
       execution_id: execution.id,
       current_context_package_id: invoked.context_package.id,
       authority_snapshot_id: invoked.authority_snapshot.id,
@@ -361,8 +422,27 @@ defmodule OfficeGraph.AgentRuntime.ConcurrencyTest do
       state: "pending",
       version: 1,
       expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
-    })
-    |> Ash.create!(authorize?: false)
+    }
+  end
+
+  defp pending_request(fixture, :approval) do
+    {
+      ApprovalRequest,
+      approval_request_attrs(fixture.invoked, fixture.execution, fixture.step_key)
+    }
+  end
+
+  defp pending_request(fixture, :context_expansion) do
+    {
+      ContextExpansionRequest,
+      context_expansion_request_attrs(fixture.invoked, fixture.execution, fixture.step_key)
+    }
+  end
+
+  defp create_pending_request(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false)
   end
 
   defp decision_funs(fixture, kind) do

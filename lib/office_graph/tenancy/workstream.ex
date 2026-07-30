@@ -9,9 +9,20 @@ defmodule OfficeGraph.Tenancy.Workstream do
   postgres do
     table "workstreams"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_slug: "workstreams_initiative_id_slug_index"
+
+    references do
+      reference :workspace do
+        name "workstreams_workspace_scope_fkey"
+        match_with organization_id: :organization_id
+      end
+
+      reference :initiative do
+        name "workstreams_initiative_scope_fkey"
+        match_with workspace_id: :workspace_id, organization_id: :organization_id
+      end
+    end
   end
 
   attributes do

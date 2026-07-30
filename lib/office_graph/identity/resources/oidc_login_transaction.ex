@@ -87,7 +87,6 @@ defmodule OfficeGraph.Identity.OidcLoginTransaction do
   postgres do
     table "oidc_login_transactions"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

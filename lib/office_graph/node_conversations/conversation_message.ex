@@ -74,7 +74,6 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
   postgres do
     table "conversation_messages"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_operation: "conversation_messages_operation_index",
                          unique_agent_step: "conversation_messages_agent_step_index"
@@ -217,7 +216,7 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
   identities do
     identity :unique_operation, [:operation_id]
 
-    identity :unique_agent_step, [:execution_id, :step_key], where: expr(not is_nil(execution_id))
+    identity :unique_agent_step, [:execution_id, :step_key]
   end
 
   relationships do

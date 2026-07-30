@@ -8,7 +8,6 @@ defmodule OfficeGraph.Revisions.Revision do
   postgres do
     table "revisions"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

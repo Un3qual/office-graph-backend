@@ -8,7 +8,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipEndpointRule do
   postgres do
     table "relationship_endpoint_rules"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do
@@ -38,6 +37,15 @@ defmodule OfficeGraph.WorkGraph.RelationshipEndpointRule do
     read :read do
       primary? true
       public? false
+    end
+
+    create :ensure do
+      public? false
+      accept [:relationship_definition_id, :source_kind, :target_kind]
+      upsert? true
+      upsert_identity :unique_definition_kinds
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

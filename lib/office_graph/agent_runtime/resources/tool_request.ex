@@ -10,7 +10,6 @@ defmodule OfficeGraph.AgentRuntime.ToolRequest do
   postgres do
     table "agent_tool_requests"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_execution_step_idempotency:
                            "agent_tool_requests_execution_step_idempotency_index"

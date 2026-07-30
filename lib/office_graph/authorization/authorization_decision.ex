@@ -9,7 +9,6 @@ defmodule OfficeGraph.Authorization.AuthorizationDecision do
   postgres do
     table "authorization_decisions"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

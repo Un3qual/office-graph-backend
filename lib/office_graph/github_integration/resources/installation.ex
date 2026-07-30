@@ -131,7 +131,6 @@ defmodule OfficeGraph.GitHubIntegration.Installation do
   postgres do
     table "github_installations"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_external_installation:
                            "github_installations_external_installation_id_index",

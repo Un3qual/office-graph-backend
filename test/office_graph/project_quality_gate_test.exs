@@ -106,6 +106,14 @@ defmodule OfficeGraph.ProjectQualityGateTest do
                 "local.hex --force --if-missing",
                 "local.rebar --force --if-missing",
                 "deps.get --check-locked",
+                "ecto.drop --quiet",
+                "ecto.create --quiet",
+                "ecto.migrate --quiet",
+                "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "ecto.rollback --all --quiet",
+                "ecto.migrate --quiet",
+                "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "test test/office_graph/release_setup_test.exs",
                 "verify"
               ]}
 

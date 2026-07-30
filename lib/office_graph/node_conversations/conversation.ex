@@ -70,7 +70,6 @@ defmodule OfficeGraph.NodeConversations.Conversation do
   postgres do
     table "conversations"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_run_graph_item: "conversations_run_graph_item_index"
   end

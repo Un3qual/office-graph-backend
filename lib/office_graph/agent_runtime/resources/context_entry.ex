@@ -8,7 +8,6 @@ defmodule OfficeGraph.AgentRuntime.ContextEntry do
   postgres do
     table "agent_context_entries"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_package_ordinal: "agent_context_entries_package_ordinal_index"
   end

@@ -66,7 +66,6 @@ defmodule OfficeGraph.Identity.Principal do
   postgres do
     table "principals"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names email: "principals_email_index"
   end

@@ -9,7 +9,6 @@ defmodule OfficeGraph.Authorization.RoleCapability do
   postgres do
     table "role_capabilities"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_role_capability: "role_capabilities_role_id_capability_id_index"
   end

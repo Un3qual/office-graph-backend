@@ -8,7 +8,6 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
   postgres do
     table "domain_events"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names event_key: "domain_events_event_key_index"
   end

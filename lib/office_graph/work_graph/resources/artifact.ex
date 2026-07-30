@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkGraph.Artifact do
   postgres do
     table "artifacts"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

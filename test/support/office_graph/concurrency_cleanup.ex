@@ -4,12 +4,33 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Resource do
   defmacro __using__(opts) do
     table = Keyword.fetch!(opts, :table)
     id_type = Keyword.get(opts, :id_type, :uuid)
+    clear_attributes = Keyword.get(opts, :clear_attributes, [])
 
     attributes =
       for {name, type} <- Keyword.get(opts, :attributes, []) do
         quote do
           attribute unquote(name), unquote(type), allow_nil?: true, public?: false
         end
+      end
+
+    clear_actions =
+      if clear_attributes == [] do
+        []
+      else
+        clear_changes =
+          for attribute <- clear_attributes do
+            quote do
+              change set_attribute(unquote(attribute), nil)
+            end
+          end
+
+        [
+          quote do
+            update :clear_references do
+              (unquote_splicing(clear_changes))
+            end
+          end
+        ]
       end
 
     quote do
@@ -42,6 +63,8 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Resource do
           primary? true
           public? false
         end
+
+        unquote_splicing(clear_actions)
       end
     end
   end
@@ -87,6 +110,30 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Document do
   use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
     table: "documents",
     attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentBlock do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "document_blocks",
+    attributes: [document_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentMark do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "document_marks",
+    attributes: [block_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentReference do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "document_references",
+    attributes: [document_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentRevision do
+  use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
+    table: "document_revisions",
+    attributes: [document_id: :uuid]
 end
 
 defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.DomainEvent do
@@ -273,7 +320,8 @@ end
 defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.WorkPacket do
   use OfficeGraph.TestSupport.ConcurrencyCleanup.Resource,
     table: "work_packets",
-    attributes: [organization_id: :uuid]
+    attributes: [organization_id: :uuid, current_version_id: :uuid],
+    clear_attributes: [:current_version_id]
 end
 
 defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.WorkPacketVersion do
@@ -319,6 +367,10 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup.Domain do
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.Conversation
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.ConversationMessage
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.Document
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentBlock
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentMark
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentReference
+    resource OfficeGraph.TestSupport.ConcurrencyCleanup.DocumentRevision
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.DomainEvent
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.EvidenceCandidate
     resource OfficeGraph.TestSupport.ConcurrencyCleanup.EvidenceItem
@@ -369,6 +421,10 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     Conversation,
     ConversationMessage,
     Document,
+    DocumentBlock,
+    DocumentMark,
+    DocumentReference,
+    DocumentRevision,
     DomainEvent,
     EvidenceCandidate,
     EvidenceItem,
@@ -514,6 +570,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     destroy_for_organization!(Run, organization_id)
     destroy_for_organization!(WorkPacketVersionRequiredCheck, organization_id)
     destroy_for_organization!(WorkPacketVersionSource, organization_id)
+    clear_work_packet_current_versions!(organization_id)
     destroy_for_organization!(WorkPacketVersion, organization_id)
     destroy_for_organization!(WorkPacket, organization_id)
     destroy_for_organization!(Artifact, organization_id)
@@ -532,7 +589,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
     |> destroy_all!()
 
     destroy_for_organization!(GraphItem, organization_id)
-    destroy_for_organization!(Document, organization_id)
+    cleanup_documents!(organization_id)
 
     operation_ids =
       OperationCorrelation
@@ -622,6 +679,44 @@ defmodule OfficeGraph.TestSupport.ConcurrencyCleanup do
   defp destroy_for_organization!(resource, organization_id) do
     resource
     |> Ash.Query.filter(organization_id == ^organization_id)
+    |> destroy_all!()
+  end
+
+  defp clear_work_packet_current_versions!(organization_id) do
+    WorkPacket
+    |> Ash.Query.filter(organization_id == ^organization_id)
+    |> Ash.bulk_update!(:clear_references, %{},
+      authorize?: false,
+      return_errors?: true,
+      strategy: [:atomic]
+    )
+
+    :ok
+  end
+
+  defp cleanup_documents!(organization_id) do
+    document_ids =
+      Document
+      |> Ash.Query.filter(organization_id == ^organization_id)
+      |> ids!()
+
+    block_ids =
+      DocumentBlock
+      |> Ash.Query.filter(document_id in ^document_ids)
+      |> ids!()
+
+    DocumentMark
+    |> Ash.Query.filter(block_id in ^block_ids)
+    |> destroy_all!()
+
+    for resource <- [DocumentReference, DocumentRevision, DocumentBlock] do
+      resource
+      |> Ash.Query.filter(document_id in ^document_ids)
+      |> destroy_all!()
+    end
+
+    Document
+    |> Ash.Query.filter(id in ^document_ids)
     |> destroy_all!()
   end
 

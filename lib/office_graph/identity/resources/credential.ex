@@ -9,7 +9,6 @@ defmodule OfficeGraph.Identity.Credential do
   postgres do
     table "credentials"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

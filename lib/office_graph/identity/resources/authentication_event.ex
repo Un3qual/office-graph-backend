@@ -31,7 +31,13 @@ defmodule OfficeGraph.Identity.AuthenticationEvent do
   postgres do
     table "authentication_events"
     repo OfficeGraph.Repo
-    migrate? false
+
+    references do
+      reference :workspace do
+        name "authentication_events_workspace_scope_fkey"
+        match_with organization_id: :organization_id
+      end
+    end
   end
 
   attributes do

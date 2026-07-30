@@ -8,7 +8,6 @@ defmodule OfficeGraph.AgentRuntime.AuthoritySnapshot do
   postgres do
     table "agent_authority_snapshots"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_execution_version:
                            "agent_authority_snapshots_execution_version_index"

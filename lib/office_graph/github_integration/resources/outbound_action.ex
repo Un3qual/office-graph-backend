@@ -70,7 +70,6 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
   postgres do
     table "github_outbound_actions"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_operation: "github_outbound_actions_operation_id_index"
   end

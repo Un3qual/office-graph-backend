@@ -95,4 +95,5 @@ fi
 mix local.hex --force --if-missing
 mix local.rebar --force --if-missing
 mix deps.get --check-locked
+./bin/verify-migration-baseline
 mix verify

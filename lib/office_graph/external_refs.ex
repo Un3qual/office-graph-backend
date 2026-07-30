@@ -83,11 +83,6 @@ defmodule OfficeGraph.ExternalRefs do
   def read_provider_reference(_operation, _source, _attrs), do: {:error, :forbidden}
 
   defp persist_reference(operation, source, identity) do
-    upsert_identity =
-      if is_nil(operation.workspace_id),
-        do: :unique_organization_source_external_id,
-        else: :unique_workspace_source_external_id
-
     result =
       ExternalReference
       |> Ash.Changeset.for_create(:create, %{
@@ -108,7 +103,7 @@ defmodule OfficeGraph.ExternalRefs do
         return_notifications?: true,
         return_skipped_upsert?: true,
         upsert?: true,
-        upsert_identity: upsert_identity,
+        upsert_identity: :unique_scope_source_external_id,
         upsert_fields: []
       )
 

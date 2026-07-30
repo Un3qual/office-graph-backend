@@ -8,7 +8,6 @@ defmodule OfficeGraph.WorkGraph.RelationshipDefinition do
   postgres do
     table "relationship_definitions"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do
@@ -53,6 +52,45 @@ defmodule OfficeGraph.WorkGraph.RelationshipDefinition do
     read :read do
       primary? true
       public? false
+    end
+
+    create :ensure do
+      public? false
+
+      accept [
+        :key,
+        :family,
+        :direction,
+        :meaning,
+        :lifecycle,
+        :provenance_policy,
+        :authorization_policy,
+        :cycle_policy,
+        :specialization_posture
+      ]
+
+      upsert? true
+      upsert_identity :unique_key
+
+      upsert_fields [
+        :family,
+        :direction,
+        :meaning,
+        :lifecycle,
+        :provenance_policy,
+        :authorization_policy,
+        :cycle_policy,
+        :specialization_posture
+      ]
+
+      return_skipped_upsert? true
+    end
+
+    action :setup_catalog, :integer do
+      public? false
+      transaction? true
+      touches_resources [OfficeGraph.WorkGraph.RelationshipEndpointRule]
+      run OfficeGraph.WorkGraph.Actions.SetupReferenceCatalog
     end
   end
 

@@ -8,7 +8,6 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
   postgres do
     table "agent_definitions"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_key: "agent_definitions_key_index"
   end
@@ -71,6 +70,50 @@ defmodule OfficeGraph.AgentRuntime.AgentDefinition do
 
       validate one_of(:lifecycle_state, ~w(active disabled retired))
       validate one_of(:default_autonomy_mode, ~w(human_supervised bounded_automatic))
+    end
+
+    create :ensure do
+      public? false
+
+      accept [
+        :key,
+        :name,
+        :description,
+        :lifecycle_state,
+        :supported_modes,
+        :requested_capabilities,
+        :model_adapter_key,
+        :model_credential_id,
+        :tool_allowlist,
+        :default_autonomy_mode,
+        :allowed_output_kinds
+      ]
+
+      validate one_of(:lifecycle_state, ~w(active disabled retired))
+      validate one_of(:default_autonomy_mode, ~w(human_supervised bounded_automatic))
+      upsert? true
+      upsert_identity :unique_key
+
+      upsert_fields [
+        :name,
+        :description,
+        :lifecycle_state,
+        :supported_modes,
+        :requested_capabilities,
+        :model_adapter_key,
+        :model_credential_id,
+        :tool_allowlist,
+        :default_autonomy_mode,
+        :allowed_output_kinds
+      ]
+
+      return_skipped_upsert? true
+    end
+
+    action :setup_catalog, :integer do
+      public? false
+      transaction? true
+      run OfficeGraph.AgentRuntime.Actions.SetupReferenceCatalog
     end
 
     update :set_lifecycle_state do

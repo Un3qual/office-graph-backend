@@ -8,7 +8,6 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCredential do
   postgres do
     table "github_installation_credentials"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_installation_purpose:
                            "github_installation_credentials_installation_purpose_index"

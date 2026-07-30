@@ -76,7 +76,6 @@ defmodule OfficeGraph.Tenancy.Organization do
   postgres do
     table "organizations"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_slug: "organizations_slug_index"
   end

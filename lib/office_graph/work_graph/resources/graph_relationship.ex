@@ -9,7 +9,6 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
   postgres do
     table "graph_relationships"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names active_definition_edge:
                            "graph_relationships_active_definition_edge_index"
@@ -32,6 +31,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
     attribute :valid_until, :utc_datetime_usec, public?: true
     attribute :deleted_at, :utc_datetime_usec, public?: true
     attribute :deletion_reason, :string, public?: true
+    attribute :active_identity_slot, :string, public?: false, writable?: false
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -134,6 +134,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
       change OfficeGraph.WorkGraph.Changes.ValidateRelationshipEndpoints
       change set_attribute(:lifecycle, "active")
+      change set_attribute(:active_identity_slot, "active")
       change set_attribute(:valid_until, nil)
     end
 
@@ -264,6 +265,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       public? false
       accept [:operation_id, :asserting_principal_id]
       change set_attribute(:lifecycle, "superseded")
+      change set_attribute(:active_identity_slot, nil)
       change set_attribute(:valid_until, &DateTime.utc_now/0)
     end
 
@@ -271,6 +273,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       public? false
       accept [:operation_id, :asserting_principal_id]
       change set_attribute(:lifecycle, "archived")
+      change set_attribute(:active_identity_slot, nil)
       change set_attribute(:valid_until, &DateTime.utc_now/0)
     end
 
@@ -286,6 +289,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       ]
 
       change set_attribute(:lifecycle, "tombstoned")
+      change set_attribute(:active_identity_slot, nil)
       change set_attribute(:valid_until, &DateTime.utc_now/0)
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
     end
@@ -294,6 +298,7 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
       public? false
       accept [:operation_id, :asserting_principal_id, :valid_from]
       change set_attribute(:lifecycle, "active")
+      change set_attribute(:active_identity_slot, "active")
       change set_attribute(:valid_until, nil)
       change set_attribute(:deletion_operation_id, nil)
       change set_attribute(:deleted_by_principal_id, nil)
@@ -304,7 +309,12 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
   identities do
     identity :active_definition_edge,
-             [:organization_id, :definition_id, :source_item_id, :target_item_id],
-             where: expr(lifecycle == "active")
+             [
+               :organization_id,
+               :definition_id,
+               :source_item_id,
+               :target_item_id,
+               :active_identity_slot
+             ]
   end
 end

@@ -9,13 +9,19 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
   postgres do
     table "role_assignments"
     repo OfficeGraph.Repo
-    migrate? false
 
     unique_index_names [
       {[:principal_id, :role_id, :organization_id], "role_assignments_org_wide_unique_index"},
       {[:principal_id, :role_id, :organization_id, :workspace_id],
        "role_assignments_workspace_unique_index"}
     ]
+
+    references do
+      reference :workspace do
+        name "role_assignments_workspace_scope_fkey"
+        match_with organization_id: :organization_id
+      end
+    end
   end
 
   attributes do

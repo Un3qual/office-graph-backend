@@ -4,6 +4,7 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource do
   defmacro __using__(opts) do
     table = Keyword.fetch!(opts, :table)
     id_type = Keyword.get(opts, :id_type, :uuid)
+    attribute_names = opts |> Keyword.get(:attributes, []) |> Keyword.keys()
 
     attributes =
       for {name, type} <- Keyword.get(opts, :attributes, []) do
@@ -40,6 +41,11 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource do
 
         destroy :destroy do
           primary? true
+          public? false
+        end
+
+        update :update do
+          accept unquote(attribute_names)
           public? false
         end
       end
@@ -159,6 +165,46 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.CheckRun do
     attributes: [organization_id: :uuid]
 end
 
+defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubRepository do
+  @moduledoc false
+
+  use OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource,
+    table: "github_repositories",
+    attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubPullRequest do
+  @moduledoc false
+
+  use OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource,
+    table: "github_pull_requests",
+    attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubReviewThread do
+  @moduledoc false
+
+  use OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource,
+    table: "github_review_threads",
+    attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubReviewComment do
+  @moduledoc false
+
+  use OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource,
+    table: "github_review_comments",
+    attributes: [organization_id: :uuid]
+end
+
+defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubCheckRun do
+  @moduledoc false
+
+  use OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource,
+    table: "github_check_runs",
+    attributes: [organization_id: :uuid]
+end
+
 defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.IntegrationCredential do
   @moduledoc false
 
@@ -172,7 +218,7 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.Installation do
 
   use OfficeGraph.TestSupport.GitHubIntegrationCleanup.Resource,
     table: "github_installations",
-    attributes: [organization_id: :uuid]
+    attributes: [organization_id: :uuid, current_permission_snapshot_id: :uuid]
 end
 
 defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.InstallationCredential do
@@ -226,6 +272,11 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup.Domain do
     resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.ReviewThread
     resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.ReviewComment
     resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.CheckRun
+    resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubRepository
+    resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubPullRequest
+    resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubReviewThread
+    resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubReviewComment
+    resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.GitHubCheckRun
     resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.IntegrationCredential
     resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.Installation
     resource OfficeGraph.TestSupport.GitHubIntegrationCleanup.InstallationCredential
@@ -244,6 +295,11 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup do
     DomainEvent,
     ExternalReference,
     ExternalSource,
+    GitHubCheckRun,
+    GitHubPullRequest,
+    GitHubRepository,
+    GitHubReviewComment,
+    GitHubReviewThread,
     Installation,
     InstallationCredential,
     IntegrationCredential,
@@ -279,6 +335,11 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup do
     )
 
     destroy_for_organization!(ExternalReference, organization_id)
+    destroy_for_organization!(GitHubCheckRun, organization_id)
+    destroy_for_organization!(GitHubReviewComment, organization_id)
+    destroy_for_organization!(GitHubReviewThread, organization_id)
+    destroy_for_organization!(GitHubPullRequest, organization_id)
+    destroy_for_organization!(GitHubRepository, organization_id)
     destroy_for_organization!(CheckRun, organization_id)
     destroy_for_organization!(ReviewComment, organization_id)
     destroy_for_organization!(ReviewThread, organization_id)
@@ -294,8 +355,9 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup do
 
     destroy_for_snapshots!(PermissionEntry, snapshot_ids)
     destroy_for_installations!(InstallationCredential, installation_ids)
-    destroy_for_organization!(Installation, organization_id)
+    clear_current_permission_snapshots!(installation_ids)
     destroy_for_installations!(PermissionSnapshot, installation_ids)
+    destroy_for_organization!(Installation, organization_id)
     destroy_for_organization!(IntegrationCredential, organization_id)
     destroy_for_organization!(AuthorizationDecision, organization_id)
     destroy_for_organization!(Operation, organization_id)
@@ -364,6 +426,20 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup do
     resource
     |> Ash.Query.filter(permission_snapshot_id in ^snapshot_ids)
     |> destroy_all!()
+  end
+
+  defp clear_current_permission_snapshots!([]), do: :ok
+
+  defp clear_current_permission_snapshots!(installation_ids) do
+    Installation
+    |> Ash.Query.filter(id in ^installation_ids)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(
+      &Ash.update!(&1, %{current_permission_snapshot_id: nil},
+        action: :update,
+        authorize?: false
+      )
+    )
   end
 
   defp destroy_provider_sources! do

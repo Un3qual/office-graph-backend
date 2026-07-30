@@ -97,7 +97,6 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   postgres do
     table "proposed_graph_changes"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_normalized_event_change_type:
                            "proposed_graph_changes_event_type_index"
@@ -110,8 +109,7 @@ defmodule OfficeGraph.ProposedChanges.ProposedGraphChange do
   end
 
   identities do
-    identity :unique_normalized_event_change_type, [:normalized_event_id, :change_type],
-      where: expr(not is_nil(normalized_event_id))
+    identity :unique_normalized_event_change_type, [:normalized_event_id, :change_type]
   end
 
   attributes do

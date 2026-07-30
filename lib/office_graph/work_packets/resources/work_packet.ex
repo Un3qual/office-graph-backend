@@ -74,7 +74,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   postgres do
     table "work_packets"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names organization_id: "work_packets_organization_id_fkey",
                       workspace_id: "work_packets_workspace_id_fkey"
@@ -273,7 +272,7 @@ defmodule OfficeGraph.WorkPackets.WorkPacket do
   end
 
   identities do
-    identity :unique_operation, [:operation_id], where: expr(not is_nil(operation_id))
+    identity :unique_operation, [:operation_id]
   end
 
   policies do

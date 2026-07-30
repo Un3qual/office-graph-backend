@@ -212,7 +212,6 @@ defmodule OfficeGraph.Runs.Run do
   postgres do
     table "runs"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names work_packet_id: "runs_work_packet_id_fkey"
 
@@ -654,7 +653,7 @@ defmodule OfficeGraph.Runs.Run do
   end
 
   identities do
-    identity :unique_operation, [:operation_id], where: expr(not is_nil(operation_id))
+    identity :unique_operation, [:operation_id]
   end
 
   policies do

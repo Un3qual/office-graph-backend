@@ -374,11 +374,6 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCommands do
       operation_id: operation.id
     }
 
-    identity =
-      if is_nil(installation.workspace_id),
-        do: :unique_organization_reference,
-        else: :unique_workspace_reference
-
     with {:ok, credential} <-
            IntegrationCredential
            |> Ash.Changeset.for_create(:create, credential_attrs)
@@ -387,7 +382,7 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCommands do
              return_notifications?: true,
              return_skipped_upsert?: true,
              upsert?: true,
-             upsert_identity: identity,
+             upsert_identity: :unique_scope_reference,
              upsert_fields: []
            )
            |> CommandSupport.normalize_ash_write(),

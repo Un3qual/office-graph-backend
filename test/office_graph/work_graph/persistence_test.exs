@@ -16,13 +16,13 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   alias OfficeGraph.Authorization.RoleAssignment
   alias OfficeGraph.Foundation
   alias OfficeGraph.ExternalRefs.ExternalReference
-  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
+  alias OfficeGraph.Identity.{AuthenticationEvent, Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
   alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Audit.AuditRecord
-  alias OfficeGraph.Tenancy.Initiative
+  alias OfficeGraph.Tenancy.{Initiative, Workstream}
   alias OfficeGraph.WorkGraph
 
   setup do
@@ -253,21 +253,80 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
                owner_email: "hierarchy-other-owner@office-graph.local"
              )
 
-    assert {:error, error} =
-             Ash.create(
-               Initiative,
-               %{
-                 id: Ecto.UUID.generate(),
-                 organization_id: other_scope.organization.id,
-                 workspace_id: bootstrap.workspace.id,
-                 name: "Mismatched Initiative",
-                 slug: "mismatched-initiative"
-               },
-               action: :create,
-               authorize?: false
-             )
+    assert_scope_constraint_error(
+      Ash.create(
+        Initiative,
+        %{
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          name: "Mismatched Initiative",
+          slug: "mismatched-initiative"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
 
-    assert Exception.message(error) =~ "workspace"
+    assert_scope_constraint_error(
+      Ash.create(
+        Workstream,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          initiative_id: other_scope.initiative.id,
+          name: "Mismatched Workstream",
+          slug: "mismatched-workstream"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
+
+    assert_scope_constraint_error(
+      Ash.create(
+        Session,
+        %{
+          principal_id: bootstrap.principal.id,
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "mismatched_scope"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
+
+    assert_scope_constraint_error(
+      Ash.create(
+        RoleAssignment,
+        %{
+          principal_id: bootstrap.principal.id,
+          role_id: bootstrap.role_assignment.role_id,
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
+
+    assert_scope_constraint_error(
+      Ash.create(
+        AuthenticationEvent,
+        %{
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          event: "login",
+          result: "failed",
+          reason: "invalid_scope",
+          authentication_method: "oidc",
+          source_surface: "test",
+          trace_id: "mismatched-scope"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
   end
 
   test "internal audit creates default to sensitive records", %{operation: operation} do
@@ -902,6 +961,8 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   end
 
   defp ash_error_message(error), do: Exception.message(error)
+
+  defp assert_scope_constraint_error(result), do: assert({:error, _error} = result)
 
   defp operation_correlation_exists?(organization_id, correlation_id) do
     OperationCorrelation

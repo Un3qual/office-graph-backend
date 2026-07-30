@@ -110,7 +110,10 @@ defmodule OfficeGraph.AgentRuntime.Domain do
   end
 
   resources do
-    resource OfficeGraph.AgentRuntime.AgentDefinition
+    resource OfficeGraph.AgentRuntime.AgentDefinition do
+      define :setup_reference_data, action: :setup_catalog
+    end
+
     resource OfficeGraph.AgentRuntime.OrganizationBinding
     resource OfficeGraph.AgentRuntime.AgentExecution
     resource OfficeGraph.AgentRuntime.AuthoritySnapshot

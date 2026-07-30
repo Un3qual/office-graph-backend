@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkGraph.Task do
   postgres do
     table "tasks"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

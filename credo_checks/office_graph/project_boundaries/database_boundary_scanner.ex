@@ -152,8 +152,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if Enum.any?(arguments, &sql_literal?/1), do: {:raw_sql, "migration.execute"}
   end
 
+  defp classify_node({:insert, _metadata, arguments}, true) when is_list(arguments),
+    do: {:direct_ecto, "migration.insert"}
+
   defp classify_node({key, value}, true) when key in [:check, :where] and is_binary(value),
     do: {:raw_sql, "migration.#{key}"}
+
+  defp classify_node(value, true) when is_binary(value) do
+    cond do
+      Regex.match?(~r/\bmd5\s*\(/i, value) ->
+        {:raw_sql, "migration.md5"}
+
+      Regex.match?(~r/\binsert\s+into\b/i, value) ->
+        {:raw_sql, "migration.insert"}
+
+      true ->
+        nil
+    end
+  end
 
   defp classify_node({:unsafe_fragment, sql}, _migration?) when is_binary(sql),
     do: {:raw_sql, "unsafe_fragment"}

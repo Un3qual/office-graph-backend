@@ -52,9 +52,10 @@ Authentik identity lab separately and configure an OAuth2/OpenID provider with:
 - a user whose verified email is `owner@office-graph.local`
 - an `email_verified` claim with the boolean value `true`
 
-`mix ecto.setup` creates the matching local Office Graph owner. The login flow
-links the verified Authentik identity to that existing principal; it does not
-create an owner or grant capabilities from provider claims.
+`mix demo.seed` creates the matching local Office Graph owner and optional
+operator-console examples. The login flow links the verified Authentik identity
+to that existing principal; it does not create an owner or grant capabilities
+from provider claims.
 
 Start the application with the provider values:
 
@@ -110,6 +111,13 @@ sequence above when upgrading this checkout. For a database whose data must be
 preserved, perform an explicit PostgreSQL major-version upgrade outside this
 Compose workflow instead of removing its volume.
 
+The unreleased migration history was also replaced by one current logical
+baseline. Any local database created from the old migration chain must use the
+same database/volume reset before applying the new baseline, even if it already
+runs PostgreSQL 18. Export and explicitly re-import any development data that
+must be preserved; the old chain is retained in Git history, not as a supported
+upgrade path.
+
 ## Setup And Verification
 
 Fetch dependencies:
@@ -125,6 +133,24 @@ docker compose up -d postgres
 nix --extra-experimental-features 'nix-command flakes' develop --command mix ecto.setup
 ```
 
+Migrations create schema only, apart from Oban's dependency-owned schema
+installer. `mix ecto.setup` then runs the idempotent
+`OfficeGraph.Release.setup!()` entry point once to reconcile required
+capabilities, relationship registry records, and the canonical run-review agent
+definition through Ash.
+
+Demo data is optional:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command mix demo.seed
+```
+
+Packaged releases run the same canonical setup after migration:
+
+```sh
+bin/office_graph eval "OfficeGraph.Release.setup!()"
+```
+
 Run the canonical repository gate:
 
 ```sh
@@ -135,7 +161,9 @@ nix --extra-experimental-features 'nix-command flakes' develop --command ./bin/v
 from the worktree path, then asks Docker to allocate an available loopback host
 port so concurrent worktrees do not share database state or contend for a small
 fixed port range. It also confirms that the ready Compose server is PostgreSQL
-18 before running migrations and tests. `COMPOSE_PROJECT_NAME`,
+18, checks migration drift without rewriting snapshots, migrates an empty
+scratch database, replays release setup, and proves rollback/re-application
+before running the full gate. `COMPOSE_PROJECT_NAME`,
 `OFFICE_GRAPH_POSTGRES_PORT`, and `MIX_TEST_PARTITION` override those defaults.
 
 When PostgreSQL is managed externally, skip Compose and provide explicit test

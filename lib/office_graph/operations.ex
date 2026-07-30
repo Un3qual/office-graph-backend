@@ -309,7 +309,7 @@ defmodule OfficeGraph.Operations do
         authorize?: false,
         return_notifications?: true,
         upsert?: true,
-        upsert_identity: :unique_system_idempotency,
+        upsert_identity: system_idempotency_identity(request.workspace_id),
         upsert_fields: []
       )
       |> case do
@@ -319,6 +319,9 @@ defmodule OfficeGraph.Operations do
       end
     end
   end
+
+  defp system_idempotency_identity(nil), do: :unique_system_organization_idempotency
+  defp system_idempotency_identity(_workspace_id), do: :unique_system_workspace_idempotency
 
   defp refetch_system_operation_after_conflict(request, error) do
     case existing_system_operation(request) do

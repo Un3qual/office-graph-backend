@@ -56,7 +56,6 @@ defmodule OfficeGraph.Content.Document do
   postgres do
     table "documents"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names organization_id: "documents_organization_id_fkey",
                       workspace_id: "documents_workspace_id_fkey"

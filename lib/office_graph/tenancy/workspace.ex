@@ -9,9 +9,9 @@ defmodule OfficeGraph.Tenancy.Workspace do
   postgres do
     table "workspaces"
     repo OfficeGraph.Repo
-    migrate? false
 
-    identity_index_names unique_slug: "workspaces_organization_id_slug_index"
+    identity_index_names unique_slug: "workspaces_organization_id_slug_index",
+                         unique_scope: "workspaces_id_organization_id_index"
   end
 
   attributes do
@@ -67,6 +67,7 @@ defmodule OfficeGraph.Tenancy.Workspace do
 
   identities do
     identity :unique_slug, [:organization_id, :slug]
+    identity :unique_scope, [:id, :organization_id]
   end
 
   policies do

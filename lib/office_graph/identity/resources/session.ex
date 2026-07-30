@@ -287,10 +287,16 @@ defmodule OfficeGraph.Identity.Session do
   postgres do
     table "sessions"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_context:
                            "sessions_principal_id_organization_id_workspace_id_purpose_inde"
+
+    references do
+      reference :workspace do
+        name "sessions_workspace_scope_fkey"
+        match_with organization_id: :organization_id
+      end
+    end
   end
 
   attributes do
@@ -308,6 +314,7 @@ defmodule OfficeGraph.Identity.Session do
     attribute :source_surface, :string, public?: true
     attribute :trace_id, :string, public?: true
     attribute :revoked_at, :utc_datetime_usec, public?: true
+    attribute :active_identity_slot, :string, public?: false, writable?: false
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -360,6 +367,12 @@ defmodule OfficeGraph.Identity.Session do
         :trace_id,
         :revoked_at
       ]
+
+      change set_attribute(:active_identity_slot, nil)
+
+      change set_attribute(:active_identity_slot, "active") do
+        where attribute_equals(:revoked_at, nil)
+      end
     end
 
     create :ensure_local_owner do
@@ -369,10 +382,12 @@ defmodule OfficeGraph.Identity.Session do
       upsert_identity :unique_context
       upsert_fields []
       return_skipped_upsert? true
+      change set_attribute(:active_identity_slot, "active")
     end
 
     update :revoke do
       accept [:revoked_at]
+      change set_attribute(:active_identity_slot, nil)
     end
 
     action :issue_human_session, OfficeGraph.Identity.HumanSessionIssueResult do
@@ -410,8 +425,14 @@ defmodule OfficeGraph.Identity.Session do
   end
 
   identities do
-    identity :unique_context, [:principal_id, :organization_id, :workspace_id, :purpose],
-      where: expr(is_nil(revoked_at))
+    identity :unique_context,
+             [
+               :principal_id,
+               :organization_id,
+               :workspace_id,
+               :purpose,
+               :active_identity_slot
+             ]
   end
 
   policies do

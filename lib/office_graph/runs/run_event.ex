@@ -9,7 +9,6 @@ defmodule OfficeGraph.Runs.RunEvent do
   postgres do
     table "run_events"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names run_id: "run_events_run_id_fkey"
   end

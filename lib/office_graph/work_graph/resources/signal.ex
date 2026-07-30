@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkGraph.Signal do
   postgres do
     table "signals"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

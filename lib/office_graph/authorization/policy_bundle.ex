@@ -9,7 +9,6 @@ defmodule OfficeGraph.Authorization.PolicyBundle do
   postgres do
     table "policy_bundles"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_version: "policy_bundles_organization_id_version_index"
   end

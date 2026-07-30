@@ -10,7 +10,6 @@ defmodule OfficeGraph.GitHubIntegration.PermissionEntry do
   postgres do
     table "github_permission_entries"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_snapshot_name: "github_permission_entries_snapshot_name_index"
   end

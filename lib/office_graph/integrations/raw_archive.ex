@@ -93,7 +93,6 @@ defmodule OfficeGraph.Integrations.RawArchive do
   postgres do
     table "raw_archives"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names organization_id: "raw_archives_organization_id_fkey",
                       workspace_id: "raw_archives_workspace_id_fkey",
@@ -203,7 +202,6 @@ defmodule OfficeGraph.Integrations.RawArchive do
   end
 
   identities do
-    identity :provider_delivery, [:source_id, :external_delivery_id],
-      where: expr(not is_nil(external_delivery_id))
+    identity :provider_delivery, [:source_id, :external_delivery_id]
   end
 end

@@ -36,10 +36,7 @@ defmodule OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension do
   end
 
   identities do
-    identity :unique_workspace_node_id, [:organization_id, :workspace_id, :node_id],
-      where: expr(not is_nil(workspace_id))
-
-    identity :unique_organization_node_id, [:organization_id, :node_id],
-      where: expr(is_nil(workspace_id))
+    identity :unique_scope_node_id, [:organization_id, :workspace_id, :node_id],
+      nils_distinct?: false
   end
 end

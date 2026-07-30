@@ -10,7 +10,6 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   postgres do
     table "run_required_checks"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

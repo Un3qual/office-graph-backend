@@ -276,7 +276,6 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
   postgres do
     table "external_identity_links"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names provider_subject:
                            "external_identity_links_provider_provider_tenant_subject_index"

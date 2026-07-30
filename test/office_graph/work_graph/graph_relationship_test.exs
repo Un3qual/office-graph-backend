@@ -49,7 +49,13 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     assert {:error, _error} =
              Ash.Type.apply_constraints(:string, "invented", lifecycle.constraints)
 
-    assert [:organization_id, :definition_id, :source_item_id, :target_item_id] ==
+    assert [
+             :organization_id,
+             :definition_id,
+             :source_item_id,
+             :target_item_id,
+             :active_identity_slot
+           ] ==
              Ash.Resource.Info.identity(GraphRelationship, :active_definition_edge).keys
   end
 

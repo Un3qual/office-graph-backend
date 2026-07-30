@@ -56,7 +56,6 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
   postgres do
     table "normalized_intake_events"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names organization_id: "normalized_intake_events_organization_id_fkey",
                       workspace_id: "normalized_intake_events_workspace_id_fkey",
@@ -79,6 +78,7 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
     attribute :source_identity, :string, allow_nil?: false, public?: true
     attribute :replay_identity, :string, allow_nil?: false, public?: true
     attribute :outcome, :string, allow_nil?: false, public?: true
+    attribute :accepted_identity_slot, :string, public?: false, writable?: false
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -149,6 +149,12 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
         :outcome,
         :duplicate_of_id
       ]
+
+      change set_attribute(:accepted_identity_slot, nil)
+
+      change set_attribute(:accepted_identity_slot, "accepted") do
+        where attribute_equals(:outcome, "accepted")
+      end
     end
 
     action :persist_manual_intake,
@@ -206,8 +212,13 @@ defmodule OfficeGraph.Integrations.NormalizedIntakeEvent do
 
   identities do
     identity :accepted_replay_key,
-             [:organization_id, :workspace_id, :source_identity, :replay_identity],
-             where: expr(outcome == "accepted")
+             [
+               :organization_id,
+               :workspace_id,
+               :source_identity,
+               :replay_identity,
+               :accepted_identity_slot
+             ]
   end
 
   graphql do

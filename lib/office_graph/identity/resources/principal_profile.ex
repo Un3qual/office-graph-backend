@@ -9,7 +9,6 @@ defmodule OfficeGraph.Identity.PrincipalProfile do
   postgres do
     table "principal_profiles"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names principal_id: "principal_profiles_principal_id_index"
   end

@@ -10,7 +10,6 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
   postgres do
     table "execution_observations"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_operation: "execution_observations_operation_id_unique_index",
                          unique_source_idempotency_key:
@@ -141,8 +140,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     identity :unique_operation, [:operation_id]
 
     identity :unique_source_idempotency_key,
-             [:organization_id, :workspace_id, :source_kind, :source_identity, :idempotency_key],
-             where: expr(not is_nil(idempotency_key))
+             [:organization_id, :workspace_id, :source_kind, :source_identity, :idempotency_key]
   end
 
   policies do

@@ -15,7 +15,7 @@ defmodule OfficeGraph.AgentRuntime.PersistenceResourceTest do
       assert Ash.Resource.Info.data_layer(resource) == AshPostgres.DataLayer
       assert AshPostgres.DataLayer.Info.table(resource) == table
       assert AshPostgres.DataLayer.Info.repo(resource) == OfficeGraph.Repo
-      refute AshPostgres.DataLayer.Info.migrate?(resource)
+      assert AshPostgres.DataLayer.Info.migrate?(resource)
       assert resource in Ash.Domain.Info.resources(domain)
     end
   end

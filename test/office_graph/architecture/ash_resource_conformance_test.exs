@@ -225,7 +225,38 @@ defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
       end)
 
     assert errors == [],
-           "Expected resources must be AshPostgres resources with matching tables and migrate? false:\n#{format_errors(errors)}"
+           "Expected resources must be migration-authoritative AshPostgres resources with matching tables:\n#{format_errors(errors)}"
+  end
+
+  test "migration-authoritative resources use tracked current snapshots" do
+    snapshot_tables =
+      "priv/resource_snapshots/repo/*/*.json"
+      |> Path.wildcard()
+      |> Enum.map(&(&1 |> Path.dirname() |> Path.basename()))
+      |> MapSet.new()
+
+    expected_tables = @expected_resources |> Map.keys() |> MapSet.new()
+
+    assert snapshot_tables == expected_tables,
+           "Expected one current resource-snapshot directory per table.\n" <>
+             "Missing: #{inspect(expected_tables |> MapSet.difference(snapshot_tables) |> Enum.sort())}\n" <>
+             "Unexpected: #{inspect(snapshot_tables |> MapSet.difference(expected_tables) |> Enum.sort())}"
+  end
+
+  test "migration-authoritative identities do not require SQL predicates" do
+    filtered_identities =
+      @expected_resources
+      |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+        resource
+        |> Ash.Resource.Info.identities()
+        |> Enum.reject(&is_nil(&1.where))
+        |> Enum.map(&{resource, &1.name})
+      end)
+      |> Enum.sort()
+
+    assert filtered_identities == [],
+           "Filtered identities require SQL predicates; use nullable keys, nils_distinct?, or typed identity slots:\n" <>
+             Enum.map_join(filtered_identities, "\n", &inspect/1)
   end
 
   test "each expected resource is registered in exactly one owning domain" do

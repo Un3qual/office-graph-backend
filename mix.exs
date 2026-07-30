@@ -94,9 +94,15 @@ defmodule OfficeGraph.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "assets.setup", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      "ecto.setup": [
+        "ecto.create",
+        "ecto.migrate",
+        "run -e \"OfficeGraph.Release.setup!()\""
+      ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "demo.seed": ["run priv/repo/seeds.exs"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "migration.drift": ["ash_postgres.generate_migrations --check"],
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_api_ledger_conformance_test.exs test/office_graph/architecture/ash_resource_conformance_test.exs test/office_graph/architecture/ash_boundary_heuristics_test.exs"
       ],
@@ -133,6 +139,7 @@ defmodule OfficeGraph.MixProject do
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
         "format --check-formatted",
+        "migration.drift",
         "boundary.check",
         "architecture.check",
         "static.analysis",

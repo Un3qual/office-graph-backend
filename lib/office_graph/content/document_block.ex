@@ -9,7 +9,6 @@ defmodule OfficeGraph.Content.DocumentBlock do
   postgres do
     table "document_blocks"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_document_position: "document_blocks_document_id_position_index"
     foreign_key_names document_id: "document_blocks_document_id_fkey"

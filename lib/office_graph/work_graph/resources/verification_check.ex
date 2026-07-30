@@ -56,7 +56,6 @@ defmodule OfficeGraph.WorkGraph.VerificationCheck do
   postgres do
     table "verification_checks"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

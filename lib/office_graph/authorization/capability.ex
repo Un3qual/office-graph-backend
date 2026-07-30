@@ -9,7 +9,6 @@ defmodule OfficeGraph.Authorization.Capability do
   postgres do
     table "capabilities"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names key: "capabilities_key_index"
   end
@@ -51,6 +50,12 @@ defmodule OfficeGraph.Authorization.Capability do
       upsert_fields []
       return_skipped_upsert? true
     end
+
+    action :setup_catalog, :integer do
+      public? false
+      transaction? true
+      run OfficeGraph.Authorization.Actions.SetupCapabilityCatalog
+    end
   end
 
   identities do
@@ -58,6 +63,10 @@ defmodule OfficeGraph.Authorization.Capability do
   end
 
   policies do
+    policy action(:setup_catalog) do
+      authorize_if always()
+    end
+
     policy action_type(:read) do
       authorize_if always()
     end

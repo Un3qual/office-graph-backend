@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
   postgres do
     table "graph_items"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

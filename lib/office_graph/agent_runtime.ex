@@ -23,7 +23,7 @@ defmodule OfficeGraph.AgentRuntime do
       OfficeGraph.Verification,
       OfficeGraph.WorkGraph
     ],
-    exports: [InvocationRequest]
+    exports: [Domain, InvocationRequest]
 
   require Ash.Query
 

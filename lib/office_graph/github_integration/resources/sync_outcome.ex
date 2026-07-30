@@ -8,7 +8,6 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
   postgres do
     table "github_sync_outcomes"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_operation: "github_sync_outcomes_operation_id_index"
   end

@@ -35,7 +35,6 @@ defmodule OfficeGraph.SoftwareProving.Resource do
       postgres do
         table unquote(table)
         repo OfficeGraph.Repo
-        migrate? false
       end
 
       attributes do

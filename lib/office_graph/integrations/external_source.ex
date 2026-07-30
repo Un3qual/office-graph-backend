@@ -9,7 +9,6 @@ defmodule OfficeGraph.Integrations.ExternalSource do
   postgres do
     table "external_sources"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_kind_key: "external_sources_kind_key_index"
   end

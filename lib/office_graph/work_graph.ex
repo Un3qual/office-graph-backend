@@ -15,7 +15,7 @@ defmodule OfficeGraph.WorkGraph do
       OfficeGraph.Revisions,
       OfficeGraph.Tenancy
     ],
-    exports: []
+    exports: [Domain]
 
   alias OfficeGraph.WorkGraph.{
     ProposalCommands,

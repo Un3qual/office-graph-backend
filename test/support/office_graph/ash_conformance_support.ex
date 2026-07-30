@@ -399,10 +399,13 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_definition_kinds: [:relationship_definition_id, :source_kind, :target_kind]
     },
     OfficeGraph.WorkGraph.GraphRelationship => %{
-      active_definition_edge: %{
-        keys: [:organization_id, :definition_id, :source_item_id, :target_item_id],
-        where: ~s(lifecycle == "active")
-      }
+      active_definition_edge: [
+        :organization_id,
+        :definition_id,
+        :source_item_id,
+        :target_item_id,
+        :active_identity_slot
+      ]
     },
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
@@ -411,16 +414,16 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       provider_subject: [:provider, :provider_tenant, :subject]
     },
     OfficeGraph.Integrations.RawArchive => %{
-      provider_delivery: %{
-        keys: [:source_id, :external_delivery_id],
-        where: "not is_nil(external_delivery_id)"
-      }
+      provider_delivery: [:source_id, :external_delivery_id]
     },
     OfficeGraph.Identity.Session => %{
-      unique_context: %{
-        keys: [:principal_id, :organization_id, :workspace_id, :purpose],
-        where: "is_nil(revoked_at)"
-      }
+      unique_context: [
+        :principal_id,
+        :organization_id,
+        :workspace_id,
+        :purpose,
+        :active_identity_slot
+      ]
     },
     OfficeGraph.Authorization.Capability => %{key: [:key]},
     OfficeGraph.Authorization.Role => %{unique_key: [:organization_id, :key]},
@@ -461,16 +464,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_execution_step_idempotency: [:execution_id, :step_key, :idempotency_key]
     },
     OfficeGraph.AgentRuntime.ApprovalRequest => %{
-      unique_pending_step: %{
-        keys: [:execution_id, :step_key],
-        where: ~s(state == "pending")
-      }
+      unique_pending_step: [:execution_id, :step_key, :pending_identity_slot]
     },
     OfficeGraph.AgentRuntime.ContextExpansionRequest => %{
-      unique_pending_step: %{
-        keys: [:execution_id, :step_key],
-        where: ~s(state == "pending")
-      }
+      unique_pending_step: [:execution_id, :step_key, :pending_identity_slot]
     },
     OfficeGraph.NodeConversations.Conversation => %{
       unique_run_graph_item: [
@@ -492,19 +489,28 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
           :session_id,
           :action,
           :idempotency_key
-        ],
-        where: "not is_nil(idempotency_key)"
+        ]
       },
-      unique_system_idempotency: %{
+      unique_system_organization_idempotency: %{
+        keys: [
+          :organization_id,
+          :principal_id,
+          :system_organization_identity_slot,
+          :action,
+          :idempotency_scope,
+          :idempotency_key
+        ]
+      },
+      unique_system_workspace_idempotency: %{
         keys: [
           :organization_id,
           :workspace_id,
           :principal_id,
+          :system_workspace_identity_slot,
           :action,
           :idempotency_scope,
           :idempotency_key
-        ],
-        where: ~s(operation_kind == "system")
+        ]
       }
     },
     OfficeGraph.SoftwareProving.RepositoryRef => %{
@@ -517,64 +523,39 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_repository_number: [:repository_id, :number]
     },
     OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id, :pull_request_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id, :pull_request_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id, :pull_request_id]
     },
     OfficeGraph.Integrations.IntegrationCredential => %{
-      unique_workspace_reference: %{
-        keys: [:organization_id, :workspace_id, :kind, :secret_reference],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_reference: %{
-        keys: [:organization_id, :kind, :secret_reference],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_reference: [:organization_id, :workspace_id, :kind, :secret_reference]
+    },
+    OfficeGraph.Integrations.NormalizedIntakeEvent => %{
+      accepted_replay_key: [
+        :organization_id,
+        :workspace_id,
+        :source_identity,
+        :replay_identity,
+        :accepted_identity_slot
+      ]
+    },
+    OfficeGraph.ExternalRefs.ExternalReference => %{
+      unique_scope_source_external_id: [
+        :organization_id,
+        :workspace_id,
+        :source_id,
+        :external_id
+      ]
     },
     OfficeGraph.GitHubIntegration.Installation => %{
       unique_external_installation: [:external_installation_id],
@@ -603,10 +584,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_document_revision: [:document_id, :revision_number]
     },
     OfficeGraph.ProposedChanges.ProposedGraphChange => %{
-      unique_normalized_event_change_type: %{
-        keys: [:normalized_event_id, :change_type],
-        where: "not is_nil(normalized_event_id)"
-      }
+      unique_normalized_event_change_type: [:normalized_event_id, :change_type]
     }
   }
 
@@ -1369,7 +1347,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         table,
         resource,
         "postgres.migrate?",
-        false,
+        true,
         safe_info(fn -> AshPostgres.DataLayer.Info.migrate?(resource) end)
       )
     else

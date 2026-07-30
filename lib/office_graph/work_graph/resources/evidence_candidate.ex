@@ -263,7 +263,6 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
   postgres do
     table "evidence_candidates"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names(
       unique_agent_step: "evidence_candidates_agent_step_index",
@@ -515,7 +514,7 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
   end
 
   identities do
-    identity :unique_agent_step, [:execution_id, :step_key], where: expr(not is_nil(execution_id))
+    identity :unique_agent_step, [:execution_id, :step_key]
 
     identity :unique_operation, [:operation_id]
   end

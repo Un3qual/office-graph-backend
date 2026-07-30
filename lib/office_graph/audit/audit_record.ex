@@ -9,7 +9,6 @@ defmodule OfficeGraph.Audit.AuditRecord do
   postgres do
     table "audit_records"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

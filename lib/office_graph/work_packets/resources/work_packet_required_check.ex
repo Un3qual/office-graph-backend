@@ -10,7 +10,6 @@ defmodule OfficeGraph.WorkPackets.WorkPacketRequiredCheck do
   postgres do
     table "work_packet_version_required_checks"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do

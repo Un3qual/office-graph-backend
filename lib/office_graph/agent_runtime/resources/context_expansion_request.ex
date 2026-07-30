@@ -37,7 +37,6 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
   postgres do
     table "agent_context_expansion_requests"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_pending_step:
                            "agent_context_expansion_requests_pending_step_index"
@@ -73,6 +72,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       public?: true
 
     attribute :state, :string, allow_nil?: false, public?: true
+    attribute :pending_identity_slot, :string, public?: false, writable?: false
 
     attribute :version, :integer,
       allow_nil?: false,
@@ -122,6 +122,12 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       ]
 
       validate one_of(:state, @states)
+
+      change set_attribute(:pending_identity_slot, nil)
+
+      change set_attribute(:pending_identity_slot, "pending") do
+        where attribute_equals(:state, "pending")
+      end
     end
 
     update :resolve do
@@ -137,6 +143,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
       ]
 
       validate one_of(:state, @states)
+      change set_attribute(:pending_identity_slot, nil)
     end
 
     update :set_expiry do
@@ -194,7 +201,7 @@ defmodule OfficeGraph.AgentRuntime.ContextExpansionRequest do
   end
 
   identities do
-    identity :unique_pending_step, [:execution_id, :step_key], where: expr(state == "pending")
+    identity :unique_pending_step, [:execution_id, :step_key, :pending_identity_slot]
   end
 
   relationships do
