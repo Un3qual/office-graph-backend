@@ -125,6 +125,7 @@ defmodule OfficeGraph.Authorization.Actions.EnsureRole do
            }),
          :ok <-
            ensure_role_capabilities(role.id, capabilities_by_key, attrs.capability_keys),
+         :ok <- revoke_unexpected_role_capabilities(role.id, capabilities_by_key),
          :ok <- validate_exact_role_capabilities(role.id, capabilities_by_key),
          {:ok, role_assignment} <-
            ensure(RoleAssignment, %{
@@ -165,6 +166,22 @@ defmodule OfficeGraph.Authorization.Actions.EnsureRole do
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
+  end
+
+  defp revoke_unexpected_role_capabilities(role_id, capabilities_by_key) do
+    expected_ids = Enum.map(capabilities_by_key, fn {_key, capability} -> capability.id end)
+
+    RoleCapability
+    |> Ash.Query.filter(role_id == ^role_id and capability_id not in ^expected_ids)
+    |> Ash.bulk_destroy(:revoke, %{},
+      authorize?: false,
+      return_errors?: true,
+      strategy: [:atomic]
+    )
+    |> case do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+    end
   end
 
   defp validate_exact_role_capabilities(role_id, capabilities_by_key) do

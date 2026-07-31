@@ -326,13 +326,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 1
   end
 
-  test "excludes dependency and build artifacts and unrelated documentation" do
+  test "excludes dependency and build artifacts" do
     sources =
       for path <- [
             "deps/example/lib/example.ex",
             "_build/test/lib/example.ex",
-            "assets/node_modules/example/index.ex",
-            "docs/example.ex"
+            "assets/node_modules/example/index.ex"
           ] do
         %{path: path, source: "OfficeGraph.Repo.query!(\"SELECT 1\", [])"}
       end
@@ -391,6 +390,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       [occurrence] = DatabaseBoundaryScanner.scan_repository(root)
 
       assert occurrence.path == "lib/tracked.ex"
+    end)
+  end
+
+  test "repository scans inspect tracked Elixir sources across the project" do
+    with_git_repository(fn root ->
+      paths = [
+        "config/runtime.exs",
+        "credo_checks/project_boundary.ex",
+        "docs/example.ex",
+        "mix.exs"
+      ]
+
+      Enum.each(paths, fn path ->
+        full_path = Path.join(root, path)
+        File.mkdir_p!(Path.dirname(full_path))
+        File.write!(full_path, "OfficeGraph.Repo.query!(\"SELECT 1\", [])")
+      end)
+
+      {_output, 0} = System.cmd("git", ["add", "--" | paths], cd: root)
+
+      assert DatabaseBoundaryScanner.scan_repository(root)
+             |> Enum.map(& &1.path)
+             |> MapSet.new() == MapSet.new(paths)
     end)
   end
 

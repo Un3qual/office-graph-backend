@@ -474,22 +474,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     path = String.trim_leading(path, "./")
     extension = Path.extname(path)
 
-    cond do
-      excluded_path?(path) ->
-        false
-
-      extension == ".sql" ->
-        true
-
-      extension not in [".ex", ".exs"] ->
-        false
-
-      true ->
-        String.starts_with?(path, "lib/") or
-          String.starts_with?(path, "test/") or
-          String.starts_with?(path, "priv/repo/migrations/") or
-          path == "priv/repo/seeds.exs"
-    end
+    not excluded_path?(path) and extension in [".ex", ".exs", ".sql"]
   end
 
   defp excluded_path?(path) do

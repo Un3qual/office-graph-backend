@@ -2,6 +2,9 @@ defmodule OfficeGraph.Authorization.LocalDevelopmentRolesTest do
   use OfficeGraph.DataCase, async: false
 
   alias OfficeGraph.{Authorization, Foundation, Identity}
+  alias OfficeGraph.Authorization.{Capability, RoleCapability}
+
+  require Ash.Query
 
   test "seeded fixtures exercise distinct ordinary authorization profiles" do
     assert {:ok, seeded} =
@@ -27,6 +30,43 @@ defmodule OfficeGraph.Authorization.LocalDevelopmentRolesTest do
 
     assert {:error, :invalid_identity} =
              issue_session(seeded, "deprovisioned_member")
+  end
+
+  test "seed replay removes capability memberships outside the local role manifest" do
+    attrs = [
+      organization_name: "Local Role Repair Test",
+      organization_slug: "local-role-repair-test",
+      workspace_name: "Development",
+      workspace_slug: "development",
+      initiative_name: "Local Authentication",
+      initiative_slug: "local-authentication"
+    ]
+
+    assert {:ok, seeded} = Foundation.seed_local_development_fixtures(attrs)
+
+    member_role_id = seeded.fixtures["member"].role_assignment.role_id
+
+    extra_capability =
+      Ash.get!(Capability, %{key: "proposed_change.apply"}, authorize?: false)
+
+    Ash.create!(
+      RoleCapability,
+      %{role_id: member_role_id, capability_id: extra_capability.id},
+      action: :ensure,
+      authorize?: false
+    )
+
+    assert {:ok, repaired} = Foundation.seed_local_development_fixtures(attrs)
+
+    assert [] =
+             RoleCapability
+             |> Ash.Query.filter(
+               role_id == ^member_role_id and capability_id == ^extra_capability.id
+             )
+             |> Ash.read!(authorize?: false)
+
+    assert {:ok, member} = issue_session(repaired, "member")
+    assert {:error, :forbidden} = authorize(member, repaired, :proposed_change_apply)
   end
 
   defp issue_session(seeded, key) do
