@@ -186,6 +186,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies fully qualified and aliased Ecto query fragments as raw SQL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Query.API, as: QueryAPI
+
+            def load do
+              Ecto.Query.API.fragment("lower(?)", "NAME")
+              QueryAPI.unsafe_fragment("(organization_id)")
+              Example.Fragment.fragment("not sql")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "Ecto.Query.API.fragment", 5},
+             {:raw_sql, "Ecto.Query.API.unsafe_fragment", 6}
+           ]
+  end
+
   test "classifies direct Ecto operations separately from raw SQL" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

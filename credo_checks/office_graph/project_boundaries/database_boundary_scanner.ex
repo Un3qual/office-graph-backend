@@ -278,6 +278,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_database_operation(receiver, operation) do
     cond do
+      receiver == "Ecto.Query.API" and operation in [:fragment, :unsafe_fragment] ->
+        {:raw_sql, "#{receiver}.#{operation}"}
+
       operation in [:query, :query!] and repo_receiver?(receiver) ->
         {:raw_sql, "Repo.#{operation}"}
 

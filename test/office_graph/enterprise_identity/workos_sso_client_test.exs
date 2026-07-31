@@ -204,7 +204,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
              })
   end
 
-  test "production HTTP requests verify the TLS peer and requested hostname" do
+  test "production HTTP requests verify TLS and receive successful bodies through a controlled stream" do
     assert {:module, :httpc} = :code.ensure_loaded(:httpc)
     parent = self()
     tracer = spawn(fn -> forward_trace_messages(parent) end)
@@ -222,7 +222,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
 
     assert_receive {:captured_trace,
                     {:trace, _pid, :call,
-                     {:httpc, :request, [_method, _request, http_options, _response_options]}}}
+                     {:httpc, :request, [_method, _request, http_options, response_options]}}}
 
     ssl_options = Keyword.fetch!(http_options, :ssl)
 
@@ -233,6 +233,39 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
              get_in(ssl_options, [:customize_hostname_check, :match_fun]),
              2
            )
+
+    assert response_options[:sync] == false
+    assert response_options[:stream] == {:self, :once}
+    assert response_options[:receiver] == self()
+  end
+
+  test "production HTTP stream rejects declared and accumulated bodies over the limit" do
+    assert {:error, :network_error} =
+             receive_http_stream(
+               [{~c"content-length", ~c"6"}],
+               [],
+               maximum_bytes: 5
+             )
+
+    assert {:error, :network_error} =
+             receive_http_stream(
+               [{~c"transfer-encoding", ~c"chunked"}],
+               ["abc", "def"],
+               maximum_bytes: 5
+             )
+
+    assert {:ok, %{status: 200, headers: headers, body: "abcde"}} =
+             receive_http_stream(
+               [
+                 {~c"content-length", ~c"5"},
+                 {~c"x-workos-request-id", ~c"request-1"}
+               ],
+               ["abc", "de"],
+               maximum_bytes: 5
+             )
+
+    assert headers["content-length"] == "5"
+    assert headers["x-workos-request-id"] == "request-1"
   end
 
   defp configuration do
@@ -246,6 +279,42 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
   defp restore_env(key, value), do: Application.put_env(:office_graph, key, value)
+
+  defp receive_http_stream(start_headers, chunks, opts) do
+    request_id = make_ref()
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, {:stream_receiver, self()})
+
+        WorkOSHttpc.receive_stream(
+          request_id,
+          Keyword.fetch!(opts, :maximum_bytes),
+          1_000
+        )
+      end)
+
+    assert_receive {:stream_receiver, receiver}
+    handler = spawn(fn -> discard_stream_control_messages() end)
+    send(receiver, {:http, {request_id, :stream_start, start_headers, handler}})
+
+    Enum.each(chunks, fn chunk ->
+      send(receiver, {:http, {request_id, :stream, chunk}})
+    end)
+
+    send(receiver, {:http, {request_id, :stream_end, []}})
+    result = Task.await(task)
+    send(handler, :stop)
+    result
+  end
+
+  defp discard_stream_control_messages do
+    receive do
+      :stop -> :ok
+      _message -> discard_stream_control_messages()
+    end
+  end
 
   defp forward_trace_messages(parent) do
     receive do

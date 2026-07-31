@@ -57,6 +57,33 @@ defmodule OfficeGraph.AgentRuntime.ModelAdapterConformanceTest do
              AdapterContract.validate_model_input(manifest, %{input | capability_keys: []})
   end
 
+  test "approval-required model manifests represent exactly one capability", %{input: input} do
+    capabilities = ["agent.model.generate", "agent.context.read"]
+
+    approval_manifest = %{
+      DeterministicModel.manifest()
+      | approval_required: true,
+        capability_keys: capabilities
+    }
+
+    refute AdapterContract.valid_model_manifest?(approval_manifest)
+
+    assert {:error, {:terminal, :invalid_model_input}} =
+             AdapterContract.validate_model_preflight(approval_manifest, %{
+               input
+               | capability_keys: capabilities
+             })
+
+    non_approval_manifest = %{approval_manifest | approval_required: false}
+    assert AdapterContract.valid_model_manifest?(non_approval_manifest)
+
+    assert :ok =
+             AdapterContract.validate_model_preflight(non_approval_manifest, %{
+               input
+               | capability_keys: capabilities
+             })
+  end
+
   test "keeps deterministic fixture selection inside the adapter-specific payload" do
     fields = ModelInput.__struct__() |> Map.keys()
 

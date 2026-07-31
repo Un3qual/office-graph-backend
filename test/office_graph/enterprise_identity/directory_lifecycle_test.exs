@@ -245,6 +245,77 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert principal.status == "disabled"
   end
 
+  test "a newer active directory event restores the exact retained WorkOS identity" do
+    context = enterprise_context("restore-deprovisioned")
+    active_time = ~U[2026-07-29 20:00:00Z]
+
+    assert {:ok, %{resource: %DirectoryUser{} = user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(active_time),
+               context.operation.id
+             )
+
+    assert {:ok, initial_sso} =
+             Identity.reconcile_workos_sso_identity(
+               %{
+                 subject: "connection_01:idp_user_01",
+                 idp_id: "idp_user_01",
+                 verified_email: user.email
+               },
+               context.connection.provider_organization_id
+             )
+
+    deleted_time = DateTime.add(active_time, 60, :second)
+
+    assert {:ok, %{status: :applied, resource: %DirectoryUser{status: "deleted"}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(deleted_time, %{status: "deleted"}),
+               context.operation.id
+             )
+
+    assert Ash.get!(Principal, user.principal_id, authorize?: false).status == "disabled"
+
+    assert Ash.get!(ExternalIdentityLink, user.external_identity_link_id, authorize?: false).status ==
+             "disabled"
+
+    assert Ash.get!(ExternalIdentityLink, initial_sso.external_identity_link.id,
+             authorize?: false
+           ).status == "disabled"
+
+    restored_time = DateTime.add(active_time, 120, :second)
+
+    assert {:ok, %{status: :applied, resource: %DirectoryUser{} = restored}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(restored_time),
+               context.operation.id
+             )
+
+    assert restored.status == "active"
+    assert restored.principal_id == user.principal_id
+    assert restored.external_identity_link_id == user.external_identity_link_id
+    assert Ash.get!(Principal, user.principal_id, authorize?: false).status == "active"
+
+    assert Ash.get!(ExternalIdentityLink, user.external_identity_link_id, authorize?: false).status ==
+             "active"
+
+    assert {:ok, restored_sso} =
+             Identity.reconcile_workos_sso_identity(
+               %{
+                 subject: "connection_01:idp_user_01",
+                 idp_id: "idp_user_01",
+                 verified_email: user.email
+               },
+               context.connection.provider_organization_id
+             )
+
+    assert restored_sso.principal.id == user.principal_id
+    assert restored_sso.external_identity_link.id == initial_sso.external_identity_link.id
+    assert restored_sso.external_identity_link.status == "active"
+  end
+
   test "directory deprovisioning preserves SSO while another directory basis remains active" do
     context = enterprise_context("multi-directory-deprovision")
     active_time = ~U[2026-07-29 20:00:00Z]

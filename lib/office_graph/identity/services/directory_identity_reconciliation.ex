@@ -104,6 +104,36 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
     end
   end
 
+  defp select_identity_basis(
+         %ExternalIdentityLink{
+           status: "disabled",
+           linking_state: "linked",
+           principal_id: principal_id,
+           provider_identity_id: provider_identity_id,
+           verified_email: verified_email
+         } = link,
+         principals,
+         email_links,
+         %{
+           current_principal_id: principal_id,
+           provider_identity_id: provider_identity_id,
+           verified_email: verified_email
+         } = attrs
+       )
+       when is_binary(principal_id) do
+    with {:ok, principal} <- restore_principal(principals, attrs),
+         true <- restoration_compatible_links?(email_links, principal.id, attrs),
+         {:ok, restored_link} <- restore_link(link) do
+      DirectoryIdentityResult.linked(
+        principal,
+        restored_link,
+        principal_origin(attrs, principal.id, "reused")
+      )
+    else
+      _incompatible -> DirectoryIdentityResult.review_required("provider_subject_conflict")
+    end
+  end
+
   defp select_identity_basis(%ExternalIdentityLink{}, _principals, _email_links, _attrs),
     do: DirectoryIdentityResult.review_required("provider_subject_conflict")
 
@@ -202,6 +232,57 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
 
   defp provider_identity_conflict?(_link, _provider_tenant, _provider_identity_id),
     do: false
+
+  defp restore_principal(principals, %{
+         current_principal_id: principal_id,
+         current_principal_origin: "created"
+       }) do
+    case Enum.find(principals, &(&1.id == principal_id)) do
+      %Principal{kind: "human", status: "active"} = principal ->
+        {:ok, principal}
+
+      %Principal{kind: "human", status: "disabled"} = principal ->
+        principal
+        |> Ash.Changeset.for_update(:set_status, %{status: "active"})
+        |> Ash.update(authorize?: false)
+
+      _ineligible_or_missing ->
+        {:error, :ineligible_principal}
+    end
+  end
+
+  defp restore_principal(principals, %{current_principal_id: principal_id}) do
+    case Enum.find(principals, &(&1.id == principal_id)) do
+      %Principal{kind: "human", status: "active"} = principal ->
+        {:ok, principal}
+
+      _ineligible_or_missing ->
+        {:error, :ineligible_principal}
+    end
+  end
+
+  defp restoration_compatible_links?(links, principal_id, attrs) do
+    Enum.all?(links, fn link ->
+      link.principal_id == principal_id and link.status in ["active", "disabled"] and
+        link.linking_state == "linked" and
+        not provider_identity_conflict?(
+          link,
+          attrs.provider_tenant,
+          attrs.provider_identity_id
+        )
+    end)
+  end
+
+  defp restore_link(link) do
+    link
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "active",
+      linking_state: "linked",
+      review_reason: nil,
+      disabled_at: nil
+    })
+    |> Ash.update(authorize?: false)
+  end
 
   defp ensure_principal(email) do
     Principal
@@ -517,6 +598,33 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
     end
   end
 
+  defp reconcile(
+         %ExternalIdentityLink{
+           status: "disabled",
+           linking_state: "linked",
+           principal_id: principal_id,
+           provider_identity_id: provider_identity_id,
+           verified_email: verified_email
+         } = link,
+         principals,
+         email_links,
+         %{
+           provider_identity_id: provider_identity_id,
+           verified_email: verified_email
+         } = attrs
+       )
+       when is_binary(principal_id) do
+    with %Principal{kind: "human", status: "active"} = principal <-
+           Enum.find(principals, &(&1.id == principal_id)),
+         true <- compatible_links?(email_links, principal.id, attrs),
+         true <- active_directory_basis?(email_links, principal.id, attrs),
+         {:ok, authenticated_link} <- reactivate_sso_link(link, attrs) do
+      DirectoryIdentityResult.linked(principal, authenticated_link, "reused")
+    else
+      _conflict -> DirectoryIdentityResult.review_required("provider_subject_conflict")
+    end
+  end
+
   defp reconcile(%ExternalIdentityLink{}, _principals, _email_links, _attrs),
     do: DirectoryIdentityResult.review_required("provider_subject_conflict")
 
@@ -552,6 +660,14 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
     Enum.all?(links, fn link ->
       link.principal_id == principal_id and link.status == "active" and
         link.linking_state == "linked" and provider_identity_compatible?(link, attrs)
+    end)
+  end
+
+  defp active_directory_basis?(links, principal_id, attrs) do
+    Enum.any?(links, fn link ->
+      link.provider == "workos_directory" and link.principal_id == principal_id and
+        link.status == "active" and link.linking_state == "linked" and
+        provider_identity_compatible?(link, attrs)
     end)
   end
 
@@ -593,6 +709,27 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
     })
     |> Ash.create(authorize?: false, return_notifications?: true)
     |> consume_notifications()
+  end
+
+  defp reactivate_sso_link(link, attrs) do
+    now = DateTime.utc_now()
+
+    with {:ok, active_link} <-
+           link
+           |> Ash.Changeset.for_update(:set_lifecycle, %{
+             status: "active",
+             linking_state: "linked",
+             review_reason: nil,
+             disabled_at: nil
+           })
+           |> Ash.update(authorize?: false) do
+      active_link
+      |> Ash.Changeset.for_update(:record_authentication, %{
+        provider_identity_id: attrs.provider_identity_id,
+        last_authenticated_at: now
+      })
+      |> Ash.update(authorize?: false)
+    end
   end
 
   defp locked_subject_link(provider_tenant, subject) do
