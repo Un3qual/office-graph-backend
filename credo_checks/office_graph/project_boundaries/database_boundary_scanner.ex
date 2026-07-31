@@ -89,6 +89,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :preload!,
     :reload,
     :reload!,
+    :rollback,
     :stream,
     :transact,
     :transaction,

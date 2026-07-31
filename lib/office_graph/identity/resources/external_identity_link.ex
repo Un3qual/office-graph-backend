@@ -547,7 +547,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
       argument :provider_identity_id, :string
       argument :principal_id, :uuid
       argument :external_identity_link_id, :uuid
-      argument :principal_origin, :string
+      argument :principal_created_by_directory, :boolean, allow_nil?: false
       argument :disabled_at, :utc_datetime_usec, allow_nil?: false
 
       run Module.concat([OfficeGraph, Identity, Actions, DeprovisionDirectoryIdentity])

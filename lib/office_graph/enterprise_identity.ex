@@ -146,6 +146,8 @@ defmodule OfficeGraph.EnterpriseIdentity do
   def create_connection(_session_context, _operation, _attrs), do: {:error, :forbidden}
 
   def bind_directory(session_context, operation, attrs) when is_map(attrs) do
+    binding_attrs = Map.take(attrs, [:provider_directory_id, :status, :provider_updated_at])
+
     with :ok <- validate_management_operation(session_context, operation),
          {:ok, connection} <-
            management_connection(session_context, attrs[:connection_id]),
@@ -154,20 +156,16 @@ defmodule OfficeGraph.EnterpriseIdentity do
            Directory
            |> Ash.Changeset.for_create(
              :bind,
-             attrs
-             |> Map.take([:provider_directory_id, :status, :provider_updated_at])
-             |> Map.merge(%{
+             Map.merge(binding_attrs, %{
                connection_id: connection.id,
                operation_id: operation.id
              })
            )
            |> Ash.create(authorize?: false),
-         true <-
-           directory.connection_id == connection.id and
-             directory.operation_id == operation.id do
+         :ok <- validate_directory_binding(directory, connection, operation, binding_attrs) do
       {:ok, directory}
     else
-      false -> {:error, :forbidden}
+      {:error, {:command_idempotency_conflict, _operation_id}} = error -> error
       {:error, _reason} = error -> normalize_management_error(error)
     end
   end
@@ -516,6 +514,26 @@ defmodule OfficeGraph.EnterpriseIdentity do
   end
 
   defp management_connection(_session_context, _connection_id), do: {:error, :forbidden}
+
+  defp validate_directory_binding(directory, connection, operation, requested) do
+    cond do
+      directory.connection_id != connection.id or directory.operation_id != operation.id ->
+        {:error, :forbidden}
+
+      directory.provider_directory_id == requested[:provider_directory_id] and
+        directory.status == requested[:status] and
+          same_time?(directory.provider_updated_at, requested[:provider_updated_at]) ->
+        :ok
+
+      true ->
+        {:error, {:command_idempotency_conflict, operation.id}}
+    end
+  end
+
+  defp same_time?(%DateTime{} = left, %DateTime{} = right),
+    do: DateTime.compare(left, right) == :eq
+
+  defp same_time?(_left, _right), do: false
 
   defp validate_mapping_targets(session_context, attrs, workspace_id) do
     group_query =

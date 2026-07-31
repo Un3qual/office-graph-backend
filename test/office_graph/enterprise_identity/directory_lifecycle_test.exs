@@ -486,7 +486,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert restored_sso.external_identity_link.status == "active"
   end
 
-  test "directory deprovisioning preserves SSO while another directory basis remains active" do
+  test "directory deprovisioning preserves SSO until the last shared directory basis ends" do
     context = enterprise_context("multi-directory-deprovision")
     active_time = ~U[2026-07-29 20:00:00Z]
 
@@ -520,6 +520,8 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
 
     assert second_user.principal_id == first_user.principal_id
     assert second_user.external_identity_link_id != first_user.external_identity_link_id
+    assert first_user.principal_origin == "created"
+    assert second_user.principal_origin == "reused"
 
     sso_link =
       Ash.create!(
@@ -560,6 +562,19 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              )
 
     assert linked.principal.id == first_user.principal_id
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               second_directory.id,
+               user_event(DateTime.add(active_time, 120, :second), %{
+                 provider_user_id: "directory_user_02",
+                 status: "deleted"
+               }),
+               context.operation.id
+             )
+
+    assert Ash.get!(ExternalIdentityLink, sso_link.id, authorize?: false).status == "disabled"
+    assert Ash.get!(Principal, first_user.principal_id, authorize?: false).status == "disabled"
   end
 
   test "an IdP subject change enters review and disables the authentication basis" do
@@ -949,6 +964,28 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              })
 
     assert replayed_directory.id == directory.id
+
+    assert {:error, {:command_idempotency_conflict, operation_id}} =
+             EnterpriseIdentity.bind_directory(bootstrap.session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: provider_directory_id,
+               status: "disabled",
+               provider_updated_at: ~U[2026-07-29 19:00:00Z]
+             })
+
+    assert operation_id == operation.id
+
+    assert {:error, {:command_idempotency_conflict, ^operation_id}} =
+             EnterpriseIdentity.bind_directory(bootstrap.session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: provider_directory_id,
+               status: "active",
+               provider_updated_at: ~U[2026-07-29 19:00:01Z]
+             })
+
+    unchanged_directory = Ash.get!(Directory, directory.id, authorize?: false)
+    assert unchanged_directory.status == "active"
+    assert unchanged_directory.provider_updated_at == ~U[2026-07-29 19:00:00.000000Z]
 
     group =
       Ash.create!(

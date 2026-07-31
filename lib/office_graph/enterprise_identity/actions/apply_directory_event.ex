@@ -370,14 +370,25 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
   defp active_membership?(_membership), do: false
 
   defp disable_workos_identity_basis(directory, user, disabled_at) do
-    Identity.deprovision_directory_identity(%{
-      external_identity_link_id: user.external_identity_link_id,
-      principal_id: user.principal_id,
-      principal_origin: user.principal_origin,
-      provider_tenant: directory.connection.provider_organization_id,
-      provider_identity_id: user.idp_id,
-      disabled_at: disabled_at
-    })
+    with {:ok, principal_created_by_directory} <-
+           principal_created_by_directory?(user.principal_id) do
+      Identity.deprovision_directory_identity(%{
+        external_identity_link_id: user.external_identity_link_id,
+        principal_id: user.principal_id,
+        principal_created_by_directory: principal_created_by_directory,
+        provider_tenant: directory.connection.provider_organization_id,
+        provider_identity_id: user.idp_id,
+        disabled_at: disabled_at
+      })
+    end
+  end
+
+  defp principal_created_by_directory?(nil), do: {:ok, false}
+
+  defp principal_created_by_directory?(principal_id) do
+    DirectoryUser
+    |> Ash.Query.filter(principal_id == ^principal_id and principal_origin == "created")
+    |> Ash.exists(authorize?: false)
   end
 
   defp maybe_disable_review_identity_basis(_directory, nil, _data), do: :ok

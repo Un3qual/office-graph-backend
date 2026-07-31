@@ -310,7 +310,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
-  test "classifies repository checkout without matching unrelated receivers" do
+  test "classifies repository connection control without matching unrelated receivers" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{
@@ -323,7 +323,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def run(fun) do
               Repo.checkout(fun)
               Database.checkout(fun, timeout: 1_000)
+              OfficeGraph.Repo.rollback(:cancelled)
+              Database.rollback(:cancelled)
               OfficeGraph.Cache.checkout(fun)
+              OfficeGraph.Cache.rollback(:cancelled)
             end
           end
           """
@@ -332,7 +335,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
              {:direct_ecto, "Repo.checkout", 6},
-             {:direct_ecto, "Repo.checkout", 7}
+             {:direct_ecto, "Repo.checkout", 7},
+             {:direct_ecto, "Repo.rollback", 8},
+             {:direct_ecto, "Repo.rollback", 9}
            ]
   end
 
