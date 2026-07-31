@@ -346,6 +346,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              Map.new(changed_occurrences, &{&1.construct, &1.fingerprint})
   end
 
+  test "ignores where and check keywords outside SQL-bearing migration constructs" do
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "priv/repo/migrations/20260728000000_example.exs",
+               source: """
+               defmodule ExampleMigration do
+                 use Ecto.Migration
+
+                 def change do
+                   metadata = [where: :archive]
+                   options = [check: false]
+                   {metadata, options}
+                 end
+               end
+               """
+             }
+           ]) == []
+  end
+
   test "classifies nonliteral migration execute calls conservatively" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

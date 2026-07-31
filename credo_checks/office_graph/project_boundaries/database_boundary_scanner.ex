@@ -119,6 +119,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Postgrex"
   ]
 
+  @migration_create_operations [:create, :create_if_not_exists]
+  @migration_sql_option_constructs [:constraint, :index, :unique_index]
+
   defp scan_node({:__block__, _metadata, expressions}, environment, context, occurrences) do
     scan_sequence(expressions, environment, context, occurrences)
   end
@@ -182,6 +185,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node(node, environment, context, occurrences) do
     resolved_node = resolve_attributes(node, environment)
+    occurrences = classify_migration_sql_options(resolved_node, context, occurrences)
 
     occurrences =
       case classify_node(resolved_node, context.migration?, environment) do
@@ -271,10 +275,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> classify_database_operation(operation)
   end
 
-  defp classify_node({key, _value}, true, _environment)
-       when key in [:check, :where],
-       do: {:raw_sql, "migration.#{key}"}
-
   defp classify_node({:unsafe_fragment, sql}, _migration?, _environment) when is_binary(sql),
     do: {:raw_sql, "unsafe_fragment"}
 
@@ -300,6 +300,52 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         nil
     end
   end
+
+  defp classify_migration_sql_options(
+         {operation, _metadata, [{construct, construct_metadata, arguments}]},
+         %{migration?: true} = context,
+         occurrences
+       )
+       when operation in @migration_create_operations and
+              construct in @migration_sql_option_constructs and is_list(arguments) do
+    option_keys = migration_sql_option_keys(construct)
+    line = Keyword.get(construct_metadata, :line, 1)
+
+    case List.last(arguments) do
+      options when is_list(options) ->
+        Enum.reduce(options, occurrences, fn
+          {key, value}, occurrences ->
+            if key in option_keys do
+              [
+                occurrence(
+                  context.path,
+                  line,
+                  context.function,
+                  :raw_sql,
+                  "migration.#{key}",
+                  {key, value}
+                )
+                | occurrences
+              ]
+            else
+              occurrences
+            end
+
+          _option, occurrences ->
+            occurrences
+        end)
+
+      _argument ->
+        occurrences
+    end
+  end
+
+  defp classify_migration_sql_options(_node, _context, occurrences), do: occurrences
+
+  defp migration_sql_option_keys(:constraint), do: [:check]
+
+  defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
+    do: [:where]
 
   defp empty_environment, do: %{aliases: %{}, attributes: %{}, imports: []}
 
