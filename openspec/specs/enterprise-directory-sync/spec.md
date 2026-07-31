@@ -163,6 +163,15 @@ provisioning policy.
   identity basis remains for that principal and provider tenant
 - **AND** existing affected sessions MUST fail on their next validation
 
+#### Scenario: Exact directory user is restored
+
+- **WHEN** a newer active WorkOS event names the same retained provider tenant,
+  directory subject, provider identity, normalized verified email, and principal
+- **THEN** Office Graph MUST reactivate that directory link and its eligible
+  directory-created principal in place without creating a replacement identity
+- **AND** any incompatible subject, email, tenant, or principal state MUST remain
+  review-required
+
 ### Requirement: External groups grant only explicitly mapped roles
 
 Office Graph SHALL treat active directory group membership as an authorization

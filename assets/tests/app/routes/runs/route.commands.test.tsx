@@ -182,10 +182,7 @@ describe("all-runs route activity and command boundaries", () => {
         return support.runsConnectionResponse([support.runSummary(), secondSummary]);
       }
 
-      if (
-        request.name === "RunDetailQuery" &&
-        variables.id === support.runRelayId("run_second")
-      ) {
+      if (request.name === "RunDetailQuery" && variables.id === support.runRelayId("run_second")) {
         return support.runDetailResponse(
           support.runState({
             packet: {

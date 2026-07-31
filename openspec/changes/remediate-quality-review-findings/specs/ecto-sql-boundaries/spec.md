@@ -71,3 +71,34 @@ copy of the product resource graph.
 - **THEN** it MUST coordinate at a typed action/adapter seam with independent
   sandbox owners and MUST NOT create triggers, functions, advisory locks, or
   renamed tables
+
+### Requirement: Migration baseline has no removal debt
+
+Office Graph SHALL have zero unapproved raw-SQL or direct-database occurrences
+in its terminal migration baseline. The baseline MAY retain only exact
+user-approved, fingerprinted migration exceptions whose accepted OpenSpec
+change proves declarative AshPostgres and Ecto migration behavior is
+insufficient.
+
+#### Scenario: Terminal migration baseline is scanned
+
+- **WHEN** canonical verification scans the current migration baseline
+- **THEN** every detected occurrence MUST match an exact explicitly approved
+  exception and every approved migration exception MUST still match current
+  source
+
+#### Scenario: Generated migration includes SQL
+
+- **WHEN** AshPostgres generation emits an SQL-bearing check, predicate,
+  execute call, fragment, or other raw-SQL construct not already approved
+  exactly
+- **THEN** implementation MUST replace it with typed declarative behavior or
+  stop until the user approves that exact occurrence in the active change
+
+#### Scenario: Native UUIDv7 default remains necessary
+
+- **WHEN** the PostgreSQL 18 `uuidv7()` default remains represented by a
+  previously approved generated fragment
+- **THEN** the approved-exception inventory MUST retain its exact path and
+  fingerprint while preserving the original reason, verification, and
+  retirement condition

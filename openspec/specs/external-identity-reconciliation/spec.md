@@ -136,3 +136,11 @@ distinct provider-bound external identity links.
 - **THEN** matching WorkOS SSO links and sessions MUST fail closed while all
   historical principal, ownership, audit, revision, and authentication
   provenance remains addressable
+
+#### Scenario: Exact SSO subject returns after directory restoration
+
+- **WHEN** an active restored directory basis proves the retained disabled SSO
+  link has the same provider tenant, immutable subject, IdP identity, verified
+  email, and principal
+- **THEN** Office Graph MUST reactivate that exact SSO link in place and MUST NOT
+  create or relink an identity from email alone

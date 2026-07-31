@@ -46,10 +46,11 @@ describe("operator run agent surface", () => {
 
     const executions = await screen.findByRole("region", { name: "Agent executions" });
 
-    expect(within(executions).getAllByText(/ID execution/).map((node) => node.textContent)).toEqual([
-      "ID execution A",
-      "ID execution B",
-    ]);
+    expect(
+      within(executions)
+        .getAllByText(/ID execution/)
+        .map((node) => node.textContent),
+    ).toEqual(["ID execution A", "ID execution B"]);
   });
 
   it("matches generated Relay node IDs to internal affordance targets", async () => {

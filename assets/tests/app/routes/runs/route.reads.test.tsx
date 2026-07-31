@@ -191,9 +191,7 @@ describe("all-runs route reads", () => {
         id: support.runRelayId("run_selected"),
       });
     });
-    expect(screen.getByTestId("route-location")).toHaveTextContent(
-      support.runPath("run_selected"),
-    );
+    expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_selected"));
     expect(await screen.findByRole("button", { name: /Explicitly selected run/i })).toHaveAttribute(
       "aria-current",
       "true",
@@ -268,9 +266,7 @@ describe("all-runs route reads", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Second visible run/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("route-location")).toHaveTextContent(
-        support.runPath("run_second"),
-      );
+      expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_second"));
       expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
         id: support.runRelayId("run_second"),
       });

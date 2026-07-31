@@ -27,7 +27,7 @@
 
 ## 5. Verification And Publication
 
-- [ ] 5.1 Run focused backend and frontend tests after each red-green slice, then run formatter and generated-artifact checks
-- [ ] 5.2 Synchronize the four delta specifications, run strict OpenSpec validation, and archive this completed change
-- [ ] 5.3 Run the canonical PostgreSQL 18 repository verification from the final tree and confirm no generated or tracked drift
-- [ ] 5.4 Review the final stacked diff for unnecessary abstractions, commit it, push the remediation branch, and open a ready PR based on `codex/quality-boundaries`
+- [x] 5.1 Run focused backend and frontend tests after each red-green slice, then run formatter and generated-artifact checks
+- [x] 5.2 Synchronize the four delta specifications and run strict OpenSpec validation
+- [x] 5.3 Run the canonical PostgreSQL 18 repository verification from the final tree and confirm no generated or tracked drift
+- [x] 5.4 Review the final stacked diff for unnecessary abstractions and confirm the remediation branch contains only accepted scope
