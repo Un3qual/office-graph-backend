@@ -39,6 +39,28 @@ describe("operator run agent surface", () => {
     expect(screen.getByLabelText("Context expansion resolution reason")).toBeVisible();
   });
 
+  it("matches generated Relay node IDs to internal affordance targets", async () => {
+    const network = agentNetwork();
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    expect(await screen.findByRole("button", { name: "Cancel agent execution" })).toBeEnabled();
+    expect(screen.getByLabelText("Approval resolution reason")).toBeVisible();
+    expect(screen.getByLabelText("Context expansion resolution reason")).toBeVisible();
+  });
+
+  it("preserves agent activity before the optional conversation exists", async () => {
+    const network = agentNetwork({ noConversation: true });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const panel = await screen.findByRole("region", { name: "Agent Activity" });
+    expect(panel).toHaveTextContent("Review the run.");
+    expect(panel).toHaveTextContent("Approval: repository.read");
+    expect(panel).toHaveTextContent("Context expansion: repository");
+    expect(screen.getByRole("button", { name: "Cancel agent execution" })).toBeEnabled();
+  });
+
   it("invokes and cancels through independent narrow Relay actions", async () => {
     const invocation = deferredGraphQLResponse();
     const network = agentNetwork({ invocation });
@@ -511,13 +533,20 @@ function agentSurfaceWithoutConversation(
 ) {
   return {
     ...surface,
-    allowedNextActions: ["start_run_conversation", "invoke_agent"],
+    allowedNextActions: [
+      "start_run_conversation",
+      ...surface.allowedNextActions.filter(
+        (identity) => identity !== "append_conversation_message",
+      ),
+    ],
     commandAffordances: [
       enabledCommandAffordance("start_run_conversation", [
         { field: "run_id", value: variables.runId, values: [] },
         { field: "graph_item_id", value: variables.graphItemId, values: [] },
       ]),
-      ...surface.commandAffordances.filter(({ identity }) => identity === "invoke_agent"),
+      ...surface.commandAffordances.filter(
+        ({ identity }) => identity !== "append_conversation_message",
+      ),
     ],
     conversation: null,
     messages: [],
@@ -537,25 +566,27 @@ function agentQueryResponse(surface: AgentSurface) {
       allowedNextActions: surface.allowedNextActions,
       commandAffordances: surface.commandAffordances,
       messageContexts: surface.messages.map((message) => ({
-        messageId: message.id,
+        messageId: relayId("conversation_message", message.id),
         referencedContext: message.referencedContext,
       })),
     },
     conversation: surface.conversation
       ? {
-          id: surface.conversation.id,
-          run: { id: surface.conversation.runId },
-          graphItem: { id: surface.conversation.graphItemId },
+          id: relayId("conversation", surface.conversation.id),
+          run: { id: relayId("work_run", surface.conversation.runId) },
+          graphItem: { id: relayId("graph_item", surface.conversation.graphItemId) },
           state: surface.conversation.state,
           stateVersion: surface.conversation.stateVersion,
           messages: {
             edges: surface.messages.map((message) => ({
               node: {
-                id: message.id,
+                id: relayId("conversation_message", message.id),
                 source: message.source,
                 body: message.body,
                 insertedAt: message.insertedAt,
-                execution: message.executionId ? { id: message.executionId } : null,
+                execution: message.executionId
+                  ? { id: relayId("agent_execution", message.executionId) }
+                  : null,
               },
             })),
           },
@@ -564,42 +595,66 @@ function agentQueryResponse(surface: AgentSurface) {
     activeAgentExecutions: {
       edges: surface.executions
         .filter((execution) => !["completed", "failed", "cancelled"].includes(execution.state))
-        .map((node) => ({ node })),
+        .map((node) => ({
+          node: { ...node, id: relayId("agent_execution", node.id) },
+        })),
     },
     terminalAgentExecutions: {
       edges: surface.executions
         .filter((execution) => ["completed", "failed", "cancelled"].includes(execution.state))
-        .map((node) => ({ node })),
+        .map((node) => ({
+          node: { ...node, id: relayId("agent_execution", node.id) },
+        })),
     },
     pendingAgentApprovalRequests: {
       edges: surface.approvalRequests
         .filter((request) => request.state === "pending")
         .map((request) => ({
-          node: { ...request, execution: { id: request.executionId } },
+          node: {
+            ...request,
+            id: relayId("agent_approval_request", request.id),
+            execution: { id: relayId("agent_execution", request.executionId) },
+          },
         })),
     },
     resolvedAgentApprovalRequests: {
       edges: surface.approvalRequests
         .filter((request) => request.state !== "pending")
         .map((request) => ({
-          node: { ...request, execution: { id: request.executionId } },
+          node: {
+            ...request,
+            id: relayId("agent_approval_request", request.id),
+            execution: { id: relayId("agent_execution", request.executionId) },
+          },
         })),
     },
     pendingAgentContextExpansionRequests: {
       edges: surface.contextExpansionRequests
         .filter((request) => request.state === "pending")
         .map((request) => ({
-          node: { ...request, execution: { id: request.executionId } },
+          node: {
+            ...request,
+            id: relayId("agent_context_expansion_request", request.id),
+            execution: { id: relayId("agent_execution", request.executionId) },
+          },
         })),
     },
     resolvedAgentContextExpansionRequests: {
       edges: surface.contextExpansionRequests
         .filter((request) => request.state !== "pending")
         .map((request) => ({
-          node: { ...request, execution: { id: request.executionId } },
+          node: {
+            ...request,
+            id: relayId("agent_context_expansion_request", request.id),
+            execution: { id: relayId("agent_execution", request.executionId) },
+          },
         })),
     },
   };
+}
+
+function relayId(type: string, id: string) {
+  return btoa(`${type}:${id}`);
 }
 
 function prioritizedAgentQueryResponse(surface: AgentSurface) {

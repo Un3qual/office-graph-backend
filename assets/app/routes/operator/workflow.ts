@@ -166,38 +166,49 @@ export function useOperatorRunConversation(runId: string, graphItemId: string, f
 function runConversationFromRelay(data: OperatorRunConversationOperation["response"]) {
   const projection = data.operatorRunConversation;
   const contextByMessageId = new Map(
-    projection.messageContexts.map((context) => [context.messageId, context.referencedContext]),
+    projection.messageContexts.map((context) => [
+      relayInternalId("conversation_message", context.messageId),
+      context.referencedContext,
+    ]),
   );
   const conversation = data.conversation;
-  const executions = conversation
-    ? prioritizedConnectionNodes(data.activeAgentExecutions, data.terminalAgentExecutions).sort(
-        compareInsertedAt,
-      )
-    : [];
-  const approvalRequests = conversation
-    ? prioritizedConnectionNodes(
-        data.pendingAgentApprovalRequests,
-        data.resolvedAgentApprovalRequests,
-      )
-        .sort(compareInsertedAt)
-        .map((request) => ({ ...request, executionId: request.execution.id }))
-    : [];
-  const contextExpansionRequests = conversation
-    ? prioritizedConnectionNodes(
-        data.pendingAgentContextExpansionRequests,
-        data.resolvedAgentContextExpansionRequests,
-      )
-        .sort(compareInsertedAt)
-        .map((request) => ({ ...request, executionId: request.execution.id }))
-    : [];
+  const executions = prioritizedConnectionNodes(
+    data.activeAgentExecutions,
+    data.terminalAgentExecutions,
+  )
+    .sort(compareInsertedAt)
+    .map((execution) => ({
+      ...execution,
+      id: relayInternalId("agent_execution", execution.id),
+    }));
+  const approvalRequests = prioritizedConnectionNodes(
+    data.pendingAgentApprovalRequests,
+    data.resolvedAgentApprovalRequests,
+  )
+    .sort(compareInsertedAt)
+    .map((request) => ({
+      ...request,
+      id: relayInternalId("agent_approval_request", request.id),
+      executionId: relayInternalId("agent_execution", request.execution.id),
+    }));
+  const contextExpansionRequests = prioritizedConnectionNodes(
+    data.pendingAgentContextExpansionRequests,
+    data.resolvedAgentContextExpansionRequests,
+  )
+    .sort(compareInsertedAt)
+    .map((request) => ({
+      ...request,
+      id: relayInternalId("agent_context_expansion_request", request.id),
+      executionId: relayInternalId("agent_execution", request.execution.id),
+    }));
 
   return {
     ...projection,
     conversation: conversation
       ? {
-          id: conversation.id,
-          runId: conversation.run.id,
-          graphItemId: conversation.graphItem.id,
+          id: relayInternalId("conversation", conversation.id),
+          runId: relayInternalId("work_run", conversation.run.id),
+          graphItemId: relayInternalId("graph_item", conversation.graphItem.id),
           state: conversation.state,
           stateVersion: conversation.stateVersion,
         }
@@ -205,14 +216,20 @@ function runConversationFromRelay(data: OperatorRunConversationOperation["respon
     messages: conversation
       ? connectionNodes(conversation.messages)
           .reverse()
-          .map((message) => ({
-            id: message.id,
-            source: message.source,
-            body: message.body,
-            executionId: message.execution?.id ?? null,
-            insertedAt: message.insertedAt,
-            referencedContext: contextByMessageId.get(message.id) ?? null,
-          }))
+          .map((message) => {
+            const id = relayInternalId("conversation_message", message.id);
+
+            return {
+              id,
+              source: message.source,
+              body: message.body,
+              executionId: message.execution
+                ? relayInternalId("agent_execution", message.execution.id)
+                : null,
+              insertedAt: message.insertedAt,
+              referencedContext: contextByMessageId.get(id) ?? null,
+            };
+          })
       : [],
     executions,
     approvalRequests,
