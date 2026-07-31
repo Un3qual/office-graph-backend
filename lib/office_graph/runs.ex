@@ -13,7 +13,7 @@ defmodule OfficeGraph.Runs do
     ],
     exports: []
 
-  alias OfficeGraph.Authorization
+  alias OfficeGraph.{Authorization, CommandSupport}
   alias OfficeGraph.Operations
   alias OfficeGraph.Operations.OperationCorrelation
 
@@ -320,24 +320,13 @@ defmodule OfficeGraph.Runs do
   defp run_with_observation_identity_retry(run_action) do
     case run_action.() do
       {:error, %Ash.Error.Invalid{} = error} ->
-        if observation_identity_conflict?(error), do: run_action.(), else: {:error, error}
+        if CommandSupport.unique_constraint?(error, @observation_source_identity_constraint),
+          do: run_action.(),
+          else: {:error, error}
 
       result ->
         result
     end
-  end
-
-  defp observation_identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
-        private_vars = private_vars || []
-
-        Keyword.get(private_vars, :constraint_type) == :unique and
-          Keyword.get(private_vars, :constraint) == @observation_source_identity_constraint
-
-      _other ->
-        false
-    end)
   end
 
   def preflight_observation_idempotency(session_context, operation_idempotency_key, attrs)

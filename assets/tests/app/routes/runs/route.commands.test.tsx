@@ -182,7 +182,10 @@ describe("all-runs route activity and command boundaries", () => {
         return support.runsConnectionResponse([support.runSummary(), secondSummary]);
       }
 
-      if (request.name === "RunDetailQuery" && variables.id === "run_second") {
+      if (
+        request.name === "RunDetailQuery" &&
+        variables.id === support.runRelayId("run_second")
+      ) {
         return support.runDetailResponse(
           support.runState({
             packet: {
@@ -245,9 +248,9 @@ describe("all-runs route activity and command boundaries", () => {
       within(replacementActivity).queryByText("Later execution observation"),
     ).not.toBeInTheDocument();
     expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
-      id: "run_second",
+      id: support.runRelayId("run_second"),
     });
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
+    expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_second"));
   });
 
   it("links packet history to the exact packet route without adding a command", async () => {

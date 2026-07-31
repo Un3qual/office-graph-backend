@@ -32,7 +32,7 @@ describe("all-runs route recovery", () => {
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    support.renderWithRelay(network, support.runPath("run_new"));
 
     expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
     expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("all-runs route recovery", () => {
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    support.renderWithRelay(network, support.runPath("run_new"));
 
     expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -93,7 +93,7 @@ describe("all-runs route recovery", () => {
       screen.getByRole("button", { name: /Review the newest authorized run/i }),
     ).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+    expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_new"));
 
     fireEvent.click(screen.getByRole("button", { name: "Retry run page" }));
 
@@ -101,7 +101,7 @@ describe("all-runs route recovery", () => {
       await screen.findByRole("button", { name: /Recovered next-page run/i }),
     ).toBeInTheDocument();
     expect(continuationAttempts).toBe(2);
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+    expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_new"));
   });
 
   it("returns to the previous run page when a committed list page fails", async () => {

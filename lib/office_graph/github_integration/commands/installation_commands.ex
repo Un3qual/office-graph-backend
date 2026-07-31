@@ -459,23 +459,12 @@ defmodule OfficeGraph.GitHubIntegration.InstallationCommands do
   defp run_with_identity_retry(action) do
     case action.() do
       {:error, %Ash.Error.Invalid{} = error} ->
-        if identity_conflict?(error), do: action.(), else: {:error, error}
+        if CommandSupport.unique_constraint?(error, @identity_constraints),
+          do: action.(),
+          else: {:error, error}
 
       result ->
         result
     end
-  end
-
-  defp identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
-        private_vars = private_vars || []
-
-        Keyword.get(private_vars, :constraint_type) == :unique and
-          Keyword.get(private_vars, :constraint) in @identity_constraints
-
-      _other ->
-        false
-    end)
   end
 end

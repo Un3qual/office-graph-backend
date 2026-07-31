@@ -63,7 +63,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
          {:ok, %Session{} = session} <-
            Ash.get(Session, session_id, authorize?: false, not_found_error?: false),
          :ok <- validate_session_record(session),
-         :ok <-
+         {:ok, principal} <-
            validate_principal(
              Ash.get(Principal, session.principal_id,
                authorize?: false,
@@ -71,7 +71,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
              ),
              session
            ),
-         :ok <-
+         {:ok, external_identity_link} <-
            validate_external_identity_link(
              Ash.get(ExternalIdentityLink, session.external_identity_link_id,
                authorize?: false,
@@ -84,7 +84,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
              validate_workspace_scope(session.organization_id, session.workspace_id),
              session
            ) do
-      {:ok, context(session)}
+      {:ok, context(session, principal, external_identity_link)}
     else
       {:reject, session, reason} ->
         reject_session(session, reason, opts)
@@ -271,7 +271,11 @@ defmodule OfficeGraph.Identity.HumanSessions do
 
   defp validate_session_record(_session), do: {:error, :invalid_session}
 
-  defp validate_principal({:ok, %Principal{kind: "human", status: "active"}}, _session), do: :ok
+  defp validate_principal(
+         {:ok, %Principal{kind: "human", status: "active"} = principal},
+         _session
+       ),
+       do: {:ok, principal}
 
   defp validate_principal({:ok, _inactive_or_missing}, session),
     do: {:reject, session, "principal_disabled"}
@@ -284,10 +288,10 @@ defmodule OfficeGraph.Identity.HumanSessions do
             principal_id: principal_id,
             status: "active",
             linking_state: "linked"
-          }},
+          } = external_identity_link},
          %Session{principal_id: principal_id}
        ),
-       do: :ok
+       do: {:ok, external_identity_link}
 
   defp validate_external_identity_link({:ok, _inactive_or_missing}, %Session{} = session),
     do: {:reject, session, "identity_disabled"}
@@ -304,7 +308,9 @@ defmodule OfficeGraph.Identity.HumanSessions do
 
   defp reject_session(session, reason, opts), do: reject(context(session), reason, opts)
 
-  defp context(session) do
+  defp context(session), do: context(session, nil, nil)
+
+  defp context(session, principal, external_identity_link) do
     %SessionContext{
       principal_id: session.principal_id,
       session_id: session.id,
@@ -313,10 +319,33 @@ defmodule OfficeGraph.Identity.HumanSessions do
       external_identity_link_id: session.external_identity_link_id,
       enterprise_connection_id: session.enterprise_connection_id,
       authentication_method: session.authentication_method,
+      authentication_basis:
+        authentication_basis(session.authentication_method, principal, external_identity_link),
       capabilities: MapSet.new(),
       trusted?: false
     }
   end
+
+  defp authentication_basis(
+         "local_development",
+         %Principal{} = principal,
+         %ExternalIdentityLink{} = external_identity_link
+       ) do
+    %{
+      provider: external_identity_link.provider,
+      provider_tenant: external_identity_link.provider_tenant,
+      subject: external_identity_link.subject,
+      verified_email: external_identity_link.verified_email,
+      principal_email: principal.email,
+      principal_kind: principal.kind,
+      principal_status: principal.status,
+      link_status: external_identity_link.status,
+      linking_state: external_identity_link.linking_state
+    }
+  end
+
+  defp authentication_basis(_authentication_method, _principal, _external_identity_link),
+    do: nil
 
   defp event_attrs(attrs) do
     attrs

@@ -153,12 +153,12 @@ describe("all-runs route reads", () => {
 
     await waitFor(() => {
       expect(support.lastVariablesFor(network, "RunDetailQuery")).toEqual({
-        id: "run_new",
+        id: support.runRelayId("run_new"),
         activityFirst: 5,
       });
     });
     await waitFor(() => {
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+      expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_new"));
     });
     expect(
       screen.getByRole("button", { name: /Review the newest authorized run/i }),
@@ -184,14 +184,16 @@ describe("all-runs route reads", () => {
       },
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_selected");
+    support.renderWithRelay(network, support.runPath("run_selected"));
 
     await waitFor(() => {
       expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
-        id: "run_selected",
+        id: support.runRelayId("run_selected"),
       });
     });
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_selected");
+    expect(screen.getByTestId("route-location")).toHaveTextContent(
+      support.runPath("run_selected"),
+    );
     expect(await screen.findByRole("button", { name: /Explicitly selected run/i })).toHaveAttribute(
       "aria-current",
       "true",
@@ -261,14 +263,16 @@ describe("all-runs route reads", () => {
     support.renderWithRelay(network);
 
     await waitFor(() => {
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_new");
+      expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_new"));
     });
     fireEvent.click(await screen.findByRole("button", { name: /Second visible run/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        support.runPath("run_second"),
+      );
       expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
-        id: "run_second",
+        id: support.runRelayId("run_second"),
       });
     });
   });
@@ -381,7 +385,9 @@ describe("all-runs route reads", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return variables.id === "run_second" ? replacement.promise : support.runDetailResponse();
+        return variables.id === support.runRelayId("run_second")
+          ? replacement.promise
+          : support.runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);

@@ -2,6 +2,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
   @moduledoc false
 
   alias OfficeGraph.Identity.{ExternalIdentityLink, ReconciliationResult}
+  alias OfficeGraph.CommandSupport
 
   @storage_exceptions [
     DBConnection.ConnectionError,
@@ -85,7 +86,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
 
     case run_reconciliation_action(input) do
       {:error, %Ash.Error.Invalid{} = error} ->
-        if provider_subject_conflict?(error) do
+        if CommandSupport.unique_constraint?(error, @provider_subject_constraint) do
           run_reconciliation_action(input)
         else
           {:error, error}
@@ -100,17 +101,6 @@ defmodule OfficeGraph.Identity.ExternalIdentityReconciliation do
     ExternalIdentityLink
     |> Ash.ActionInput.for_action(:reconcile_oidc_identity, input)
     |> Ash.run_action(authorize?: false)
-  end
-
-  defp provider_subject_conflict?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
-        Keyword.get(private_vars, :constraint_type) == :unique and
-          Keyword.get(private_vars, :constraint) == @provider_subject_constraint
-
-      _other ->
-        false
-    end)
   end
 
   defp normalize_result({:ok, %ReconciliationResult{} = result}) do

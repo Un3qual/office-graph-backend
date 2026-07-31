@@ -172,6 +172,44 @@ describe("operator command workflow", () => {
     });
   });
 
+  it("remains idle and accepts a later command when Relay ID translation fails", () => {
+    const request = deferredRequest();
+    const environment = relayEnvironment(request.fetch);
+    const { result } = renderHook(() => useCreateWorkPacketCommand(), {
+      wrapper: relayWrapper(environment),
+    });
+    const input = {
+      autonomyPosture: "human_supervised",
+      contextSummary: "Context",
+      idempotencyKey: "packet-translation-retry",
+      objective: "Objective",
+      requirements: "Requirements",
+      sourceGraphItemIds: ["dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrLTE="],
+      successCriteria: "Success",
+      title: "Packet",
+      verificationCheckIds: ["check-1"],
+    };
+
+    expect(() => {
+      act(() => result.current.submit(input));
+    }).toThrow("Expected a graph_item Relay ID, received verification_check.");
+
+    expect(result.current.state).toEqual({ status: "idle" });
+
+    let accepted = false;
+
+    act(() => {
+      accepted = result.current.submit({
+        ...input,
+        sourceGraphItemIds: ["graph-item-1"],
+      });
+    });
+
+    expect(accepted).toBe(true);
+    expect(result.current.state).toEqual({ status: "pending" });
+    expect(request.name).toBe("OperatorCreateWorkPacketMutation");
+  });
+
   it("maps work-packet creation results", async () => {
     const result = {
       packet: {

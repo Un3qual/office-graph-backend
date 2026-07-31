@@ -96,12 +96,14 @@ export function useCommandMutation<TMutation extends MutationParameters, TInput,
         return false;
       }
 
+      const variables = config.toVariables(input);
+
       pending.current = true;
       setState({ status: "pending" });
 
       activeRequest.current = commitMutation<TMutation>(environment, {
         mutation: config.mutation,
-        variables: config.toVariables(input),
+        variables,
         onCompleted(response, errors) {
           pending.current = false;
           activeRequest.current = null;

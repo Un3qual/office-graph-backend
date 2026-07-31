@@ -1,10 +1,10 @@
 ## 1. Correctness Regressions
 
-- [ ] 1.1 Add failing active-deprovisioned-active WorkOS directory and SSO lifecycle tests, then restore only the exact retained identity and eligible principal in the owning transaction
-- [ ] 1.2 Add a failing Relay command-controller test for synchronous variable translation errors, then keep pending state recoverable
-- [ ] 1.3 Add failing error-classification and nil-private-metadata tests, then centralize constraint matching and preserve non-storage conversation action failures
-- [ ] 1.4 Add equal-timestamp operator-history and opaque run-identity fixtures, then restore timestamp-plus-ID ordering and the generated Relay Node contract
-- [ ] 1.5 Add a local-session revalidation query-bound test, then reuse the exact identity basis loaded during human-session resolution
+- [x] 1.1 Add failing active-deprovisioned-active WorkOS directory and SSO lifecycle tests, then restore only the exact retained identity and eligible principal in the owning transaction
+- [x] 1.2 Add a failing Relay command-controller test for synchronous variable translation errors, then keep pending state recoverable
+- [x] 1.3 Add failing error-classification and nil-private-metadata tests, then centralize constraint matching and preserve non-storage conversation action failures
+- [x] 1.4 Add equal-timestamp operator-history and opaque run-identity fixtures, then restore timestamp-plus-ID ordering and the generated Relay Node contract
+- [x] 1.5 Add a local-session revalidation query-bound test, then reuse the exact identity basis loaded during human-session resolution
 
 ## 2. Test Persistence Simplification
 

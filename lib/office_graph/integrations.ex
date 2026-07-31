@@ -15,7 +15,7 @@ defmodule OfficeGraph.Integrations do
 
   require Ash.Query
 
-  alias OfficeGraph.Authorization
+  alias OfficeGraph.{Authorization, CommandSupport}
 
   alias OfficeGraph.Integrations.{
     ExternalSource,
@@ -229,24 +229,13 @@ defmodule OfficeGraph.Integrations do
   defp with_identity_retry(run, constraint) do
     case run.() do
       {:error, %Ash.Error.Invalid{} = error} ->
-        if identity_conflict?(error, constraint), do: run.(), else: {:error, error}
+        if CommandSupport.unique_constraint?(error, constraint),
+          do: run.(),
+          else: {:error, error}
 
       result ->
         result
     end
-  end
-
-  defp identity_conflict?(%Ash.Error.Invalid{errors: errors}, constraints) do
-    constraints = List.wrap(constraints)
-
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
-        Keyword.get(private_vars, :constraint_type) == :unique and
-          Keyword.get(private_vars, :constraint) in constraints
-
-      _other ->
-        false
-    end)
   end
 
   defp validate_manual_intake_attrs(attrs) do

@@ -3,7 +3,11 @@ defmodule OfficeGraph.Identity do
   Public boundary for principals, profiles, credentials, and local bootstrap identity.
   """
 
-  use Boundary, deps: [OfficeGraph.Tenancy], exports: [SessionContext]
+  use Boundary,
+    deps: [OfficeGraph.CommandSupport, OfficeGraph.Tenancy],
+    exports: [SessionContext]
+
+  alias OfficeGraph.CommandSupport
 
   alias OfficeGraph.Identity.{
     ExternalIdentityReconciliation,
@@ -418,22 +422,13 @@ defmodule OfficeGraph.Identity do
   defp with_identity_retry(fun) do
     case fun.() do
       {:error, %Ash.Error.Invalid{} = error} ->
-        if identity_conflict?(error), do: fun.(), else: {:error, error}
+        if CommandSupport.unique_constraint?(error, @identity_constraints),
+          do: fun.(),
+          else: {:error, error}
 
       result ->
         result
     end
-  end
-
-  defp identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
-        Keyword.get(private_vars, :constraint_type) == :unique and
-          Keyword.get(private_vars, :constraint) in @identity_constraints
-
-      _other ->
-        false
-    end)
   end
 
   defp normalize_identity_write({:ok, result}), do: {:ok, result}

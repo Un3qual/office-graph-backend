@@ -18,6 +18,22 @@ defmodule OfficeGraph.CommandSupport do
   def record_without_notifications({record, _notifications}), do: record
   def record_without_notifications(record), do: record
 
+  def unique_constraint?(%Ash.Error.Invalid{errors: errors}, constraints) do
+    constraints = constraints |> List.wrap() |> MapSet.new()
+
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}
+      when is_list(private_vars) ->
+        Keyword.get(private_vars, :constraint_type) == :unique and
+          MapSet.member?(constraints, Keyword.get(private_vars, :constraint))
+
+      _other ->
+        false
+    end)
+  end
+
+  def unique_constraint?(_error, _constraints), do: false
+
   defp unwrap_action_error(%Ash.Error.Unknown{
          errors: [
            %Ash.Error.Unknown.UnknownError{
