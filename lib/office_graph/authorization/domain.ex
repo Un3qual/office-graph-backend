@@ -8,9 +8,24 @@ defmodule OfficeGraph.Authorization.Domain do
       define :setup_reference_data, action: :setup_catalog
     end
 
-    resource OfficeGraph.Authorization.Role
-    resource OfficeGraph.Authorization.RoleCapability
-    resource OfficeGraph.Authorization.RoleAssignment
+    resource OfficeGraph.Authorization.Role do
+      define :local_development_login_roles,
+        action: :read_for_local_development_login,
+        args: [:role_ids]
+    end
+
+    resource OfficeGraph.Authorization.RoleCapability do
+      define :local_development_login_role_capabilities,
+        action: :read_for_local_development_login,
+        args: [:role_ids]
+    end
+
+    resource OfficeGraph.Authorization.RoleAssignment do
+      define :local_development_login_assignments,
+        action: :read_for_local_development_login,
+        args: [:principal_id]
+    end
+
     resource OfficeGraph.Authorization.PolicyBundle
     resource OfficeGraph.Authorization.AuthorizationDecision
   end

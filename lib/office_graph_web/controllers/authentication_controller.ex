@@ -7,13 +7,24 @@ defmodule OfficeGraphWeb.AuthenticationController do
   @logged_out_path "/auth/logged-out"
 
   def login(conn, params) do
-    return_to = ReturnTarget.safe(params["return_to"])
+    return_to = login_return_target(conn, params)
 
     if params["provider"] == "oidc" or not LocalDevelopmentPlug.available?(conn) do
       begin_oidc_login(conn, return_to)
     else
       render_local_development_login(conn, return_to)
     end
+  end
+
+  defp login_return_target(conn, params) do
+    requested_return_to =
+      case params do
+        %{"return_to" => return_to} -> return_to
+        %{"provider" => "oidc"} -> get_session(conn, :authentication_return_to)
+        _params -> nil
+      end
+
+    ReturnTarget.safe(requested_return_to)
   end
 
   defp begin_oidc_login(conn, return_to) do

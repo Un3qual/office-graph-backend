@@ -47,6 +47,13 @@ defmodule OfficeGraph.Authorization.RoleCapability do
       public? false
     end
 
+    read :read_for_local_development_login do
+      public? false
+
+      argument :role_ids, {:array, :uuid}, allow_nil?: false
+      filter expr(role_id in ^arg(:role_ids))
+    end
+
     create :create do
       accept [:id, :role_id, :capability_id]
     end
@@ -67,5 +74,11 @@ defmodule OfficeGraph.Authorization.RoleCapability do
 
   identities do
     identity :unique_role_capability, [:role_id, :capability_id]
+  end
+
+  policies do
+    policy action(:read_for_local_development_login) do
+      authorize_if always()
+    end
   end
 end

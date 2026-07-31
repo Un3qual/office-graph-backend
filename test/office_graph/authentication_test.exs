@@ -5,7 +5,7 @@ defmodule OfficeGraph.AuthenticationTest do
   alias OfficeGraph.Authentication.OidcClient.TestAdapter
   alias OfficeGraph.Authentication.OidcClient.Oidcc
   alias OfficeGraph.Authorization
-  alias OfficeGraph.Authorization.{Role, RoleAssignment}
+  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity
 
@@ -551,6 +551,56 @@ defmodule OfficeGraph.AuthenticationTest do
 
       assert disabled_event.principal_id ==
                seeded.fixtures["deprovisioned_member"].identity.principal.id
+    end
+
+    test "rejects a fixture whose role assignments have drifted" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-role-assignment-drift")
+      member = seeded.fixtures["member"]
+      admin = seeded.fixtures["workspace_admin"]
+
+      Ash.create!(
+        RoleAssignment,
+        %{
+          principal_id: member.identity.principal.id,
+          role_id: admin.role_assignment.role_id,
+          organization_id: seeded.bootstrap.organization.id,
+          workspace_id: seeded.bootstrap.workspace.id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      assert {:error, :local_development_fixture_missing} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-role-assignment-drift",
+                 source_surface: "web"
+               )
+    end
+
+    test "rejects a fixture whose role capability profile has drifted" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-role-capability-drift")
+      member = seeded.fixtures["member"]
+
+      capability =
+        Ash.get!(Capability, %{key: "proposed_change.apply"}, authorize?: false)
+
+      Ash.create!(
+        RoleCapability,
+        %{
+          role_id: member.role_assignment.role_id,
+          capability_id: capability.id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      assert {:error, :local_development_fixture_missing} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-role-capability-drift",
+                 source_surface: "web"
+               )
     end
 
     test "revokes a local session when the development provider is disabled" do

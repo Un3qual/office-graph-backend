@@ -257,7 +257,11 @@ defmodule OfficeGraph.Authentication do
          {:ok, linked} <- Identity.local_development_identity(fixture) do
       result =
         with :ok <- validate_local_development_identity(linked),
-             {:ok, scope} <- Authorization.resolve_login_scope(linked.principal.id),
+             {:ok, scope} <-
+               Authorization.resolve_local_development_login_scope(
+                 linked.principal.id,
+                 fixture
+               ),
              {:ok, issued} <-
                Identity.issue_human_session(
                  linked.principal,

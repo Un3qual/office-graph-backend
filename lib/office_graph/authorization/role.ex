@@ -254,6 +254,13 @@ defmodule OfficeGraph.Authorization.Role do
   actions do
     defaults [:read]
 
+    read :read_for_local_development_login do
+      public? false
+
+      argument :role_ids, {:array, :uuid}, allow_nil?: false
+      filter expr(id in ^arg(:role_ids))
+    end
+
     create :create do
       accept [:id, :organization_id, :key, :name]
     end
@@ -335,8 +342,12 @@ defmodule OfficeGraph.Authorization.Role do
   end
 
   policies do
-    policy action_type(:read) do
+    policy action(:read) do
       authorize_if expr(organization_id == ^actor(:organization_id))
+    end
+
+    policy action(:read_for_local_development_login) do
+      authorize_if always()
     end
   end
 end

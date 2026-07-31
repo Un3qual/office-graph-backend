@@ -268,10 +268,15 @@ defmodule OfficeGraphWeb.AuthenticationControllerTest do
     assert redirected_to(oidc_conn) == "https://authentik.office-graph.local/authorize"
   end
 
-  test "explicit OIDC selection remains available from the development chooser", %{conn: conn} do
+  test "optional OIDC selection preserves the development chooser return target", %{conn: conn} do
     enable_local_development_authentication()
 
-    conn = get(conn, ~p"/auth/login?provider=oidc&return_to=/runs")
+    chooser_conn = get(conn, ~p"/auth/login?return_to=/runs")
+
+    conn =
+      chooser_conn
+      |> recycle()
+      |> get(~p"/auth/login?provider=oidc")
 
     assert redirected_to(conn) == "https://authentik.office-graph.local/authorize"
     assert get_session(conn, :oidc_login_transaction).return_to == "/runs"

@@ -68,6 +68,13 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
   actions do
     defaults [:read]
 
+    read :read_for_local_development_login do
+      public? false
+
+      argument :principal_id, :uuid, allow_nil?: false
+      filter expr(principal_id == ^arg(:principal_id))
+    end
+
     create :create do
       accept [:id, :principal_id, :role_id, :organization_id, :workspace_id]
     end
@@ -92,12 +99,16 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
   end
 
   policies do
-    policy action_type(:read) do
+    policy action(:read) do
       authorize_if expr(
                      principal_id == ^actor(:principal_id) and
                        organization_id == ^actor(:organization_id) and
                        (is_nil(workspace_id) or workspace_id == ^actor(:workspace_id))
                    )
+    end
+
+    policy action(:read_for_local_development_login) do
+      authorize_if always()
     end
   end
 end

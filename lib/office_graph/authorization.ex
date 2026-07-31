@@ -8,6 +8,7 @@ defmodule OfficeGraph.Authorization do
   alias OfficeGraph.Authorization.{
     Capability,
     DecisionStore,
+    Domain,
     Persistence,
     PolicyBundle,
     ReferenceCatalog,
@@ -79,6 +80,32 @@ defmodule OfficeGraph.Authorization do
 
   def ensure_local_development_role(_principal, _tenant, _fixture),
     do: {:error, :forbidden}
+
+  def resolve_local_development_login_scope(principal_id, fixture)
+      when is_binary(principal_id) and is_map(fixture) do
+    with {:ok, role_key, expected_capability_keys} <-
+           local_development_role_facts(fixture),
+         :ok <- Persistence.before_read(:login_scope),
+         {:ok, assignments, roles, role_capabilities} <-
+           local_development_assignment_facts(principal_id),
+         {:ok, scope} <-
+           exact_local_development_scope(
+             assignments,
+             roles,
+             role_capabilities,
+             role_key,
+             expected_capability_keys
+           ),
+         :ok <- reject_external_local_development_roles(principal_id) do
+      {:ok, scope}
+    else
+      {:error, :authorization_storage_unavailable} = error -> error
+      _missing_or_drifted -> {:error, :local_development_fixture_missing}
+    end
+  end
+
+  def resolve_local_development_login_scope(_principal_id, _fixture),
+    do: {:error, :local_development_fixture_missing}
 
   def authorize(session_context, action, opts \\ [])
 
@@ -555,6 +582,83 @@ defmodule OfficeGraph.Authorization do
 
   defp normalize_exists_result({:error, _storage_error}),
     do: {:error, :integration_storage_unavailable}
+
+  defp local_development_role_facts(fixture) do
+    role_profile = fixture[:role_profile]
+    role_key = fixture[:role_key]
+
+    with true <- fixture[:scope] == :workspace,
+         true <- role_profile in [:owner, :workspace_admin, :member],
+         true <- is_binary(role_key) and role_key == Atom.to_string(role_profile),
+         {:ok, capability_keys} <-
+           local_development_capability_keys(role_profile, fixture[:actions]) do
+      {:ok, role_key, capability_keys}
+    else
+      _invalid_fixture -> {:error, :local_development_fixture_missing}
+    end
+  end
+
+  defp local_development_capability_keys(:owner, _actions) do
+    {:ok, @owner_capabilities |> Map.values() |> Enum.sort()}
+  end
+
+  defp local_development_capability_keys(_role_profile, actions),
+    do: ReferenceCatalog.capability_keys(actions)
+
+  defp local_development_assignment_facts(principal_id) do
+    with {:ok, assignments} <- Domain.local_development_login_assignments(principal_id),
+         role_ids <- assignments |> Enum.map(& &1.role_id) |> Enum.uniq(),
+         {:ok, roles} <- Domain.local_development_login_roles(role_ids),
+         {:ok, role_capabilities} <-
+           Domain.local_development_login_role_capabilities(role_ids, load: :capability) do
+      {:ok, assignments, roles, role_capabilities}
+    else
+      {:error, _storage_error} -> {:error, :authorization_storage_unavailable}
+    end
+  end
+
+  defp exact_local_development_scope(
+         [
+           %RoleAssignment{
+             role_id: role_id,
+             organization_id: organization_id,
+             workspace_id: workspace_id
+           }
+         ],
+         [%Role{id: role_id, organization_id: organization_id, key: role_key}],
+         role_capabilities,
+         role_key,
+         expected_capability_keys
+       )
+       when is_binary(organization_id) and is_binary(workspace_id) do
+    actual_capability_keys =
+      Enum.map(role_capabilities, fn %RoleCapability{capability: capability} ->
+        capability.key
+      end)
+
+    if MapSet.new(actual_capability_keys) == MapSet.new(expected_capability_keys) do
+      {:ok, %{organization_id: organization_id, workspace_id: workspace_id}}
+    else
+      {:error, :local_development_fixture_missing}
+    end
+  end
+
+  defp exact_local_development_scope(
+         _missing_or_drifted_assignments,
+         _missing_or_drifted_roles,
+         _role_capabilities,
+         _role_key,
+         _expected_capability_keys
+       ),
+       do: {:error, :local_development_fixture_missing}
+
+  defp reject_external_local_development_roles(principal_id) do
+    case external_role_facts().login_scopes(principal_id) do
+      {:ok, []} -> :ok
+      {:ok, _external_scopes} -> {:error, :local_development_fixture_missing}
+      {:error, _storage_error} -> {:error, :authorization_storage_unavailable}
+    end
+  end
 
   defp select_login_scope([], _preferred_scope), do: {:error, :no_login_scope}
   defp select_login_scope([scope], nil), do: {:ok, scope}
