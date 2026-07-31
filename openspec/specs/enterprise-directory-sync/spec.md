@@ -104,7 +104,8 @@ a present field whose type, length, or normalized value is invalid.
 ### Requirement: Directory deliveries are replay-safe and ordered
 
 Office Graph SHALL process one logical WorkOS directory event once and SHALL
-not allow stale provider state to overwrite a newer accepted state.
+not allow stale or earlier accepted provider state to overwrite a newer
+accepted state.
 
 #### Scenario: Identical event is delivered twice
 
@@ -125,6 +126,14 @@ not allow stale provider state to overwrite a newer accepted state.
   than the current accepted record
 - **THEN** Office Graph MUST preserve the newer state and complete the older
   event with a bounded stale result
+
+#### Scenario: Distinct events have equal provider timestamps
+
+- **WHEN** distinct user, group, or membership events have the same provider
+  update time
+- **THEN** Office Graph MUST use durable receipt order and provider event
+  identity as a deterministic tie-breaker so the later accepted state wins
+  regardless of worker execution order
 
 #### Scenario: Worker fails after receipt
 

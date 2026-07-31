@@ -118,6 +118,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Directory do
 
       argument :directory_id, :uuid, allow_nil?: false
       argument :operation_id, :uuid, allow_nil?: false
+      argument :provider_received_at, :utc_datetime_usec, allow_nil?: false
 
       argument :event,
                OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent,

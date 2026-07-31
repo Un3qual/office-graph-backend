@@ -24,6 +24,8 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryGroup do
     attribute :name, :string, allow_nil?: false, public?: true
     attribute :status, :string, allow_nil?: false, public?: true
     attribute :provider_updated_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :provider_received_at, :utc_datetime_usec, public?: true
+    attribute :provider_event_id, :string, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -52,13 +54,31 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryGroup do
 
     create :create do
       public? false
-      accept [:id, :directory_id, :provider_group_id, :name, :status, :provider_updated_at]
+
+      accept [
+        :id,
+        :directory_id,
+        :provider_group_id,
+        :name,
+        :status,
+        :provider_updated_at,
+        :provider_received_at,
+        :provider_event_id
+      ]
+
       validate one_of(:status, ~w(active deleted))
     end
 
     update :synchronize do
       public? false
-      accept [:name, :status, :provider_updated_at]
+
+      accept [
+        :name,
+        :status,
+        :provider_updated_at,
+        :provider_received_at,
+        :provider_event_id
+      ]
 
       validate one_of(:status, ~w(active deleted)),
         where: [changing(:status)]

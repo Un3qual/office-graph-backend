@@ -49,7 +49,8 @@ defmodule OfficeGraph.EnterpriseIdentity do
     |> Ash.ActionInput.for_action(:apply_event, %{
       directory_id: directory_id,
       event: event,
-      operation_id: operation_id
+      operation_id: operation_id,
+      provider_received_at: event.provider_occurred_at
     })
     |> Ash.run_action(authorize?: false)
     |> ActionSupport.normalize_action_result()

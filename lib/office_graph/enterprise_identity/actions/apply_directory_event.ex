@@ -21,10 +21,12 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     event = input.arguments.event
 
     result =
-      with {:ok, directory} <- locked_directory(input.arguments.directory_id),
+      with {:ok, event_order} <-
+             event_order(event.provider_event_id, input.arguments.provider_received_at),
+           {:ok, directory} <- locked_directory(input.arguments.directory_id),
            {:ok, operation} <- Operations.lock_operation(input.arguments.operation_id),
            :ok <- validate_operation(directory, operation) do
-        apply_event(directory, event)
+        apply_event(directory, event, event_order)
       end
 
     case result do
@@ -33,33 +35,34 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     end
   end
 
-  defp apply_event(directory, %{resource_kind: :user, data: data}),
-    do: apply_user(directory, data)
+  defp apply_event(directory, %{resource_kind: :user, data: data}, event_order),
+    do: apply_user(directory, data, event_order)
 
-  defp apply_event(directory, %{resource_kind: :group, data: data}),
-    do: apply_group(directory, data)
+  defp apply_event(directory, %{resource_kind: :group, data: data}, event_order),
+    do: apply_group(directory, data, event_order)
 
-  defp apply_event(directory, %{resource_kind: :membership, data: data}),
-    do: apply_membership(directory, data)
+  defp apply_event(directory, %{resource_kind: :membership, data: data}, event_order),
+    do: apply_membership(directory, data, event_order)
 
-  defp apply_event(_directory, _event), do: {:error, :unsupported_event}
+  defp apply_event(_directory, _event, _event_order), do: {:error, :unsupported_event}
 
-  defp apply_user(directory, data) do
+  defp apply_user(directory, data, event_order) do
     with {:ok, data} <- normalize_user_data(data),
          {:ok, current} <- locked_directory_user(directory.id, data.provider_user_id) do
-      if stale?(current, data.provider_updated_at) do
+      if stale?(current, data.provider_updated_at, event_order) do
         DirectoryApplyResult.stale(current)
       else
-        synchronize_user(directory, current, data)
+        synchronize_user(directory, current, data, event_order)
       end
     end
   end
 
-  defp synchronize_user(directory, current, %{status: "active"} = data) do
+  defp synchronize_user(directory, current, %{status: "active"} = data, event_order) do
     case reconcile_active_user(directory, current, data) do
       {:ok, principal, link, principal_origin} ->
         attrs =
           user_attrs(data)
+          |> Map.merge(event_order)
           |> Map.merge(%{
             status: "active",
             review_reason: nil,
@@ -75,6 +78,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
       {:review, reason} ->
         attrs =
           user_attrs(data)
+          |> Map.merge(event_order)
           |> Map.merge(%{
             status: "review_required",
             review_reason: reason,
@@ -94,9 +98,10 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     end
   end
 
-  defp synchronize_user(directory, nil, data) do
+  defp synchronize_user(directory, nil, data, event_order) do
     data
     |> user_attrs()
+    |> Map.merge(event_order)
     |> Map.merge(%{
       status: data.status,
       review_reason: nil,
@@ -108,10 +113,11 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     |> map_resource_result(&DirectoryApplyResult.applied/1)
   end
 
-  defp synchronize_user(directory, current, data) do
+  defp synchronize_user(directory, current, data, event_order) do
     with :ok <- disable_workos_identity_basis(directory, current, data.provider_updated_at) do
       data
       |> user_attrs()
+      |> Map.merge(event_order)
       |> Map.merge(%{
         status: data.status,
         review_reason: nil,
@@ -214,14 +220,14 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     |> consume_notifications()
   end
 
-  defp apply_group(directory, data) do
+  defp apply_group(directory, data, event_order) do
     with {:ok, data} <- normalize_group_data(data),
          {:ok, current} <- locked_directory_group(directory.id, data.provider_group_id) do
-      if stale?(current, data.provider_updated_at) do
+      if stale?(current, data.provider_updated_at, event_order) do
         DirectoryApplyResult.stale(current)
       else
         current
-        |> persist_group(directory.id, data)
+        |> persist_group(directory.id, Map.merge(data, event_order))
         |> map_resource_result(&DirectoryApplyResult.applied/1)
       end
     end
@@ -267,7 +273,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
     |> consume_notifications()
   end
 
-  defp apply_membership(directory, data) do
+  defp apply_membership(directory, data, event_order) do
     with {:ok, data} <- normalize_membership_data(data),
          {:ok, user} <-
            membership_directory_user(
@@ -282,21 +288,21 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
              data.status
            ),
          {:ok, current} <- locked_latest_membership(user.id, group.id) do
-      if stale?(current, data.provider_updated_at) do
+      if stale?(current, data.provider_updated_at, event_order) do
         DirectoryApplyResult.stale(current)
       else
         cond do
           data.status == "active" and active_membership?(current) ->
-            update_membership(current, data)
+            update_membership(current, data, event_order)
 
           data.status == "active" ->
-            create_membership(user.id, group.id, data)
+            create_membership(user.id, group.id, data, event_order)
 
           is_nil(current) ->
             {:error, :directory_dependency_missing}
 
           true ->
-            update_membership(current, data)
+            update_membership(current, data, event_order)
         end
         |> map_resource_result(&DirectoryApplyResult.applied/1)
       end
@@ -322,26 +328,32 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
 
   defp normalize_membership_data(_data), do: {:error, :invalid_directory_event}
 
-  defp create_membership(user_id, group_id, data) do
+  defp create_membership(user_id, group_id, data, event_order) do
     DirectoryMembership
-    |> Ash.Changeset.for_create(:create, %{
-      directory_user_id: user_id,
-      directory_group_id: group_id,
-      status: data.status,
-      provider_updated_at: data.provider_updated_at,
-      removed_at: removed_at(data)
-    })
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(event_order, %{
+        directory_user_id: user_id,
+        directory_group_id: group_id,
+        status: data.status,
+        provider_updated_at: data.provider_updated_at,
+        removed_at: removed_at(data)
+      })
+    )
     |> Ash.create(authorize?: false, return_notifications?: true)
     |> consume_notifications()
   end
 
-  defp update_membership(membership, data) do
+  defp update_membership(membership, data, event_order) do
     membership
-    |> Ash.Changeset.for_update(:set_lifecycle, %{
-      status: data.status,
-      provider_updated_at: data.provider_updated_at,
-      removed_at: removed_at(data)
-    })
+    |> Ash.Changeset.for_update(
+      :set_lifecycle,
+      Map.merge(event_order, %{
+        status: data.status,
+        provider_updated_at: data.provider_updated_at,
+        removed_at: removed_at(data)
+      })
+    )
     |> Ash.update(authorize?: false, return_notifications?: true)
     |> consume_notifications()
   end
@@ -457,17 +469,60 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
   defp locked_latest_membership(user_id, group_id) do
     DirectoryMembership
     |> Ash.Query.filter(directory_user_id == ^user_id and directory_group_id == ^group_id)
-    |> Ash.Query.sort(provider_updated_at: :desc, id: :desc)
+    |> Ash.Query.sort(
+      provider_updated_at: :desc,
+      provider_received_at: :desc_nils_last,
+      provider_event_id: :desc_nils_last,
+      id: :desc
+    )
     |> Ash.Query.limit(1)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(authorize?: false)
   end
 
-  defp stale?(nil, _incoming), do: false
+  defp stale?(nil, _incoming, _event_order), do: false
 
-  defp stale?(%{provider_updated_at: current}, incoming) do
-    DateTime.compare(incoming, current) in [:lt, :eq]
+  defp stale?(%{provider_event_id: provider_event_id}, _incoming, %{
+         provider_event_id: provider_event_id
+       })
+       when is_binary(provider_event_id),
+       do: true
+
+  defp stale?(%{provider_updated_at: current} = record, incoming, event_order) do
+    case DateTime.compare(incoming, current) do
+      :lt -> true
+      :gt -> false
+      :eq -> stale_equal_time?(record, event_order)
+    end
   end
+
+  defp stale_equal_time?(%{provider_received_at: nil}, _event_order), do: false
+
+  defp stale_equal_time?(record, event_order) do
+    case DateTime.compare(event_order.provider_received_at, record.provider_received_at) do
+      :lt -> true
+      :gt -> false
+      :eq -> event_order.provider_event_id <= (record.provider_event_id || "")
+    end
+  end
+
+  defp event_order(provider_event_id, %DateTime{} = provider_received_at)
+       when is_binary(provider_event_id) do
+    case String.trim(provider_event_id) do
+      "" ->
+        {:error, :invalid_directory_event}
+
+      provider_event_id ->
+        {:ok,
+         %{
+           provider_event_id: provider_event_id,
+           provider_received_at: provider_received_at
+         }}
+    end
+  end
+
+  defp event_order(_provider_event_id, _provider_received_at),
+    do: {:error, :invalid_directory_event}
 
   defp optional_string(nil), do: nil
 

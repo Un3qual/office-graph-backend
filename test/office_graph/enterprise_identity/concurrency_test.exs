@@ -146,7 +146,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
     end
   end
 
-  test "separate owners collapse duplicate membership events to one active fact" do
+  test "separate owners serialize equal-time membership events to one active fact" do
     {context, cleanup_attrs} = enterprise_context("membership-race")
     timestamp = ~U[2026-07-29 20:00:00Z]
 
@@ -164,20 +164,24 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
         end)
         |> run_concurrently()
 
-      assert Enum.count(results, &match?({:ok, %{status: :applied}}, &1)) == 1
-      assert Enum.count(results, &match?({:ok, %{status: :stale}}, &1)) == 1
+      assert Enum.all?(
+               results,
+               &match?({:ok, %{status: status}} when status in [:applied, :stale], &1)
+             )
 
-      membership_count =
+      assert Enum.any?(results, &match?({:ok, %{status: :applied}}, &1))
+
+      active_membership =
         with_unboxed_connection(fn ->
           DirectoryMembership
           |> Ash.Query.filter(
             status == "active" and directory_user_id == ^context.user.id and
               directory_group_id == ^context.group.id
           )
-          |> Ash.count!(authorize?: false)
+          |> Ash.read_one!(authorize?: false)
         end)
 
-      assert membership_count == 1
+      assert active_membership.provider_event_id == "membership-event-b"
     after
       cleanup(cleanup_attrs)
     end
@@ -363,7 +367,8 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
          provider_updated_at \\ ~U[2026-07-29 20:00:00Z]
        ) do
     %DirectoryEvent{
-      provider_event_id: "user-event",
+      provider_event_id:
+        "user-event:#{provider_user_id}:#{status}:#{DateTime.to_iso8601(provider_updated_at)}",
       event_type: "dsync.user.created",
       directory_id: "bound-by-action",
       resource_kind: :user,

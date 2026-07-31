@@ -83,7 +83,8 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ProcessDirectorySyncEvent do
     |> Ash.ActionInput.for_action(:apply_event, %{
       directory_id: sync_event.directory_id,
       event: event,
-      operation_id: sync_event.operation_id
+      operation_id: sync_event.operation_id,
+      provider_received_at: sync_event.inserted_at
     })
     |> Ash.run_action(authorize?: false)
   end

@@ -53,6 +53,10 @@ changed fingerprints, and stale inventory entries.
 - **WHEN** verification detects a raw-SQL occurrence that is absent from both the temporary debt inventory and the explicitly approved exception inventory
 - **THEN** verification fails with the occurrence path and construct class
 
+#### Scenario: SQL adapter execution spelling changes
+- **WHEN** tracked code calls a public Postgrex or Ecto SQL-adapter API that queries, prepares, executes, or streams SQL through a fully qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as repository-authored raw SQL
+
 #### Scenario: Existing debt is removed
 - **WHEN** implementation removes or replaces an inventoried raw-SQL or direct-Ecto occurrence
 - **THEN** verification fails until the stale debt entry is removed in the same change

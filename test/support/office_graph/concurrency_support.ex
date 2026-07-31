@@ -68,12 +68,12 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   end
 
   def with_unboxed_connection(fun) do
-    owner = Sandbox.start_owner!(Repo, sandbox: false)
+    :ok = Sandbox.checkout(Repo, sandbox: false)
 
     try do
       fun.()
     after
-      Sandbox.stop_owner(owner)
+      Sandbox.checkin(Repo)
     end
   end
 

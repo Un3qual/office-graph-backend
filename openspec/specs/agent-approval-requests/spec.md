@@ -58,6 +58,13 @@ authority snapshot, and operation.
 - **THEN** Office Graph MUST durably mark the request expired and terminalize
   the waiting execution instead of leaving it stuck
 
+#### Scenario: Expiry persistence is unavailable at the attempt limit
+
+- **WHEN** the unique gate-expiry job reaches its nominal attempt limit but
+  storage or durable-event persistence is temporarily unavailable
+- **THEN** the same job MUST remain retryable without creating a second expiry
+  job or leaving the request permanently pending
+
 #### Scenario: Waiting execution is cancelled
 
 - **WHEN** an operator cancels an execution waiting on an approval or context

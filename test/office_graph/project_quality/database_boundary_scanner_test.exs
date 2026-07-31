@@ -168,6 +168,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
             def load(query, connection) do
               Ecto.Adapters.SQL.query(OfficeGraph.Repo, "SELECT 1", [])
+              Ecto.Adapters.SQL.query_many(OfficeGraph.Repo, "SELECT 1; SELECT 2", [])
+              Ecto.Adapters.SQL.query_many!(OfficeGraph.Repo, "SELECT 3; SELECT 4", [])
+              Ecto.Adapters.SQL.stream(OfficeGraph.Repo, "SELECT 5", [])
               Postgrex.query(connection, "SELECT 2", [])
               where(query, [row], fragment("lower(?)", row.name) == "name")
               {:unsafe_fragment, "(organization_id) WHERE workspace_id IS NULL"}
@@ -180,6 +183,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
              MapSet.new([
                {:raw_sql, "Ecto.Adapters.SQL.query"},
+               {:raw_sql, "Ecto.Adapters.SQL.query_many"},
+               {:raw_sql, "Ecto.Adapters.SQL.query_many!"},
+               {:raw_sql, "Ecto.Adapters.SQL.stream"},
                {:raw_sql, "Postgrex.query"},
                {:raw_sql, "fragment"},
                {:raw_sql, "unsafe_fragment"}
@@ -208,6 +214,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
              {:raw_sql, "Ecto.Query.API.fragment", 5},
              {:raw_sql, "Ecto.Query.API.unsafe_fragment", 6}
+           ]
+  end
+
+  test "classifies every Postgrex SQL preparation and execution spelling" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Postgrex, as: Pg
+            import Postgrex, only: [prepare_execute: 5]
+
+            def run(connection, query) do
+              Postgrex.prepare(connection, "one", "SELECT 1")
+              Pg.prepare!(connection, "two", "SELECT 2")
+              prepare_execute(connection, "three", "SELECT 3", [], [])
+              Postgrex.prepare_execute!(connection, "four", "SELECT 4", [])
+              Pg.execute(connection, query, [])
+              Postgrex.execute!(connection, query, [])
+              Pg.stream(connection, "SELECT 5", [])
+              Example.Postgrex.prepare(connection, "not-sql", "ignored")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line}) == [
+             {"Postgrex.prepare", 6},
+             {"Postgrex.prepare!", 7},
+             {"Postgrex.prepare_execute", 8},
+             {"Postgrex.prepare_execute!", 9},
+             {"Postgrex.execute", 10},
+             {"Postgrex.execute!", 11},
+             {"Postgrex.stream", 12}
            ]
   end
 

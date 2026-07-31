@@ -119,6 +119,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Postgrex"
   ]
 
+  @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
+
+  @postgrex_raw_sql_operations [
+    :execute,
+    :execute!,
+    :prepare,
+    :prepare!,
+    :prepare_execute,
+    :prepare_execute!,
+    :query,
+    :query!,
+    :stream
+  ]
+
   defp scan_node({:__block__, _metadata, expressions}, environment, context, occurrences) do
     scan_sequence(expressions, environment, context, occurrences)
   end
@@ -284,7 +298,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       operation in [:query, :query!] and repo_receiver?(receiver) ->
         {:raw_sql, "Repo.#{operation}"}
 
-      operation in [:query, :query!] and receiver in ["Ecto.Adapters.SQL", "Postgrex"] ->
+      receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_raw_sql_operations ->
+        {:raw_sql, "#{receiver}.#{operation}"}
+
+      receiver == "Postgrex" and operation in @postgrex_raw_sql_operations ->
         {:raw_sql, "#{receiver}.#{operation}"}
 
       repo_receiver?(receiver) and operation in @direct_repo_operations ->

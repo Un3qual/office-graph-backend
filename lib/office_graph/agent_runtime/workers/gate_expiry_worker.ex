@@ -3,6 +3,8 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryResult do
 
   use Ash.TypedStruct
 
+  @storage_retry_delay_seconds 5
+
   typed_struct do
     field :status, :atom,
       allow_nil?: false,
@@ -18,6 +20,13 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryResult do
 
   def to_oban_result(%__MODULE__{status: :snooze, delay_seconds: delay_seconds}),
     do: {:snooze, delay_seconds}
+
+  def to_oban_result({:ok, %__MODULE__{} = result}), do: to_oban_result(result)
+
+  def to_oban_result({:error, :integration_storage_unavailable}),
+    do: {:snooze, @storage_retry_delay_seconds}
+
+  def to_oban_result({:error, reason}), do: {:error, reason}
 end
 
 defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
@@ -83,11 +92,8 @@ defmodule OfficeGraph.AgentRuntime.GateExpiryWorker do
       |> Ash.ActionInput.for_action(:expire_gate_contract, %{request_id: request_id})
       |> Ash.run_action(authorize?: false)
       |> ActionSupport.normalize_action_result()
-      |> case do
-        {:ok, result} -> GateExpiryResult.to_oban_result(result)
-        {:error, reason} -> {:error, reason}
-      end
     end)
+    |> GateExpiryResult.to_oban_result()
   end
 
   defp expire_locked(request_kind, request_id) do
