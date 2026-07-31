@@ -3,6 +3,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
   use Oban.Testing, repo: OfficeGraph.Repo
 
   alias OfficeGraph.{Authorization, EnterpriseIdentity, Foundation, Identity, Operations}
+  alias OfficeGraph.DurableDelivery.StoredJob
 
   alias OfficeGraph.EnterpriseIdentity.{
     Directory,
@@ -211,6 +212,50 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
     applied = Ash.get!(DirectorySyncEvent, sync_event.id, authorize?: false)
     assert applied.status == "applied"
     assert applied.result == "applied"
+  end
+
+  test "exhausted processing stages a terminalization-only retry phase" do
+    context = enterprise_context("worker-terminalization")
+
+    body =
+      membership_body(
+        "event_worker_terminalization",
+        context.directory.provider_directory_id
+      )
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(signed_headers(body), body)
+
+    [job] =
+      all_enqueued(
+        worker: DirectorySyncWorker,
+        args: %{"provider_event_id" => "event_worker_terminalization"}
+      )
+
+    exhausted_job = %{job | attempt: 10, max_attempts: 10}
+
+    assert {:discard, "directory_dependency_missing"} =
+             DirectorySyncWorker.perform(exhausted_job)
+
+    stored_job = Ash.get!(StoredJob, job.id, authorize?: false)
+    assert stored_job.meta.terminal_failure_code == "directory_dependency_missing"
+
+    sync_event = Ash.get!(DirectorySyncEvent, job.args["sync_event_id"], authorize?: false)
+    assert sync_event.status == "failed"
+    assert sync_event.result == "directory_dependency_missing"
+  end
+
+  test "terminalization storage failures snooze beyond the processing attempt budget" do
+    terminalization_job = %Oban.Job{
+      args: %{
+        "sync_event_id" => Ash.UUID.generate(),
+        "provider_event_id" => "event_terminalization_storage_retry"
+      },
+      meta: %{"terminal_failure_code" => "directory_dependency_missing"},
+      attempt: 10,
+      max_attempts: 10
+    }
+
+    assert {:snooze, 5} = DirectorySyncWorker.perform(terminalization_job)
   end
 
   defp enterprise_context(label) do

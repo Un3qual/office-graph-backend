@@ -77,6 +77,42 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     assert relationships.integration_event == OfficeGraph.Integrations.NormalizedIntakeEvent
   end
 
+  test "directional adjacency reads have declarative scope and history indexes" do
+    indexes = AshPostgres.DataLayer.Info.custom_indexes(GraphRelationship)
+
+    assert %AshPostgres.CustomIndex{
+             fields: [
+               :organization_id,
+               :workspace_id,
+               :lifecycle,
+               :source_item_id,
+               :inserted_at,
+               :id
+             ],
+             unique: false
+           } =
+             Enum.find(
+               indexes,
+               &(&1.name == "graph_relationships_scope_source_history_index")
+             )
+
+    assert %AshPostgres.CustomIndex{
+             fields: [
+               :organization_id,
+               :workspace_id,
+               :lifecycle,
+               :target_item_id,
+               :inserted_at,
+               :id
+             ],
+             unique: false
+           } =
+             Enum.find(
+               indexes,
+               &(&1.name == "graph_relationships_scope_target_history_index")
+             )
+  end
+
   test "tombstone and restore own in-table deletion metadata" do
     tombstone = Ash.Resource.Info.action(GraphRelationship, :tombstone)
     restore = Ash.Resource.Info.action(GraphRelationship, :restore)

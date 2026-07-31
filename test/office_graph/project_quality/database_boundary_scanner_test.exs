@@ -212,6 +212,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies repository relationship and record reload reads" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo
+
+            def load(records) do
+              Repo.preload(records, :children)
+              Repo.preload!(records, :children)
+              Repo.reload(records)
+              Repo.reload!(records)
+              Repo.all_by(Example, status: "active")
+            end
+          end
+          """
+        }
+      ])
+
+    assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
+             MapSet.new([
+               {:direct_ecto, "Repo.preload"},
+               {:direct_ecto, "Repo.preload!"},
+               {:direct_ecto, "Repo.reload"},
+               {:direct_ecto, "Repo.reload!"},
+               {:direct_ecto, "Repo.all_by"}
+             ])
+  end
+
   test "ignores non-database receivers rooted at the current module" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([

@@ -138,6 +138,16 @@ defmodule OfficeGraph.Identity.Principal do
       validate one_of(:status, ~w(active inactive disabled))
     end
 
+    create :ensure_local_development do
+      public? false
+      accept [:email, :kind, :status]
+      upsert? true
+      upsert_identity :email
+      upsert_fields [:kind, :status]
+      change OfficeGraph.Identity.Changes.NormalizePrincipalEmail
+      validate one_of(:status, ~w(active disabled))
+    end
+
     update :set_status do
       accept [:status]
       validate one_of(:status, ~w(active inactive disabled))

@@ -12,6 +12,28 @@ defmodule OfficeGraph.WorkGraph.GraphRelationship do
 
     identity_index_names active_definition_edge:
                            "graph_relationships_active_definition_edge_index"
+
+    custom_indexes do
+      index [
+              :organization_id,
+              :workspace_id,
+              :lifecycle,
+              :source_item_id,
+              :inserted_at,
+              :id
+            ],
+            name: "graph_relationships_scope_source_history_index"
+
+      index [
+              :organization_id,
+              :workspace_id,
+              :lifecycle,
+              :target_item_id,
+              :inserted_at,
+              :id
+            ],
+            name: "graph_relationships_scope_target_history_index"
+    end
   end
 
   attributes do

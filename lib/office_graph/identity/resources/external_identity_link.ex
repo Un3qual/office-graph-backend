@@ -311,18 +311,18 @@ defmodule OfficeGraph.Identity.Actions.EnsureLocalDevelopmentIdentity do
     now = DateTime.utc_now()
 
     with {:ok, principal} <-
-           ensure(Principal, %{
+           ensure(Principal, :ensure_local_development, %{
              email: attrs.email,
              kind: "human",
              status: attrs.principal_status
            }),
          {:ok, profile} <-
-           ensure(PrincipalProfile, %{
+           ensure(PrincipalProfile, :ensure_local_development, %{
              principal_id: principal.id,
              display_name: attrs.display_name
            }),
          {:ok, external_identity_link} <-
-           ensure(ExternalIdentityLink, %{
+           ensure(ExternalIdentityLink, :ensure_local_development, %{
              principal_id: principal.id,
              provider: attrs.provider,
              provider_tenant: attrs.provider_tenant,
@@ -330,6 +330,7 @@ defmodule OfficeGraph.Identity.Actions.EnsureLocalDevelopmentIdentity do
              verified_email: attrs.email,
              status: attrs.link_status,
              linking_state: "linked",
+             review_reason: nil,
              first_linked_at: now,
              disabled_at: disabled_at(attrs.link_status, now)
            }) do
@@ -340,16 +341,9 @@ defmodule OfficeGraph.Identity.Actions.EnsureLocalDevelopmentIdentity do
   defp disabled_at("disabled", now), do: now
   defp disabled_at(_status, _now), do: nil
 
-  defp ensure(ExternalIdentityLink, attrs) do
-    ExternalIdentityLink
-    |> Ash.Changeset.for_create(:ensure_local_development, attrs)
-    |> Ash.create(authorize?: false, return_notifications?: true)
-    |> consume_notifications()
-  end
-
-  defp ensure(resource, attrs) do
+  defp ensure(resource, action, attrs) do
     resource
-    |> Ash.Changeset.for_create(:ensure, attrs)
+    |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create(authorize?: false, return_notifications?: true)
     |> consume_notifications()
   end
@@ -454,14 +448,22 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
         :verified_email,
         :status,
         :linking_state,
+        :review_reason,
         :first_linked_at,
         :disabled_at
       ]
 
       upsert? true
       upsert_identity :provider_subject
-      upsert_fields []
-      return_skipped_upsert? true
+
+      upsert_fields [
+        :principal_id,
+        :verified_email,
+        :status,
+        :linking_state,
+        :review_reason,
+        :disabled_at
+      ]
 
       validate one_of(:status, ~w(active disabled))
       validate one_of(:linking_state, ~w(linked))

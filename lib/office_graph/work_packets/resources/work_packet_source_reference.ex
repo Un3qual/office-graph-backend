@@ -10,6 +10,11 @@ defmodule OfficeGraph.WorkPackets.WorkPacketSourceReference do
   postgres do
     table "work_packet_version_sources"
     repo OfficeGraph.Repo
+
+    custom_indexes do
+      index [:organization_id, :workspace_id, :graph_item_id, :work_packet_version_id],
+        name: "work_packet_version_sources_scope_graph_item_version_index"
+    end
   end
 
   attributes do

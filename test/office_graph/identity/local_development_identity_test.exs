@@ -35,7 +35,7 @@ defmodule OfficeGraph.Identity.LocalDevelopmentIdentityTest do
     assert {:error, :unknown_capability_action} = ReferenceCatalog.capability_keys([:unknown])
   end
 
-  test "identity setup is idempotent and does not reactivate disabled facts" do
+  test "local development seed replay restores manifest-owned lifecycle facts" do
     fixture = fixture!("member")
 
     assert {:ok, first} = Identity.ensure_local_development_identity(fixture)
@@ -57,10 +57,38 @@ defmodule OfficeGraph.Identity.LocalDevelopmentIdentityTest do
 
     assert {:ok, replayed} = Identity.ensure_local_development_identity(fixture)
     assert replayed.principal.id == first.principal.id
-    assert replayed.principal.status == "disabled"
+    assert replayed.principal.status == "active"
     assert replayed.profile.id == first.profile.id
     assert replayed.external_identity_link.id == first.external_identity_link.id
-    assert replayed.external_identity_link.status == "disabled"
+    assert replayed.external_identity_link.status == "active"
+    assert replayed.external_identity_link.linking_state == "linked"
+    assert replayed.external_identity_link.review_reason == nil
+    assert replayed.external_identity_link.disabled_at == nil
+
+    deprovisioned_fixture = fixture!("deprovisioned_member")
+
+    assert {:ok, deprovisioned} =
+             Identity.ensure_local_development_identity(deprovisioned_fixture)
+
+    deprovisioned.principal
+    |> Ash.Changeset.for_update(:set_status, %{status: "active"})
+    |> Ash.update!(authorize?: false)
+
+    deprovisioned.external_identity_link
+    |> Ash.Changeset.for_update(:set_lifecycle, %{
+      status: "active",
+      linking_state: "linked",
+      review_reason: nil,
+      disabled_at: nil
+    })
+    |> Ash.update!(authorize?: false)
+
+    assert {:ok, restored_deprovisioned} =
+             Identity.ensure_local_development_identity(deprovisioned_fixture)
+
+    assert restored_deprovisioned.principal.status == "disabled"
+    assert restored_deprovisioned.external_identity_link.status == "disabled"
+    assert %DateTime{} = restored_deprovisioned.external_identity_link.disabled_at
   end
 
   test "exact lookup returns retained disabled facts and rejects drift" do

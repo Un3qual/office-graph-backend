@@ -72,6 +72,11 @@ defmodule OfficeGraph.GitHubIntegration.OutboundAction do
     repo OfficeGraph.Repo
 
     identity_index_names unique_operation: "github_outbound_actions_operation_id_index"
+
+    custom_indexes do
+      index [:installation_id, :updated_at, :id],
+        name: "github_outbound_actions_installation_updated_at_id_index"
+    end
   end
 
   attributes do

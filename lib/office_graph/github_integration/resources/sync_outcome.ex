@@ -10,6 +10,11 @@ defmodule OfficeGraph.GitHubIntegration.SyncOutcome do
     repo OfficeGraph.Repo
 
     identity_index_names unique_operation: "github_sync_outcomes_operation_id_index"
+
+    custom_indexes do
+      index [:installation_id, :updated_at, :id],
+        name: "github_sync_outcomes_installation_updated_at_id_index"
+    end
   end
 
   attributes do

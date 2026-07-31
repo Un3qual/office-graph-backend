@@ -51,6 +51,14 @@ defmodule OfficeGraph.Identity.PrincipalProfile do
       upsert_fields []
       return_skipped_upsert? true
     end
+
+    create :ensure_local_development do
+      public? false
+      accept [:principal_id, :display_name]
+      upsert? true
+      upsert_identity :principal_id
+      upsert_fields [:display_name]
+    end
   end
 
   identities do

@@ -1,6 +1,25 @@
 defmodule OfficeGraph.WorkPackets.WorkPacketContractsTest do
   use OfficeGraph.TestSupport.WorkPacketCommandLoopSupport
 
+  test "packet source projection reads have a declarative scope and graph-item index" do
+    assert %AshPostgres.CustomIndex{
+             name: "work_packet_version_sources_scope_graph_item_version_index",
+             fields: [
+               :organization_id,
+               :workspace_id,
+               :graph_item_id,
+               :work_packet_version_id
+             ],
+             unique: false
+           } =
+             Enum.find(
+               AshPostgres.DataLayer.Info.custom_indexes(
+                 OfficeGraph.WorkPackets.WorkPacketSourceReference
+               ),
+               &(&1.name == "work_packet_version_sources_scope_graph_item_version_index")
+             )
+  end
+
   test "packet collection writes keep query count bounded" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
