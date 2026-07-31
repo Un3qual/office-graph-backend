@@ -25,8 +25,11 @@ describe("product session actions", () => {
 
     expect(form).toHaveAttribute("action", "/auth/logout");
     expect(form).toHaveAttribute("method", "post");
-    expect(container).not.toHaveTextContent("workspace_admin");
-    expect(container).not.toHaveTextContent("deprovisioned_member");
+    expect(form).toHaveTextContent(/^Sign out$/);
+    expect(screen.getAllByRole("button")).toEqual([button]);
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(0);
   });
 
   it("keeps caller-provided header actions alongside sign out", () => {

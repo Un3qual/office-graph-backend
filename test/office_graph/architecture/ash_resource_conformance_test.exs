@@ -1,6 +1,8 @@
 defmodule OfficeGraph.Architecture.AshResourceConformanceTest do
   use OfficeGraph.TestSupport.AshConformanceSupport
 
+  import OfficeGraph.TestSupport.MigrationConformanceSupport
+
   test "migration-created tables match the repo-wide Ash ownership inventory" do
     expected_tables = @expected_resources |> Map.keys() |> Enum.sort()
 

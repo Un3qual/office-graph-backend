@@ -5,7 +5,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundPersistenceTestAdapter do
 
   alias OfficeGraphTest.PersistenceFailureResponses
 
-  def configure!(responses), do: PersistenceFailureResponses.configure!(:github_outbound, responses)
+  def configure!(responses),
+    do: PersistenceFailureResponses.configure!(:github_outbound, responses)
+
   def clear_outbound_failures!, do: PersistenceFailureResponses.clear!(:github_outbound)
 
   @impl true

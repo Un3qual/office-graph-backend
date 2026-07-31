@@ -256,19 +256,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when key in [:check, :where] and is_binary(value),
        do: {:raw_sql, "migration.#{key}"}
 
-  defp classify_node(value, true, _environment) when is_binary(value) do
-    cond do
-      Regex.match?(~r/\bmd5\s*\(/i, value) ->
-        {:raw_sql, "migration.md5"}
-
-      Regex.match?(~r/\binsert\s+into\b/i, value) ->
-        {:raw_sql, "migration.insert"}
-
-      true ->
-        nil
-    end
-  end
-
   defp classify_node({:unsafe_fragment, sql}, _migration?, _environment) when is_binary(sql),
     do: {:raw_sql, "unsafe_fragment"}
 

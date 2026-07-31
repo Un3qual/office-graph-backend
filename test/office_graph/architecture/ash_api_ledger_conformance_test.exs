@@ -162,66 +162,24 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     end
   end
 
-  test "every generated GraphQL resource type and accepted stable projection is a Relay node" do
+  test "every configured generated GraphQL resource type is a Relay node" do
     generated_resource_types =
-      "lib/office_graph/**/*.ex"
-      |> Path.wildcard()
-      |> Enum.flat_map(fn path ->
-        source = File.read!(path)
-
-        if source =~ "AshGraphql.Resource" or Regex.match?(~r/^\s+graphql do$/m, source) do
-          ~r/^\s+type :([a-z0-9_]+)$/m
-          |> Regex.scan(source, capture: :all_but_first)
-          |> List.flatten()
-        else
-          []
-        end
-      end)
+      @ash_domains
+      |> Enum.flat_map(&Ash.Domain.Info.resources/1)
+      |> Enum.filter(&AshGraphql.Resource.Info.generate_object?/1)
+      |> Enum.map(&AshGraphql.Resource.Info.type/1)
+      |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Enum.sort()
 
-    expected_resource_types =
-      [
-        "agent_approval_request",
-        "agent_context_expansion_request",
-        "agent_execution",
-        "artifact",
-        "conversation",
-        "conversation_message",
-        "evidence_candidate",
-        "evidence_item",
-        "execution_observation",
-        "graph_item",
-        "github_installation",
-        "github_outbound_action",
-        "github_permission_entry",
-        "github_permission_snapshot",
-        "normalized_intake_event",
-        "proposed_graph_change",
-        "review_finding",
-        "run_required_check",
-        "signal",
-        "task",
-        "verification_check",
-        "work_graph_verification_result",
-        "work_packet",
-        "work_packet_required_check",
-        "work_packet_source_reference",
-        "work_packet_version",
-        "work_run"
-      ]
-      |> Enum.sort()
+    refute generated_resource_types == [], "Expected configured generated GraphQL resource types"
 
-    assert generated_resource_types == expected_resource_types
     schema_types = Absinthe.Schema.types(OfficeGraphWeb.GraphQL.Schema)
 
     for type <- generated_resource_types do
       object =
         Enum.find(schema_types, fn schema_type ->
-          schema_type
-          |> Map.get(:identifier)
-          |> to_string()
-          |> Kernel.==(type)
+          Map.get(schema_type, :identifier) == type
         end)
 
       assert object != nil, "Expected generated GraphQL object #{type}"
@@ -232,26 +190,9 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
       assert Map.has_key?(object.fields, :id),
              "Expected generated GraphQL object #{type} to expose id"
     end
-
-    projection_source = File.read!("lib/office_graph_web/graphql/operator_workflow/types.ex")
-
-    for type <- [
-          :github_integration_health,
-          :graph_relationship_view,
-          :operator_packet_workspace,
-          :operator_run_conversation,
-          :operator_run_state,
-          :operator_workflow_item
-        ] do
-      assert Regex.match?(
-               ~r/node object\(\s*:#{type}\b/,
-               projection_source
-             ),
-             "Expected stable projection #{type} to use Relay node object"
-    end
   end
 
-  test "generated growing lists are Relay connections and dataloader calls have no wrapper resolver" do
+  test "generated growing lists are Relay connections" do
     non_relay_lists =
       "lib/office_graph/**/domain.ex"
       |> Path.wildcard()
@@ -282,24 +223,6 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
 
     assert non_relay_lists == [],
            "Generated growing lists must be Relay connections:\n#{format_errors(non_relay_lists)}"
-
-    wrapper_dataloaders =
-      "lib/**/*.ex"
-      |> Path.wildcard()
-      |> Enum.flat_map(fn path ->
-        source = File.read!(path)
-        dataloader_count = length(Regex.scan(~r/\bdataloader\s*\(/, source))
-        direct_count = length(Regex.scan(~r/resolve:\s*dataloader\s*\(/, source))
-
-        if dataloader_count == direct_count do
-          []
-        else
-          ["#{path} has #{dataloader_count - direct_count} wrapped dataloader resolver(s)"]
-        end
-      end)
-
-    assert wrapper_dataloaders == [],
-           "Use resolve: dataloader(Source) directly:\n#{format_errors(wrapper_dataloaders)}"
   end
 
   test "generated Ash API declarations stay declarative" do

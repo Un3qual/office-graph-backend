@@ -117,7 +117,11 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, [principal_id, other_principal_id], [])
+        ConcurrencyCleanup.cleanup_committed_scope!(
+          organization_id,
+          [principal_id, other_principal_id],
+          []
+        )
       end)
     end
   end

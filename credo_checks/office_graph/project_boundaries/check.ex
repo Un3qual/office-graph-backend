@@ -28,7 +28,6 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryGate
   alias OfficeGraph.ProjectQuality.PlanningBoundary
 
-  @debt_path "openspec/specs/ecto-sql-boundaries/database-access-debt.json"
   @approved_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   @doc false
@@ -68,16 +67,6 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       params,
       "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: " <>
         "missing #{Enum.join(diagnostic.missing_fields, ", ")}"
-    )
-  end
-
-  defp issue_for(%{kind: :completed_remediation_debt} = diagnostic, root, params) do
-    format_boundary_issue(
-      root,
-      @debt_path,
-      params,
-      "completed_remediation_debt: archived change #{diagnostic.remediation_change} " <>
-        "still owns #{diagnostic.count} debt occurrences"
     )
   end
 
@@ -133,10 +122,8 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     |> format_issue(message: message, line_no: line)
   end
 
-  defp inventory_path(:debt), do: @debt_path
   defp inventory_path(:approved_exceptions), do: @approved_path
 
-  defp inventory_name(:debt), do: "database_access_debt"
   defp inventory_name(:approved_exceptions), do: "approved_database_exceptions"
 
   defp source_locator(diagnostic) do

@@ -89,7 +89,11 @@ defmodule OfficeGraph.BoundaryLayoutTest do
              "cmd --cd assets env MIX_ENV=test OFFICE_GRAPH_SCHEMA_PRECOMPILED=1 pnpm run verify"
            ]
 
-    assert Enum.at(aliases[:"static.analysis"], 1) =~ "lib/office_graph/verification/*.ex"
+    assert aliases[:"static.analysis"] == [
+             "credo --strict",
+             "reach.check --arch --smells --strict"
+           ]
+
     assert "test" in aliases[:verify]
     refute "architecture.conformance" in aliases[:verify]
     assert aliases[:precommit] == ["verify"]

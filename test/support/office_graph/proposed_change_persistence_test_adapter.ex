@@ -5,7 +5,9 @@ defmodule OfficeGraph.ProposedChanges.PersistenceTestAdapter do
 
   alias OfficeGraphTest.PersistenceFailureResponses
 
-  def configure!(responses), do: PersistenceFailureResponses.configure!(:proposed_changes, responses)
+  def configure!(responses),
+    do: PersistenceFailureResponses.configure!(:proposed_changes, responses)
+
   def clear!, do: PersistenceFailureResponses.clear!(:proposed_changes)
 
   @impl true

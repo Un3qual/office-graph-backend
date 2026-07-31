@@ -736,7 +736,11 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       assert with_unboxed_connection(fn -> proposed_change_count(normalized_event.id) end) == 4
     after
       with_unboxed_connection(fn ->
-        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(
+          organization_id,
+          principal_id,
+          source_identity
+        )
       end)
     end
   end

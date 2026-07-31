@@ -6,7 +6,6 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
 
   @check OfficeGraph.Credo.Check.ProjectBoundaries
-  @debt_path "openspec/specs/ecto-sql-boundaries/database-access-debt.json"
   @approved_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   setup_all do
@@ -56,7 +55,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
         DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
       write_tracked!(root, "lib/example.ex", source)
-      write_debt!(root, [debt_entry(occurrence, "sha256:recorded")])
+      write_approved!(root, [approved_entry(occurrence, "sha256:recorded")])
 
       issue = root |> run_check() |> issue_with("changed", "lib/example.ex")
 
@@ -66,12 +65,13 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
-  test "reports stale debt at the debt inventory with its former locator" do
+  test "reports a stale approved exception at its inventory with its former locator" do
     with_repository(fn root ->
-      write_debt!(
+      write_approved!(
         root,
         [
           %{
+            "approving_change" => "approved-change",
             "fingerprint" => "sha256:stale",
             "class" => "raw_sql",
             "construct" => "Repo.query!",
@@ -79,12 +79,14 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
             "ordinal" => 1,
             "owner" => "OfficeGraph.Example",
             "path" => "lib/removed.ex",
-            "remediation_change" => "remove-direct-database-access"
+            "reason" => "Approved test occurrence.",
+            "retirement_condition" => "Remove with the test occurrence.",
+            "verification" => "Covered by this test."
           }
         ]
       )
 
-      issue = root |> run_check() |> issue_with("stale", @debt_path)
+      issue = root |> run_check() |> issue_with("stale", @approved_path)
 
       assert issue.message =~ "lib/removed.ex"
       assert issue.message =~ "load/1"
@@ -93,12 +95,13 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
-  test "reports malformed debt at the inventory that owns it" do
+  test "reports malformed approval metadata at the inventory that owns it" do
     with_repository(fn root ->
-      write_debt!(
+      write_approved!(
         root,
         [
           %{
+            "approving_change" => "approved-change",
             "fingerprint" => "sha256:invalid",
             "class" => "raw_sql",
             "construct" => "Repo.query!",
@@ -106,12 +109,14 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
             "ordinal" => 1,
             "owner" => "",
             "path" => "lib/removed.ex",
-            "remediation_change" => "remove-direct-database-access"
+            "reason" => "Approved test occurrence.",
+            "retirement_condition" => "Remove with the test occurrence.",
+            "verification" => "Covered by this test."
           }
         ]
       )
 
-      issue = root |> run_check() |> issue_with("invalid_inventory", @debt_path)
+      issue = root |> run_check() |> issue_with("invalid_inventory", @approved_path)
 
       assert issue.message =~ "entry 1"
       assert issue.message =~ "owner"
@@ -193,52 +198,9 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     {_output, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
 
     write_tracked!(root, "lib/sentinel.ex", "defmodule Sentinel do\nend\n")
-    write_debt!(root, [])
     write_approved!(root, [])
 
     test.(root)
-  end
-
-  defp write_debt!(root, entries) do
-    files =
-      entries
-      |> Enum.group_by(&Map.fetch!(&1, "path"))
-      |> Enum.map(fn {path, occurrences} ->
-        first = hd(occurrences)
-
-        %{
-          "path" => path,
-          "owner" => Map.fetch!(first, "owner"),
-          "remediation_change" => Map.fetch!(first, "remediation_change"),
-          "occurrences" =>
-            Enum.map(occurrences, fn occurrence ->
-              [
-                Map.fetch!(occurrence, "fingerprint"),
-                Map.fetch!(occurrence, "class"),
-                Map.fetch!(occurrence, "construct"),
-                Map.get(occurrence, "function"),
-                Map.fetch!(occurrence, "ordinal")
-              ]
-            end)
-        }
-      end)
-
-    write_json!(
-      root,
-      @debt_path,
-      %{
-        "version" => 1,
-        "status" => "unapproved_removal_debt",
-        "occurrence_fields" => [
-          "fingerprint",
-          "class",
-          "construct",
-          "function",
-          "ordinal"
-        ],
-        "files" => files
-      }
-    )
   end
 
   defp write_approved!(root, entries) do
@@ -260,8 +222,9 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     File.write!(full_path, contents)
   end
 
-  defp debt_entry(occurrence, fingerprint) do
+  defp approved_entry(occurrence, fingerprint) do
     %{
+      "approving_change" => "approved-change",
       "fingerprint" => fingerprint,
       "class" => to_string(occurrence.class),
       "construct" => occurrence.construct,
@@ -269,7 +232,9 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       "ordinal" => occurrence.ordinal,
       "owner" => "OfficeGraph.Example",
       "path" => occurrence.path,
-      "remediation_change" => "remove-direct-database-access"
+      "reason" => "Approved test occurrence.",
+      "retirement_condition" => "Remove with the test occurrence.",
+      "verification" => "Covered by this test."
     }
   end
 end

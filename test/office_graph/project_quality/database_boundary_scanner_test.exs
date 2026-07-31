@@ -315,7 +315,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(&1.class == :raw_sql))
   end
 
-  test "classifies migration data insertion and MD5-derived identifiers" do
+  test "classifies migration execute and data insertion constructs" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{
@@ -334,9 +334,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         }
       ])
 
-    assert Enum.count(occurrences, &(&1.construct == "migration.insert")) == 2
-    assert Enum.any?(occurrences, &(&1.construct == "migration.execute"))
-    assert Enum.any?(occurrences, &(&1.construct == "migration.md5"))
+    assert Enum.count(occurrences, &(&1.construct == "migration.insert")) == 1
+    assert Enum.count(occurrences, &(&1.construct == "migration.execute")) == 2
+  end
+
+  test "ignores SQL phrases in non-executable migration strings" do
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "priv/repo/migrations/20260728000000_example.exs",
+               source: """
+               defmodule ExampleMigration do
+                 use Ecto.Migration
+
+                 @moduledoc "Never use INSERT INTO from a migration"
+                 @migration_note "The legacy migration used md5(value)"
+
+                 def change do
+                   explanation = "INSERT INTO is documentation here"
+                   create table(:examples), do: add(:explanation, :text, default: explanation)
+                 end
+               end
+               """
+             }
+           ]) == []
   end
 
   test "classifies a tracked SQL file as one raw SQL occurrence" do

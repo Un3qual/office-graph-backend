@@ -14,16 +14,16 @@
 
 ## 3. Quality Gate Simplification
 
-- [ ] 3.1 Add a failing scanner test for SQL phrases in non-executable migration literals, then restrict classification to executable SQL-bearing AST positions
-- [ ] 3.2 Replace debt-inventory generation and remediation bookkeeping with a strict current-occurrence versus approved-exception gate and remove the empty debt inventory
-- [ ] 3.3 Run ExDNA once through Credo from one current path configuration and remove the duplicate standalone configuration
-- [ ] 3.4 Derive Relay resource conformance from configured Ash resources, rely on behavior coverage for stable projection Nodes, and remove source-text counting checks
-- [ ] 3.5 Extract migration parsing from the cross-domain conformance helper into focused migration support and update direct consumers
+- [x] 3.1 Add a failing scanner test for SQL phrases in non-executable migration literals, then restrict classification to executable SQL-bearing AST positions
+- [x] 3.2 Replace debt-inventory generation and remediation bookkeeping with a strict current-occurrence versus approved-exception gate and remove the empty debt inventory
+- [x] 3.3 Run ExDNA once through Credo from one current path configuration and remove the duplicate standalone configuration
+- [x] 3.4 Derive Relay resource conformance from configured Ash resources, rely on behavior coverage for stable projection Nodes, and remove source-text counting checks
+- [x] 3.5 Extract migration parsing from the cross-domain conformance helper into focused migration support and update direct consumers
 
 ## 4. Documentation And Frontend Test Quality
 
-- [ ] 4.1 Strengthen the session-shell privacy test around the rendered public contract rather than two fixture keys
-- [ ] 4.2 Remove the archived agent execution plan after confirming its normative decisions are represented in canonical OpenSpec
+- [x] 4.1 Strengthen the session-shell privacy test around the rendered public contract rather than two fixture keys
+- [x] 4.2 Remove the archived agent execution plan after confirming its normative decisions are represented in canonical OpenSpec
 
 ## 5. Verification And Publication
 
