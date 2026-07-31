@@ -1,12 +1,11 @@
 defmodule OfficeGraph.AgentRuntime.PersistenceStateTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Foundation, Operations, Repo}
+  alias OfficeGraph.{AgentRuntime, Foundation, Operations}
   alias OfficeGraph.AgentRuntime.AgentExecution
   alias OfficeGraph.NodeConversations.Conversation
-  alias OfficeGraph.Runs.Run
+  alias OfficeGraph.TestSupport.OperatorProjectionSupport
   alias OfficeGraph.WorkGraph.GraphItem
-  alias OfficeGraph.WorkPackets.WorkPacket
 
   test "execution transitions reject stale writes and terminal restarts" do
     fixture = persistence_fixture!()
@@ -116,73 +115,16 @@ defmodule OfficeGraph.AgentRuntime.PersistenceStateTest do
   defp persistence_fixture! do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
-    graph_item =
-      Ash.create!(
-        GraphItem,
-        %{
-          id: Ecto.UUID.generate(),
-          organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
-          resource_type: "task",
-          resource_id: Ecto.UUID.generate(),
-          title: "Agent runtime persistence state"
-        },
-        action: :create,
-        authorize?: false
-      )
+    {:ok, verification_check} =
+      OperatorProjectionSupport.create_required_verification_check(bootstrap.session)
 
-    work_packet =
-      Ash.create!(
-        WorkPacket,
-        %{
-          id: Ecto.UUID.generate(),
-          organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
-          title: "Agent runtime persistence state"
-        },
-        action: :create,
-        authorize?: false
-      )
+    {:ok, run_result} =
+      OperatorProjectionSupport.create_ready_run(bootstrap.session, verification_check)
 
-    run_id = Ecto.UUID.generate()
-
-    Repo.query!(
-      """
-      INSERT INTO runs (
-        id,
-        work_packet_id,
-        organization_id,
-        workspace_id,
-        state,
-        aggregate_state,
-        execution_state,
-        verification_state,
-        inserted_at,
-        updated_at
-      )
-      VALUES (
-        $1::uuid,
-        $2::uuid,
-        $3::uuid,
-        $4::uuid,
-        'running',
-        'running',
-        'pending',
-        'unverified',
-        now(),
-        now()
-      )
-      """,
-      Enum.map(
-        [run_id, work_packet.id, bootstrap.organization.id, bootstrap.workspace.id],
-        &Ecto.UUID.dump!/1
-      )
-    )
-
-    run = Ash.get!(Run, run_id, authorize?: false)
+    graph_item = Ash.get!(GraphItem, verification_check.graph_item_id, authorize?: false)
 
     {:ok, operation} = Operations.start_operation(bootstrap.session, :manual_intake_submit)
 
-    %{bootstrap: bootstrap, graph_item: graph_item, run: run, operation: operation}
+    %{bootstrap: bootstrap, graph_item: graph_item, run: run_result.run, operation: operation}
   end
 end

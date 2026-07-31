@@ -23,6 +23,15 @@ end
 config :office_graph, OfficeGraphWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() == :test and System.get_env("OFFICE_GRAPH_TEST_SQL_LOG") in ~w(true 1) do
+  config :office_graph, OfficeGraph.Repo, log: :debug
+end
+
+config :office_graph, :local_development_authentication,
+  enabled:
+    config_env() == :dev and
+      System.get_env("LOCAL_DEV_AUTH_ENABLED") in ~w(true 1)
+
 oidc_preferred_organization_id = System.get_env("AUTHENTIK_PREFERRED_ORGANIZATION_ID")
 oidc_preferred_workspace_id = System.get_env("AUTHENTIK_PREFERRED_WORKSPACE_ID")
 
@@ -42,6 +51,13 @@ config :office_graph, :human_oidc,
   account_linking_policy: System.get_env("AUTHENTIK_ACCOUNT_LINKING_POLICY"),
   preferred_scope: preferred_scope,
   session_ttl_seconds: System.get_env("HUMAN_SESSION_TTL_SECONDS")
+
+config :office_graph, :workos_enterprise,
+  api_base_url: System.get_env("WORKOS_API_BASE_URL", "https://api.workos.com"),
+  client_id: System.get_env("WORKOS_CLIENT_ID"),
+  api_key_reference: System.get_env("WORKOS_API_KEY_REFERENCE"),
+  webhook_secret_reference: System.get_env("WORKOS_WEBHOOK_SECRET_REFERENCE"),
+  session_ttl_seconds: System.get_env("WORKOS_SESSION_TTL_SECONDS")
 
 if github_app_id = System.get_env("GITHUB_APP_ID") do
   config :office_graph, :github_app_id, github_app_id

@@ -35,14 +35,16 @@ defmodule OfficeGraph.SoftwareProving.Resource do
       postgres do
         table unquote(table)
         repo OfficeGraph.Repo
-        migrate? false
       end
 
       attributes do
-        uuid_primary_key :id, writable?: true
-        attribute :organization_id, :uuid, allow_nil?: false, public?: true
-        attribute :workspace_id, :uuid, public?: true
-        attribute :source_id, :uuid, public?: true
+        attribute :id, :uuid,
+          primary_key?: true,
+          allow_nil?: false,
+          public?: true,
+          writable?: true,
+          generated?: true
+
         attribute :provider_version, :string, public?: true
         attribute :provider_sequence, :integer, public?: true
         attribute :provider_updated_at, :utc_datetime_usec, public?: true
@@ -57,7 +59,6 @@ defmodule OfficeGraph.SoftwareProving.Resource do
           default: "active",
           public?: true
 
-        attribute :operation_id, :uuid, allow_nil?: false, public?: true
         attribute :deleted_at, :utc_datetime_usec, public?: true
 
         create_timestamp :inserted_at, public?: true
@@ -97,29 +98,29 @@ defmodule OfficeGraph.SoftwareProving.Resource do
         belongs_to :organization, OfficeGraph.Tenancy.Organization do
           source_attribute :organization_id
           destination_attribute :id
-          define_attribute? false
           public? true
+          attribute_public? true
         end
 
         belongs_to :governing_workspace, OfficeGraph.Tenancy.Workspace do
           source_attribute :workspace_id
           destination_attribute :id
-          define_attribute? false
           public? true
+          attribute_public? true
         end
 
         belongs_to :external_source, OfficeGraph.Integrations.ExternalSource do
           source_attribute :source_id
           destination_attribute :id
-          define_attribute? false
           public? true
+          attribute_public? true
         end
 
         belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
           source_attribute :operation_id
           destination_attribute :id
-          define_attribute? false
           public? true
+          attribute_public? true
         end
       end
     end

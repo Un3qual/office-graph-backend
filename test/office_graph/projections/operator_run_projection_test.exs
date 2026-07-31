@@ -1,23 +1,6 @@
 defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
   use OfficeGraph.TestSupport.OperatorProjectionSupport
 
-  test "operator run state projects graph-targeted runs without packet versions" do
-    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
-    {:ok, verification_check} = create_required_verification_check(bootstrap.session)
-    {:ok, run_result} = create_ready_run(bootstrap.session, verification_check)
-
-    Repo.query!("UPDATE runs SET work_packet_version_id = NULL WHERE id = $1", [
-      Ecto.UUID.dump!(run_result.run.id)
-    ])
-
-    assert {:ok, run_state} =
-             Projections.operator_run_state(bootstrap.session, run_result.run.id)
-
-    assert run_state.packet_version == nil
-    assert run_state.packet.id == run_result.run.work_packet_id
-    assert run_state.run.id == run_result.run.id
-  end
-
   test "operator run state moves from missing evidence to verified" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
     {:ok, verification_check} = create_required_verification_check(bootstrap.session)
@@ -70,8 +53,8 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              %{verification_check_id: verification_check.id, reason: "missing_accepted_evidence"}
            ]
 
-    assert [%{graph_item_id: graph_item_id}] = initial_state.required_checks
-    assert graph_item_id == verification_check.graph_item_id
+    assert hd(initial_state.command_options.observation).source_graph_item_id ==
+             verification_check.graph_item_id
 
     {:ok, observation_result} =
       record_observation(bootstrap.session, run_result.run, verification_check,
@@ -151,18 +134,6 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              "acceptance_policy_basis"
            ]
 
-    assert [
-             %{
-               id: candidate_id,
-               state: "candidate",
-               freshness_state: "fresh",
-               trust_basis: "owner_attested",
-               execution_observation_id: observation_id
-             }
-           ] = awaiting_evidence.evidence_candidates
-
-    assert candidate_id == candidate.id
-    assert observation_id == observation_result.observation.id
     assert %{type: "evidence_candidate", id: candidate.id} in accept_evidence.target_ids
 
     {:ok, accepted} =
@@ -175,26 +146,8 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
     assert verified_state.allowed_next_actions == []
     assert verified_state.command_affordances == []
     assert verified_state.missing_evidence == []
-    assert [%{id: evidence_item_id, state: "accepted"}] = verified_state.evidence_items
-    assert evidence_item_id == accepted.evidence_item.id
-
-    assert [
-             %{
-               id: result_id,
-               result: "passed",
-               evidence_item_id: evidence_item_id,
-               operation_id: operation_id,
-               actor_principal_id: actor_principal_id,
-               policy_basis: "owner_acceptance",
-               target_graph_item_id: target_graph_item_id
-             }
-           ] = verified_state.verification_results
-
-    assert result_id == accepted.verification_result.id
-    assert evidence_item_id == accepted.evidence_item.id
-    assert operation_id == accepted.verification_result.operation_id
-    assert actor_principal_id == bootstrap.session.principal_id
-    assert target_graph_item_id == verification_check.graph_item_id
+    assert verified_state.child_summary.evidence_items == 1
+    assert verified_state.child_summary.verification_results == 1
   end
 
   test "operator run state advertises GraphQL observation and waiver commands" do
@@ -241,6 +194,60 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
                values: []
              }
            ]
+  end
+
+  test "operator run command options preserve keyset pagination and exact summary counts" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, first_check} = create_required_verification_check(bootstrap.session)
+    {:ok, second_check} = create_required_verification_check(bootstrap.session)
+    {:ok, run_result} = create_ready_run(bootstrap.session, [first_check, second_check])
+
+    assert {:ok, run_state} =
+             Projections.operator_run_state(bootstrap.session, run_result.run.id)
+
+    assert run_state.command_option_summary.observation == 2
+    assert run_state.command_option_summary.waiver == 2
+    refute run_state.command_options_overflow
+
+    assert {:ok, first_page} =
+             Projections.operator_run_command_option_page(
+               bootstrap.session,
+               run_result.run.id,
+               "observation",
+               limit: 1,
+               after_cursor: nil
+             )
+
+    assert [%{node: first_choice, cursor: cursor}] = first_page.edges
+    assert first_choice.observation.run_id == run_result.run.id
+    assert first_page.has_next_page?
+    refute first_page.has_previous_page?
+
+    assert {:ok, second_page} =
+             Projections.operator_run_command_option_page(
+               bootstrap.session,
+               run_result.run.id,
+               "observation",
+               limit: 1,
+               after_cursor: cursor
+             )
+
+    assert [%{node: second_choice}] = second_page.edges
+    refute second_page.has_next_page?
+    assert second_page.has_previous_page?
+    refute second_choice.key == first_choice.key
+
+    assert MapSet.new([
+             first_choice.observation.verification_check_id,
+             second_choice.observation.verification_check_id
+           ]) == MapSet.new([first_check.id, second_check.id])
+
+    activity_edges = collect_activity_edges(bootstrap.session, run_result.run.id)
+
+    assert activity_edges
+           |> Enum.filter(&(&1.node.kind == "missing_evidence"))
+           |> MapSet.new(& &1.node.stable_id) ==
+             MapSet.new([first_check.id, second_check.id])
   end
 
   test "operator run state source watermark changes when visible child state changes" do
@@ -315,9 +322,11 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
                "waive_verification_check"
              ]
 
-      assert Enum.any?(
-               awaiting_evidence.evidence_candidates,
-               &(&1.id == candidate.id and &1.state == "candidate")
+      assert awaiting_evidence.command_options.evidence_acceptance == []
+
+      refute Enum.any?(
+               awaiting_evidence.command_affordances,
+               &(%{type: "evidence_candidate", id: candidate.id} in &1.target_ids)
              )
     end
   end
@@ -431,9 +440,9 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
            ]
 
     assert Enum.any?(
-             waiting_state.evidence_candidates,
-             &(&1.id == second_candidate.id and &1.verification_check_id == second_check.id and
-                 &1.state == "candidate")
+             waiting_state.command_options.evidence_acceptance,
+             &(&1.evidence_candidate_id == second_candidate.id and
+                 &1.verification_check_id == second_check.id)
            )
 
     assert waiting_state.missing_evidence == [
@@ -478,8 +487,8 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
              %{verification_check_id: verification_check.id, reason: "failed_check"}
            ]
 
-    assert [%{id: result_id, result: "failed"}] = failed_state.verification_results
-    assert result_id == accepted.verification_result.id
+    assert failed_state.child_summary.verification_results == 1
+    assert accepted.verification_result.result == "failed"
   end
 
   test "operator run state command affordances require command capabilities" do
@@ -540,5 +549,78 @@ defmodule OfficeGraph.Projections.OperatorRunProjectionTest do
     assert accept_evidence.blocker_reasons == ["policy_restricted"]
     assert accept_evidence.target_ids == []
     refute inspect(accept_evidence) =~ "evidence.accept"
+  end
+
+  test "run state, activity, and option pages reject cross-scope and unauthorized reads" do
+    {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+    {:ok, local_check} = create_required_verification_check(bootstrap.session)
+    {:ok, local_run} = create_ready_run(bootstrap.session, local_check)
+
+    suffix = System.unique_integer([:positive])
+
+    {:ok, foreign_scope} =
+      Foundation.bootstrap_local_owner(
+        workspace_name: "Foreign projection workspace #{suffix}",
+        workspace_slug: "foreign-projection-workspace-#{suffix}",
+        initiative_name: "Foreign projection initiative #{suffix}",
+        initiative_slug: "foreign-projection-initiative-#{suffix}"
+      )
+
+    {:ok, foreign_check} = create_required_verification_check(foreign_scope.session)
+    {:ok, foreign_run} = create_ready_run(foreign_scope.session, foreign_check)
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_state(bootstrap.session, foreign_run.run.id)
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_activity_page(bootstrap.session, foreign_run.run.id,
+               limit: 20,
+               after_cursor: nil
+             )
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_command_option_page(
+               bootstrap.session,
+               foreign_run.run.id,
+               "observation",
+               limit: 20,
+               after_cursor: nil
+             )
+
+    denied_session = create_session_with_capabilities!(bootstrap, [])
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_state(denied_session, local_run.run.id)
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_activity_page(denied_session, local_run.run.id,
+               limit: 20,
+               after_cursor: nil
+             )
+
+    assert {:error, :forbidden} =
+             Projections.operator_run_command_option_page(
+               denied_session,
+               local_run.run.id,
+               "observation",
+               limit: 20,
+               after_cursor: nil
+             )
+  end
+
+  defp collect_activity_edges(session, run_id, cursor \\ nil, edges \\ []) do
+    assert {:ok, page} =
+             Projections.operator_run_activity_page(session, run_id,
+               limit: 1,
+               after_cursor: cursor
+             )
+
+    edges = edges ++ page.edges
+
+    if page.has_next_page? do
+      collect_activity_edges(session, run_id, List.last(page.edges).cursor, edges)
+    else
+      edges
+    end
   end
 end

@@ -1,0 +1,319 @@
+defmodule OfficeGraph.WorkPackets.CommandResults.PacketMutation do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :packet, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.WorkPackets.WorkPacket]
+
+    field :packet_version, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.WorkPackets.WorkPacketVersion]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :work_packet_command_payload
+
+  def from_result(command, operation, result) do
+    new(
+      command: command,
+      operation_id: operation.id,
+      affected_ids: [
+        TypedId.new!(type: "work_packet", id: result.packet.id),
+        TypedId.new!(type: "work_packet_version", id: result.version.id)
+      ],
+      packet: result.packet,
+      packet_version: result.version
+    )
+  end
+end
+
+defimpl Jason.Encoder, for: OfficeGraph.WorkPackets.CommandResults.PacketMutation do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        packet: %{
+          id: result.packet.id,
+          current_version_id: result.packet.current_version_id,
+          title: result.packet.title,
+          state: result.packet.state
+        },
+        packet_version: %{
+          id: result.packet_version.id,
+          version_number: result.packet_version.version_number,
+          lifecycle_state: result.packet_version.lifecycle_state
+        }
+      },
+      options
+    )
+  end
+end
+
+defmodule OfficeGraph.WorkPackets.WorkPacket do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: OfficeGraph.WorkPackets.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
+
+  postgres do
+    table "work_packets"
+    repo OfficeGraph.Repo
+
+    foreign_key_names organization_id: "work_packets_organization_id_fkey",
+                      workspace_id: "work_packets_workspace_id_fkey"
+
+    identity_index_names unique_operation: "work_packets_operation_id_unique_index"
+  end
+
+  attributes do
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
+    attribute :title, :string, allow_nil?: false, public?: true
+    attribute :state, :string, allow_nil?: false, public?: true
+
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      attribute_public? true
+    end
+
+    belongs_to :current_version, OfficeGraph.WorkPackets.WorkPacketVersion do
+      source_attribute :current_version_id
+      attribute_public? true
+      public? true
+    end
+
+    has_many :versions, OfficeGraph.WorkPackets.WorkPacketVersion do
+      destination_attribute :work_packet_id
+      public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+  end
+
+  actions do
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
+
+    read :read_for_version_command do
+      public? false
+    end
+
+    create :create do
+      public? false
+
+      accept [
+        :id,
+        :organization_id,
+        :workspace_id,
+        :operation_id,
+        :title
+      ]
+
+      change set_attribute(:state, "draft")
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                operation_id: OfficeGraph.Operations.OperationCorrelation
+              ]}
+    end
+
+    update :set_current_version do
+      public? false
+      require_atomic? false
+      accept [:current_version_id]
+
+      change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
+              references: [
+                current_version_id: OfficeGraph.WorkPackets.WorkPacketVersion
+              ]}
+
+      change OfficeGraph.WorkPackets.Changes.ValidateCurrentVersion
+    end
+
+    action :persist_packet_contract, OfficeGraph.WorkPackets.PacketActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.WorkGraph.GraphItem,
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
+        OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference,
+        OfficeGraph.WorkPackets.WorkPacketVersion
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :objective, :string, allow_nil?: false
+      argument :context_summary, :string, allow_nil?: false
+      argument :requirements, :string, allow_nil?: false
+      argument :success_criteria, :string
+      argument :autonomy_posture, :string, allow_nil?: false
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
+
+      run {Module.concat([OfficeGraph, WorkPackets]), mode: :create_packet}
+    end
+
+    action :persist_packet_version_contract, OfficeGraph.WorkPackets.PacketActionResult do
+      public? false
+      transaction? true
+
+      touches_resources [
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.WorkGraph.GraphItem,
+        Module.concat([OfficeGraph, WorkGraph, VerificationCheck]),
+        OfficeGraph.WorkPackets.WorkPacketRequiredCheck,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference,
+        OfficeGraph.WorkPackets.WorkPacketVersion
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :packet_id, :uuid, allow_nil?: false
+      argument :expected_current_version_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false
+      argument :objective, :string, allow_nil?: false
+      argument :context_summary, :string, allow_nil?: false
+      argument :requirements, :string, allow_nil?: false
+      argument :success_criteria, :string
+      argument :autonomy_posture, :string, allow_nil?: false
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false, default: []
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false, default: []
+
+      run {Module.concat([OfficeGraph, WorkPackets]), mode: :create_version}
+    end
+
+    action :create_work_packet,
+           OfficeGraph.WorkPackets.CommandResults.PacketMutation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :title, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :objective, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :context_summary, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :requirements, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :success_criteria, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :autonomy_posture, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false
+
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false
+
+      run fn input, context ->
+        OfficeGraph.WorkPackets.Actions.CreateWorkPacket.run(input, [], context)
+      end
+    end
+
+    action :create_work_packet_version,
+           OfficeGraph.WorkPackets.CommandResults.PacketMutation do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :packet_id, :uuid, allow_nil?: false
+      argument :expected_current_version_id, :uuid, allow_nil?: false
+      argument :title, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :objective, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :context_summary, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :requirements, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :success_criteria, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+      argument :autonomy_posture, :string, allow_nil?: false, constraints: [match: ~r/\S/]
+
+      argument :source_graph_item_ids, {:array, :uuid}, allow_nil?: false
+
+      argument :verification_check_ids, {:array, :uuid}, allow_nil?: false
+
+      run fn input, context ->
+        OfficeGraph.WorkPackets.Actions.CreateWorkPacketVersion.run(input, [], context)
+      end
+    end
+  end
+
+  identities do
+    identity :unique_operation, [:operation_id]
+  end
+
+  policies do
+    policy action(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action(:read_for_version_command) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_version_create}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     organization_id == ^actor(:organization_id) and
+                       workspace_id == ^actor(:workspace_id)
+                   )
+    end
+
+    policy action(:create) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+
+    policy action(:create_work_packet) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_create}
+    end
+
+    policy action(:create_work_packet_version) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :work_packet_version_create}
+    end
+  end
+
+  graphql do
+    type :work_packet
+    paginate_relationship_with(versions: :relay)
+  end
+
+  json_api do
+    type "work_packet"
+  end
+end

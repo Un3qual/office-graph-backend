@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
+defmodule OfficeGraphWeb.GeneratedCommandsGraphQLTest do
   use OfficeGraphWeb.ConnCase, async: false
 
   alias OfficeGraph.Audit.AuditRecord
@@ -8,7 +8,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
   alias OfficeGraph.OperatorCommandFixtures
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
-  alias OfficeGraph.Repo
   alias OfficeGraph.Revisions.Revision
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
@@ -79,8 +78,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       submitManualIntake(input: $input) {
         command
         operationId
-        normalizedEventId
-        proposedChangeIds
+        normalizedEvent { id }
+        proposedChanges { id }
         affectedIds { type id }
       }
     }
@@ -91,8 +90,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     assert first["command"] == "submit_manual_intake"
     assert is_binary(first["operationId"])
-    assert is_binary(first["normalizedEventId"])
-    assert length(first["proposedChangeIds"]) == 4
+    assert is_binary(normalized_event_id(first))
+    assert length(proposed_change_ids(first)) == 4
     assert replay == first
 
     conflict =
@@ -100,7 +99,52 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         input: %{input | body: "Changed command input."}
       })
 
-    assert [%{"extensions" => %{"code" => "idempotency_conflict"}}] = conflict["errors"]
+    assert_error_code(conflict, "idempotency_conflict")
+  end
+
+  test "generated intake and proposed change IDs refetch through root Relay nodes", %{conn: conn} do
+    intake =
+      command(conn, :submit_manual_intake, %{
+        idempotencyKey: unique_key("relay-node-intake"),
+        sourceIdentity: "manual:relay-node-intake",
+        replayIdentity: unique_key("relay-node-replay"),
+        body: "Refetch generated intake and proposed change nodes."
+      })
+
+    [proposed_change_id | _rest] = proposed_change_ids(intake)
+
+    response =
+      raw_graphql(
+        conn,
+        """
+        query GeneratedIntakeNodes($eventId: ID!, $changeId: ID!) {
+          event: node(id: $eventId) {
+            id
+            __typename
+          }
+          change: node(id: $changeId) {
+            id
+            __typename
+          }
+        }
+        """,
+        %{
+          eventId: normalized_event_id(intake),
+          changeId: proposed_change_id
+        }
+      )
+
+    assert response["errors"] in [nil, []]
+
+    assert response["data"]["event"] == %{
+             "id" => normalized_event_id(intake),
+             "__typename" => "NormalizedIntakeEvent"
+           }
+
+    assert response["data"]["change"] == %{
+             "id" => proposed_change_id,
+             "__typename" => "ProposedGraphChange"
+           }
   end
 
   test "manual intake preserves leading and trailing body whitespace", %{conn: conn} do
@@ -154,12 +198,11 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     response =
       raw_command(conn, :apply_proposed_changes, %{
         idempotencyKey: unique_key("mismatch-apply"),
-        normalizedEventId: second["normalizedEventId"],
-        proposedChangeIds: first["proposedChangeIds"]
+        normalizedEventId: normalized_event_id(second),
+        proposedChangeIds: proposed_change_ids(first)
       })
 
-    assert [%{"extensions" => %{"code" => "invalid_proposed_change_set"}}] =
-             response["errors"]
+    assert_error_code(response, "invalid_proposed_change_set")
 
     assert command_record_snapshot() == before_snapshot
   end
@@ -175,22 +218,24 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     apply_input = %{
       idempotencyKey: unique_key("corrupt-replay-apply"),
-      normalizedEventId: intake["normalizedEventId"],
-      proposedChangeIds: intake["proposedChangeIds"]
+      normalizedEventId: normalized_event_id(intake),
+      proposedChangeIds: proposed_change_ids(intake)
     }
 
     applied = command(conn, :apply_proposed_changes, apply_input)
 
-    assert %{num_rows: 1} =
-             Repo.query!(
-               "DELETE FROM verification_checks WHERE id = $1::uuid",
-               [Ecto.UUID.dump!(applied["verificationCheck"]["id"])]
-             )
+    verification_check =
+      Ash.get!(
+        VerificationCheck,
+        relay_internal_id(applied["verificationCheck"]["id"], :verification_check),
+        authorize?: false
+      )
+
+    assert :ok = Ash.DataLayer.destroy(VerificationCheck, Ash.Changeset.new(verification_check))
 
     response = raw_command(conn, :apply_proposed_changes, apply_input)
 
-    assert [%{"extensions" => %{"code" => "invalid_proposed_change_replay"}}] =
-             response["errors"]
+    assert_error_code(response, "invalid_proposed_change_replay")
 
     assert {:ok, _json} = Jason.encode(response)
     refute inspect(response["errors"]) =~ "OfficeGraph."
@@ -251,8 +296,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     apply_input = %{
       idempotencyKey: unique_key("apply"),
-      normalizedEventId: " #{intake["normalizedEventId"]} ",
-      proposedChangeIds: Enum.map(intake["proposedChangeIds"], &" #{&1} ")
+      normalizedEventId: normalized_event_id(intake),
+      proposedChangeIds: proposed_change_ids(intake)
     }
 
     applied = command(conn, :apply_proposed_changes, apply_input)
@@ -268,11 +313,18 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert MapSet.new(
              for %{"type" => "proposed_graph_change", "id" => id} <- applied["affectedIds"],
                  do: id
-           ) == MapSet.new(intake["proposedChangeIds"])
+           ) ==
+             MapSet.new(
+               Enum.map(
+                 proposed_change_ids(intake),
+                 &relay_internal_id(&1, :proposed_graph_change)
+               )
+             )
 
     first_check = applied["verificationCheck"]
     source_ids = [first_check["graphItemId"], second_check.graph_item_id]
-    verification_check_ids = [first_check["id"], second_check.id]
+    first_check_id = relay_internal_id(first_check["id"], :verification_check)
+    verification_check_ids = [first_check_id, second_check.id]
 
     packet_input = packet_input(unique_key("packet"), source_ids, verification_check_ids)
     packet = command(conn, :create_work_packet, packet_input)
@@ -289,6 +341,9 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     version = command(conn, :create_work_packet_version, version_input)
     assert_payload(version, "create_work_packet_version", ["work_packet", "work_packet_version"])
 
+    packet_version_id =
+      relay_internal_id(version["packetVersion"]["id"], :work_packet_version)
+
     before_stale_version = command_record_snapshot()
 
     stale_version =
@@ -300,12 +355,12 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         |> Map.put(:expectedCurrentVersionId, packet["packetVersion"]["id"])
       )
 
-    assert [%{"extensions" => %{"code" => "stale_packet_version"}}] = stale_version["errors"]
+    assert_error_code(stale_version, "stale_packet_version")
     assert command_record_snapshot() == before_stale_version
 
     run_input = %{
       idempotencyKey: unique_key("run"),
-      packetVersionId: version["packetVersion"]["id"],
+      packetVersionId: packet_version_id,
       sourceSurface: "operator_commands_graphql_test",
       reason: "Exercise each step-specific command.",
       authorityPosture: "human_supervised"
@@ -317,10 +372,13 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         :start_work_run,
         run_input
         |> Map.put(:idempotencyKey, unique_key("stale-run"))
-        |> Map.put(:packetVersionId, packet["packetVersion"]["id"])
+        |> Map.put(
+          :packetVersionId,
+          relay_internal_id(packet["packetVersion"]["id"], :work_packet_version)
+        )
       )
 
-    assert [%{"extensions" => %{"code" => "stale_packet_version"}}] = stale_run["errors"]
+    assert_error_code(stale_run, "stale_packet_version")
 
     started = command(conn, :start_work_run, run_input)
     assert_payload(started, "start_work_run", ["work_run", "run_required_check"])
@@ -332,10 +390,10 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         Map.put(run_input, :idempotencyKey, unique_key("active-run"))
       )
 
-    assert [%{"extensions" => %{"code" => "active_work_run"}}] = duplicate_run["errors"]
+    assert_error_code(duplicate_run, "active_work_run")
 
     first_required_check =
-      Enum.find(started["requiredChecks"], &(&1["verificationCheckId"] == first_check["id"]))
+      Enum.find(started["requiredChecks"], &(&1["verificationCheckId"] == first_check_id))
 
     second_required_check =
       Enum.find(started["requiredChecks"], &(&1["verificationCheckId"] == second_check.id))
@@ -343,7 +401,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     observation_input = %{
       idempotencyKey: unique_key("observation-operation"),
       runId: started["run"]["id"],
-      verificationCheckId: first_check["id"],
+      verificationCheckId: first_check_id,
       sourceGraphItemId: first_check["graphItemId"],
       observationSourceKind: "human",
       observationSourceIdentity: "manual:graphql-sequence-observation",
@@ -362,7 +420,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     candidate_input = %{
       idempotencyKey: unique_key("candidate"),
       workRunId: observed["run"]["id"],
-      verificationCheckId: first_check["id"],
+      verificationCheckId: first_check_id,
       executionObservationId: observed["observation"]["id"],
       claim: "The first required check has passing evidence.",
       sourceKind: "human",
@@ -397,39 +455,53 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "task"
     ])
 
-    assert %{"type" => "review_finding", "id" => applied["reviewFinding"]["id"]} in accepted[
+    assert %{
+             "type" => "review_finding",
+             "id" => relay_internal_id(applied["reviewFinding"]["id"], :review_finding)
+           } in accepted["affectedIds"]
+
+    assert %{"type" => "task", "id" => relay_internal_id(applied["task"]["id"], :task)} in accepted[
              "affectedIds"
            ]
 
-    assert %{"type" => "task", "id" => applied["task"]["id"]} in accepted["affectedIds"]
-
     accepted_required_check =
-      Ash.get!(RunRequiredCheck, first_required_check["id"], authorize?: false)
+      Ash.get!(
+        RunRequiredCheck,
+        relay_internal_id(first_required_check["id"], :run_required_check),
+        authorize?: false
+      )
 
     assert accepted_required_check.state == "satisfied"
+
+    accepted_run =
+      Ash.get!(
+        Run,
+        relay_internal_id(started["run"]["id"], :work_run),
+        authorize?: false
+      )
 
     before_stale_waiver = command_record_snapshot()
 
     stale_waiver =
       raw_command(conn, :waive_verification_check, %{
         idempotencyKey: unique_key("stale-waive"),
-        runId: accepted["run"]["id"],
+        runId: started["run"]["id"],
         runRequiredCheckId: second_required_check["id"],
         expectedExecutionState: "queued",
-        expectedVerificationState: accepted["run"]["verificationState"],
+        expectedVerificationState: accepted_run.verification_state,
         reason: "This stale request must not waive the check.",
         policyBasis: "owner_exception"
       })
 
-    assert [%{"extensions" => %{"code" => "stale_run_state"}}] = stale_waiver["errors"]
+    assert_error_code(stale_waiver, "stale_run_state")
     assert command_record_snapshot() == before_stale_waiver
 
     waiver_input = %{
       idempotencyKey: unique_key("waive"),
-      runId: accepted["run"]["id"],
+      runId: started["run"]["id"],
       runRequiredCheckId: second_required_check["id"],
-      expectedExecutionState: accepted["run"]["executionState"],
-      expectedVerificationState: accepted["run"]["verificationState"],
+      expectedExecutionState: accepted_run.execution_state,
+      expectedVerificationState: accepted_run.verification_state,
       reason: "The second check is governed by an approved exception.",
       policyBasis: "owner_exception"
     }
@@ -442,9 +514,17 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       "work_run"
     ])
 
-    assert waived["requiredCheck"]["id"] == second_required_check["id"]
-    assert waived["requiredCheck"]["state"] == "waived"
-    assert waived["run"]["verificationState"] == "verified"
+    waived_required_check =
+      Ash.get!(
+        RunRequiredCheck,
+        relay_internal_id(second_required_check["id"], :run_required_check),
+        authorize?: false
+      )
+
+    verified_run = Ash.get!(Run, accepted_run.id, authorize?: false)
+
+    assert waived_required_check.state == "waived"
+    assert verified_run.verification_state == "verified"
 
     commands = [
       {:submit_manual_intake, intake_input, intake, :body, "Changed intake body."},
@@ -467,7 +547,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       assert stable_payload(command(conn, name, input)) == stable_payload(expected)
 
       response = raw_command(conn, name, Map.put(input, changed_field, changed_value))
-      assert [%{"extensions" => %{"code" => "idempotency_conflict"}}] = response["errors"]
+      assert_error_code(response, "idempotency_conflict")
     end)
 
     assert command_record_snapshot() == before_retry_snapshot
@@ -506,7 +586,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         acceptancePolicyBasis: "owner_acceptance"
       })
 
-    assert accepted["run"] == nil
     refute Enum.any?(accepted["affectedIds"], &(&1["type"] == "work_run"))
     assert Enum.any?(accepted["affectedIds"], &(&1["type"] == "verification_check"))
 
@@ -515,7 +594,13 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert %{"type" => "task", "id" => review_finding.task_id} in accepted["affectedIds"]
 
     verification_result =
-      Ash.get!(VerificationResult, accepted["verificationResult"]["id"], authorize?: false)
+      Ash.get!(
+        VerificationResult,
+        accepted["affectedIds"]
+        |> Enum.find(&(&1["type"] == "verification_result"))
+        |> Map.fetch!("id"),
+        authorize?: false
+      )
 
     assert verification_result.reason == nil
     assert verification_result.policy_basis == "owner_acceptance"
@@ -574,7 +659,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         observationRationale: "Prove least-capability observation recording."
       })
 
-    assert observed["run"]["id"] == run_result.run.id
+    assert relay_internal_id(observed["run"]["id"], :work_run) == run_result.run.id
   end
 
   test "accept-only sessions can target candidates and report every changed check", %{conn: conn} do
@@ -639,20 +724,19 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         prefix: "graphql-waive-only"
       )
 
-    waived =
-      conn
-      |> Ash.PlugHelpers.set_actor(waive_only)
-      |> command(:waive_verification_check, %{
-        idempotencyKey: unique_key("waive-only"),
-        runId: run_result.run.id,
-        runRequiredCheckId: required_check.id,
-        expectedExecutionState: run_result.run.execution_state,
-        expectedVerificationState: run_result.run.verification_state,
-        reason: "Approved least-capability exception.",
-        policyBasis: "owner_exception"
-      })
+    conn
+    |> Ash.PlugHelpers.set_actor(waive_only)
+    |> command(:waive_verification_check, %{
+      idempotencyKey: unique_key("waive-only"),
+      runId: run_result.run.id,
+      runRequiredCheckId: required_check.id,
+      expectedExecutionState: run_result.run.execution_state,
+      expectedVerificationState: run_result.run.verification_state,
+      reason: "Approved least-capability exception.",
+      policyBasis: "owner_exception"
+    })
 
-    assert waived["requiredCheck"]["state"] == "waived"
+    assert Ash.get!(RunRequiredCheck, required_check.id, authorize?: false).state == "waived"
   end
 
   test "apply commands without read or apply grants return a safe forbidden error", %{conn: conn} do
@@ -674,11 +758,11 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       |> Ash.PlugHelpers.set_actor(no_capabilities)
       |> raw_command(:apply_proposed_changes, %{
         idempotencyKey: unique_key("no-cap-apply"),
-        normalizedEventId: intake["normalizedEventId"],
-        proposedChangeIds: intake["proposedChangeIds"]
+        normalizedEventId: normalized_event_id(intake),
+        proposedChangeIds: proposed_change_ids(intake)
       })
 
-    assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
+    assert_error_code(response, "forbidden")
   end
 
   test "version-only sessions can create a packet version without skeleton read", %{conn: conn} do
@@ -713,8 +797,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         [verification_check.id]
       )
       |> Map.merge(%{
-        packetId: packet_result.packet.id,
-        expectedCurrentVersionId: packet_result.version.id,
+        packetId: relay_id(:work_packet, packet_result.packet.id),
+        expectedCurrentVersionId: relay_id(:work_packet_version, packet_result.version.id),
         title: "Version-only command packet v2"
       })
 
@@ -723,7 +807,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       |> Ash.PlugHelpers.set_actor(version_only)
       |> command(:create_work_packet_version, input)
 
-    assert created["packet"]["id"] == packet_result.packet.id
+    assert relay_internal_id(created["packet"]["id"], :work_packet) == packet_result.packet.id
     assert created["packetVersion"]["versionNumber"] == 2
   end
 
@@ -759,7 +843,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         |> Ash.PlugHelpers.set_actor(read_only)
         |> raw_command(name, forbidden_input)
 
-      assert [%{"extensions" => %{"code" => "forbidden"}}] = response["errors"]
+      assert_error_code(response, "forbidden")
     end)
 
     assert command_record_snapshot() == before_snapshot
@@ -770,6 +854,25 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     assert response["errors"] in [nil, []]
     response["data"] |> Map.values() |> hd()
   end
+
+  defp assert_error_code(response, expected_code) do
+    assert [error] = response["errors"]
+    assert (error["code"] || get_in(error, ["extensions", "code"])) == expected_code
+  end
+
+  defp relay_id(type, id) do
+    Absinthe.Relay.Node.to_global_id(Atom.to_string(type), id, OfficeGraphWeb.GraphQL.Schema)
+  end
+
+  defp relay_internal_id(id, expected_type) do
+    assert {:ok, %{type: ^expected_type, id: internal_id}} =
+             AshGraphql.Resource.decode_relay_id(id)
+
+    internal_id
+  end
+
+  defp normalized_event_id(result), do: result["normalizedEvent"]["id"]
+  defp proposed_change_ids(result), do: Enum.map(result["proposedChanges"], & &1["id"])
 
   defp raw_graphql(conn, query, variables) do
     conn
@@ -792,7 +895,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     mutation Command($input: SubmitManualIntakeInput!) {
       submitManualIntake(input: $input) {
         command operationId affectedIds { type id }
-        normalizedEventId proposedChangeIds
+        normalizedEvent { id }
+        proposedChanges { id }
       }
     }
     """
@@ -878,8 +982,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
         command operationId affectedIds { type id }
         evidenceCandidate { id candidateState }
         evidenceItem { id state }
-        verificationResult { id result }
-        run { id executionState verificationState }
       }
     }
     """
@@ -891,8 +993,6 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       waiveVerificationCheck(input: $input) {
         command operationId affectedIds { type id }
         verificationResult { id result }
-        requiredCheck { id state }
-        run { id executionState verificationState }
       }
     }
     """
@@ -940,13 +1040,14 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     applied =
       command(conn, :apply_proposed_changes, %{
         idempotencyKey: unique_key("guardrail-apply"),
-        normalizedEventId: intake["normalizedEventId"],
-        proposedChangeIds: intake["proposedChangeIds"]
+        normalizedEventId: normalized_event_id(intake),
+        proposedChangeIds: proposed_change_ids(intake)
       })
 
     applied_check = applied["verificationCheck"]
     sources = [applied_check["graphItemId"], check.graph_item_id]
-    checks = [applied_check["id"], check.id]
+    applied_check_id = relay_internal_id(applied_check["id"], :verification_check)
+    checks = [applied_check_id, check.id]
     packet_input = packet_input(unique_key("guardrail-packet"), sources, checks)
     packet = command(conn, :create_work_packet, packet_input)
 
@@ -959,9 +1060,12 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
 
     version = command(conn, :create_work_packet_version, version_input)
 
+    packet_version_id =
+      relay_internal_id(version["packetVersion"]["id"], :work_packet_version)
+
     run_input = %{
       idempotencyKey: unique_key("guardrail-run"),
-      packetVersionId: version["packetVersion"]["id"],
+      packetVersionId: packet_version_id,
       sourceSurface: "operator_commands_graphql_test",
       reason: "Create guardrail run targets.",
       authorityPosture: "human_supervised"
@@ -973,7 +1077,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     observation_input = %{
       idempotencyKey: unique_key("guardrail-observation-operation"),
       runId: started["run"]["id"],
-      verificationCheckId: applied_check["id"],
+      verificationCheckId: applied_check_id,
       sourceGraphItemId: applied_check["graphItemId"],
       observationSourceKind: "human",
       observationSourceIdentity: "manual:guardrail-observation",
@@ -990,7 +1094,7 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
     candidate_input = %{
       idempotencyKey: unique_key("guardrail-candidate"),
       workRunId: started["run"]["id"],
-      verificationCheckId: applied_check["id"],
+      verificationCheckId: applied_check_id,
       executionObservationId: observed["observation"]["id"],
       claim: "Guardrail candidate.",
       sourceKind: "human",
@@ -1022,8 +1126,8 @@ defmodule OfficeGraphWeb.OperatorCommandsGraphQLTest do
       {:apply_proposed_changes,
        %{
          idempotencyKey: unique_key("missing-apply"),
-         normalizedEventId: intake["normalizedEventId"],
-         proposedChangeIds: intake["proposedChangeIds"]
+         normalizedEventId: normalized_event_id(intake),
+         proposedChangeIds: proposed_change_ids(intake)
        }, :proposedChangeIds},
       {:create_work_packet, Map.put(packet_input, :idempotencyKey, unique_key("missing-packet")),
        :title},

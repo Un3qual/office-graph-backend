@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Authorization, Foundation, Repo}
+  alias OfficeGraph.{AgentRuntime, Authorization, Foundation}
   alias OfficeGraph.AgentRuntime.{AgentDefinition, OrganizationBinding}
   alias OfficeGraph.Authorization.RoleAssignment
   alias OfficeGraph.Identity.{Principal, Session, SessionContext}
@@ -67,7 +67,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
                )
     end
 
-    assert Repo.aggregate(OrganizationBinding, :count) == 1
+    assert Ash.count!(OrganizationBinding, authorize?: false) == 1
   end
 
   test "an authorized repeat bind with a new operation returns the active scoped binding" do
@@ -86,7 +86,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     assert repeated.binding.id == first.binding.id
     refute repeated.operation.id == first.operation.id
     assert repeated.binding.operation_id == first.operation.id
-    assert Repo.aggregate(OrganizationBinding, :count) == 1
+    assert Ash.count!(OrganizationBinding, authorize?: false) == 1
   end
 
   test "binding rejects missing authority, forged scope, generic definition input, and inactive definition" do
@@ -95,15 +95,15 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     no_capabilities =
       create_session_with_capabilities!(bootstrap, [], prefix: "agent-bind-denied")
 
-    principal_count = Repo.aggregate(Principal, :count)
+    principal_count = Ash.count!(Principal, authorize?: false)
 
     assert {:error, :forbidden} =
              AgentRuntime.bind_run_review_agent(no_capabilities, %{
                idempotency_key: "agent-bind-denied"
              })
 
-    assert Repo.aggregate(OrganizationBinding, :count) == 0
-    assert Repo.aggregate(Principal, :count) == principal_count
+    assert Ash.count!(OrganizationBinding, authorize?: false) == 0
+    assert Ash.count!(Principal, authorize?: false) == principal_count
 
     forged_scope = %{bootstrap.session | organization_id: Ecto.UUID.generate()}
 
@@ -134,7 +134,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
                idempotency_key: "agent-bind-disabled"
              })
 
-    assert Repo.aggregate(OrganizationBinding, :count) == 0
+    assert Ash.count!(OrganizationBinding, authorize?: false) == 0
   end
 
   test "separate organizations receive isolated bindings and principals" do
@@ -167,7 +167,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
     refute first_binding.principal.id == second_binding.principal.id
     assert first_binding.binding.organization_id == first.organization.id
     assert second_binding.binding.organization_id == second.organization.id
-    assert Repo.aggregate(OrganizationBinding, :count) == 2
+    assert Ash.count!(OrganizationBinding, authorize?: false) == 2
   end
 
   test "workspaces in one organization receive isolated bindings and scoped authority" do
@@ -197,7 +197,7 @@ defmodule OfficeGraph.AgentRuntime.OrganizationBindingTest do
                :agent_runtime_execute
              )
 
-    assert Repo.aggregate(OrganizationBinding, :count) == 2
+    assert Ash.count!(OrganizationBinding, authorize?: false) == 2
   end
 
   test "binding lifecycle updates keep disabled timestamps consistent" do

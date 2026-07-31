@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<5f74db3baa02df231a510ea574303dde>>
+ * @generated SignedSource<<6e44391485bb92e9716dec34f5f3a87b>>
  * @lightSyntaxTransform
  */
 
@@ -24,7 +24,7 @@ export type OperatorAppendConversationMessageMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly message: {
       readonly id: string;
@@ -103,7 +103,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorRunConversationMessage",
+        "concreteType": "ConversationMessage",
         "kind": "LinkedField",
         "name": "message",
         "plural": false,

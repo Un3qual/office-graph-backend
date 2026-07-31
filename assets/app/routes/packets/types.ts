@@ -65,7 +65,7 @@ export type PacketWorkspaceDetail = {
     readonly id: string;
     readonly title: string;
     readonly state: string;
-    readonly currentVersionId: string;
+    readonly currentVersionId: string | null | undefined;
     readonly operationId: string | null | undefined;
   };
   readonly currentVersion: PacketWorkspaceVersion;

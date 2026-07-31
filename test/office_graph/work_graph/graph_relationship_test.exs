@@ -18,7 +18,10 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
           :run_id,
           :integration_event_id,
           :supersedes_relationship_id,
-          :tombstone_id
+          :deletion_operation_id,
+          :deleted_by_principal_id,
+          :deleted_at,
+          :deletion_reason
         ] do
       assert attribute in attribute_names
     end
@@ -46,7 +49,13 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     assert {:error, _error} =
              Ash.Type.apply_constraints(:string, "invented", lifecycle.constraints)
 
-    assert [:organization_id, :definition_id, :source_item_id, :target_item_id] ==
+    assert [
+             :organization_id,
+             :definition_id,
+             :source_item_id,
+             :target_item_id,
+             :active_identity_slot
+           ] ==
              Ash.Resource.Info.identity(GraphRelationship, :active_definition_edge).keys
   end
 
@@ -62,9 +71,63 @@ defmodule OfficeGraph.WorkGraph.GraphRelationshipTest do
     assert relationships.operation == OfficeGraph.Operations.OperationCorrelation
     assert relationships.asserting_principal == OfficeGraph.Identity.Principal
     assert relationships.superseded_relationship == GraphRelationship
-    assert relationships.tombstone == OfficeGraph.Tombstones.Tombstone
+    assert relationships.deletion_operation == OfficeGraph.Operations.OperationCorrelation
+    assert relationships.deleted_by_principal == OfficeGraph.Identity.Principal
+    assert relationships.run == OfficeGraph.Runs.Run
+    assert relationships.integration_event == OfficeGraph.Integrations.NormalizedIntakeEvent
+  end
 
-    refute Map.has_key?(relationships, :related_run)
-    refute Map.has_key?(relationships, :integration_event)
+  test "directional adjacency reads have declarative scope and history indexes" do
+    indexes = AshPostgres.DataLayer.Info.custom_indexes(GraphRelationship)
+
+    assert %AshPostgres.CustomIndex{
+             fields: [
+               :organization_id,
+               :workspace_id,
+               :lifecycle,
+               :source_item_id,
+               :inserted_at,
+               :id
+             ],
+             unique: false
+           } =
+             Enum.find(
+               indexes,
+               &(&1.name == "graph_relationships_scope_source_history_index")
+             )
+
+    assert %AshPostgres.CustomIndex{
+             fields: [
+               :organization_id,
+               :workspace_id,
+               :lifecycle,
+               :target_item_id,
+               :inserted_at,
+               :id
+             ],
+             unique: false
+           } =
+             Enum.find(
+               indexes,
+               &(&1.name == "graph_relationships_scope_target_history_index")
+             )
+  end
+
+  test "tombstone and restore own in-table deletion metadata" do
+    tombstone = Ash.Resource.Info.action(GraphRelationship, :tombstone)
+    restore = Ash.Resource.Info.action(GraphRelationship, :restore)
+
+    assert MapSet.new(tombstone.accept) ==
+             MapSet.new([
+               :operation_id,
+               :asserting_principal_id,
+               :deletion_operation_id,
+               :deleted_by_principal_id,
+               :deletion_reason
+             ])
+
+    for field <- [:deletion_operation_id, :deleted_by_principal_id, :deleted_at, :deletion_reason] do
+      refute field in restore.accept
+    end
   end
 end

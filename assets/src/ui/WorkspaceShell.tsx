@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { NavRail, type NavDestination } from "./NavRail";
+import { SessionActions } from "./SessionActions";
 
 type Props = {
   brand: string;
@@ -31,7 +32,10 @@ export function WorkspaceShell({
             <p className="product-name">{eyebrow}</p>
             <h1>{title}</h1>
           </div>
-          {headerActions}
+          <div className="topbar-actions">
+            {headerActions}
+            <SessionActions />
+          </div>
         </header>
         <div className={contentClassName}>{children}</div>
       </main>

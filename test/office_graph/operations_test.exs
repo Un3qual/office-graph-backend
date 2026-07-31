@@ -38,7 +38,7 @@ defmodule OfficeGraph.OperationsTest do
              )
 
     assert replay.id == first.id
-    assert replay.metadata["command_input_digest"] == first.metadata["command_input_digest"]
+    assert replay.command_input_digest == first.command_input_digest
 
     changed_input = %{input | source_graph_item_ids: [Ecto.UUID.generate()]}
 

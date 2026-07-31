@@ -146,28 +146,19 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
     assert detail.audit_trace.resource_count == 7
     assert detail.revision_trace.resource_count == 7
 
-    {{:ok, relationship_page}, relationship_queries} =
-      QueryCounter.count(fn ->
-        Projections.operator_relationship_details_page(
-          bootstrap.session,
-          intake.normalized_event.id,
-          limit: 2,
-          after_cursor: nil
-        )
-      end)
+    assert {:ok, relationship_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 2,
+               after_cursor: nil
+             )
 
     assert length(relationship_page.edges) == 2
-
-    detail_queries =
-      Enum.filter(
-        relationship_queries,
-        &String.contains?(&1.query || "", "graph_relationships gr")
-      )
-
-    assert length(detail_queries) == 1
-    assert String.contains?(hd(detail_queries).query, "graph_relationships")
-    assert QueryCounter.source_count(relationship_queries, "audit_records") == 0
-    assert String.contains?(hd(detail_queries).query, "LIMIT")
+    assert relationship_page.graph_link_count == 4
+    assert relationship_page.graph_relationship_count == 3
+    assert relationship_page.has_next_page?
+    refute relationship_page.has_previous_page?
   end
 
   test "operator workflow stops offering packet creation once its packet contract exists" do
@@ -256,20 +247,19 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     assert length(inbox.rows) == 50
 
-    relationship_projection_queries =
-      Enum.filter(queries, fn query ->
-        String.contains?(query.query || "", "graph_relationships gr")
-      end)
+    assert Enum.all?(inbox.rows, fn row ->
+             row.relationship_summary == %{
+               graph_links: 0,
+               graph_relationships: 0,
+               has_more: false
+             }
+           end)
 
-    assert length(relationship_projection_queries) == 1
-
-    relationship_query = hd(relationship_projection_queries).query
-    assert String.contains?(relationship_query, "source_matched_versions AS")
-
-    refute Regex.match?(
-             ~r/FROM requested_events\s+JOIN work_packet_versions/,
-             relationship_query
-           )
+    assert QueryCounter.source_count(queries, "proposed_graph_changes") <= 1
+    assert QueryCounter.source_count(queries, "graph_relationships") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_required_checks") <= 1
+    assert QueryCounter.source_count(queries, "work_packet_version_sources") <= 1
+    assert QueryCounter.source_count(queries, "runs") <= 1
   end
 
   test "operator run state query count stays bounded across child collections" do
@@ -308,11 +298,11 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
         Projections.operator_run_state(bootstrap.session, run_result.run.id)
       end)
 
-    assert length(run_state.required_checks) == 4
-    assert length(run_state.observations) == 4
-    assert length(run_state.evidence_candidates) == 4
-    assert length(run_state.evidence_items) == 4
-    assert length(run_state.verification_results) == 4
+    assert run_state.child_summary.required_checks == 4
+    assert run_state.child_summary.observations == 4
+    assert run_state.child_summary.evidence_candidates == 4
+    assert run_state.child_summary.evidence_items == 4
+    assert run_state.child_summary.verification_results == 4
     # One bounded detail query plus one aggregate-count query per child source.
     assert QueryCounter.source_count(queries, "run_required_checks") <= 2
     assert QueryCounter.source_count(queries, "execution_observations") <= 2
@@ -425,10 +415,7 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     runs =
       Enum.reduce(2..21, [first_run.run], fn index, [current | _] = runs ->
-        OfficeGraph.Repo.query!(
-          "UPDATE runs SET state = 'failed', aggregate_state = 'failed', execution_state = 'failed', verification_state = 'failed' WHERE id = $1",
-          [Ecto.UUID.dump!(current.id)]
-        )
+        mark_run_failed!(current)
 
         {:ok, next_run} =
           start_run_for_packet_version(
@@ -461,24 +448,18 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
     {:ok, relationship_operation} =
       Operations.start_operation(bootstrap.session, :graph_relationship_create)
 
-    Repo.query!(
-      """
-      INSERT INTO graph_relationships
-        (id, definition_id, organization_id, workspace_id, source_item_id, target_item_id,
-         lifecycle, asserting_principal_id, operation_id, valid_from, inserted_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, now(), now(), now())
-      """,
-      [
-        Ecto.UUID.dump!(cross_tenant_relationship_id),
-        Ecto.UUID.dump!(relationship_definition.id),
-        Ecto.UUID.dump!(bootstrap.organization.id),
-        Ecto.UUID.dump!(bootstrap.workspace.id),
-        Ecto.UUID.dump!(applied.signal.graph_item_id),
-        Ecto.UUID.dump!(other_check.graph_item_id),
-        Ecto.UUID.dump!(bootstrap.principal.id),
-        Ecto.UUID.dump!(relationship_operation.id)
-      ]
-    )
+    Ash.Seed.seed!(OfficeGraph.WorkGraph.GraphRelationship, %{
+      id: cross_tenant_relationship_id,
+      definition_id: relationship_definition.id,
+      organization_id: bootstrap.organization.id,
+      workspace_id: bootstrap.workspace.id,
+      source_item_id: applied.signal.graph_item_id,
+      target_item_id: other_check.graph_item_id,
+      lifecycle: "active",
+      asserting_principal_id: bootstrap.principal.id,
+      operation_id: relationship_operation.id,
+      valid_from: DateTime.utc_now()
+    })
 
     assert {:ok, detail} =
              Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
@@ -597,25 +578,42 @@ defmodule OfficeGraph.Projections.OperatorInboxProjectionTest do
 
     Enum.each(version_runs, fn {_version, run} -> mark_run_failed!(run) end)
 
-    Repo.query!(
-      "UPDATE runs SET inserted_at = now() - interval '2 hours' WHERE id = $1",
-      [Ecto.UUID.dump!(uuid_first_run.id)]
-    )
+    Ash.Seed.update!(uuid_first_run, %{
+      inserted_at: DateTime.add(DateTime.utc_now(), -2, :hour)
+    })
 
     restore_running_run!(recent_run)
 
-    {{:ok, detail}, queries} =
-      QueryCounter.count(fn ->
-        Projections.operator_workflow_item(bootstrap.session, intake.normalized_event.id)
-      end)
+    assert {:ok, detail} =
+             Projections.operator_workflow_item(
+               bootstrap.session,
+               intake.normalized_event.id
+             )
 
     assert detail.status == recent_run.aggregate_state
 
-    run_query = Enum.find(queries, &String.contains?(&1.query || "", "ranked_runs"))
-    assert run_query
-    assert String.contains?(run_query.query, "PARTITION BY event_key")
-    assert String.contains?(run_query.query, "ORDER BY r.inserted_at DESC, r.id DESC")
-    assert {:ok, %Postgrex.Result{num_rows: 21}} = run_query.result
+    assert Enum.any?(
+             detail.graph_links,
+             &(&1.type == "work_run" and &1.id == recent_run.id)
+           )
+
+    assert {:ok, relationship_page} =
+             Projections.operator_relationship_details_page(
+               bootstrap.session,
+               intake.normalized_event.id,
+               limit: 100,
+               after_cursor: nil
+             )
+
+    run_edges =
+      Enum.filter(
+        relationship_page.edges,
+        &(&1.node.link_type == "work_run")
+      )
+
+    assert length(run_edges) == 21
+    assert Enum.any?(run_edges, &(&1.node.stable_id == "work_run:#{recent_run.id}"))
+    refute recent_run.id == uuid_first_run.id
     refute recent_version.id == uuid_first_version.id
   end
 

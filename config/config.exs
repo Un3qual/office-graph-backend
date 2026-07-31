@@ -11,12 +11,12 @@ config :office_graph,
   ash_domains: [
     OfficeGraph.Tenancy.Domain,
     OfficeGraph.Identity.Domain,
+    OfficeGraph.EnterpriseIdentity.Domain,
     OfficeGraph.Authorization.Domain,
     OfficeGraph.Operations.Domain,
     OfficeGraph.DurableDelivery.Domain,
     OfficeGraph.Audit.Domain,
     OfficeGraph.Revisions.Domain,
-    OfficeGraph.Tombstones.Domain,
     OfficeGraph.Content.Domain,
     OfficeGraph.Integrations.Domain,
     OfficeGraph.ExternalRefs.Domain,
@@ -30,8 +30,13 @@ config :office_graph,
     OfficeGraph.NodeConversations.Domain
   ],
   allow_local_api_owner_bootstrap: false,
+  local_development_auth_routes: false,
   human_oidc: [],
   human_oidc_client: OfficeGraph.Authentication.OidcClient.Oidcc,
+  workos_http_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.ReqClient,
+  workos_secret_store: OfficeGraph.EnterpriseIdentity.SecretStore.Environment,
+  workos_sso_client: OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient,
+  external_role_facts: OfficeGraph.EnterpriseIdentity.AuthorizationFacts,
   ecto_repos: [OfficeGraph.Repo],
   generators: [timestamp_type: :utc_datetime]
 
@@ -58,6 +63,42 @@ config :office_graph, :agent_runtime_retention_limit, 32
 config :office_graph,
        :github_record_loader,
        OfficeGraph.GitHubIntegration.RecordLoader.AshAdapter
+
+config :office_graph,
+       :github_installation_binding_store,
+       OfficeGraph.GitHubIntegration.InstallationBindingStore.AshAdapter
+
+config :office_graph,
+       :authorization_decision_store,
+       OfficeGraph.Authorization.DecisionStore.AshAdapter
+
+config :office_graph,
+       :authorization_persistence,
+       OfficeGraph.Authorization.Persistence.Default
+
+config :office_graph,
+       :human_session_persistence,
+       OfficeGraph.Identity.HumanSessionPersistence.Default
+
+config :office_graph,
+       :operation_persistence,
+       OfficeGraph.Operations.Persistence.Default
+
+config :office_graph,
+       :integration_signal_persistence,
+       OfficeGraph.WorkGraph.IntegrationSignalPersistence.Default
+
+config :office_graph,
+       :github_outbound_persistence,
+       OfficeGraph.GitHubIntegration.OutboundPersistence.Default
+
+config :office_graph,
+       :github_reconciliation_persistence,
+       OfficeGraph.GitHubIntegration.ReconciliationPersistence.Default
+
+config :office_graph,
+       :github_webhook_receipt_persistence,
+       OfficeGraph.GitHubIntegration.WebhookReceiptPersistence.Default
 
 config :office_graph, Oban,
   repo: OfficeGraph.Repo,

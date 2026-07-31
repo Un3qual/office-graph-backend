@@ -1,0 +1,92 @@
+defmodule OfficeGraph.GitHubIntegration.PermissionSnapshot do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: OfficeGraph.GitHubIntegration.Domain,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
+
+  postgres do
+    table "github_permission_snapshots"
+    repo OfficeGraph.Repo
+
+    identity_index_names unique_installation_version:
+                           "github_permission_snapshots_installation_version_index"
+  end
+
+  attributes do
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
+    attribute :version, :integer, allow_nil?: false, public?: true
+    attribute :captured_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    create_timestamp :inserted_at, public?: true
+    update_timestamp :updated_at, public?: true
+  end
+
+  actions do
+    read :read do
+      primary? true
+      public? true
+      pagination keyset?: true, countable: false, required?: false
+    end
+
+    create :create do
+      accept [:id, :installation_id, :version, :captured_at, :operation_id]
+      public? false
+    end
+  end
+
+  identities do
+    identity :unique_installation_version, [:installation_id, :version]
+  end
+
+  relationships do
+    belongs_to :installation, OfficeGraph.GitHubIntegration.Installation do
+      source_attribute :installation_id
+      destination_attribute :id
+      public? true
+      attribute_public? true
+    end
+
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      public? true
+      attribute_public? true
+    end
+
+    has_many :entries, OfficeGraph.GitHubIntegration.PermissionEntry do
+      destination_attribute :permission_snapshot_id
+      public? true
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     installation.organization_id == ^actor(:organization_id) and
+                       (is_nil(installation.workspace_id) or
+                          installation.workspace_id == ^actor(:workspace_id))
+                   )
+    end
+  end
+
+  graphql do
+    type :github_permission_snapshot
+    paginate_relationship_with(entries: :relay)
+  end
+
+  json_api do
+    type "github_permission_snapshot"
+  end
+end

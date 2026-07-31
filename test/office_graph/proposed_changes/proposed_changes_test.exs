@@ -11,7 +11,6 @@ defmodule OfficeGraph.ProposedChangesTest do
   alias OfficeGraph.Operations
   alias OfficeGraph.ProposedChanges
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
-  alias OfficeGraph.Repo
   alias OfficeGraph.WorkGraph
 
   import OfficeGraph.SessionCaseHelpers
@@ -34,41 +33,29 @@ defmodule OfficeGraph.ProposedChangesTest do
     bootstrap: bootstrap,
     intake: intake
   } do
-    invalid =
-      intake.proposed_changes
-      |> hd()
-      |> update_payload!(bootstrap.session, %{"body" => "missing title"})
+    change = hd(intake.proposed_changes)
 
-    proposed_changes = [invalid | tl(intake.proposed_changes)]
-    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
-    invalid_id = invalid.id
+    assert_raise Ash.Error.Invalid, fn ->
+      update_content!(change, bootstrap.session, %{"title" => "", "body" => "missing title"})
+    end
 
-    assert {:error, {:invalid_proposed_change, ^invalid_id}} =
-             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
-
-    assert get_change!(invalid).status == "rejected"
+    assert get_change!(change).status == "pending"
   end
 
   test "non-string proposed change payload fields are invalid instead of crashing", %{
     bootstrap: bootstrap,
     intake: intake
   } do
-    invalid =
-      intake.proposed_changes
-      |> hd()
-      |> update_payload!(bootstrap.session, %{
+    change = hd(intake.proposed_changes)
+
+    assert_raise Ash.Error.Invalid, fn ->
+      update_content!(change, bootstrap.session, %{
         "title" => %{"bad" => "shape"},
         "body" => "A valid body should not rescue a malformed title."
       })
+    end
 
-    proposed_changes = [invalid | tl(intake.proposed_changes)]
-    {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
-    invalid_id = invalid.id
-
-    assert {:error, {:invalid_proposed_change, ^invalid_id}} =
-             ProposedChanges.apply_all(bootstrap.session, apply_operation, proposed_changes)
-
-    assert get_change!(invalid).status == "rejected"
+    assert get_change!(change).status == "pending"
   end
 
   test "get_many! preserves caller order and raises for missing ids", %{
@@ -114,7 +101,8 @@ defmodule OfficeGraph.ProposedChangesTest do
           operation_id: intake_operation.id,
           status: "applied",
           change_type: "create_signal",
-          payload: %{"title" => "Spoofed lifecycle", "body" => "This must stay pending."},
+          title: "Spoofed lifecycle",
+          body: "This must stay pending.",
           validation_errors: ["spoofed"],
           applied_at: DateTime.utc_now()
         },
@@ -138,7 +126,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  workspace_id: bootstrap.session.workspace_id,
                  operation_id: foreign.intake.normalized_event.operation_id,
                  change_type: "create_signal",
-                 payload: %{"title" => "Spoofed operation", "body" => "Wrong operation scope."}
+                 title: "Spoofed operation",
+                 body: "Wrong operation scope."
                },
                actor: bootstrap.session
              )
@@ -174,7 +163,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  workspace_id: bootstrap.session.workspace_id,
                  operation_id: foreign_operation.id,
                  change_type: "create_signal",
-                 payload: %{"title" => "Spoofed operation", "body" => "Wrong actor trace."}
+                 title: "Spoofed operation",
+                 body: "Wrong actor trace."
                },
                actor: bootstrap.session
              )
@@ -201,20 +191,19 @@ defmodule OfficeGraph.ProposedChangesTest do
       )
 
     change = hd(intake.proposed_changes)
-    original_payload = change.payload
+    original_content = {change.title, change.body}
 
     assert {:error, error} =
              change
-             |> Ash.Changeset.for_update(:set_payload, %{
-               payload: %{
-                 "title" => "Foreign payload edit",
-                 "body" => "Another intake actor must not rewrite this proposed change."
-               }
+             |> Ash.Changeset.for_update(:set_content, %{
+               title: "Foreign payload edit",
+               body: "Another intake actor must not rewrite this proposed change."
              })
              |> Ash.update(actor: other_same_scope.session)
 
     assert Exception.message(error) =~ ~r/forbidden/i
-    assert get_change!(change).payload == original_payload
+    updated = get_change!(change)
+    assert {updated.title, updated.body} == original_content
   end
 
   test "direct Ash create rejects non-manual-intake operation traces", %{
@@ -231,7 +220,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  workspace_id: bootstrap.session.workspace_id,
                  operation_id: apply_operation.id,
                  change_type: "create_signal",
-                 payload: %{"title" => "Spoofed operation", "body" => "Wrong action trace."}
+                 title: "Spoofed operation",
+                 body: "Wrong action trace."
                },
                actor: bootstrap.session
              )
@@ -257,7 +247,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  operation_id: intake_operation.id,
                  normalized_event_id: foreign.intake.normalized_event.id,
                  change_type: "create_signal",
-                 payload: %{"title" => "Spoofed event", "body" => "Wrong event scope."}
+                 title: "Spoofed event",
+                 body: "Wrong event scope."
                },
                actor: bootstrap.session
              )
@@ -289,10 +280,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  operation_id: intake.normalized_event.operation_id,
                  normalized_event_id: other_event.id,
                  change_type: "create_signal",
-                 payload: %{
-                   "title" => "Spoofed event operation",
-                   "body" => "The event must belong to the operation trace."
-                 }
+                 title: "Spoofed event operation",
+                 body: "The event must belong to the operation trace."
                },
                actor: bootstrap.session
              )
@@ -450,7 +439,7 @@ defmodule OfficeGraph.ProposedChangesTest do
         body: "\nInvestigate deploy health and prove it."
       })
 
-    assert find_change(intake.proposed_changes, "create_signal").payload["title"] ==
+    assert find_change(intake.proposed_changes, "create_signal").title ==
              "Investigate deploy health and prove it"
 
     {:ok, apply_operation} = Operations.start_operation(bootstrap.session, :proposed_change_apply)
@@ -507,10 +496,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  operation_id: existing.operation_id,
                  normalized_event_id: intake.normalized_event.id,
                  change_type: existing.change_type,
-                 payload: %{
-                   "title" => "Duplicate proposed signal",
-                   "body" => "This duplicate should be rejected."
-                 }
+                 title: "Duplicate proposed signal",
+                 body: "This duplicate should be rejected."
                },
                actor: bootstrap.session
              )
@@ -559,10 +546,8 @@ defmodule OfficeGraph.ProposedChangesTest do
                  operation_id: duplicate_operation.id,
                  normalized_event_id: duplicate_event_id,
                  change_type: "create_signal",
-                 payload: %{
-                   "title" => "Duplicate event proposed signal",
-                   "body" => "This duplicate event proposal should be rejected."
-                 }
+                 title: "Duplicate event proposed signal",
+                 body: "This duplicate event proposal should be rejected."
                },
                actor: bootstrap.session
              )
@@ -871,7 +856,7 @@ defmodule OfficeGraph.ProposedChangesTest do
     [first | rest] = intake.proposed_changes
 
     updated =
-      update_payload!(first, bootstrap.session, %{
+      update_content!(first, bootstrap.session, %{
         "title" => "Signal with imported metadata",
         "body" => "Imported metadata should not become atoms.",
         "__unmodeled_import_key__" => "ignored"
@@ -900,8 +885,9 @@ defmodule OfficeGraph.ProposedChangesTest do
 
     assert {:error, error} =
              applied
-             |> Ash.Changeset.for_update(:set_payload, %{
-               payload: %{"title" => "Mutated", "body" => "Should be rejected"}
+             |> Ash.Changeset.for_update(:set_content, %{
+               title: "Mutated",
+               body: "Should be rejected"
              })
              |> Ash.update(actor: bootstrap.session)
 
@@ -922,17 +908,20 @@ defmodule OfficeGraph.ProposedChangesTest do
                intake.proposed_changes
              )
 
-    original_payload = get_change!(stale_pending).payload
+    original = get_change!(stale_pending)
+    original_content = {original.title, original.body}
 
     assert {:error, error} =
              stale_pending
-             |> Ash.Changeset.for_update(:set_payload, %{
-               payload: %{"title" => "Mutated", "body" => "Should be rejected"}
+             |> Ash.Changeset.for_update(:set_content, %{
+               title: "Mutated",
+               body: "Should be rejected"
              })
              |> Ash.update(actor: bootstrap.session)
 
     assert Exception.message(error) =~ "status"
-    assert get_change!(stale_pending).payload == original_payload
+    unchanged = get_change!(stale_pending)
+    assert {unchanged.title, unchanged.body} == original_content
   end
 
   test "direct Ash update cannot mark proposed changes applied", %{
@@ -1016,9 +1005,12 @@ defmodule OfficeGraph.ProposedChangesTest do
     %{bootstrap: bootstrap, intake: intake}
   end
 
-  defp update_payload!(change, session_context, payload) do
+  defp update_content!(change, session_context, content) do
     change
-    |> Ash.Changeset.for_update(:set_payload, %{payload: payload})
+    |> Ash.Changeset.for_update(:set_content, %{
+      title: Map.get(content, "title", Map.get(content, :title)),
+      body: Map.get(content, "body", Map.get(content, :body))
+    })
     |> Ash.update!(actor: session_context)
   end
 
@@ -1030,10 +1022,8 @@ defmodule OfficeGraph.ProposedChangesTest do
         workspace_id: session_context.workspace_id,
         operation_id: operation.id,
         change_type: change_type,
-        payload: %{
-          "title" => "Untraced #{change_type}",
-          "body" => "Untraced #{change_type} body"
-        }
+        title: "Untraced #{change_type}",
+        body: "Untraced #{change_type} body"
       },
       actor: session_context,
       action: :create
@@ -1041,56 +1031,18 @@ defmodule OfficeGraph.ProposedChangesTest do
   end
 
   defp insert_change_for_event!(session_context, operation, normalized_event, change_type) do
-    id = Ecto.UUID.generate()
-    now = DateTime.utc_now()
-
-    Repo.query!(
-      """
-      INSERT INTO proposed_graph_changes (
-        id,
-        organization_id,
-        workspace_id,
-        operation_id,
-        normalized_event_id,
-        status,
-        change_type,
-        payload,
-        validation_errors,
-        inserted_at,
-        updated_at
-      ) VALUES (
-        $1::uuid,
-        $2::uuid,
-        $3::uuid,
-        $4::uuid,
-        $5::uuid,
-        'pending',
-        $6,
-        $7::jsonb,
-        ARRAY[]::text[],
-        $8,
-        $8
-      )
-      """,
-      [
-        db_uuid(id),
-        db_uuid(session_context.organization_id),
-        db_uuid(session_context.workspace_id),
-        db_uuid(operation.id),
-        db_uuid(normalized_event.id),
-        change_type,
-        %{
-          "title" => "Duplicate event #{change_type}",
-          "body" => "Duplicate event #{change_type} body"
-        },
-        now
-      ]
-    )
-
-    Ash.get!(ProposedGraphChange, id, authorize?: false)
+    Ash.Seed.seed!(ProposedGraphChange, %{
+      organization_id: session_context.organization_id,
+      workspace_id: session_context.workspace_id,
+      operation_id: operation.id,
+      normalized_event_id: normalized_event.id,
+      status: "pending",
+      change_type: change_type,
+      title: "Duplicate event #{change_type}",
+      body: "Duplicate event #{change_type} body",
+      validation_errors: []
+    })
   end
-
-  defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
 
   defp create_accepted_event_without_changes!(session_context, operation, suffix) do
     source_identity = "manual:#{suffix}-#{System.unique_integer([:positive])}"
@@ -1118,8 +1070,7 @@ defmodule OfficeGraph.ProposedChangesTest do
           source_id: source.id,
           operation_id: operation.id,
           content_hash: content_hash(body),
-          body: body,
-          metadata: %{}
+          body: body
         },
         action: :create,
         authorize?: false

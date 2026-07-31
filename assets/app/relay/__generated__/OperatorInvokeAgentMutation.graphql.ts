@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<63d3bb081cfc0a1a4693e4e1207816e9>>
+ * @generated SignedSource<<bc77d0b6b2f417a37f3647c756083fa7>>
  * @lightSyntaxTransform
  */
 
@@ -25,9 +25,9 @@ export type OperatorInvokeAgentMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
-    readonly contextPackageId: string;
+    readonly contextPackageId: string | null | undefined;
     readonly execution: {
       readonly currentStepKey: string | null | undefined;
       readonly id: string;
@@ -67,7 +67,7 @@ v2 = [
         "variableName": "input"
       }
     ],
-    "concreteType": "InvokeAgentPayload",
+    "concreteType": "AgentExecutionMutationPayload",
     "kind": "LinkedField",
     "name": "invokeAgent",
     "plural": false,
@@ -108,7 +108,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandAgentExecution",
+        "concreteType": "AgentExecution",
         "kind": "LinkedField",
         "name": "execution",
         "plural": false,

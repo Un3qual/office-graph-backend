@@ -20,6 +20,7 @@ if Mix.env() in [:dev, :test] do
     require Ash.Query
 
     @seed_prefix "dev-seed"
+    @local_fixture_keys ~w(owner workspace_admin member deprovisioned_member)
 
     @seed_items [
       %{
@@ -55,7 +56,8 @@ if Mix.env() in [:dev, :test] do
     ]
 
     def run do
-      {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
+      {:ok, local_development} = Foundation.seed_local_development_fixtures([])
+      bootstrap = local_development.bootstrap
       session = bootstrap.session
 
       seeded =
@@ -63,7 +65,10 @@ if Mix.env() in [:dev, :test] do
           seed_item(session, item)
         end)
 
-      IO.puts("Seeded Office Graph local owner and #{length(seeded)} operator workflow items.")
+      IO.puts(
+        "Seeded Office Graph local identities (#{Enum.join(@local_fixture_keys, ", ")}) and " <>
+          "#{length(seeded)} operator workflow items."
+      )
     end
 
     defp seed_item(session, %{state: :pending} = item) do

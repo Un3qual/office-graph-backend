@@ -8,12 +8,16 @@ defmodule OfficeGraph.Revisions.Revision do
   postgres do
     table "revisions"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, allow_nil?: false, public?: true
     attribute :revision_type, :string, allow_nil?: false, public?: true
@@ -21,6 +25,15 @@ defmodule OfficeGraph.Revisions.Revision do
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
+      source_attribute :operation_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
   end
 
   actions do

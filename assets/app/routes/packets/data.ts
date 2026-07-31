@@ -68,13 +68,25 @@ export const PacketsWorkspaceDetailQuery = graphql`
       status
       blockerReasons
       allowedNextActions
-      packet {
-        id
-        title
+      commandAffordances {
+        identity
         state
-        currentVersionId
-        operationId
+        reasonCodes
+        blockerReasons
+        safeExplanation
+        requiredFields
+        inputDefaults { field value values }
+        targetIds { type id }
+        traceLinks { type id }
+        decisionLinks { type id }
       }
+    }
+    packet: getWorkPacket(id: $id) {
+      id
+      title
+      state
+      currentVersionId
+      operationId
       currentVersion {
         id
         versionNumber
@@ -85,12 +97,20 @@ export const PacketsWorkspaceDetailQuery = graphql`
         requirements
         successCriteria
         autonomyPosture
-        sourceGraphItemIds
-        verificationCheckIds
         operationId
         insertedAt
+        sourceReferences(sort: [{ field: POSITION, order: ASC }]) {
+          graphItemId
+        }
+        requiredChecks(sort: [{ field: POSITION, order: ASC }]) {
+          verificationCheckId
+        }
       }
-      versionHistory(first: $versionFirst, after: $versionAfter) {
+      versions(
+        first: $versionFirst
+        after: $versionAfter
+        sort: [{ field: VERSION_NUMBER, order: DESC }]
+      ) {
         edges {
           cursor
           node {
@@ -106,18 +126,6 @@ export const PacketsWorkspaceDetailQuery = graphql`
           startCursor
           endCursor
         }
-      }
-      commandAffordances {
-        identity
-        state
-        reasonCodes
-        blockerReasons
-        safeExplanation
-        requiredFields
-        inputDefaults { field value values }
-        targetIds { type id }
-        traceLinks { type id }
-        decisionLinks { type id }
       }
     }
   }

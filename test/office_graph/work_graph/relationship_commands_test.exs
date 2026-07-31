@@ -326,6 +326,45 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
              WorkGraph.create_relationship(context.session, context.operation, request)
   end
 
+  test "restore rejects a relationship validity start in the future", context do
+    request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: context.other_task_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    assert {:ok, relationship} =
+             WorkGraph.create_relationship(context.session, context.operation, request)
+
+    {:ok, archive_operation} =
+      Operations.start_operation(context.session, :graph_relationship_archive)
+
+    assert {:ok, archived} =
+             WorkGraph.archive_relationship(
+               context.session,
+               archive_operation,
+               relationship,
+               %{}
+             )
+
+    {:ok, restore_operation} =
+      Operations.start_operation(context.session, :graph_relationship_restore)
+
+    assert {:error, {:invalid_relationship_request, :valid_from}} =
+             WorkGraph.restore_relationship(
+               context.session,
+               restore_operation,
+               archived,
+               %{valid_from: DateTime.add(DateTime.utc_now(), 60, :second)}
+             )
+
+    persisted = Ash.get!(GraphRelationship, relationship.id, authorize?: false)
+    assert persisted.lifecycle == "archived"
+    assert %DateTime{} = persisted.valid_until
+  end
+
   test "cycle-permitting definitions accept reciprocal compatible edges", context do
     artifact_item = insert_graph_item!(context.bootstrap, "artifact", "Cycle-safe artifact")
 
@@ -362,6 +401,39 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommandsTest do
 
     assert first.source_item_id == second.target_item_id
     assert first.target_item_id == second.source_item_id
+  end
+
+  test "cycle-forbidden definitions reject a multi-hop cycle", context do
+    third_task_item = insert_graph_item!(context.bootstrap, "task", "Third cycle task")
+
+    first_request =
+      RelationshipRequest.new!(%{
+        definition_key: "depends_on",
+        source_item_id: context.task_item.id,
+        target_item_id: context.other_task_item.id,
+        workspace_id: context.session.workspace_id
+      })
+
+    second_request = %{
+      first_request
+      | source_item_id: context.other_task_item.id,
+        target_item_id: third_task_item.id
+    }
+
+    cycle_request = %{
+      first_request
+      | source_item_id: third_task_item.id,
+        target_item_id: context.task_item.id
+    }
+
+    assert {:ok, _first} =
+             WorkGraph.create_relationship(context.session, context.operation, first_request)
+
+    assert {:ok, _second} =
+             WorkGraph.create_relationship(context.session, context.operation, second_request)
+
+    assert {:error, {:relationship_cycle, "depends_on"}} =
+             WorkGraph.create_relationship(context.session, context.operation, cycle_request)
   end
 
   test "archive and restore preserve one relationship identity", context do

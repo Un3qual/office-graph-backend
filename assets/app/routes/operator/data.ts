@@ -160,6 +160,7 @@ export const OperatorRunStateFragment = graphql`
     activityFirst: { type: "Int!", defaultValue: 5 }
     activityAfter: { type: "String" }
   ) {
+    id
     type
     status
     allowedNextActions
@@ -249,68 +250,6 @@ export const OperatorRunStateFragment = graphql`
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     }
     sourceWatermark
-    packet {
-      id
-      title
-      state
-    }
-    packetVersion {
-      id
-      versionNumber
-      lifecycleState
-      objective
-    }
-    run {
-      id
-      aggregateState
-      executionState
-      verificationState
-    }
-    requiredChecks {
-      id
-      graphItemId
-      verificationCheckId
-      state
-    }
-    observations {
-      id
-      verificationCheckId
-      graphItemId
-      normalizedStatus
-      freshnessState
-      trustBasis
-      sourceKind
-      sourceIdentity
-    }
-    evidenceCandidates {
-      id
-      verificationCheckId
-      executionObservationId
-      claim
-      state
-      freshnessState
-      trustBasis
-      sourceKind
-      sourceIdentity
-    }
-    evidenceItems {
-      id
-      state
-      candidateId
-      workRunId
-    }
-    verificationResults {
-      id
-      result
-      verificationCheckId
-      evidenceItemId
-      operationId
-      actorPrincipalId
-      policyBasis
-      targetGraphItemId
-      workRunId
-      workPacketVersionId
-    }
     missingEvidence {
       verificationCheckId
       reason
@@ -383,18 +322,114 @@ export const OperatorRunCommandOptionPageConnectionFragment = graphql`
 `;
 
 export const OperatorRunStateQuery = graphql`
-  query OperatorRunStateQuery($id: ID!, $activityFirst: Int!, $activityAfter: String)
+  query OperatorRunStateQuery(
+    $projectionId: ID!
+    $runId: ID!
+    $activityFirst: Int!
+    $activityAfter: String
+  )
   @throwOnFieldError {
-    operatorRunState(id: $id) {
+    operatorRunState(id: $projectionId) {
       ...OperatorRunStateFragment
         @arguments(activityFirst: $activityFirst, activityAfter: $activityAfter)
+    }
+    run: getWorkRun(id: $runId) {
+      id
+      aggregateState
+      executionState
+      verificationState
+      workPacket {
+        id
+        title
+        state
+      }
+      workPacketVersion {
+        id
+        versionNumber
+        lifecycleState
+        objective
+      }
+      requiredChecks(first: 20, sort: [{ field: POSITION, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            state
+            verificationCheck {
+              id
+              graphItemId
+            }
+          }
+        }
+      }
+      executionObservations(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            graphItemId
+            normalizedStatus
+            freshnessState
+            trustBasis
+            sourceKind
+            sourceIdentity
+          }
+        }
+      }
+      evidenceCandidates(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            verificationCheckId
+            executionObservationId
+            claim
+            candidateState
+            freshnessState
+            trustBasis
+            sourceKind
+            sourceIdentity
+          }
+        }
+      }
+      evidenceItems(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            state
+            candidateId
+            workRunId
+          }
+        }
+      }
+      verificationResults(first: 20, sort: [{ field: INSERTED_AT, order: ASC }]) {
+        edges {
+          node {
+            id
+            result
+            verificationCheckId
+            evidenceItemId
+            operationId
+            actorPrincipalId
+            policyBasis
+            targetGraphItemId
+            workRunId
+            workPacketVersionId
+          }
+        }
+      }
     }
   }
 `;
 
 export const OperatorRunConversationQuery = graphql`
-  query OperatorRunConversationQuery($runId: ID!, $graphItemId: ID!) @throwOnFieldError {
+  query OperatorRunConversationQuery(
+    $runId: ID!
+    $graphItemId: ID!
+    $runRelayId: ID!
+    $graphItemRelayId: ID!
+  ) @throwOnFieldError {
     operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
+      id
       type
       sourceWatermark
       allowedNextActions
@@ -408,19 +443,8 @@ export const OperatorRunConversationQuery = graphql`
         inputDefaults { field value values }
         targetIds { type id }
       }
-      conversation {
-        id
-        runId
-        graphItemId
-        state
-        stateVersion
-      }
-      messages {
-        id
-        source
-        body
-        executionId
-        insertedAt
+      messageContexts {
+        messageId
         referencedContext {
           visibility
           packageId
@@ -428,54 +452,196 @@ export const OperatorRunConversationQuery = graphql`
           entries { posture rationaleCode }
         }
       }
-      executions {
-        id
-        bindingId
-        state
-        stateVersion
-        currentStepKey
-        attemptCount
-        failureCode
-        requestedOutcome
-        invocationMode
-        origin
-        autonomyMode
-        insertedAt
-        updatedAt
+    }
+    conversation: conversationForRunGraphItem(
+      runId: $runRelayId
+      graphItemId: $graphItemRelayId
+    ) {
+      id
+      run { id }
+      graphItem { id }
+      state
+      stateVersion
+      messages(first: 100, sort: [{ field: INSERTED_AT, order: DESC }]) {
+        edges {
+          node {
+            id
+            source
+            body
+            insertedAt
+            execution { id }
+          }
+        }
       }
-      approvalRequests {
-        id
-        executionId
-        stepKey
-        requestedAction
-        reason
-        scopeType
-        scopeId
-        capabilityKey
-        sensitivity
-        externalWrite
-        state
-        version
-        expiresAt
-        resolutionReason
+    }
+    activeAgentExecutions: listAgentExecutions(
+      first: 100
+      filter: {
+        runId: { eq: $runId }
+        graphItemId: { eq: $graphItemId }
+        state: {
+          in: ["queued", "running", "waiting_approval", "waiting_context", "retry_scheduled"]
+        }
       }
-      contextExpansionRequests {
-        id
-        executionId
-        stepKey
-        targetResourceType
-        targetResourceId
-        targetScopeType
-        targetScopeId
-        accessMode
-        capabilityKey
-        reason
-        sensitivity
-        expectedDurationSeconds
-        state
-        version
-        expiresAt
-        resolutionReason
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          state
+          stateVersion
+          currentStepKey
+          attemptCount
+          failureCode
+          requestedOutcome
+          invocationMode
+          origin
+          autonomyMode
+          insertedAt
+          updatedAt
+        }
+      }
+    }
+    terminalAgentExecutions: listAgentExecutions(
+      first: 100
+      filter: {
+        runId: { eq: $runId }
+        graphItemId: { eq: $graphItemId }
+        state: { in: ["completed", "failed", "cancelled"] }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          state
+          stateVersion
+          currentStepKey
+          attemptCount
+          failureCode
+          requestedOutcome
+          invocationMode
+          origin
+          autonomyMode
+          insertedAt
+          updatedAt
+        }
+      }
+    }
+    pendingAgentApprovalRequests: listAgentApprovalRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { eq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          requestedAction
+          reason
+          scopeType
+          scopeId
+          capabilityKey
+          sensitivity
+          externalWrite
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
+      }
+    }
+    resolvedAgentApprovalRequests: listAgentApprovalRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { notEq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          requestedAction
+          reason
+          scopeType
+          scopeId
+          capabilityKey
+          sensitivity
+          externalWrite
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
+      }
+    }
+    pendingAgentContextExpansionRequests: listAgentContextExpansionRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { eq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          targetResourceType
+          targetResourceId
+          targetScopeType
+          targetScopeId
+          accessMode
+          capabilityKey
+          reason
+          sensitivity
+          expectedDurationSeconds
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
+      }
+    }
+    resolvedAgentContextExpansionRequests: listAgentContextExpansionRequests(
+      first: 100
+      filter: {
+        execution: { runId: { eq: $runId }, graphItemId: { eq: $graphItemId } }
+        state: { notEq: "pending" }
+      }
+      sort: [{ field: INSERTED_AT, order: DESC }, { field: ID, order: DESC }]
+    ) {
+      edges {
+        node {
+          id
+          execution { id }
+          stepKey
+          targetResourceType
+          targetResourceId
+          targetScopeType
+          targetScopeId
+          accessMode
+          capabilityKey
+          reason
+          sensitivity
+          expectedDurationSeconds
+          state
+          version
+          expiresAt
+          resolutionReason
+          insertedAt
+        }
       }
     }
   }

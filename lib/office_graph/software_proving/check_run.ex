@@ -21,9 +21,6 @@ defmodule OfficeGraph.SoftwareProving.CheckRun do
     ]
 
   attributes do
-    attribute :repository_id, :uuid, allow_nil?: false, public?: true
-    attribute :commit_id, :uuid, public?: true
-    attribute :pull_request_id, :uuid, public?: true
     attribute :name, :string, allow_nil?: false, public?: true
 
     attribute :status, :string, allow_nil?: false, public?: true
@@ -39,22 +36,22 @@ defmodule OfficeGraph.SoftwareProving.CheckRun do
     belongs_to :repository, OfficeGraph.SoftwareProving.Repository do
       source_attribute :repository_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :commit, OfficeGraph.SoftwareProving.Commit do
       source_attribute :commit_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :pull_request, OfficeGraph.SoftwareProving.PullRequest do
       source_attribute :pull_request_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     has_one :github_extension, OfficeGraph.SoftwareProving.GitHub.CheckRunExtension do

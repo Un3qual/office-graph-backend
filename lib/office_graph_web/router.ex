@@ -19,6 +19,11 @@ defmodule OfficeGraphWeb.Router do
     plug OfficeGraphWeb.RequireHumanSessionPlug
   end
 
+  pipeline :local_development_authentication do
+    plug OfficeGraphWeb.Authentication.LocalDevelopmentPlug
+    plug :protect_from_forgery
+  end
+
   pipeline :graphql do
     plug :fetch_session
     plug OfficeGraphWeb.SameOriginRequestPlug
@@ -42,6 +47,7 @@ defmodule OfficeGraphWeb.Router do
     pipe_through :api
 
     post "/v1/webhooks/github", GitHubWebhookController, :create
+    post "/v1/webhooks/workos", WorkOSWebhookController, :create
   end
 
   scope "/api", OfficeGraphWeb do
@@ -51,85 +57,9 @@ defmodule OfficeGraphWeb.Router do
         JsonApi.Relationships.Controller,
         :index
 
-    post "/v1/commands/submit-manual-intake",
-         JsonApi.OperatorCommands.IntakeController,
-         :submit_manual_intake
-
-    post "/v1/commands/bind-github-installation",
-         JsonApi.OperatorCommands.GitHubController,
-         :bind_installation
-
-    post "/v1/commands/reply-to-github-review",
-         JsonApi.OperatorCommands.GitHubController,
-         :reply_to_review
-
-    post "/v1/commands/update-github-check",
-         JsonApi.OperatorCommands.GitHubController,
-         :update_check
-
     get "/v1/github/installations/:installation_id/health",
         JsonApi.GitHubHealthController,
         :show
-
-    post "/v1/commands/apply-proposed-changes",
-         JsonApi.OperatorCommands.IntakeController,
-         :apply_proposed_changes
-
-    post "/v1/commands/create-work-packet",
-         JsonApi.OperatorCommands.PacketsController,
-         :create_work_packet
-
-    post "/v1/commands/create-work-packet-version",
-         JsonApi.OperatorCommands.PacketsController,
-         :create_work_packet_version
-
-    post "/v1/commands/start-work-run",
-         JsonApi.OperatorCommands.RunsController,
-         :start_work_run
-
-    post "/v1/commands/resolve-agent-approval",
-         JsonApi.OperatorCommands.AgentsController,
-         :resolve_approval
-
-    post "/v1/commands/resolve-agent-context-expansion",
-         JsonApi.OperatorCommands.AgentsController,
-         :resolve_context_expansion
-
-    post "/v1/commands/invoke-agent",
-         JsonApi.OperatorCommands.AgentsController,
-         :invoke_agent
-
-    post "/v1/commands/cancel-agent-execution",
-         JsonApi.OperatorCommands.AgentsController,
-         :cancel_agent_execution
-
-    post "/v1/commands/start-run-conversation",
-         JsonApi.OperatorCommands.AgentsController,
-         :start_conversation
-
-    post "/v1/commands/append-conversation-message",
-         JsonApi.OperatorCommands.AgentsController,
-         :append_conversation_message
-
-    get "/v1/runs/:run_id/graph-items/:graph_item_id/conversation",
-        JsonApi.ConversationsController,
-        :show
-
-    post "/v1/commands/record-execution-observation",
-         JsonApi.OperatorCommands.RunsController,
-         :record_execution_observation
-
-    post "/v1/commands/create-evidence-candidate",
-         JsonApi.OperatorCommands.VerificationController,
-         :create_evidence_candidate
-
-    post "/v1/commands/accept-evidence",
-         JsonApi.OperatorCommands.VerificationController,
-         :accept_evidence
-
-    post "/v1/commands/waive-verification-check",
-         JsonApi.OperatorCommands.VerificationController,
-         :waive_verification_check
   end
 
   scope "/" do
@@ -143,8 +73,23 @@ defmodule OfficeGraphWeb.Router do
 
     get "/auth/login", AuthenticationController, :login
     get "/auth/callback", AuthenticationController, :callback
+    get "/auth/workos/:connection_id/login", AuthenticationController, :workos_login
+    get "/auth/workos/callback", AuthenticationController, :workos_callback
     get "/auth/logged-out", AuthenticationController, :logged_out
     post "/auth/logout", AuthenticationController, :logout
+  end
+
+  if Application.compile_env(
+       :office_graph,
+       :local_development_auth_routes,
+       false
+     ) do
+    scope "/", OfficeGraphWeb.Authentication do
+      pipe_through [:browser_session, :local_development_authentication]
+
+      post "/auth/development/login", LocalDevelopmentController, :login
+      post "/auth/development/switch", LocalDevelopmentController, :switch
+    end
   end
 
   scope "/", OfficeGraphWeb do

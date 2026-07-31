@@ -1,0 +1,43 @@
+defmodule OfficeGraph.AgentRuntime.ToolManifest do
+  @moduledoc """
+  Passive tool-adapter capability manifest returned by the adapter registry.
+
+  Adapter registration owns cross-field contract validation; this struct names
+  the stable boundary fields exchanged with execution.
+  """
+
+  @enforce_keys [
+    :key,
+    :version,
+    :input_schema,
+    :output_schema,
+    :capability_keys,
+    :credential_kinds,
+    :sensitivity,
+    :external_write,
+    :timeout_ms,
+    :budget_units,
+    :output_classifications,
+    :idempotency_supported,
+    :raw_retention,
+    :approval_required
+  ]
+  defstruct @enforce_keys
+
+  @type t :: %__MODULE__{
+          key: String.t(),
+          version: String.t(),
+          input_schema: map(),
+          output_schema: map(),
+          capability_keys: [String.t()],
+          credential_kinds: [atom()],
+          sensitivity: atom(),
+          external_write: false,
+          timeout_ms: pos_integer(),
+          budget_units: pos_integer(),
+          output_classifications: [atom()],
+          idempotency_supported: boolean(),
+          raw_retention: false,
+          approval_required: boolean()
+        }
+end

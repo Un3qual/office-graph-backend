@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<2a91db47c566b2a075ccd7d0793508c8>>
+ * @generated SignedSource<<8b6809c20d414edd0096941f51da59e8>>
  * @lightSyntaxTransform
  */
 
@@ -29,11 +29,11 @@ export type PacketsCreateWorkPacketVersionMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly operationId: string;
     readonly packet: {
-      readonly currentVersionId: string;
+      readonly currentVersionId: string | null | undefined;
       readonly id: string;
       readonly state: string;
       readonly title: string;
@@ -75,7 +75,7 @@ v2 = [
         "variableName": "input"
       }
     ],
-    "concreteType": "CreateWorkPacketVersionPayload",
+    "concreteType": "WorkPacketCommandPayload",
     "kind": "LinkedField",
     "name": "createWorkPacketVersion",
     "plural": false,
@@ -116,7 +116,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandWorkPacket",
+        "concreteType": "WorkPacket",
         "kind": "LinkedField",
         "name": "packet",
         "plural": false,
@@ -149,7 +149,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandWorkPacketVersion",
+        "concreteType": "WorkPacketVersion",
         "kind": "LinkedField",
         "name": "packetVersion",
         "plural": false,

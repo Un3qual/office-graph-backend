@@ -65,7 +65,7 @@ export function RunList({
                 <Badge>{formatLabel(run.executionState)}</Badge>
                 <Badge>{formatLabel(run.verificationState)}</Badge>
               </span>
-              <span className="runs-row-packet">{run.packet.title}</span>
+              <span className="runs-row-packet">{run.workPacket.title}</span>
             </button>
           ))}
         </div>

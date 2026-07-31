@@ -140,14 +140,16 @@ export function useCommandMutation<TMutation extends MutationParameters, TInput,
 
 export function commandMutationSuccess<TResult>(
   payload: {
-    readonly affectedIds: readonly CommandAffectedId[];
+    readonly affectedIds: readonly (CommandAffectedId | null | undefined)[];
     readonly operationId: string;
   },
   result: TResult,
 ): CommandMutationSuccess<TResult> {
   return {
     operationId: payload.operationId,
-    affectedIds: payload.affectedIds,
+    affectedIds: payload.affectedIds.filter(
+      (affectedId): affectedId is CommandAffectedId => affectedId != null,
+    ),
     result,
   };
 }

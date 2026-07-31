@@ -7,11 +7,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
   alias OfficeGraphWeb.GraphQL.Common.Errors
   alias OfficeGraphWeb.RequestSession
 
-  object :operator_typed_id do
-    field :type, non_null(:string)
-    field :id, non_null(:id)
-  end
-
   object :operator_source do
     field :identity, non_null(:string)
     field :replay_identity, non_null(:string)
@@ -77,7 +72,10 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :run_id, :id
     field :integration_event_id, :id
     field :supersedes_relationship_id, :id
-    field :tombstone_id, :id
+    field :deletion_operation_id, :id
+    field :deleted_by_principal_id, :id
+    field :deleted_at, :datetime
+    field :deletion_reason, :string
     field :source, non_null(:graph_relationship_endpoint)
     field :target, non_null(:graph_relationship_endpoint)
   end
@@ -187,33 +185,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :source_watermark, :id
   end
 
-  object :operator_packet_workspace_packet do
-    field :id, non_null(:id)
-    field :title, non_null(:string)
-    field :state, non_null(:string)
-    field :current_version_id, non_null(:id)
-    field :operation_id, :id
-  end
-
-  object :operator_packet_workspace_version do
-    field :id, non_null(:id)
-    field :version_number, non_null(:integer)
-    field :lifecycle_state, non_null(:string)
-    field :title, non_null(:string)
-    field :objective, non_null(:string)
-    field :context_summary, non_null(:string)
-    field :requirements, non_null(:string)
-    field :success_criteria, :string
-    field :autonomy_posture, non_null(:string)
-    field :source_graph_item_ids, non_null(list_of(non_null(:id)))
-    field :verification_check_ids, non_null(list_of(non_null(:id)))
-    field :operation_id, non_null(:id)
-    field :inserted_at, non_null(:datetime)
-  end
-
-  connection(node_type: :operator_packet_workspace_version)
-
-  object :operator_packet_workspace do
+  node object(:operator_packet_workspace,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_packet_workspace_id/2
+       ) do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
 
@@ -225,119 +199,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :blocker_reasons, non_null(list_of(non_null(:string)))
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
-    field :packet, non_null(:operator_packet_workspace_packet)
-    field :current_version, non_null(:operator_packet_workspace_version)
-
-    connection field :version_history,
-                 node_type: :operator_packet_workspace_version,
-                 paginate: :forward do
-      resolve(fn
-        %{first: first}, _resolution when is_integer(first) and first < 0 ->
-          {:error, "A field has an invalid value."}
-
-        args, %{source: workspace} = resolution ->
-          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-               {:ok, :forward, limit} <- Connection.limit(args, 100),
-               {:ok, page} <-
-                 Projections.packet_version_history_page(session_context, workspace.packet.id,
-                   limit: limit,
-                   after_cursor: Map.get(args, :after)
-                 ) do
-            {:ok,
-             %{
-               edges: page.edges,
-               page_info: %{
-                 has_next_page: page.has_next_page?,
-                 has_previous_page: page.has_previous_page?,
-                 start_cursor: page.edges |> List.first() |> then(&(&1 && &1.cursor)),
-                 end_cursor: page.edges |> List.last() |> then(&(&1 && &1.cursor))
-               }
-             }}
-          else
-            error -> Errors.to_absinthe(error)
-          end
-      end)
-    end
-  end
-
-  object :operator_run_ref do
-    field :id, non_null(:id)
-    field :aggregate_state, non_null(:string)
-    field :execution_state, non_null(:string)
-    field :verification_state, non_null(:string)
-  end
-
-  object :operator_packet_ref do
-    field :id, non_null(:id)
-
-    field :relay_id, non_null(:id) do
-      resolve(fn %{id: id}, _, _ -> {:ok, relay_id("work_packet", id)} end)
-    end
-
-    field :title, non_null(:string)
-    field :state, non_null(:string)
-  end
-
-  object :operator_packet_version_ref do
-    field :id, non_null(:id)
-    field :version_number, non_null(:integer)
-    field :lifecycle_state, non_null(:string)
-    field :objective, :string
-  end
-
-  object :operator_run_summary do
-    field :id, non_null(:id)
-    field :objective, :string
-    field :aggregate_state, non_null(:string)
-    field :execution_state, non_null(:string)
-    field :verification_state, non_null(:string)
-    field :inserted_at, non_null(:datetime)
-    field :packet, non_null(:operator_packet_ref)
-  end
-
-  connection(node_type: :operator_run_summary)
-
-  object :operator_observation do
-    field :id, non_null(:id)
-    field :verification_check_id, :id
-    field :graph_item_id, :id
-    field :normalized_status, non_null(:string)
-    field :freshness_state, non_null(:string)
-    field :trust_basis, non_null(:string)
-    field :source_kind, non_null(:string)
-    field :source_identity, non_null(:string)
-  end
-
-  object :operator_evidence_candidate do
-    field :id, non_null(:id)
-    field :verification_check_id, non_null(:id)
-    field :execution_observation_id, :id
-    field :claim, non_null(:string)
-    field :state, non_null(:string)
-    field :freshness_state, non_null(:string)
-    field :trust_basis, non_null(:string)
-    field :source_kind, non_null(:string)
-    field :source_identity, non_null(:string)
-  end
-
-  object :operator_evidence_item do
-    field :id, non_null(:id)
-    field :state, non_null(:string)
-    field :candidate_id, :id
-    field :work_run_id, :id
-  end
-
-  object :operator_verification_result do
-    field :id, non_null(:id)
-    field :result, non_null(:string)
-    field :verification_check_id, non_null(:id)
-    field :evidence_item_id, :id
-    field :operation_id, :id
-    field :actor_principal_id, :id
-    field :policy_basis, :string
-    field :target_graph_item_id, :id
-    field :work_run_id, :id
-    field :work_packet_version_id, :id
   end
 
   object :operator_missing_evidence do
@@ -370,105 +231,26 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     end
   end
 
-  object :operator_run_conversation_record do
-    field :id, non_null(:id)
-    field :run_id, non_null(:id)
-    field :graph_item_id, non_null(:id)
-    field :created_by_principal_id, non_null(:id)
-    field :operation_id, non_null(:id)
-    field :purpose, non_null(:string)
-    field :visibility, non_null(:string)
-    field :state, non_null(:string)
-    field :state_version, non_null(:integer)
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
-  end
+  object :operator_run_conversation_message_context do
+    field :message_id, non_null(:id) do
+      resolve(fn %{message_id: id}, _, _ ->
+        {:ok, relay_id(:conversation_message, id)}
+      end)
+    end
 
-  object :operator_run_conversation_message do
-    field :id, non_null(:id)
-    field :source, non_null(:string)
-    field :body, non_null(:string)
-    field :visibility, non_null(:string)
-    field :author_principal_id, :id
-    field :execution_id, :id
-    field :context_package_id, :id
-    field :operation_id, non_null(:id)
-    field :proposed_graph_change_id, :id
-    field :domain_action_operation_id, :id
-    field :inserted_at, non_null(:datetime)
     field :referenced_context, :operator_run_conversation_referenced_context
   end
 
-  object :operator_run_conversation do
+  node object(:operator_run_conversation,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_run_conversation_id/2
+       ) do
     field :type, non_null(:string)
     field :source_watermark, non_null(:id)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
     field :command_affordances, non_null(list_of(non_null(:operator_command_affordance)))
-    field :conversation, :operator_run_conversation_record
-    field :messages, non_null(list_of(non_null(:operator_run_conversation_message)))
-    field :executions, non_null(list_of(non_null(:operator_run_conversation_execution)))
 
-    field :approval_requests,
-          non_null(list_of(non_null(:operator_run_conversation_approval_request)))
-
-    field :context_expansion_requests,
-          non_null(list_of(non_null(:operator_run_conversation_context_expansion_request)))
-  end
-
-  object :operator_run_conversation_execution do
-    field :id, non_null(:id)
-    field :binding_id, non_null(:id)
-    field :state, non_null(:string)
-    field :state_version, non_null(:integer)
-    field :current_step_key, :string
-    field :attempt_count, non_null(:integer)
-    field :failure_code, :string
-    field :requested_outcome, non_null(:string)
-    field :invocation_mode, non_null(:string)
-    field :origin, non_null(:string)
-    field :autonomy_mode, non_null(:string)
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
-  end
-
-  object :operator_run_conversation_approval_request do
-    field :id, non_null(:id)
-    field :execution_id, non_null(:id)
-    field :step_key, non_null(:string)
-    field :requested_action, non_null(:string)
-    field :reason, non_null(:string)
-    field :scope_type, non_null(:string)
-    field :scope_id, non_null(:id)
-    field :capability_key, :string
-    field :sensitivity, non_null(:string)
-    field :external_write, non_null(:boolean)
-    field :state, non_null(:string)
-    field :version, non_null(:integer)
-    field :expires_at, non_null(:datetime)
-    field :resolution_reason, :string
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
-  end
-
-  object :operator_run_conversation_context_expansion_request do
-    field :id, non_null(:id)
-    field :execution_id, non_null(:id)
-    field :step_key, non_null(:string)
-    field :target_resource_type, non_null(:string)
-    field :target_resource_id, non_null(:id)
-    field :target_scope_type, non_null(:string)
-    field :target_scope_id, non_null(:id)
-    field :access_mode, non_null(:string)
-    field :capability_key, :string
-    field :reason, non_null(:string)
-    field :sensitivity, non_null(:string)
-    field :expected_duration_seconds, non_null(:integer)
-    field :state, non_null(:string)
-    field :version, non_null(:integer)
-    field :expires_at, non_null(:datetime)
-    field :resolution_reason, :string
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
+    field :message_contexts,
+          non_null(list_of(non_null(:operator_run_conversation_message_context)))
   end
 
   object :operator_run_child_summary do
@@ -567,7 +349,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :waiver, non_null(:integer)
   end
 
-  object :operator_run_state do
+  node object(:operator_run_state,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.operator_run_state_id/2
+       ) do
     field :type, non_null(:string)
     field :status, non_null(:string)
     field :allowed_next_actions, non_null(list_of(non_null(:string)))
@@ -587,7 +371,7 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
           with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
                {:ok, :forward, limit} <- Connection.limit(args, 100),
                {:ok, page} <-
-                 Projections.operator_run_activity_page(session_context, run_state.run.id,
+                 Projections.operator_run_activity_page(session_context, run_state.run_id,
                    limit: limit,
                    after_cursor: Map.get(args, :after)
                  ) do
@@ -608,23 +392,6 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     end
 
     field :source_watermark, :id
-    field :packet, non_null(:operator_packet_ref)
-    field :packet_version, :operator_packet_version_ref
-    field :run, non_null(:operator_run_ref)
-    field :required_checks, non_null(list_of(non_null(:operator_required_check)))
-    field :observations, non_null(list_of(non_null(:operator_observation)))
-    field :evidence_candidates, non_null(list_of(non_null(:operator_evidence_candidate)))
-    field :evidence_items, non_null(list_of(non_null(:operator_evidence_item)))
-    field :verification_results, non_null(list_of(non_null(:operator_verification_result)))
-    field :missing_evidence, non_null(list_of(non_null(:operator_missing_evidence)))
-  end
-
-  object :operator_verification_outcome do
-    field :type, non_null(:string)
-    field :status, non_null(:string)
-    field :source_watermark, :id
-    field :run, non_null(:operator_run_ref)
-    field :verification_results, non_null(list_of(non_null(:operator_verification_result)))
     field :missing_evidence, non_null(list_of(non_null(:operator_missing_evidence)))
   end
 
@@ -645,7 +412,9 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
     field :occurred_at, non_null(:datetime)
   end
 
-  object :github_integration_health do
+  node object(:github_integration_health,
+         id_fetcher: &OfficeGraphWeb.GraphQL.OperatorWorkflow.Types.github_integration_health_id/2
+       ) do
     field :installation_id, non_null(:id)
     field :lifecycle, non_null(:string)
     field :account_login, non_null(:string)
@@ -679,6 +448,23 @@ defmodule OfficeGraphWeb.GraphQL.OperatorWorkflow.Types do
 
   def graph_relationship_view_id(%{id: id}, _resolution), do: id
   def graph_relationship_view_id(_relationship, _resolution), do: nil
+
+  def operator_packet_workspace_id(%{packet_id: id}, _resolution), do: id
+  def operator_packet_workspace_id(_workspace, _resolution), do: nil
+
+  def operator_run_state_id(%{run_id: id}, _resolution), do: id
+  def operator_run_state_id(_run_state, _resolution), do: nil
+
+  def github_integration_health_id(%{installation_id: id}, _resolution), do: id
+  def github_integration_health_id(_health, _resolution), do: nil
+
+  def operator_run_conversation_id(
+        %{run_id: run_id, graph_item_id: graph_item_id},
+        _resolution
+      ),
+      do: "#{run_id}:#{graph_item_id}"
+
+  def operator_run_conversation_id(_conversation, _resolution), do: nil
 
   defp relay_id(type, id) do
     schema = Module.concat(["OfficeGraphWeb.GraphQL.Schema"])

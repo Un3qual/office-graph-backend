@@ -9,16 +9,19 @@ defmodule OfficeGraph.Runs.RunEvent do
   postgres do
     table "run_events"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names run_id: "run_events_run_id_fkey"
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :run_id, :uuid, allow_nil?: false, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :event_type, :string, allow_nil?: false, public?: true
-    attribute :payload, :map, allow_nil?: false, default: %{}, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -27,8 +30,8 @@ defmodule OfficeGraph.Runs.RunEvent do
   relationships do
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
   end
 
@@ -41,7 +44,7 @@ defmodule OfficeGraph.Runs.RunEvent do
     create :create do
       public? false
 
-      accept [:id, :run_id, :event_type, :payload]
+      accept [:id, :run_id, :event_type]
     end
   end
 end

@@ -9,7 +9,6 @@ defmodule OfficeGraph.SoftwareProving do
       OfficeGraph.ExternalRefs,
       OfficeGraph.Integrations,
       OfficeGraph.Operations,
-      OfficeGraph.Repo,
       OfficeGraph.Revisions,
       OfficeGraph.Tenancy
     ],
@@ -24,7 +23,7 @@ defmodule OfficeGraph.SoftwareProving do
       ReviewThread
     ]
 
-  alias OfficeGraph.{Audit, Operations, Repo, Revisions}
+  alias OfficeGraph.{Audit, Operations, Revisions}
 
   def upsert_provider_resource(operation, source, resource, existing, attrs)
       when is_map(operation) and is_map(source) and is_atom(resource) and is_map(attrs) do
@@ -42,17 +41,17 @@ defmodule OfficeGraph.SoftwareProving do
 
   defp do_upsert_provider_resource(operation, source, resource, nil, attrs) do
     record =
-      attrs
-      |> Map.merge(%{
-        id: Map.get(attrs, :id, Ecto.UUID.generate()),
-        organization_id: operation.organization_id,
-        workspace_id: operation.workspace_id,
-        source_id: source.id,
-        sync_state: "synced",
-        lifecycle_state: "active",
-        operation_id: operation.id
-      })
-      |> then(&Repo.ash_create!(resource, &1))
+      create!(
+        resource,
+        Map.merge(attrs, %{
+          organization_id: operation.organization_id,
+          workspace_id: operation.workspace_id,
+          source_id: source.id,
+          sync_state: "synced",
+          lifecycle_state: "active",
+          operation_id: operation.id
+        })
+      )
 
     trace!(operation, resource, record.id, "create")
     {:ok, %{record: record, status: :created}}
@@ -61,8 +60,8 @@ defmodule OfficeGraph.SoftwareProving do
   defp do_upsert_provider_resource(operation, _source, resource, existing, attrs) do
     if newer_provider_state?(existing, attrs) do
       record =
-        existing
-        |> Ash.Changeset.for_update(
+        update!(
+          existing,
           :reconcile,
           attrs
           |> Map.drop([:id, :organization_id, :workspace_id, :source_id])
@@ -73,7 +72,6 @@ defmodule OfficeGraph.SoftwareProving do
             operation_id: operation.id
           })
         )
-        |> Repo.ash_update!()
 
       trace!(operation, resource, record.id, "update")
       {:ok, %{record: record, status: :updated}}
@@ -117,6 +115,25 @@ defmodule OfficeGraph.SoftwareProving do
        do: :ok
 
   defp validate_sequence(_attrs), do: {:error, :invalid_provider_sequence}
+
+  defp create!(resource, attrs) do
+    resource
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(authorize?: false, return_notifications?: true)
+    |> unwrap_or_rollback!(resource)
+  end
+
+  defp update!(record, action, attrs) do
+    record
+    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.update(authorize?: false, return_notifications?: true)
+    |> unwrap_or_rollback!(record.__struct__)
+  end
+
+  defp unwrap_or_rollback!({:ok, record, _notifications}, _resource), do: record
+
+  defp unwrap_or_rollback!({:error, error}, resource),
+    do: Ash.DataLayer.rollback(resource, error)
 
   defp trace!(operation, resource, id, change) do
     resource_type = resource |> Module.split() |> List.last() |> Macro.underscore()

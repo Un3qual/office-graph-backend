@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<4bf4c0ac295af1e318ce4c389f507533>>
+ * @generated SignedSource<<b210c59f0679c223f05e1276bd5a8b69>>
  * @lightSyntaxTransform
  */
 
@@ -23,7 +23,7 @@ export type PacketsStartWorkRunMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly operationId: string;
     readonly requiredChecks: ReadonlyArray<{
@@ -109,7 +109,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandWorkRun",
+        "concreteType": "WorkRun",
         "kind": "LinkedField",
         "name": "run",
         "plural": false,
@@ -135,7 +135,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandRunRequiredCheck",
+        "concreteType": "RunRequiredCheck",
         "kind": "LinkedField",
         "name": "requiredChecks",
         "plural": true,

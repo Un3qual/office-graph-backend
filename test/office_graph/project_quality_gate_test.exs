@@ -1,5 +1,5 @@
 defmodule OfficeGraph.ProjectQualityGateTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   test "canonical aliases execute one complete ExUnit suite" do
     aliases = Mix.Project.config()[:aliases]
@@ -23,15 +23,72 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     refute Enum.any?(verify, &String.starts_with?(&1, "deps.unlock --unused"))
   end
 
+  test "repository-managed database uses the PostgreSQL 18 data layout" do
+    config = compose_config("")
+    postgres = get_in(config, ["services", "postgres"])
+    data_volume = Enum.find(postgres["volumes"], &(&1["target"] == "/var/lib/postgresql"))
+
+    assert postgres["image"] == "postgres:18-alpine"
+    assert data_volume
+    assert data_volume["source"] == "office_graph_postgres_18_data"
+    assert OfficeGraph.Repo.min_pg_version() == Version.parse!("18.0.0")
+  end
+
+  test "test query logging is quiet by default and explicitly opt-in" do
+    repo_config = Application.fetch_env!(:office_graph, OfficeGraph.Repo)
+
+    inspect_config = ~S"""
+    IO.puts(
+      "REPO_QUERY_LOG=#{System.get_env("OFFICE_GRAPH_TEST_SQL_LOG")}:" <>
+        inspect(Application.fetch_env!(:office_graph, OfficeGraph.Repo)[:log])
+    )
+    """
+
+    assert repo_config[:log] == false
+
+    {output, 0} =
+      System.cmd(
+        "mix",
+        [
+          "run",
+          "-e",
+          inspect_config
+        ],
+        env: [{"MIX_ENV", "test"}, {"OFFICE_GRAPH_TEST_SQL_LOG", "1"}],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "REPO_QUERY_LOG=1::debug"
+  end
+
+  test "canonical verification runs project boundaries exactly once through Credo" do
+    aliases = Mix.Project.config()[:aliases]
+    expanded_verify = Enum.flat_map(aliases[:verify], &expand_alias(&1, aliases))
+
+    assert Enum.count(expanded_verify, &(&1 == "credo --strict")) == 1
+    refute "office_graph.planning_boundaries" in expanded_verify
+    refute "office_graph.database_boundaries" in expanded_verify
+    refute Keyword.has_key?(aliases, :"office_graph.planning_boundaries")
+    refute Keyword.has_key?(aliases, :"office_graph.database_boundaries")
+  end
+
   test "verification environment is stable and honors explicit isolation overrides" do
     {first_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
-        env: [{"OFFICE_GRAPH_POSTGRES_PORT", ""}]
+        env: [
+          {"COMPOSE_PROJECT_NAME", ""},
+          {"MIX_TEST_PARTITION", ""},
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+        ]
       )
 
     {second_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],
-        env: [{"OFFICE_GRAPH_POSTGRES_PORT", ""}]
+        env: [
+          {"COMPOSE_PROJECT_NAME", ""},
+          {"MIX_TEST_PARTITION", ""},
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+        ]
       )
 
     assert first_output == second_output
@@ -44,11 +101,19 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     assert compose_published_port("61234") == "61234"
 
     assert verify_startup_contract() ==
-             {"0",
+             {0, "0", 2,
               [
                 "local.hex --force --if-missing",
                 "local.rebar --force --if-missing",
                 "deps.get --check-locked",
+                "ecto.drop --quiet",
+                "ecto.create --quiet",
+                "ecto.migrate --quiet",
+                "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "ecto.rollback --all --quiet",
+                "ecto.migrate --quiet",
+                "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "test test/office_graph/release_setup_test.exs",
                 "verify"
               ]}
 
@@ -76,18 +141,26 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     assert external_output =~ "OFFICE_GRAPH_POSTGRES_PORT=55432"
   end
 
+  test "canonical verification rejects an older Compose PostgreSQL server" do
+    assert {1, "0", 2, []} = verify_startup_contract("17.7")
+  end
+
   defp compose_published_port(port) do
+    port
+    |> compose_config()
+    |> get_in(["services", "postgres", "ports", Access.at(0), "published"])
+  end
+
+  defp compose_config(port) do
     {config, 0} =
       System.cmd("docker", ["compose", "config", "--format", "json"],
         env: [{"OFFICE_GRAPH_POSTGRES_PORT", port}]
       )
 
-    config
-    |> Jason.decode!()
-    |> get_in(["services", "postgres", "ports", Access.at(0), "published"])
+    Jason.decode!(config)
   end
 
-  defp verify_startup_contract do
+  defp verify_startup_contract(postgres_version \\ "18.4") do
     fixture_dir =
       Path.join(System.tmp_dir!(), "office_graph_verify_#{System.unique_integer([:positive])}")
 
@@ -95,6 +168,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     on_exit(fn -> File.rm_rf!(fixture_dir) end)
 
     port_log = Path.join(fixture_dir, "postgres-port")
+    exec_log = Path.join(fixture_dir, "postgres-exec")
     mix_log = Path.join(fixture_dir, "mix-invocations")
     docker = Path.join(fixture_dir, "docker")
     mix = Path.join(fixture_dir, "mix")
@@ -114,6 +188,13 @@ defmodule OfficeGraph.ProjectQualityGateTest do
         printf '127.0.0.1:61234\n'
         ;;
       "compose exec")
+        printf '%s\n' "$*" >> "$VERIFY_EXEC_LOG"
+
+        case "$*" in
+          *"postgres --version")
+            printf 'postgres (PostgreSQL) %s\n' "$VERIFY_POSTGRES_VERSION"
+            ;;
+        esac
         exit 0
         ;;
       *)
@@ -127,21 +208,41 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     File.chmod!(docker, 0o755)
     File.chmod!(mix, 0o755)
 
-    {_output, 0} =
+    {output, status} =
       System.cmd("sh", ["bin/verify"],
         env: [
           {"PATH", fixture_dir <> ":" <> System.fetch_env!("PATH")},
+          {"VERIFY_EXEC_LOG", exec_log},
           {"VERIFY_PORT_LOG", port_log},
           {"VERIFY_MIX_LOG", mix_log},
+          {"VERIFY_POSTGRES_VERSION", postgres_version},
           {"OFFICE_GRAPH_POSTGRES_PORT", ""}
         ],
         stderr_to_stdout: true
       )
 
-    {File.read!(port_log), mix_log |> File.read!() |> String.split("\n", trim: true)}
+    if postgres_version != "18.4" do
+      assert output =~
+               "Canonical verification requires PostgreSQL 18; the Compose server reported: postgres (PostgreSQL) #{postgres_version}"
+    end
+
+    {
+      status,
+      File.read!(port_log),
+      exec_log |> File.read!() |> String.split("\n", trim: true) |> length(),
+      read_lines(mix_log)
+    }
+  end
+
+  defp read_lines(path) do
+    case File.read(path) do
+      {:ok, contents} -> String.split(contents, "\n", trim: true)
+      {:error, :enoent} -> []
+    end
   end
 
   defp expand_alias("test", _aliases), do: ["test"]
+  defp expand_alias(task, _aliases) when is_function(task), do: []
 
   defp expand_alias(task, aliases) do
     case aliases[String.to_existing_atom(task)] do

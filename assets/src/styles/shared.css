@@ -94,6 +94,16 @@ textarea {
   padding: 0 24px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ui-session-actions {
+  margin: 0;
+}
+
 .product-name {
   margin: 0;
   color: var(--og-color-text-muted);

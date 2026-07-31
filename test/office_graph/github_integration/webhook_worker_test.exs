@@ -1,9 +1,7 @@
 defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
   use OfficeGraph.DataCase, async: false
 
-  import Ecto.Query
-
-  alias OfficeGraph.{DurableDelivery, Foundation, GitHubIntegration, Repo}
+  alias OfficeGraph.{DurableDelivery, Foundation, GitHubIntegration}
 
   alias OfficeGraph.DurableDelivery.DomainEvent
   alias OfficeGraph.Integrations.RawArchive
@@ -13,6 +11,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     Installation,
     InstallationCredential,
     RecordLoaderTestAdapter,
+    ReconciliationPersistenceTestAdapter,
     SecretStore.TestAdapter,
     SyncOutcome,
     WebhookReceipt,
@@ -20,6 +19,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
   }
 
   alias OfficeGraph.GitHubIntegration.Adapter.TestAdapter, as: Provider
+  alias OfficeGraph.TestSupport.GitHubIntegrationCleanup
+  alias OfficeGraph.TestSupport.GitHubIntegrationCleanup.RawArchive, as: PersistedRawArchive
 
   require Ash.Query
 
@@ -71,8 +72,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
         {:ok, %{snapshot() | provider_sequence: live_provider_sequence}}
     })
 
-    worker_name = inspect(WebhookWorker)
-    job = Repo.one!(from job in Oban.Job, where: job.worker == ^worker_name)
+    job = webhook_job("delivery-worker")
 
     assert :ok = WebhookWorker.perform(job)
 
@@ -282,7 +282,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
 
     refute Map.has_key?(
-             Repo.get!(Oban.Job, job.id).meta,
+             refresh_job(job).meta,
              "terminal_failure_code"
            )
   end
@@ -308,28 +308,21 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     RecordLoaderTestAdapter.configure!(%{Installation => {:error, :database_unavailable}})
 
-    Repo.query!("""
-    ALTER TABLE github_sync_outcomes
-    ADD CONSTRAINT test_github_pre_operation_terminalization_retry
-    CHECK (state <> 'terminal')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      terminal_outcome: {:error, :database_unavailable}
+    )
 
-    try do
-      assert {:snooze, 5} = WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
+    assert {:snooze, 5} = WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
 
-      staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = refresh_job(job)
 
-      assert staged_job.meta["terminal_phase"] == "pre_operation"
-      assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
-      assert staged_job.meta["terminal_installation_id"] == context.installation.id
-      assert staged_job.meta["terminal_delivery_id"] == "delivery-worker-pre-operation-exhausted"
-    after
-      Repo.query!(
-        "ALTER TABLE github_sync_outcomes DROP CONSTRAINT test_github_pre_operation_terminalization_retry"
-      )
-    end
+    assert staged_job.meta["terminal_phase"] == "pre_operation"
+    assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
+    assert staged_job.meta["terminal_installation_id"] == context.installation.id
+    assert staged_job.meta["terminal_delivery_id"] == "delivery-worker-pre-operation-exhausted"
 
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = refresh_job(job)
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
     assert {:cancel, "attempts_exhausted"} = WebhookWorker.perform(staged_job)
 
     outcome =
@@ -377,36 +370,29 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
     job = webhook_job(delivery_id)
 
-    Repo.query!("DELETE FROM raw_archives WHERE id = $1", [
-      Ecto.UUID.dump!(job.args["archive_id"])
-    ])
+    PersistedRawArchive
+    |> Ash.get!(job.args["archive_id"], authorize?: false)
+    |> Ash.destroy!(authorize?: false)
 
-    Repo.query!("""
-    ALTER TABLE github_sync_outcomes
-    ADD CONSTRAINT test_github_pre_operation_terminal_replay
-    CHECK (state <> 'terminal')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      terminal_outcome: {:error, :database_unavailable}
+    )
 
-    try do
-      assert {:snooze, 5} = WebhookWorker.perform(job)
+    assert {:snooze, 5} = WebhookWorker.perform(job)
 
-      assert %{
-               "terminal_phase" => "pre_operation",
-               "terminal_failure_code" => "invalid_delivery_archive",
-               "terminal_cancel_code" => "invalid_delivery_archive",
-               "terminal_installation_id" => installation_id,
-               "terminal_delivery_id" => ^delivery_id
-             } = Repo.get!(Oban.Job, job.id).meta
+    assert %{
+             "terminal_phase" => "pre_operation",
+             "terminal_failure_code" => "invalid_delivery_archive",
+             "terminal_cancel_code" => "invalid_delivery_archive",
+             "terminal_installation_id" => installation_id,
+             "terminal_delivery_id" => ^delivery_id
+           } = refresh_job(job).meta
 
-      assert installation_id == context.installation.id
-      assert Repo.aggregate(SyncOutcome, :count) == 0
-    after
-      Repo.query!(
-        "ALTER TABLE github_sync_outcomes DROP CONSTRAINT test_github_pre_operation_terminal_replay"
-      )
-    end
+    assert installation_id == context.installation.id
+    assert Ash.count!(SyncOutcome, authorize?: false) == 0
 
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = refresh_job(job)
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
     assert {:cancel, "invalid_delivery_archive"} = WebhookWorker.perform(staged_job)
 
     outcome =
@@ -451,7 +437,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
 
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    refute Map.has_key?(refresh_job(job).meta, "terminal_failure_code")
   end
 
   test "transient archive lookup failures remain retryable" do
@@ -476,7 +462,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     RecordLoaderTestAdapter.configure!(%{RawArchive => {:error, :database_unavailable}})
 
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    refute Map.has_key?(refresh_job(job).meta, "terminal_failure_code")
   end
 
   test "system-operation storage failures remain retryable before reconciliation" do
@@ -499,24 +485,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     Provider.put(%{{"pull_request", "PR_worker"} => {:ok, snapshot()}})
     job = webhook_job("delivery-worker-operation-storage-unavailable")
 
-    Repo.query!("""
-    ALTER TABLE operation_correlations
-    ADD CONSTRAINT test_github_operation_storage_unavailable
-    CHECK (action <> 'integration.reconcile')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(operation: {:error, :database_unavailable})
 
-    result =
-      try do
-        WebhookWorker.perform(job)
-      after
-        Repo.query!(
-          "ALTER TABLE operation_correlations DROP CONSTRAINT test_github_operation_storage_unavailable"
-        )
-      end
+    assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
+    refute Map.has_key?(refresh_job(job).meta, "terminal_failure_code")
+    assert Ash.count!(SyncOutcome, authorize?: false) == 0
 
-    assert {:error, "integration_storage_unavailable"} = result
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
-    assert Repo.aggregate(SyncOutcome, :count) == 0
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
     assert :ok = WebhookWorker.perform(job)
   end
@@ -553,13 +528,13 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     RecordLoaderTestAdapter.configure!(%{SyncOutcome => {:error, :database_unavailable}})
 
     assert {:error, "integration_storage_unavailable"} = WebhookWorker.perform(job)
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
-    assert Repo.aggregate(SyncOutcome, :count) == 0
+    refute Map.has_key?(refresh_job(job).meta, "terminal_failure_code")
+    assert Ash.count!(SyncOutcome, authorize?: false) == 0
 
     RecordLoaderTestAdapter.put(%{})
 
     assert :ok = WebhookWorker.perform(job)
-    assert Repo.aggregate(SyncOutcome, :count) == 1
+    assert Ash.count!(SyncOutcome, authorize?: false) == 1
   end
 
   test "exhausted sync-outcome lookup failures terminalize after storage recovers" do
@@ -587,11 +562,11 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert {:snooze, 5} =
              WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
 
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = refresh_job(job)
 
     assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
     assert is_binary(staged_job.meta["terminal_operation_id"])
-    assert Repo.aggregate(SyncOutcome, :count) == 0
+    assert Ash.count!(SyncOutcome, authorize?: false) == 0
 
     RecordLoaderTestAdapter.put(%{})
 
@@ -674,7 +649,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert {:cancel, "invalid_provider_response"} = WebhookWorker.perform(job)
 
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = refresh_job(job)
 
     assert %{
              "terminal_failure_code" => "invalid_provider_response",
@@ -797,18 +772,16 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
       {"pull_request", "PR_worker_terminalization_retry"} => {:error, :network_error}
     })
 
-    Repo.query!("""
-    ALTER TABLE github_sync_outcomes
-    ADD CONSTRAINT test_github_terminalization_retry
-    CHECK (state <> 'terminal')
-    """)
+    ReconciliationPersistenceTestAdapter.configure!(
+      terminal_outcome: {:error, :database_unavailable}
+    )
 
     job = webhook_job("delivery-worker-terminalization-retry")
     exhausted_job = %{job | attempt: 10, max_attempts: 10}
 
     assert {:snooze, 5} = WebhookWorker.perform(exhausted_job)
 
-    terminalization_job = Repo.get!(Oban.Job, job.id)
+    terminalization_job = refresh_job(job)
 
     assert %{
              "terminal_failure_code" => "provider_unavailable",
@@ -824,11 +797,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
 
     assert outcome.state == "retryable"
 
-    Repo.query!(
-      "ALTER TABLE github_sync_outcomes DROP CONSTRAINT test_github_terminalization_retry"
-    )
+    ReconciliationPersistenceTestAdapter.clear_reconciliation_failures!()
 
-    terminalization_job = Repo.get!(Oban.Job, job.id)
+    terminalization_job = refresh_job(job)
 
     RecordLoaderTestAdapter.configure!(%{
       SyncOutcome => {:raise, RuntimeError.exception("transient terminalization storage failure")}
@@ -888,7 +859,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
     assert {:snooze, 5} =
              WebhookWorker.perform(%{job | attempt: 10, max_attempts: 10})
 
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = refresh_job(job)
     assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
 
     RecordLoaderTestAdapter.put(%{})
@@ -969,15 +940,10 @@ defmodule OfficeGraph.GitHubIntegration.WebhookWorkerTest do
   end
 
   defp webhook_job(delivery_id) do
-    worker_name = inspect(WebhookWorker)
-
-    Repo.one!(
-      from job in Oban.Job,
-        where:
-          job.worker == ^worker_name and
-            fragment("?->>'delivery_id'", job.args) == ^delivery_id
-    )
+    GitHubIntegrationCleanup.oban_job_for_delivery!(delivery_id, inspect(WebhookWorker))
   end
+
+  defp refresh_job(job), do: webhook_job(job.args["delivery_id"])
 
   defp snapshot do
     %Adapter.ReconciliationSnapshot{

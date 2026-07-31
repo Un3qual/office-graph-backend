@@ -7,6 +7,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
   alias OfficeGraph.QueryCounter
   alias OfficeGraph.Runs
   alias OfficeGraph.WorkGraph
+  alias OfficeGraph.WorkGraph.{Artifact, GraphItem}
   alias OfficeGraph.WorkPackets
 
   describe "generated AshGraphql reads" do
@@ -126,6 +127,193 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert response["data"]["getWorkRun"]["state"] == work_run["state"]
     end
 
+    test "signal graph relationships use generated resource nodes and Relay connections", %{
+      conn: conn
+    } do
+      fixtures = seed_generated_read_fixtures()
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_signal_relationships_query(),
+          variables: %{signalId: relay_id(:signal, fixtures.local.signal.id)}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      signal = response["data"]["getSignal"]
+
+      assert signal["graphItem"]["id"] ==
+               relay_id(:graph_item, fixtures.local.signal.graph_item_id)
+
+      assert [task_edge] = signal["tasks"]["edges"]
+      task = task_edge["node"]
+      assert task["id"] == relay_id(:task, fixtures.local.task.id)
+      assert task["sourceSignal"]["id"] == signal["id"]
+      assert task["graphItem"]["id"] == relay_id(:graph_item, fixtures.local.task.graph_item_id)
+
+      assert [finding_edge] = task["reviewFindings"]["edges"]
+      finding = finding_edge["node"]
+      assert finding["id"] == relay_id(:review_finding, fixtures.local.review_finding.id)
+      assert finding["task"]["id"] == task["id"]
+
+      assert [check_edge] = finding["verificationChecks"]["edges"]
+      check = check_edge["node"]
+      assert check["id"] == relay_id(:verification_check, fixtures.local.verification_check.id)
+      assert check["reviewFinding"]["id"] == finding["id"]
+
+      assert check["graphItem"]["id"] ==
+               relay_id(:graph_item, fixtures.local.verification_check.graph_item_id)
+
+      Enum.each(
+        [
+          signal["graphItem"]["id"],
+          task["id"],
+          task["graphItem"]["id"],
+          finding["id"],
+          check["id"],
+          check["graphItem"]["id"]
+        ],
+        fn node_id ->
+          node =
+            conn
+            |> post(~p"/graphql", %{
+              query: generated_node_query(),
+              variables: %{id: node_id}
+            })
+            |> json_response(200)
+
+          assert node["errors"] in [nil, []]
+          assert node["data"]["node"]["id"] == node_id
+        end
+      )
+    end
+
+    test "packet versions and contract links use generated relationships and node refetch",
+         %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+      packet_id = relay_id(:work_packet, fixtures.local.packet.id)
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_packet_relationships_query(),
+          variables: %{packetId: packet_id}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      packet = response["data"]["getWorkPacket"]
+      assert packet["id"] == packet_id
+
+      version = packet["currentVersion"]
+      assert version["id"] == relay_id(:work_packet_version, fixtures.local.version.id)
+      assert [source_reference] = version["sourceReferences"]
+      assert [required_check] = version["requiredChecks"]
+      assert [version_edge] = packet["versions"]["edges"]
+      assert version_edge["node"]["id"] == version["id"]
+
+      Enum.each(
+        [version["id"], source_reference["id"], required_check["id"]],
+        fn node_id ->
+          node =
+            conn
+            |> post(~p"/graphql", %{
+              query: generated_node_query(),
+              variables: %{id: node_id}
+            })
+            |> json_response(200)
+
+          assert node["errors"] in [nil, []]
+          assert node["data"]["node"]["id"] == node_id
+        end
+      )
+    end
+
+    test "run packet versions and required checks use generated relationships and node refetch",
+         %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+      run_id = relay_id(:work_run, fixtures.local.run.id)
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: generated_run_relationships_query(),
+          variables: %{runId: run_id}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      run = response["data"]["getWorkRun"]
+      assert run["id"] == run_id
+
+      assert run["workPacketVersion"]["id"] ==
+               relay_id(:work_packet_version, fixtures.local.version.id)
+
+      assert [required_check_edge] = run["requiredChecks"]["edges"]
+
+      Enum.each(
+        [run["workPacketVersion"]["id"], required_check_edge["node"]["id"]],
+        fn node_id ->
+          node =
+            conn
+            |> post(~p"/graphql", %{
+              query: generated_node_query(),
+              variables: %{id: node_id}
+            })
+            |> json_response(200)
+
+          assert node["errors"] in [nil, []]
+          assert node["data"]["node"]["id"] == node_id
+        end
+      )
+    end
+
+    test "artifact reads are generated Relay connections with authorized node refetch", %{
+      conn: conn
+    } do
+      fixtures = seed_generated_read_fixtures()
+      artifact_id = relay_id(:artifact, fixtures.local.artifact.id)
+
+      response =
+        conn
+        |> post(~p"/graphql", %{
+          query: """
+          query ArtifactRead($id: ID!) {
+            listArtifacts(first: 10) {
+              pageInfo {
+                hasNextPage
+                hasPreviousPage
+                startCursor
+                endCursor
+              }
+              edges {
+                cursor
+                node { id title graphItem { id } }
+              }
+            }
+            node(id: $id) {
+              id
+              ... on Artifact { title }
+            }
+          }
+          """,
+          variables: %{id: artifact_id}
+        })
+        |> json_response(200)
+
+      assert response["errors"] in [nil, []]
+      assert [listed] = connection_nodes(response["data"]["listArtifacts"])
+      assert listed["id"] == artifact_id
+      assert listed["title"] == fixtures.local.artifact.title
+
+      assert listed["graphItem"]["id"] ==
+               relay_id(:graph_item, fixtures.local.artifact.graph_item_id)
+
+      assert response["data"]["node"]["id"] == artifact_id
+      assert response["data"]["node"]["title"] == fixtures.local.artifact.title
+    end
+
     test "packet deep-link lookup isolates malformed and unavailable Relay IDs from the list",
          %{conn: conn} do
       fixtures = seed_generated_read_fixtures()
@@ -220,7 +408,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal_id}})
         |> json_response(200)
 
-      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+      assert [%{"code" => "forbidden"} | _rest] = response["errors"]
       assert response["data"] in [nil, %{"node" => nil}]
     end
 
@@ -247,7 +435,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: signal_id}})
         |> json_response(200)
 
-      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+      assert [%{"code" => "forbidden"} | _rest] = response["errors"]
       assert response["data"] in [nil, %{"node" => nil}]
     end
 
@@ -266,7 +454,7 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         |> post(~p"/graphql", %{query: generated_node_query(), variables: %{id: relay_id}})
         |> json_response(200)
 
-      assert [%{"extensions" => %{"code" => "forbidden"}} | _rest] = response["errors"]
+      assert [%{"code" => "forbidden"} | _rest] = response["errors"]
       assert response["data"] in [nil, %{"node" => nil}]
     end
   end
@@ -285,6 +473,38 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert signal["id"] == fixtures.local.signal.id
       assert signal["attributes"]["title"] == fixtures.local.signal.title
 
+      graph_items =
+        conn
+        |> json_api_get(~p"/api/v1/graph-items")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert Enum.any?(graph_items, &(&1["id"] == fixtures.local.signal.graph_item_id))
+
+      assert [task] =
+               conn
+               |> json_api_get(~p"/api/v1/tasks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert task["id"] == fixtures.local.task.id
+
+      assert [review_finding] =
+               conn
+               |> json_api_get(~p"/api/v1/review-findings")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert review_finding["id"] == fixtures.local.review_finding.id
+
+      assert [verification_check] =
+               conn
+               |> json_api_get(~p"/api/v1/verification-checks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert verification_check["id"] == fixtures.local.verification_check.id
+
       assert [work_packet] =
                conn
                |> json_api_get(~p"/api/v1/work-packets")
@@ -294,6 +514,34 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert work_packet["type"] == "work_packet"
       assert work_packet["id"] == fixtures.local.packet.id
       assert work_packet["attributes"]["title"] == fixtures.local.packet.title
+
+      assert [work_packet_version] =
+               conn
+               |> json_api_get(~p"/api/v1/work-packet-versions")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert work_packet_version["type"] == "work_packet_version"
+      assert work_packet_version["id"] == fixtures.local.version.id
+      assert work_packet_version["attributes"]["work_packet_id"] == fixtures.local.packet.id
+
+      assert [source_reference] =
+               conn
+               |> json_api_get(~p"/api/v1/work-packet-source-references")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert source_reference["type"] == "work_packet_source_reference"
+      assert source_reference["attributes"]["work_packet_version_id"] == fixtures.local.version.id
+
+      assert [required_check] =
+               conn
+               |> json_api_get(~p"/api/v1/work-packet-required-checks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert required_check["type"] == "work_packet_required_check"
+      assert required_check["attributes"]["work_packet_version_id"] == fixtures.local.version.id
 
       assert [work_run] =
                conn
@@ -305,9 +553,73 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert work_run["id"] == fixtures.local.run.id
       assert work_run["attributes"]["work_packet_id"] == fixtures.local.packet.id
 
+      assert [run_required_check] =
+               conn
+               |> json_api_get(~p"/api/v1/run-required-checks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert run_required_check["type"] == "run_required_check"
+      assert run_required_check["id"] == fixtures.local.required_check.id
+      assert run_required_check["attributes"]["run_id"] == fixtures.local.run.id
+
+      Enum.each(
+        [
+          ~p"/api/v1/execution-observations",
+          ~p"/api/v1/evidence-candidates",
+          ~p"/api/v1/evidence-items",
+          ~p"/api/v1/verification-results"
+        ],
+        fn path ->
+          assert conn
+                 |> json_api_get(path)
+                 |> json_response(200)
+                 |> Map.fetch!("data") == []
+        end
+      )
+
       refute signal["id"] == fixtures.foreign.signal.id
       refute work_packet["id"] == fixtures.foreign.packet.id
       refute work_run["id"] == fixtures.foreign.run.id
+    end
+
+    test "mount generated related routes for the signal graph spine", %{conn: conn} do
+      fixtures = seed_generated_read_fixtures()
+
+      graph_item =
+        conn
+        |> json_api_get(~p"/api/v1/signals/#{fixtures.local.signal.id}/graph_item")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert graph_item["id"] == fixtures.local.signal.graph_item_id
+      assert graph_item["type"] == "graph_item"
+
+      assert [task] =
+               conn
+               |> json_api_get(~p"/api/v1/signals/#{fixtures.local.signal.id}/tasks")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert task["id"] == fixtures.local.task.id
+
+      assert [finding] =
+               conn
+               |> json_api_get(~p"/api/v1/tasks/#{fixtures.local.task.id}/review_findings")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert finding["id"] == fixtures.local.review_finding.id
+
+      assert [check] =
+               conn
+               |> json_api_get(
+                 ~p"/api/v1/review-findings/#{fixtures.local.review_finding.id}/verification_checks"
+               )
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      assert check["id"] == fixtures.local.verification_check.id
     end
 
     test "do not expose generated lifecycle writes", %{conn: conn} do
@@ -450,6 +762,99 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
     """
   end
 
+  defp generated_packet_relationships_query do
+    """
+    query GeneratedPacketRelationships($packetId: ID!) {
+      getWorkPacket(id: $packetId) {
+        id
+        currentVersion {
+          id
+          sourceReferences {
+            id
+            graphItemId
+          }
+          requiredChecks {
+            id
+            verificationCheckId
+          }
+        }
+        versions(first: 10, sort: [{ field: VERSION_NUMBER, order: ASC }]) {
+          edges {
+            node {
+              id
+              versionNumber
+            }
+          }
+        }
+      }
+    }
+    """
+  end
+
+  defp generated_signal_relationships_query do
+    """
+    query GeneratedSignalRelationships($signalId: ID!) {
+      getSignal(id: $signalId) {
+        id
+        graphItem { id resourceType resourceId }
+        tasks(first: 10, sort: [{ field: INSERTED_AT, order: ASC }]) {
+          edges {
+            node {
+              id
+              sourceSignal { id }
+              graphItem { id resourceType resourceId }
+              reviewFindings(first: 10, sort: [{ field: INSERTED_AT, order: ASC }]) {
+                edges {
+                  node {
+                    id
+                    task { id }
+                    graphItem { id }
+                    verificationChecks(
+                      first: 10
+                      sort: [{ field: INSERTED_AT, order: ASC }]
+                    ) {
+                      edges {
+                        node {
+                          id
+                          reviewFinding { id }
+                          graphItem { id resourceType resourceId }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+  end
+
+  defp generated_run_relationships_query do
+    """
+    query GeneratedRunRelationships($runId: ID!) {
+      getWorkRun(id: $runId) {
+        id
+        workPacketVersion {
+          id
+          versionNumber
+        }
+        requiredChecks(first: 10, sort: [{ field: POSITION, order: ASC }]) {
+          edges {
+            node {
+              id
+              verificationCheckId
+              state
+            }
+          }
+        }
+      }
+    }
+    """
+  end
+
   defp packet_deep_link_query do
     """
     query PacketDeepLink($packetId: ID!) {
@@ -494,6 +899,10 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
       assert is_binary(edge["cursor"])
       edge["node"]
     end)
+  end
+
+  defp relay_id(type, id) do
+    Absinthe.Relay.Node.to_global_id(Atom.to_string(type), id, OfficeGraphWeb.GraphQL.Schema)
   end
 
   defp generated_signal_node_id(conn) do
@@ -603,6 +1012,37 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
         body: "Generated read check body #{suffix}."
       })
 
+    artifact_id = Ecto.UUID.generate()
+
+    graph_item =
+      Ash.create!(
+        GraphItem,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          resource_type: "artifact",
+          resource_id: artifact_id,
+          title: "Generated read artifact #{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    artifact =
+      Ash.create!(
+        Artifact,
+        %{
+          id: artifact_id,
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          graph_item_id: graph_item.id,
+          title: "Generated read artifact #{suffix}",
+          uri: "https://example.test/generated-read-artifact/#{suffix}"
+        },
+        action: :create,
+        authorize?: false
+      )
+
     {:ok, packet_operation} =
       Operations.start_operation(bootstrap.session, :work_packet_create,
         idempotency_key: "generated-read-packet-#{suffix}"
@@ -635,8 +1075,14 @@ defmodule OfficeGraphWeb.GeneratedApiReadTest do
     %{
       bootstrap: bootstrap,
       signal: signal,
+      task: task,
+      review_finding: review_finding,
+      verification_check: verification_check,
+      artifact: artifact,
       packet: packet_result.packet,
-      run: run_result.run
+      version: packet_result.version,
+      run: run_result.run,
+      required_check: hd(run_result.required_checks)
     }
   end
 end

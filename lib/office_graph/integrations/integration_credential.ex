@@ -8,24 +8,23 @@ defmodule OfficeGraph.Integrations.IntegrationCredential do
   postgres do
     table "integration_credentials"
     repo OfficeGraph.Repo
-    migrate? false
 
-    identity_index_names unique_workspace_reference:
-                           "integration_credentials_workspace_reference_index",
-                         unique_organization_reference:
-                           "integration_credentials_organization_reference_index"
+    identity_index_names unique_scope_reference: "integration_credentials_scope_reference_index"
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :kind, :string, allow_nil?: false, public?: true
     attribute :secret_reference, :string, allow_nil?: false, public?: false, sensitive?: true
     attribute :status, :string, allow_nil?: false, default: "active", public?: true
     attribute :rotated_at, :utc_datetime_usec, public?: true
     attribute :expires_at, :utc_datetime_usec, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -63,35 +62,31 @@ defmodule OfficeGraph.Integrations.IntegrationCredential do
   end
 
   identities do
-    identity :unique_workspace_reference,
+    identity :unique_scope_reference,
              [:organization_id, :workspace_id, :kind, :secret_reference],
-             where: expr(not is_nil(workspace_id))
-
-    identity :unique_organization_reference,
-             [:organization_id, :kind, :secret_reference],
-             where: expr(is_nil(workspace_id))
+             nils_distinct?: false
   end
 
   relationships do
     belongs_to :organization, OfficeGraph.Tenancy.Organization do
       source_attribute :organization_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :governing_workspace, OfficeGraph.Tenancy.Workspace do
       source_attribute :workspace_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
   end
 end

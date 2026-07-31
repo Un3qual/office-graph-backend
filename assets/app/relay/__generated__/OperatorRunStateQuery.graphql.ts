@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<deaa4272a0359f2bb0e66fdf862c2f59>>
+ * @generated SignedSource<<bf7953fd7dfcf6b8b682f80d5314abcb>>
  * @lightSyntaxTransform
  */
 
@@ -12,12 +12,98 @@ import { FragmentRefs } from "relay-runtime";
 export type OperatorRunStateQuery$variables = {
   activityAfter?: string | null | undefined;
   activityFirst: number;
-  id: string;
+  projectionId: string;
+  runId: string;
 };
 export type OperatorRunStateQuery$data = {
   readonly operatorRunState: {
     readonly " $fragmentSpreads": FragmentRefs<"OperatorRunStateFragment">;
   };
+  readonly run: {
+    readonly aggregateState: string;
+    readonly evidenceCandidates: {
+      readonly edges: ReadonlyArray<{
+        readonly node: {
+          readonly candidateState: string;
+          readonly claim: string;
+          readonly executionObservationId: string | null | undefined;
+          readonly freshnessState: string;
+          readonly id: string;
+          readonly sourceIdentity: string;
+          readonly sourceKind: string;
+          readonly trustBasis: string;
+          readonly verificationCheckId: string;
+        };
+      }> | null | undefined;
+    };
+    readonly evidenceItems: {
+      readonly edges: ReadonlyArray<{
+        readonly node: {
+          readonly candidateId: string | null | undefined;
+          readonly id: string;
+          readonly state: string;
+          readonly workRunId: string | null | undefined;
+        };
+      }> | null | undefined;
+    };
+    readonly executionObservations: {
+      readonly edges: ReadonlyArray<{
+        readonly node: {
+          readonly freshnessState: string;
+          readonly graphItemId: string | null | undefined;
+          readonly id: string;
+          readonly normalizedStatus: string;
+          readonly sourceIdentity: string;
+          readonly sourceKind: string;
+          readonly trustBasis: string;
+          readonly verificationCheckId: string | null | undefined;
+        };
+      }> | null | undefined;
+    };
+    readonly executionState: string;
+    readonly id: string;
+    readonly requiredChecks: {
+      readonly edges: ReadonlyArray<{
+        readonly node: {
+          readonly id: string;
+          readonly state: string;
+          readonly verificationCheck: {
+            readonly graphItemId: string;
+            readonly id: string;
+          };
+          readonly verificationCheckId: string;
+        };
+      }> | null | undefined;
+    };
+    readonly verificationResults: {
+      readonly edges: ReadonlyArray<{
+        readonly node: {
+          readonly actorPrincipalId: string | null | undefined;
+          readonly evidenceItemId: string | null | undefined;
+          readonly id: string;
+          readonly operationId: string;
+          readonly policyBasis: string | null | undefined;
+          readonly result: string;
+          readonly targetGraphItemId: string | null | undefined;
+          readonly verificationCheckId: string;
+          readonly workPacketVersionId: string | null | undefined;
+          readonly workRunId: string | null | undefined;
+        };
+      }> | null | undefined;
+    };
+    readonly verificationState: string;
+    readonly workPacket: {
+      readonly id: string;
+      readonly state: string;
+      readonly title: string;
+    };
+    readonly workPacketVersion: {
+      readonly id: string;
+      readonly lifecycleState: string;
+      readonly objective: string;
+      readonly versionNumber: number;
+    } | null | undefined;
+  } | null | undefined;
 };
 export type OperatorRunStateQuery = {
   response: OperatorRunStateQuery$data;
@@ -38,151 +124,150 @@ v1 = {
 v2 = {
   "defaultValue": null,
   "kind": "LocalArgument",
-  "name": "id"
+  "name": "projectionId"
 },
-v3 = [
+v3 = {
+  "defaultValue": null,
+  "kind": "LocalArgument",
+  "name": "runId"
+},
+v4 = [
   {
     "kind": "Variable",
     "name": "id",
-    "variableName": "id"
+    "variableName": "projectionId"
   }
 ],
-v4 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "type",
-  "storageKey": null
-},
 v5 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "status",
-  "storageKey": null
-},
-v6 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "state",
-  "storageKey": null
-},
-v7 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "id",
   "storageKey": null
 },
+v6 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "type",
+  "storageKey": null
+},
+v7 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "status",
+  "storageKey": null
+},
 v8 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "key",
+  "name": "state",
   "storageKey": null
 },
 v9 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "label",
+  "name": "key",
   "storageKey": null
 },
 v10 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "runId",
+  "name": "label",
   "storageKey": null
 },
 v11 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "verificationCheckId",
+  "name": "runId",
   "storageKey": null
 },
 v12 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "freshnessState",
+  "name": "verificationCheckId",
   "storageKey": null
 },
 v13 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "trustBasis",
+  "name": "freshnessState",
   "storageKey": null
 },
 v14 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "normalizedStatus",
+  "name": "trustBasis",
   "storageKey": null
 },
 v15 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "workRunId",
+  "name": "normalizedStatus",
   "storageKey": null
 },
 v16 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "executionObservationId",
+  "name": "workRunId",
   "storageKey": null
 },
 v17 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "sourceKind",
+  "name": "executionObservationId",
   "storageKey": null
 },
 v18 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "sourceIdentity",
+  "name": "sourceKind",
   "storageKey": null
 },
 v19 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "result",
+  "name": "sourceIdentity",
   "storageKey": null
 },
 v20 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "policyBasis",
+  "name": "result",
   "storageKey": null
 },
 v21 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "title",
+  "name": "policyBasis",
   "storageKey": null
 },
 v22 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "graphItemId",
+  "name": "title",
   "storageKey": null
 },
 v23 = [
-  (v4/*:: as any*/),
   (v5/*:: as any*/),
+  (v6/*:: as any*/),
+  (v7/*:: as any*/),
   {
     "alias": null,
     "args": null,
@@ -205,7 +290,7 @@ v23 = [
         "name": "identity",
         "storageKey": null
       },
-      (v6/*:: as any*/),
+      (v8/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -274,8 +359,8 @@ v23 = [
         "name": "targetIds",
         "plural": true,
         "selections": [
-          (v4/*:: as any*/),
-          (v7/*:: as any*/)
+          (v6/*:: as any*/),
+          (v5/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -298,10 +383,10 @@ v23 = [
         "name": "observation",
         "plural": true,
         "selections": [
-          (v8/*:: as any*/),
           (v9/*:: as any*/),
           (v10/*:: as any*/),
           (v11/*:: as any*/),
+          (v12/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -323,8 +408,8 @@ v23 = [
             "name": "observationSourceIdentity",
             "storageKey": null
           },
-          (v12/*:: as any*/),
           (v13/*:: as any*/),
+          (v14/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -340,8 +425,8 @@ v23 = [
             "name": "outcomes",
             "plural": true,
             "selections": [
-              (v8/*:: as any*/),
               (v9/*:: as any*/),
+              (v10/*:: as any*/),
               {
                 "alias": null,
                 "args": null,
@@ -349,7 +434,7 @@ v23 = [
                 "name": "observedStatus",
                 "storageKey": null
               },
-              (v14/*:: as any*/)
+              (v15/*:: as any*/)
             ],
             "storageKey": null
           }
@@ -364,15 +449,15 @@ v23 = [
         "name": "evidenceCandidate",
         "plural": true,
         "selections": [
-          (v8/*:: as any*/),
           (v9/*:: as any*/),
-          (v15/*:: as any*/),
-          (v11/*:: as any*/),
+          (v10/*:: as any*/),
           (v16/*:: as any*/),
+          (v12/*:: as any*/),
           (v17/*:: as any*/),
           (v18/*:: as any*/),
-          (v12/*:: as any*/),
+          (v19/*:: as any*/),
           (v13/*:: as any*/),
+          (v14/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -391,8 +476,8 @@ v23 = [
         "name": "evidenceAcceptance",
         "plural": true,
         "selections": [
-          (v8/*:: as any*/),
           (v9/*:: as any*/),
+          (v10/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -400,7 +485,7 @@ v23 = [
             "name": "evidenceCandidateId",
             "storageKey": null
           },
-          (v19/*:: as any*/),
+          (v20/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -419,9 +504,9 @@ v23 = [
         "name": "waiver",
         "plural": true,
         "selections": [
-          (v8/*:: as any*/),
           (v9/*:: as any*/),
           (v10/*:: as any*/),
+          (v11/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -443,7 +528,7 @@ v23 = [
             "name": "expectedVerificationState",
             "storageKey": null
           },
-          (v20/*:: as any*/)
+          (v21/*:: as any*/)
         ],
         "storageKey": null
       }
@@ -612,8 +697,8 @@ v23 = [
                 "name": "stableId",
                 "storageKey": null
               },
-              (v21/*:: as any*/),
-              (v5/*:: as any*/)
+              (v22/*:: as any*/),
+              (v7/*:: as any*/)
             ],
             "storageKey": null
           }
@@ -672,224 +757,12 @@ v23 = [
   {
     "alias": null,
     "args": null,
-    "concreteType": "OperatorPacketRef",
-    "kind": "LinkedField",
-    "name": "packet",
-    "plural": false,
-    "selections": [
-      (v7/*:: as any*/),
-      (v21/*:: as any*/),
-      (v6/*:: as any*/)
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorPacketVersionRef",
-    "kind": "LinkedField",
-    "name": "packetVersion",
-    "plural": false,
-    "selections": [
-      (v7/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "versionNumber",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "lifecycleState",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "objective",
-        "storageKey": null
-      }
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorRunRef",
-    "kind": "LinkedField",
-    "name": "run",
-    "plural": false,
-    "selections": [
-      (v7/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "aggregateState",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "executionState",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "verificationState",
-        "storageKey": null
-      }
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorRequiredCheck",
-    "kind": "LinkedField",
-    "name": "requiredChecks",
-    "plural": true,
-    "selections": [
-      (v7/*:: as any*/),
-      (v22/*:: as any*/),
-      (v11/*:: as any*/),
-      (v6/*:: as any*/)
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorObservation",
-    "kind": "LinkedField",
-    "name": "observations",
-    "plural": true,
-    "selections": [
-      (v7/*:: as any*/),
-      (v11/*:: as any*/),
-      (v22/*:: as any*/),
-      (v14/*:: as any*/),
-      (v12/*:: as any*/),
-      (v13/*:: as any*/),
-      (v17/*:: as any*/),
-      (v18/*:: as any*/)
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorEvidenceCandidate",
-    "kind": "LinkedField",
-    "name": "evidenceCandidates",
-    "plural": true,
-    "selections": [
-      (v7/*:: as any*/),
-      (v11/*:: as any*/),
-      (v16/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "claim",
-        "storageKey": null
-      },
-      (v6/*:: as any*/),
-      (v12/*:: as any*/),
-      (v13/*:: as any*/),
-      (v17/*:: as any*/),
-      (v18/*:: as any*/)
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorEvidenceItem",
-    "kind": "LinkedField",
-    "name": "evidenceItems",
-    "plural": true,
-    "selections": [
-      (v7/*:: as any*/),
-      (v6/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "candidateId",
-        "storageKey": null
-      },
-      (v15/*:: as any*/)
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
-    "concreteType": "OperatorVerificationResult",
-    "kind": "LinkedField",
-    "name": "verificationResults",
-    "plural": true,
-    "selections": [
-      (v7/*:: as any*/),
-      (v19/*:: as any*/),
-      (v11/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "evidenceItemId",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "operationId",
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "actorPrincipalId",
-        "storageKey": null
-      },
-      (v20/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "targetGraphItemId",
-        "storageKey": null
-      },
-      (v15/*:: as any*/),
-      {
-        "alias": null,
-        "args": null,
-        "kind": "ScalarField",
-        "name": "workPacketVersionId",
-        "storageKey": null
-      }
-    ],
-    "storageKey": null
-  },
-  {
-    "alias": null,
-    "args": null,
     "concreteType": "OperatorMissingEvidence",
     "kind": "LinkedField",
     "name": "missingEvidence",
     "plural": true,
     "selections": [
-      (v11/*:: as any*/),
+      (v12/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -900,13 +773,397 @@ v23 = [
     ],
     "storageKey": null
   }
-];
+],
+v24 = {
+  "kind": "Literal",
+  "name": "first",
+  "value": 20
+},
+v25 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "graphItemId",
+  "storageKey": null
+},
+v26 = [
+  (v24/*:: as any*/),
+  {
+    "kind": "Literal",
+    "name": "sort",
+    "value": [
+      {
+        "field": "INSERTED_AT",
+        "order": "ASC"
+      }
+    ]
+  }
+],
+v27 = {
+  "alias": "run",
+  "args": [
+    {
+      "kind": "Variable",
+      "name": "id",
+      "variableName": "runId"
+    }
+  ],
+  "concreteType": "WorkRun",
+  "kind": "LinkedField",
+  "name": "getWorkRun",
+  "plural": false,
+  "selections": [
+    (v5/*:: as any*/),
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "aggregateState",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "executionState",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "kind": "ScalarField",
+      "name": "verificationState",
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "WorkPacket",
+      "kind": "LinkedField",
+      "name": "workPacket",
+      "plural": false,
+      "selections": [
+        (v5/*:: as any*/),
+        (v22/*:: as any*/),
+        (v8/*:: as any*/)
+      ],
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": null,
+      "concreteType": "WorkPacketVersion",
+      "kind": "LinkedField",
+      "name": "workPacketVersion",
+      "plural": false,
+      "selections": [
+        (v5/*:: as any*/),
+        {
+          "alias": null,
+          "args": null,
+          "kind": "ScalarField",
+          "name": "versionNumber",
+          "storageKey": null
+        },
+        {
+          "alias": null,
+          "args": null,
+          "kind": "ScalarField",
+          "name": "lifecycleState",
+          "storageKey": null
+        },
+        {
+          "alias": null,
+          "args": null,
+          "kind": "ScalarField",
+          "name": "objective",
+          "storageKey": null
+        }
+      ],
+      "storageKey": null
+    },
+    {
+      "alias": null,
+      "args": [
+        (v24/*:: as any*/),
+        {
+          "kind": "Literal",
+          "name": "sort",
+          "value": [
+            {
+              "field": "POSITION",
+              "order": "ASC"
+            }
+          ]
+        }
+      ],
+      "concreteType": "RunRequiredCheckConnection",
+      "kind": "LinkedField",
+      "name": "requiredChecks",
+      "plural": false,
+      "selections": [
+        {
+          "alias": null,
+          "args": null,
+          "concreteType": "RunRequiredCheckEdge",
+          "kind": "LinkedField",
+          "name": "edges",
+          "plural": true,
+          "selections": [
+            {
+              "alias": null,
+              "args": null,
+              "concreteType": "RunRequiredCheck",
+              "kind": "LinkedField",
+              "name": "node",
+              "plural": false,
+              "selections": [
+                (v5/*:: as any*/),
+                (v12/*:: as any*/),
+                (v8/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "concreteType": "VerificationCheck",
+                  "kind": "LinkedField",
+                  "name": "verificationCheck",
+                  "plural": false,
+                  "selections": [
+                    (v5/*:: as any*/),
+                    (v25/*:: as any*/)
+                  ],
+                  "storageKey": null
+                }
+              ],
+              "storageKey": null
+            }
+          ],
+          "storageKey": null
+        }
+      ],
+      "storageKey": "requiredChecks(first:20,sort:[{\"field\":\"POSITION\",\"order\":\"ASC\"}])"
+    },
+    {
+      "alias": null,
+      "args": (v26/*:: as any*/),
+      "concreteType": "ExecutionObservationConnection",
+      "kind": "LinkedField",
+      "name": "executionObservations",
+      "plural": false,
+      "selections": [
+        {
+          "alias": null,
+          "args": null,
+          "concreteType": "ExecutionObservationEdge",
+          "kind": "LinkedField",
+          "name": "edges",
+          "plural": true,
+          "selections": [
+            {
+              "alias": null,
+              "args": null,
+              "concreteType": "ExecutionObservation",
+              "kind": "LinkedField",
+              "name": "node",
+              "plural": false,
+              "selections": [
+                (v5/*:: as any*/),
+                (v12/*:: as any*/),
+                (v25/*:: as any*/),
+                (v15/*:: as any*/),
+                (v13/*:: as any*/),
+                (v14/*:: as any*/),
+                (v18/*:: as any*/),
+                (v19/*:: as any*/)
+              ],
+              "storageKey": null
+            }
+          ],
+          "storageKey": null
+        }
+      ],
+      "storageKey": "executionObservations(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
+    },
+    {
+      "alias": null,
+      "args": (v26/*:: as any*/),
+      "concreteType": "EvidenceCandidateConnection",
+      "kind": "LinkedField",
+      "name": "evidenceCandidates",
+      "plural": false,
+      "selections": [
+        {
+          "alias": null,
+          "args": null,
+          "concreteType": "EvidenceCandidateEdge",
+          "kind": "LinkedField",
+          "name": "edges",
+          "plural": true,
+          "selections": [
+            {
+              "alias": null,
+              "args": null,
+              "concreteType": "EvidenceCandidate",
+              "kind": "LinkedField",
+              "name": "node",
+              "plural": false,
+              "selections": [
+                (v5/*:: as any*/),
+                (v12/*:: as any*/),
+                (v17/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "claim",
+                  "storageKey": null
+                },
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "candidateState",
+                  "storageKey": null
+                },
+                (v13/*:: as any*/),
+                (v14/*:: as any*/),
+                (v18/*:: as any*/),
+                (v19/*:: as any*/)
+              ],
+              "storageKey": null
+            }
+          ],
+          "storageKey": null
+        }
+      ],
+      "storageKey": "evidenceCandidates(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
+    },
+    {
+      "alias": null,
+      "args": (v26/*:: as any*/),
+      "concreteType": "EvidenceItemConnection",
+      "kind": "LinkedField",
+      "name": "evidenceItems",
+      "plural": false,
+      "selections": [
+        {
+          "alias": null,
+          "args": null,
+          "concreteType": "EvidenceItemEdge",
+          "kind": "LinkedField",
+          "name": "edges",
+          "plural": true,
+          "selections": [
+            {
+              "alias": null,
+              "args": null,
+              "concreteType": "EvidenceItem",
+              "kind": "LinkedField",
+              "name": "node",
+              "plural": false,
+              "selections": [
+                (v5/*:: as any*/),
+                (v8/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "candidateId",
+                  "storageKey": null
+                },
+                (v16/*:: as any*/)
+              ],
+              "storageKey": null
+            }
+          ],
+          "storageKey": null
+        }
+      ],
+      "storageKey": "evidenceItems(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
+    },
+    {
+      "alias": null,
+      "args": (v26/*:: as any*/),
+      "concreteType": "WorkGraphVerificationResultConnection",
+      "kind": "LinkedField",
+      "name": "verificationResults",
+      "plural": false,
+      "selections": [
+        {
+          "alias": null,
+          "args": null,
+          "concreteType": "WorkGraphVerificationResultEdge",
+          "kind": "LinkedField",
+          "name": "edges",
+          "plural": true,
+          "selections": [
+            {
+              "alias": null,
+              "args": null,
+              "concreteType": "WorkGraphVerificationResult",
+              "kind": "LinkedField",
+              "name": "node",
+              "plural": false,
+              "selections": [
+                (v5/*:: as any*/),
+                (v20/*:: as any*/),
+                (v12/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "evidenceItemId",
+                  "storageKey": null
+                },
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "operationId",
+                  "storageKey": null
+                },
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "actorPrincipalId",
+                  "storageKey": null
+                },
+                (v21/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "targetGraphItemId",
+                  "storageKey": null
+                },
+                (v16/*:: as any*/),
+                {
+                  "alias": null,
+                  "args": null,
+                  "kind": "ScalarField",
+                  "name": "workPacketVersionId",
+                  "storageKey": null
+                }
+              ],
+              "storageKey": null
+            }
+          ],
+          "storageKey": null
+        }
+      ],
+      "storageKey": "verificationResults(first:20,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"ASC\"}])"
+    }
+  ],
+  "storageKey": null
+};
 return {
   "fragment": {
     "argumentDefinitions": [
       (v0/*:: as any*/),
       (v1/*:: as any*/),
-      (v2/*:: as any*/)
+      (v2/*:: as any*/),
+      (v3/*:: as any*/)
     ],
     "kind": "Fragment",
     "metadata": {
@@ -916,7 +1173,7 @@ return {
     "selections": [
       {
         "alias": null,
-        "args": (v3/*:: as any*/),
+        "args": (v4/*:: as any*/),
         "concreteType": "OperatorRunState",
         "kind": "LinkedField",
         "name": "operatorRunState",
@@ -949,7 +1206,8 @@ return {
           }
         ],
         "storageKey": null
-      }
+      },
+      (v27/*:: as any*/)
     ],
     "type": "RootQueryType",
     "abstractKey": null
@@ -958,6 +1216,7 @@ return {
   "operation": {
     "argumentDefinitions": [
       (v2/*:: as any*/),
+      (v3/*:: as any*/),
       (v1/*:: as any*/),
       (v0/*:: as any*/)
     ],
@@ -966,27 +1225,28 @@ return {
     "selections": [
       {
         "alias": null,
-        "args": (v3/*:: as any*/),
+        "args": (v4/*:: as any*/),
         "concreteType": "OperatorRunState",
         "kind": "LinkedField",
         "name": "operatorRunState",
         "plural": false,
         "selections": (v23/*:: as any*/),
         "storageKey": null
-      }
+      },
+      (v27/*:: as any*/)
     ]
   },
   "params": {
-    "cacheID": "982adc4c623b54eabe1791fb80786302",
+    "cacheID": "830ea69d05012d2d12b437a86bbbbdbd",
     "id": null,
     "metadata": {},
     "name": "OperatorRunStateQuery",
     "operationKind": "query",
-    "text": "query OperatorRunStateQuery(\n  $id: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $id) {\n    ...OperatorRunStateFragment_2q9Scy\n  }\n}\n\nfragment OperatorRunStateFragment_2q9Scy on OperatorRunState {\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  commandOptions {\n    observation {\n      key\n      label\n      runId\n      verificationCheckId\n      sourceGraphItemId\n      observationSourceKind\n      observationSourceIdentity\n      freshnessState\n      trustBasis\n      defaultOutcomeKey\n      outcomes {\n        key\n        label\n        observedStatus\n        normalizedStatus\n      }\n    }\n    evidenceCandidate {\n      key\n      label\n      workRunId\n      verificationCheckId\n      executionObservationId\n      sourceKind\n      sourceIdentity\n      freshnessState\n      trustBasis\n      sensitivity\n    }\n    evidenceAcceptance {\n      key\n      label\n      evidenceCandidateId\n      result\n      acceptancePolicyBasis\n    }\n    waiver {\n      key\n      label\n      runId\n      runRequiredCheckId\n      expectedExecutionState\n      expectedVerificationState\n      policyBasis\n    }\n  }\n  commandOptionsOverflow\n  commandOptionSummary {\n    observation\n    evidenceCandidate\n    evidenceAcceptance\n    waiver\n  }\n  childSummary {\n    requiredChecks\n    observations\n    evidenceCandidates\n    evidenceItems\n    verificationResults\n    missingEvidence\n    hasMore\n  }\n  activity(first: $activityFirst, after: $activityAfter) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n  sourceWatermark\n  packet {\n    id\n    title\n    state\n  }\n  packetVersion {\n    id\n    versionNumber\n    lifecycleState\n    objective\n  }\n  run {\n    id\n    aggregateState\n    executionState\n    verificationState\n  }\n  requiredChecks {\n    id\n    graphItemId\n    verificationCheckId\n    state\n  }\n  observations {\n    id\n    verificationCheckId\n    graphItemId\n    normalizedStatus\n    freshnessState\n    trustBasis\n    sourceKind\n    sourceIdentity\n  }\n  evidenceCandidates {\n    id\n    verificationCheckId\n    executionObservationId\n    claim\n    state\n    freshnessState\n    trustBasis\n    sourceKind\n    sourceIdentity\n  }\n  evidenceItems {\n    id\n    state\n    candidateId\n    workRunId\n  }\n  verificationResults {\n    id\n    result\n    verificationCheckId\n    evidenceItemId\n    operationId\n    actorPrincipalId\n    policyBasis\n    targetGraphItemId\n    workRunId\n    workPacketVersionId\n  }\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
+    "text": "query OperatorRunStateQuery(\n  $projectionId: ID!\n  $runId: ID!\n  $activityFirst: Int!\n  $activityAfter: String\n) {\n  operatorRunState(id: $projectionId) {\n    ...OperatorRunStateFragment_2q9Scy\n    id\n  }\n  run: getWorkRun(id: $runId) {\n    id\n    aggregateState\n    executionState\n    verificationState\n    workPacket {\n      id\n      title\n      state\n    }\n    workPacketVersion {\n      id\n      versionNumber\n      lifecycleState\n      objective\n    }\n    requiredChecks(first: 20, sort: [{field: POSITION, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          state\n          verificationCheck {\n            id\n            graphItemId\n          }\n        }\n      }\n    }\n    executionObservations(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          graphItemId\n          normalizedStatus\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceCandidates(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          verificationCheckId\n          executionObservationId\n          claim\n          candidateState\n          freshnessState\n          trustBasis\n          sourceKind\n          sourceIdentity\n        }\n      }\n    }\n    evidenceItems(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          state\n          candidateId\n          workRunId\n        }\n      }\n    }\n    verificationResults(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {\n      edges {\n        node {\n          id\n          result\n          verificationCheckId\n          evidenceItemId\n          operationId\n          actorPrincipalId\n          policyBasis\n          targetGraphItemId\n          workRunId\n          workPacketVersionId\n        }\n      }\n    }\n  }\n}\n\nfragment OperatorRunStateFragment_2q9Scy on OperatorRunState {\n  id\n  type\n  status\n  allowedNextActions\n  commandAffordances {\n    identity\n    state\n    reasonCodes\n    blockerReasons\n    safeExplanation\n    requiredFields\n    inputDefaults {\n      field\n      value\n      values\n    }\n    targetIds {\n      type\n      id\n    }\n  }\n  commandOptions {\n    observation {\n      key\n      label\n      runId\n      verificationCheckId\n      sourceGraphItemId\n      observationSourceKind\n      observationSourceIdentity\n      freshnessState\n      trustBasis\n      defaultOutcomeKey\n      outcomes {\n        key\n        label\n        observedStatus\n        normalizedStatus\n      }\n    }\n    evidenceCandidate {\n      key\n      label\n      workRunId\n      verificationCheckId\n      executionObservationId\n      sourceKind\n      sourceIdentity\n      freshnessState\n      trustBasis\n      sensitivity\n    }\n    evidenceAcceptance {\n      key\n      label\n      evidenceCandidateId\n      result\n      acceptancePolicyBasis\n    }\n    waiver {\n      key\n      label\n      runId\n      runRequiredCheckId\n      expectedExecutionState\n      expectedVerificationState\n      policyBasis\n    }\n  }\n  commandOptionsOverflow\n  commandOptionSummary {\n    observation\n    evidenceCandidate\n    evidenceAcceptance\n    waiver\n  }\n  childSummary {\n    requiredChecks\n    observations\n    evidenceCandidates\n    evidenceItems\n    verificationResults\n    missingEvidence\n    hasMore\n  }\n  activity(first: $activityFirst, after: $activityAfter) {\n    edges {\n      cursor\n      node {\n        kind\n        stableId\n        title\n        status\n      }\n    }\n    pageInfo {\n      hasNextPage\n      hasPreviousPage\n      startCursor\n      endCursor\n    }\n  }\n  sourceWatermark\n  missingEvidence {\n    verificationCheckId\n    reason\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "d10b27783b0a5aca82c26d419f3284ae";
+(node as any).hash = "11c2dc8de1d7cc04d8f46a56ac53bbc1";
 
 export default node;

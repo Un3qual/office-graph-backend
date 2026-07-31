@@ -1,0 +1,182 @@
+defmodule OfficeGraph.GitHubIntegration.WebhookReceipt do
+  @moduledoc false
+
+  require Ash.Query
+
+  alias OfficeGraph.GitHubIntegration.{
+    Installation,
+    InstallationCredential,
+    RecordLoader,
+    SecretStore,
+    WebhookSignature,
+    WebhookReceiptCommands
+  }
+
+  @supported_events MapSet.new(~w(
+    check_run
+    pull_request
+    pull_request_review
+    pull_request_review_comment
+    pull_request_review_thread
+  ))
+
+  @header_pattern ~r/^[A-Za-z0-9._:=+-]+$/
+
+  def accept(headers, raw_body) when is_map(headers) and is_binary(raw_body) do
+    with {:ok, delivery_id} <- required_header(headers, "x-github-delivery"),
+         {:ok, event_name} <- required_header(headers, "x-github-event"),
+         {:ok, signature} <- required_header(headers, "x-hub-signature-256"),
+         {:ok, external_installation_id} <- installation_identity(raw_body),
+         {:ok, installation} <- active_installation(external_installation_id),
+         {:ok, credential_binding} <- webhook_credential(installation.id),
+         {:ok, secret} <-
+           SecretStore.resolve(credential_binding.credential_id, %{
+             organization_id: installation.organization_id,
+             workspace_id: installation.workspace_id
+           }),
+         :ok <- WebhookSignature.verify(raw_body, signature, secret),
+         :ok <- supported_event(event_name),
+         {:ok, pull_request_ids} <- webhook_pull_request_ids(event_name, raw_body) do
+      WebhookReceiptCommands.record(
+        installation,
+        credential_binding,
+        delivery_id,
+        event_name,
+        raw_body,
+        pull_request_ids
+      )
+      |> case do
+        {:ok, %{status: :created}} -> {:ok, :accepted}
+        {:ok, %{status: :replayed}} -> {:ok, :duplicate}
+        {:error, :integration_storage_unavailable} -> {:error, :receipt_unavailable}
+        {:error, _reason} -> {:error, :receipt_failed}
+      end
+    else
+      {:error, reason} when reason in [:unavailable, :integration_storage_unavailable] ->
+        {:error, :receipt_unavailable}
+
+      {:error, reason}
+      when reason in [
+             :forbidden,
+             :invalid_secret_reference,
+             :secret_not_found,
+             :unknown_installation
+           ] ->
+        {:error, :invalid_signature}
+
+      error ->
+        error
+    end
+  end
+
+  def accept(_headers, _raw_body), do: {:error, :invalid_delivery}
+
+  defp webhook_pull_request_ids("check_run", raw_body) do
+    with {:ok, payload} <- Jason.decode(raw_body),
+         %{"pull_requests" => pull_requests} when is_list(pull_requests) <-
+           Map.get(payload, "check_run"),
+         {:ok, identities} <- map_pull_request_identities(pull_requests) do
+      case Enum.uniq(identities) do
+        [] -> {:ok, []}
+        identities -> {:ok, identities}
+      end
+    else
+      _invalid -> {:error, :invalid_delivery}
+    end
+  end
+
+  defp webhook_pull_request_ids(_event_name, _raw_body), do: {:ok, []}
+
+  defp map_pull_request_identities(pull_requests) do
+    Enum.reduce_while(pull_requests, {:ok, []}, fn pull_request, {:ok, identities} ->
+      case pull_request_identity(pull_request) do
+        {:ok, identity} -> {:cont, {:ok, [identity | identities]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, identities} -> {:ok, Enum.reverse(identities)}
+      error -> error
+    end
+  end
+
+  defp pull_request_identity(%{"node_id" => node_id})
+       when is_binary(node_id) and node_id != "",
+       do: {:ok, node_id}
+
+  defp pull_request_identity(%{"id" => id}) when is_integer(id) and id > 0,
+    do: {:ok, Integer.to_string(id)}
+
+  defp pull_request_identity(_pull_request), do: {:error, :invalid_delivery}
+
+  defp active_installation(external_installation_id) do
+    query =
+      Ash.Query.filter(
+        Installation,
+        external_installation_id == ^external_installation_id and lifecycle_state == "active"
+      )
+
+    case RecordLoader.read_one(Installation, query, authorize?: false) do
+      {:ok, nil} -> {:error, :unknown_installation}
+      {:ok, installation} -> {:ok, installation}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp webhook_credential(installation_id) do
+    query =
+      Ash.Query.filter(
+        InstallationCredential,
+        installation_id == ^installation_id and purpose == "webhook_secret"
+      )
+
+    case RecordLoader.read_one(InstallationCredential, query, authorize?: false) do
+      {:ok, nil} -> {:error, :unknown_installation}
+      {:ok, binding} -> {:ok, binding}
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  defp installation_identity(raw_body) do
+    with {:ok, payload} <- Jason.decode(raw_body),
+         installation when is_map(installation) <- Map.get(payload, "installation"),
+         {:ok, installation_id} <- positive_integer(Map.get(installation, "id")) do
+      {:ok, installation_id}
+    else
+      _error -> {:error, :invalid_delivery}
+    end
+  end
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> {:ok, integer}
+      _other -> {:error, :invalid_delivery}
+    end
+  end
+
+  defp positive_integer(_value), do: {:error, :invalid_delivery}
+
+  defp required_header(headers, name) do
+    case Map.get(headers, name) || Map.get(headers, header_atom(name)) do
+      value when is_binary(value) and byte_size(value) in 1..255 ->
+        if Regex.match?(@header_pattern, value),
+          do: {:ok, value},
+          else: {:error, :invalid_delivery}
+
+      _other ->
+        {:error, :invalid_delivery}
+    end
+  end
+
+  defp header_atom("x-github-delivery"), do: :"x-github-delivery"
+  defp header_atom("x-github-event"), do: :"x-github-event"
+  defp header_atom("x-hub-signature-256"), do: :"x-hub-signature-256"
+
+  defp supported_event(event_name) do
+    if MapSet.member?(@supported_events, event_name),
+      do: :ok,
+      else: {:error, :unsupported_event}
+  end
+end

@@ -10,15 +10,16 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   postgres do
     table "run_required_checks"
     repo OfficeGraph.Repo
-    migrate? false
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :run_id, :uuid, allow_nil?: false, public?: true
-    attribute :verification_check_id, :uuid, allow_nil?: false, public?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :position, :integer, allow_nil?: false, default: 0, public?: true
     attribute :state, :string, allow_nil?: false, public?: true
 
@@ -29,19 +30,37 @@ defmodule OfficeGraph.Runs.RunRequiredCheck do
   relationships do
     belongs_to :run, OfficeGraph.Runs.Run do
       source_attribute :run_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :verification_check_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
+      public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     read :read_for_waive_command do
       public? false

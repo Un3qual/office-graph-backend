@@ -102,19 +102,30 @@ export function usePacketWorkspaceDetail(
   );
 
   const workspace = data.operatorPacketWorkspace;
-  const versions = (workspace.versionHistory?.edges ?? []).flatMap((edge) =>
-    edge?.node ? [edge.node] : [],
-  );
+  const packet = data.packet;
+
+  if (!packet || !packet.currentVersion) {
+    throw new Error("The selected packet is unavailable.");
+  }
+
+  const currentVersion = {
+    ...packet.currentVersion,
+    sourceGraphItemIds: packet.currentVersion.sourceReferences.map(
+      (reference) => reference.graphItemId,
+    ),
+    verificationCheckIds: packet.currentVersion.requiredChecks.map(
+      (requiredCheck) => requiredCheck.verificationCheckId,
+    ),
+  };
+
+  const versions = (packet.versions.edges ?? []).flatMap((edge) => (edge?.node ? [edge.node] : []));
 
   const detail: PacketWorkspaceDetail = {
     ...workspace,
+    packet,
+    currentVersion,
     versions,
-    versionPageInfo: workspace.versionHistory?.pageInfo ?? {
-      hasNextPage: false,
-      hasPreviousPage: false,
-      startCursor: null,
-      endCursor: null,
-    },
+    versionPageInfo: packet.versions.pageInfo,
   };
 
   return detail;

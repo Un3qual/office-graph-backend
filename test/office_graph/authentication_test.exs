@@ -5,11 +5,16 @@ defmodule OfficeGraph.AuthenticationTest do
   alias OfficeGraph.Authentication.OidcClient.TestAdapter
   alias OfficeGraph.Authentication.OidcClient.Oidcc
   alias OfficeGraph.Authorization
-  alias OfficeGraph.Authorization.{Role, RoleAssignment}
+  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity
-  alias OfficeGraph.Identity.{AuthenticationEvent, ExternalIdentityLink, Principal}
-  alias OfficeGraph.Repo
+
+  alias OfficeGraph.Identity.{
+    AuthenticationEvent,
+    ExternalIdentityLink,
+    OidcLoginTransaction,
+    Principal
+  }
 
   require Ash.Query
 
@@ -20,8 +25,12 @@ defmodule OfficeGraph.AuthenticationTest do
     original_config = Application.get_env(:office_graph, :human_oidc)
     original_client = Application.get_env(:office_graph, :human_oidc_client)
 
+    original_local_development =
+      Application.get_env(:office_graph, :local_development_authentication)
+
     Application.put_env(:office_graph, :human_oidc_client, TestAdapter)
     Application.put_env(:office_graph, :human_oidc, oidc_config())
+    Application.put_env(:office_graph, :local_development_authentication, enabled: false)
 
     TestAdapter.put(%{
       authorization_uri: {:ok, "https://authentik.office-graph.local/authorize"},
@@ -31,6 +40,7 @@ defmodule OfficeGraph.AuthenticationTest do
     on_exit(fn ->
       restore_env(:human_oidc, original_config)
       restore_env(:human_oidc_client, original_client)
+      restore_env(:local_development_authentication, original_local_development)
     end)
 
     :ok
@@ -74,34 +84,32 @@ defmodule OfficeGraph.AuthenticationTest do
 
       :ok = Identity.store_oidc_login_transaction(live_id, now + 600)
 
-      Repo.query!(
-        """
-        INSERT INTO oidc_login_transactions (id, expires_at, inserted_at)
-        VALUES ($1, $2, CURRENT_TIMESTAMP)
-        """,
-        [
-          Ecto.UUID.dump!(expired_id),
-          DateTime.from_unix!(now - 1)
-        ]
+      Ash.create!(
+        OidcLoginTransaction,
+        %{
+          id: expired_id,
+          expires_at: DateTime.from_unix!(now - 1)
+        },
+        action: :create,
+        authorize?: false
       )
 
       assert {:ok, %{transaction: transaction}} =
                Authentication.begin_login(@redirect_uri, return_to: "/operator")
 
-      assert %{rows: [[false, true, true]]} =
-               Repo.query!(
-                 """
-                 SELECT
-                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $1),
-                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $2),
-                   EXISTS(SELECT 1 FROM oidc_login_transactions WHERE id = $3)
-                 """,
-                 [
-                   Ecto.UUID.dump!(expired_id),
-                   Ecto.UUID.dump!(live_id),
-                   Ecto.UUID.dump!(transaction.id)
-                 ]
+      assert {:ok, nil} =
+               Ash.get(OidcLoginTransaction, expired_id,
+                 authorize?: false,
+                 not_found_error?: false
                )
+
+      assert {:ok, %OidcLoginTransaction{id: ^live_id}} =
+               Ash.get(OidcLoginTransaction, live_id, authorize?: false)
+
+      assert {:ok, %OidcLoginTransaction{id: transaction_id}} =
+               Ash.get(OidcLoginTransaction, transaction.id, authorize?: false)
+
+      assert transaction_id == transaction.id
     end
 
     test "fails closed when OIDC configuration is missing or partial" do
@@ -111,17 +119,6 @@ defmodule OfficeGraph.AuthenticationTest do
                Authentication.begin_login(@redirect_uri, [])
 
       assert TestAdapter.calls(:authorization_uri) == 0
-    end
-
-    test "reports rejected login-start evidence storage failures" do
-      TestAdapter.put(%{authorization_uri: {:error, :provider_down}})
-      Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
-
-      assert {:error, :identity_storage_unavailable} =
-               Authentication.begin_login(@redirect_uri,
-                 trace_id: "login-start-evidence-storage",
-                 source_surface: "web"
-               )
     end
   end
 
@@ -399,39 +396,6 @@ defmodule OfficeGraph.AuthenticationTest do
       assert event.workspace_id == nil
     end
 
-    test "propagates rejected-login evidence storage failures" do
-      principal =
-        Ash.create!(
-          Principal,
-          %{
-            id: Ecto.UUID.generate(),
-            email: "#{unique("rejection-evidence-storage")}@example.test",
-            kind: "human",
-            status: "active"
-          },
-          action: :create,
-          authorize?: false
-        )
-
-      assert {:ok, %{transaction: transaction}} =
-               Authentication.begin_login(@redirect_uri, return_to: "/operator")
-
-      TestAdapter.put(%{
-        exchange: {:ok, claims(principal.email, "rejection-evidence-storage-subject")}
-      })
-
-      Repo.query!("ALTER TABLE authentication_events RENAME TO unavailable_authentication_events")
-
-      assert {:error, :identity_storage_unavailable} =
-               Authentication.complete_login(
-                 "authorization-code",
-                 transaction.state,
-                 transaction,
-                 trace_id: "rejection-evidence-storage",
-                 source_surface: "web"
-               )
-    end
-
     test "records the durable review link on a rejected login" do
       subject = "review-required-subject"
 
@@ -515,7 +479,7 @@ defmodule OfficeGraph.AuthenticationTest do
           trace_id: "logout-login"
         )
 
-      assert {:ok, %{provider_logout_uri: nil}} =
+      assert {:ok, %{authentication_method: "oidc", provider_logout_uri: nil}} =
                Authentication.logout(issued.session.id,
                  trace_id: "logout-trace",
                  post_logout_redirect_uri: "http://localhost:4000/"
@@ -525,6 +489,222 @@ defmodule OfficeGraph.AuthenticationTest do
                Identity.resolve_human_session(issued.session.id)
 
       assert TestAdapter.calls(:logout_uri) == 1
+    end
+  end
+
+  describe "local development authentication" do
+    test "issues and revalidates an ordinary human session from a fixed fixture key" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-login")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("workspace_admin",
+                 trace_id: "local-login",
+                 source_surface: "web"
+               )
+
+      assert completed.session.authentication_method == "local_development"
+      assert completed.session.purpose == "human_web"
+
+      assert {:ok, resolved} =
+               Authentication.resolve_session(completed.session.id,
+                 trace_id: "local-resolve",
+                 source_surface: "web"
+               )
+
+      assert resolved.principal_id ==
+               seeded.fixtures["workspace_admin"].identity.principal.id
+
+      assert resolved.organization_id == seeded.bootstrap.organization.id
+      assert resolved.workspace_id == seeded.bootstrap.workspace.id
+    end
+
+    test "rejects unknown and disabled fixtures with bounded durable evidence" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-rejections")
+
+      assert {:error, :local_development_fixture_missing} =
+               Authentication.complete_local_development_login("not-a-fixture",
+                 trace_id: "local-missing",
+                 source_surface: "web"
+               )
+
+      assert {:error, :identity_disabled} =
+               Authentication.complete_local_development_login("deprovisioned_member",
+                 trace_id: "local-disabled",
+                 source_surface: "web"
+               )
+
+      missing_event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "local-missing")
+        |> Ash.read_one!(authorize?: false)
+
+      disabled_event =
+        AuthenticationEvent
+        |> Ash.Query.filter(trace_id == "local-disabled")
+        |> Ash.read_one!(authorize?: false)
+
+      assert missing_event.reason == "local_development_fixture_missing"
+      assert missing_event.principal_id == nil
+      assert disabled_event.reason == "identity_disabled"
+
+      assert disabled_event.principal_id ==
+               seeded.fixtures["deprovisioned_member"].identity.principal.id
+    end
+
+    test "rejects a fixture whose role assignments have drifted" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-role-assignment-drift")
+      member = seeded.fixtures["member"]
+      admin = seeded.fixtures["workspace_admin"]
+
+      Ash.create!(
+        RoleAssignment,
+        %{
+          principal_id: member.identity.principal.id,
+          role_id: admin.role_assignment.role_id,
+          organization_id: seeded.bootstrap.organization.id,
+          workspace_id: seeded.bootstrap.workspace.id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      assert {:error, :local_development_fixture_missing} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-role-assignment-drift",
+                 source_surface: "web"
+               )
+    end
+
+    test "explicit seed replay removes role assignments outside every fixture manifest" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      prefix = "local-role-assignment-repair"
+
+      attrs = [
+        organization_name: "Local Development #{prefix}",
+        organization_slug: unique("#{prefix}-org"),
+        workspace_name: "Development",
+        workspace_slug: unique("#{prefix}-workspace"),
+        initiative_name: "Local Authentication",
+        initiative_slug: unique("#{prefix}-initiative")
+      ]
+
+      assert {:ok, seeded} = Foundation.seed_local_development_fixtures(attrs)
+      admin_role_id = seeded.fixtures["workspace_admin"].role_assignment.role_id
+      member_role_id = seeded.fixtures["member"].role_assignment.role_id
+
+      Enum.each(seeded.fixtures, fn {_key, fixture} ->
+        unexpected_role_id =
+          if fixture.role_assignment.role_id == admin_role_id,
+            do: member_role_id,
+            else: admin_role_id
+
+        Ash.create!(
+          RoleAssignment,
+          %{
+            principal_id: fixture.identity.principal.id,
+            role_id: unexpected_role_id,
+            organization_id: seeded.bootstrap.organization.id,
+            workspace_id: seeded.bootstrap.workspace.id
+          },
+          action: :create,
+          authorize?: false
+        )
+      end)
+
+      assert {:ok, replayed} = Foundation.seed_local_development_fixtures(attrs)
+
+      Enum.each(replayed.fixtures, fn {key, fixture} ->
+        assignments =
+          RoleAssignment
+          |> Ash.Query.filter(principal_id == ^fixture.identity.principal.id)
+          |> Ash.read!(authorize?: false)
+
+        assert Enum.map(assignments, & &1.id) == [fixture.role_assignment.id],
+               "expected exact role assignment repair for #{key}"
+      end)
+
+      for key <- ~w(owner workspace_admin member) do
+        assert {:ok, _completed} =
+                 Authentication.complete_local_development_login(key,
+                   trace_id: "#{prefix}-#{key}",
+                   source_surface: "web"
+                 )
+      end
+
+      assert {:error, :identity_disabled} =
+               Authentication.complete_local_development_login("deprovisioned_member",
+                 trace_id: "#{prefix}-deprovisioned",
+                 source_surface: "web"
+               )
+    end
+
+    test "rejects a fixture whose role capability profile has drifted" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      seeded = local_development_seed("local-role-capability-drift")
+      member = seeded.fixtures["member"]
+
+      capability =
+        Ash.get!(Capability, %{key: "proposed_change.apply"}, authorize?: false)
+
+      Ash.create!(
+        RoleCapability,
+        %{
+          role_id: member.role_assignment.role_id,
+          capability_id: capability.id
+        },
+        action: :create,
+        authorize?: false
+      )
+
+      assert {:error, :local_development_fixture_missing} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-role-capability-drift",
+                 source_surface: "web"
+               )
+    end
+
+    test "revokes a local session when the development provider is disabled" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      _seeded = local_development_seed("local-provider-disable")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-provider-login",
+                 source_surface: "web"
+               )
+
+      Application.put_env(:office_graph, :local_development_authentication, enabled: false)
+
+      assert {:error, :invalid_session} =
+               Authentication.resolve_session(completed.session.id,
+                 trace_id: "local-provider-disabled",
+                 source_surface: "web"
+               )
+
+      assert {:error, :invalid_session} =
+               Identity.resolve_human_session(completed.session.id)
+    end
+
+    test "logout reports local authentication after revoking its durable session" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      _seeded = local_development_seed("local-logout")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("owner",
+                 trace_id: "local-logout-login",
+                 source_surface: "web"
+               )
+
+      assert {:ok, %{authentication_method: "local_development", provider_logout_uri: nil}} =
+               Authentication.logout(completed.session.id,
+                 trace_id: "local-logout"
+               )
+
+      assert {:error, :invalid_session} =
+               Identity.resolve_human_session(completed.session.id)
     end
   end
 
@@ -587,6 +767,20 @@ defmodule OfficeGraph.AuthenticationTest do
       )
 
     bootstrap
+  end
+
+  defp local_development_seed(prefix) do
+    {:ok, seeded} =
+      Foundation.seed_local_development_fixtures(
+        organization_name: "Local Development #{prefix}",
+        organization_slug: unique("#{prefix}-org"),
+        workspace_name: "Development",
+        workspace_slug: unique("#{prefix}-workspace"),
+        initiative_name: "Local Authentication",
+        initiative_slug: unique("#{prefix}-initiative")
+      )
+
+    seeded
   end
 
   defp claims(email, subject) do

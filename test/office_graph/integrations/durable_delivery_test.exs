@@ -1,8 +1,9 @@
 defmodule OfficeGraph.Integrations.DurableDeliveryTest do
   use OfficeGraph.DataCase, async: false
+  use Oban.Testing, repo: OfficeGraph.Repo
 
-  alias OfficeGraph.{Foundation, Integrations, Operations, Repo}
-  alias OfficeGraph.DurableDelivery.DomainEvent
+  alias OfficeGraph.{Foundation, Integrations, Operations}
+  alias OfficeGraph.DurableDelivery.{DispatchEventWorker, DomainEvent}
 
   require Ash.Query
 
@@ -86,8 +87,6 @@ defmodule OfficeGraph.Integrations.DurableDeliveryTest do
   end
 
   defp jobs_for_event(event_id) do
-    Oban.Job
-    |> where([job], fragment("?->>'event_id'", job.args) == ^event_id)
-    |> Repo.all()
+    all_enqueued(worker: DispatchEventWorker, args: %{event_id: event_id})
   end
 end

@@ -39,8 +39,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               idempotency_key: "evidence-candidate-create-race-#{suffix}"
             )
 
-          install_evidence_candidate_insert_barrier!(candidate_operation.id)
-
           attrs = %{
             work_run_id: run_result.run.id,
             verification_check_id: verification_check.id,
@@ -59,17 +57,15 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              Verification.create_evidence_candidate(
-                bootstrap.session,
-                candidate_operation,
-                attrs
-              )
-            end)
-          end)
+          fn ->
+            Verification.create_evidence_candidate(
+              bootstrap.session,
+              candidate_operation,
+              attrs
+            )
+          end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.id == second.id
@@ -80,7 +76,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_evidence_candidate_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -134,31 +129,27 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               idempotency_key: "evidence-accept-race-#{suffix}"
             )
 
-          install_evidence_item_insert_barrier!(candidate.id)
-
           {bootstrap, candidate, acceptance_operation}
         end)
 
       results =
         1..2
         |> Enum.map(fn _index ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              Verification.accept_evidence_candidate(
-                bootstrap.session,
-                acceptance_operation,
-                candidate,
-                %{
-                  title: "Concurrent accepted evidence",
-                  body: "Concurrent accepted evidence body.",
-                  result: "passed",
-                  acceptance_policy_basis: "owner_acceptance"
-                }
-              )
-            end)
-          end)
+          fn ->
+            Verification.accept_evidence_candidate(
+              bootstrap.session,
+              acceptance_operation,
+              candidate,
+              %{
+                title: "Concurrent accepted evidence",
+                body: "Concurrent accepted evidence body.",
+                result: "passed",
+                acceptance_policy_basis: "owner_acceptance"
+              }
+            )
+          end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert first.evidence_item.id == second.evidence_item.id
@@ -170,7 +161,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_evidence_item_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -233,28 +223,26 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
         candidates
         |> Enum.with_index(1)
         |> Enum.map(fn {candidate, index} ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              {:ok, operation} =
-                Operations.start_operation(bootstrap.session, :evidence_accept,
-                  idempotency_key: "evidence-result-slot-race-#{suffix}-#{index}"
-                )
-
-              Verification.accept_evidence_candidate(
-                bootstrap.session,
-                operation,
-                candidate,
-                %{
-                  title: "Concurrent result slot evidence #{index}",
-                  body: "Only one candidate may occupy the run verification result slot.",
-                  result: "passed",
-                  acceptance_policy_basis: "owner_acceptance"
-                }
+          fn ->
+            {:ok, operation} =
+              Operations.start_operation(bootstrap.session, :evidence_accept,
+                idempotency_key: "evidence-result-slot-race-#{suffix}-#{index}"
               )
-            end)
-          end)
+
+            Verification.accept_evidence_candidate(
+              bootstrap.session,
+              operation,
+              candidate,
+              %{
+                title: "Concurrent result slot evidence #{index}",
+                body: "Only one candidate may occupy the run verification result slot.",
+                result: "passed",
+                acceptance_policy_basis: "owner_acceptance"
+              }
+            )
+          end
         end)
-        |> Task.await_many(15_000)
+        |> run_concurrently()
 
       assert [_accepted] = for({:ok, result} <- results, do: result)
 
@@ -344,8 +332,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               idempotency_key: "evidence-accept-operation-race-#{suffix}"
             )
 
-          install_evidence_item_operation_insert_barrier!(acceptance_operation.id)
-
           {bootstrap, first_candidate, second_candidate, acceptance_operation}
         end)
 
@@ -353,23 +339,21 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
         [first_candidate, second_candidate]
         |> Enum.with_index(1)
         |> Enum.map(fn {candidate, index} ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              Verification.accept_evidence_candidate(
-                bootstrap.session,
-                acceptance_operation,
-                candidate,
-                %{
-                  title: "Concurrent operation accepted evidence #{index}",
-                  body: "Concurrent operation accepted evidence body #{index}.",
-                  result: "passed",
-                  acceptance_policy_basis: "owner_acceptance"
-                }
-              )
-            end)
-          end)
+          fn ->
+            Verification.accept_evidence_candidate(
+              bootstrap.session,
+              acceptance_operation,
+              candidate,
+              %{
+                title: "Concurrent operation accepted evidence #{index}",
+                body: "Concurrent operation accepted evidence body #{index}.",
+                result: "passed",
+                acceptance_policy_basis: "owner_acceptance"
+              }
+            )
+          end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       successes = for {:ok, accepted} <- results, do: accepted
       conflicts = for {:error, {:evidence_acceptance_operation_conflict, id}} <- results, do: id
@@ -383,7 +367,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_evidence_item_operation_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -440,8 +423,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               idempotency_key: "standalone-observation-race-second-#{suffix}"
             )
 
-          install_execution_observation_insert_barrier!(shared_observation_key)
-
           {bootstrap, first_check, second_check, first_run, second_run, first_operation,
            second_operation}
         end)
@@ -458,18 +439,17 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
           {second_operation, second_run.run, second_attrs}
         ]
         |> Enum.map(fn {operation, run, attrs} ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              Runs.record_observation(bootstrap.session, operation, run, attrs)
-            end)
-          end)
+          fn -> Runs.record_observation(bootstrap.session, operation, run, attrs) end
         end)
-        |> Task.await_many(15_000)
+        |> run_concurrently()
 
       assert [successful] = for({:ok, result} <- results, do: result)
 
-      assert [successful.observation.id] ==
-               for({:error, {:observation_idempotency_conflict, id}} <- results, do: id)
+      conflicts =
+        for({:error, {:observation_idempotency_conflict, id}} <- results, do: id)
+
+      assert [successful.observation.id] == conflicts,
+             "expected one typed source-idempotency conflict, got: #{inspect(results)}"
 
       assert 1 ==
                with_unboxed_connection(fn ->
@@ -477,7 +457,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_execution_observation_insert_barrier!()
         cleanup_work_run_verification_scope!("office-graph")
         cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
       end)
@@ -535,8 +514,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               idempotency_key: "runless-completion-race-complete-#{suffix}"
             )
 
-          install_verification_result_insert_barrier!(verification_check.id)
-
           {bootstrap, verification_check, candidate, acceptance_operation, completion_operation}
         end)
 
@@ -568,18 +545,15 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
             )
           end
         ]
-        |> Enum.map(fn fun ->
-          Task.async(fn ->
-            with_unboxed_connection(fun)
-          end)
-        end)
-        |> Task.await_many(15_000)
+        |> run_concurrently()
 
       successes = for {:ok, result} <- results, do: result
       invalid_statuses = for {:error, {:invalid_verification_check_status, id}} <- results, do: id
 
       assert [_success] = successes
-      assert [verification_check.id] == invalid_statuses
+
+      assert [verification_check.id] == invalid_statuses,
+             "expected one typed verification-status loser, got: #{inspect(results)}"
 
       assert 1 ==
                with_unboxed_connection(fn ->
@@ -587,7 +561,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        drop_verification_result_insert_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -656,8 +629,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               "second-#{suffix}"
             )
 
-          install_run_required_check_update_barrier!(run_result.run.id)
-
           {bootstrap, run_result.run.id, first_candidate, second_candidate}
         end)
 
@@ -665,23 +636,21 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
         [first_candidate, second_candidate]
         |> Enum.with_index(1)
         |> Enum.map(fn {candidate, index} ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              {:ok, operation} =
-                Operations.start_operation(bootstrap.session, :evidence_accept,
-                  idempotency_key: "run-verification-race-accept-#{suffix}-#{index}"
-                )
+          fn ->
+            {:ok, operation} =
+              Operations.start_operation(bootstrap.session, :evidence_accept,
+                idempotency_key: "run-verification-race-accept-#{suffix}-#{index}"
+              )
 
-              Verification.accept_evidence_candidate(bootstrap.session, operation, candidate, %{
-                title: "Concurrent evidence #{index}",
-                body: "Concurrent evidence body #{index}.",
-                result: "passed",
-                acceptance_policy_basis: "owner_acceptance"
-              })
-            end)
-          end)
+            Verification.accept_evidence_candidate(bootstrap.session, operation, candidate, %{
+              title: "Concurrent evidence #{index}",
+              body: "Concurrent evidence body #{index}.",
+              result: "passed",
+              acceptance_policy_basis: "owner_acceptance"
+            })
+          end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, _first_accepted}, {:ok, _second_accepted}] = results
 
@@ -694,7 +663,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        drop_run_required_check_update_barrier!()
         cleanup_work_run_verification_scope!(organization_slug)
         cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
@@ -744,26 +712,22 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
               body
             )
 
-          install_proposed_change_insert_barrier!(normalized_event.id)
-
           {operation, normalized_event}
         end)
 
       results =
         1..2
         |> Enum.map(fn _attempt ->
-          Task.async(fn ->
-            with_unboxed_connection(fn ->
-              capture_create_for_manual_intake(
-                session_context,
-                operation,
-                normalized_event,
-                body
-              )
-            end)
-          end)
+          fn ->
+            capture_create_for_manual_intake(
+              session_context,
+              operation,
+              normalized_event,
+              body
+            )
+          end
         end)
-        |> Task.await_many(10_000)
+        |> run_concurrently()
 
       assert [{:ok, first}, {:ok, second}] = results
       assert length(first) == 4
@@ -772,7 +736,6 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       assert with_unboxed_connection(fn -> proposed_change_count(normalized_event.id) end) == 4
     after
       with_unboxed_connection(fn ->
-        drop_proposed_change_insert_barrier!()
         cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end

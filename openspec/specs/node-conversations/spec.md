@@ -174,3 +174,12 @@ context independently.
 - **THEN** the bounded projection MUST include safe human and agent message
   provenance, current execution summaries, and exact approval/context-expansion
   request metadata needed by the focused operator surface
+
+#### Scenario: Active work competes with terminal history
+
+- **WHEN** more terminal executions or resolved gate requests exist than the
+  focused operator history bound can return
+- **THEN** both the command projection and generated Relay read MUST retain
+  nonterminal executions and pending approval/context-expansion requests ahead
+  of terminal or resolved history while keeping each returned collection within
+  the bound

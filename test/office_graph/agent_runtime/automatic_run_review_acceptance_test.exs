@@ -1,7 +1,7 @@
 defmodule OfficeGraph.AgentRuntime.AutomaticRunReviewAcceptanceTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{AgentRuntime, Repo}
+  alias OfficeGraph.AgentRuntime
   alias OfficeGraph.AgentRuntime.{AgentExecution, ExecutionWorker, ModelRequest, ToolRequest}
   alias OfficeGraph.ProposedChanges.ProposedGraphChange
   alias OfficeGraph.Runs.Run
@@ -14,7 +14,7 @@ defmodule OfficeGraph.AgentRuntime.AutomaticRunReviewAcceptanceTest do
     context = AgentRuntimeSupport.invocation_fixture()
     original_run = Ash.get!(Run, context.run.id, authorize?: false)
     original_graph_item = Ash.get!(GraphItem, context.graph_item_id, authorize?: false)
-    original_graph_item_count = Repo.aggregate(GraphItem, :count)
+    original_graph_item_count = Ash.count!(GraphItem, authorize?: false)
 
     request =
       AgentRuntimeSupport.request(context, %{
@@ -35,7 +35,7 @@ defmodule OfficeGraph.AgentRuntime.AutomaticRunReviewAcceptanceTest do
     assert first.execution.origin == "system_trigger"
     assert first.execution.invocation_mode == "automatic"
     assert invocation_replay.execution.id == first.execution.id
-    assert Repo.aggregate(AgentExecution, :count) == 1
+    assert Ash.count!(AgentExecution, authorize?: false) == 1
 
     assert [%Oban.Job{} = job] = AgentRuntimeSupport.execution_jobs(first.execution.id)
     assert job.worker == inspect(ExecutionWorker)
@@ -71,13 +71,13 @@ defmodule OfficeGraph.AgentRuntime.AutomaticRunReviewAcceptanceTest do
 
     assert [%Oban.Job{id: job_id}] = AgentRuntimeSupport.execution_jobs(first.execution.id)
     assert job_id == job.id
-    assert Repo.aggregate(AgentExecution, :count) == 1
+    assert Ash.count!(AgentExecution, authorize?: false) == 1
 
     persisted_run = Ash.get!(Run, context.run.id, authorize?: false)
     persisted_graph_item = Ash.get!(GraphItem, context.graph_item_id, authorize?: false)
 
     assert persisted_run == original_run
     assert persisted_graph_item == original_graph_item
-    assert Repo.aggregate(GraphItem, :count) == original_graph_item_count
+    assert Ash.count!(GraphItem, authorize?: false) == original_graph_item_count
   end
 end

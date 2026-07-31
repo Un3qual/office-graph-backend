@@ -14,7 +14,6 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     OfficeGraph.WorkGraph,
     OfficeGraph.Content,
     OfficeGraph.OrderedPlacement,
-    OfficeGraph.Tombstones,
     OfficeGraph.ExternalRefs,
     OfficeGraph.RawArchives,
     OfficeGraph.Integrations,
@@ -27,6 +26,39 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     OfficeGraph.NodeConversations,
     OfficeGraph.Projections,
     OfficeGraph.ApiSupport
+  ]
+
+  @behavior_value_objects [
+    {OfficeGraph.AgentRuntime.InvocationRequest,
+     "lib/office_graph/agent_runtime/values/invocation_request.ex",
+     [new: 1, new!: 1, command_input: 1]},
+    {OfficeGraph.GitHubIntegration.ReconciliationRequest,
+     "lib/office_graph/github_integration/requests/reconciliation_request.ex", [new: 1, new!: 1]},
+    {OfficeGraph.WorkGraph.RelationshipRequest,
+     "lib/office_graph/work_graph/requests/relationship_request.ex",
+     [new: 1, new!: 1, validate: 1]}
+  ]
+
+  @grouped_contexts ~w(
+    agent_runtime
+    durable_delivery
+    github_integration
+    identity
+    work_graph
+    work_packets
+  )
+
+  @passive_boundary_dtos [
+    {OfficeGraph.AgentRuntime.ModelInput, "lib/office_graph/agent_runtime/values/model_input.ex"},
+    {OfficeGraph.AgentRuntime.ModelManifest,
+     "lib/office_graph/agent_runtime/values/model_manifest.ex"},
+    {OfficeGraph.AgentRuntime.ToolInput, "lib/office_graph/agent_runtime/values/tool_input.ex"},
+    {OfficeGraph.AgentRuntime.ToolManifest,
+     "lib/office_graph/agent_runtime/values/tool_manifest.ex"},
+    {OfficeGraph.WorkGraph.RelationshipView,
+     "lib/office_graph/work_graph/values/relationship_view.ex"},
+    {OfficeGraph.WorkPackets.PacketResult,
+     "lib/office_graph/work_packets/values/packet_result.ex"}
   ]
 
   test "boundary compiler is part of the backend verification path" do
@@ -95,5 +127,43 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
     assert Code.ensure_loaded?(waiver)
     assert function_exported?(waiver, :execute, 5)
+  end
+
+  test "crowded contexts group internal files by responsibility" do
+    for context <- @grouped_contexts do
+      direct_files =
+        "lib/office_graph/#{context}/*.ex"
+        |> Path.wildcard()
+        |> Enum.map(&Path.basename/1)
+        |> Enum.sort()
+
+      assert direct_files == ["domain.ex"],
+             "#{context} must keep only its domain module at the context root, got #{inspect(direct_files)}"
+    end
+  end
+
+  test "value objects live with their responsibility and own reusable behavior" do
+    for {module, path, functions} <- @behavior_value_objects do
+      assert File.regular?(path), "#{inspect(module)} must live at #{path}"
+      assert Code.ensure_loaded?(module)
+
+      for {function, arity} <- functions do
+        assert function_exported?(module, function, arity),
+               "#{inspect(module)} must own #{function}/#{arity}"
+      end
+    end
+  end
+
+  test "passive boundary DTOs are placed and documented as passive values" do
+    for {module, path} <- @passive_boundary_dtos do
+      assert File.regular?(path), "#{inspect(module)} must live at #{path}"
+      assert Code.ensure_loaded?(module)
+
+      assert {:docs_v1, _annotation, _language, _format, module_doc, _metadata, _docs} =
+               Code.fetch_docs(module)
+
+      assert is_map(module_doc) and map_size(module_doc) > 0,
+             "#{inspect(module)} must document why it remains a passive DTO"
+    end
   end
 end

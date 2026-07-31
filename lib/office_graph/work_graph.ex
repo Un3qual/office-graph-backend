@@ -7,15 +7,15 @@ defmodule OfficeGraph.WorkGraph do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
+      OfficeGraph.CommandSupport,
       OfficeGraph.Content,
       OfficeGraph.Identity,
       OfficeGraph.Operations,
       OfficeGraph.Repo,
       OfficeGraph.Revisions,
-      OfficeGraph.Tenancy,
-      OfficeGraph.Tombstones
+      OfficeGraph.Tenancy
     ],
-    exports: []
+    exports: [Domain]
 
   alias OfficeGraph.WorkGraph.{
     ProposalCommands,
@@ -79,4 +79,7 @@ defmodule OfficeGraph.WorkGraph do
                 verification_check
               ),
               to: VerificationCommands
+
+  defdelegate lock_verification_completion_scope(session_context, verification_check_id),
+    to: VerificationCommands
 end

@@ -1,0 +1,438 @@
+defmodule OfficeGraph.EnterpriseIdentity.WorkOSWebhookReceiptTest do
+  use OfficeGraph.DataCase, async: false
+  use Oban.Testing, repo: OfficeGraph.Repo
+
+  alias OfficeGraph.{Authorization, EnterpriseIdentity, Foundation, Identity, Operations}
+  alias OfficeGraph.DurableDelivery.StoredJob
+
+  alias OfficeGraph.EnterpriseIdentity.{
+    Directory,
+    DirectorySyncEvent,
+    DirectoryUser,
+    EnterpriseConnection,
+    Workers.DirectorySyncWorker
+  }
+
+  alias OfficeGraph.Integrations.RawArchive
+  alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
+
+  require Ash.Query
+
+  @secret_reference "test-secret://workos/webhook"
+  @secret "workos-webhook-test-secret"
+
+  defmodule SecretStore do
+    @behaviour OfficeGraph.EnterpriseIdentity.SecretStore
+
+    @impl true
+    def resolve("test-secret://workos/webhook"), do: {:ok, "workos-webhook-test-secret"}
+    def resolve(_reference), do: {:error, :secret_not_found}
+  end
+
+  setup do
+    original_config = Application.get_env(:office_graph, :workos_enterprise)
+    original_store = Application.get_env(:office_graph, :workos_secret_store)
+
+    Application.put_env(:office_graph, :workos_enterprise,
+      webhook_secret_reference: @secret_reference
+    )
+
+    Application.put_env(:office_graph, :workos_secret_store, SecretStore)
+
+    on_exit(fn ->
+      restore_env(:workos_enterprise, original_config)
+      restore_env(:workos_secret_store, original_store)
+    end)
+
+    :ok
+  end
+
+  test "valid delivery archives, records, and enqueues exactly once" do
+    context = enterprise_context("accepted")
+    body = user_body("event_accepted", context.directory.provider_directory_id)
+    headers = signed_headers(body)
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(headers, body)
+    assert {:ok, :duplicate} = EnterpriseIdentity.accept_webhook(headers, body)
+
+    assert event_count("event_accepted") == 1
+    assert archive_count("event_accepted") == 1
+    assert operation_count("event_accepted") == 1
+
+    assert [job] =
+             all_enqueued(
+               worker: DirectorySyncWorker,
+               args: %{"provider_event_id" => "event_accepted"}
+             )
+
+    event =
+      DirectorySyncEvent
+      |> Ash.Query.filter(provider_event_id == "event_accepted")
+      |> Ash.read_one!(authorize?: false)
+
+    archive = Ash.get!(RawArchive, event.raw_archive_id, authorize?: false)
+
+    assert archive.body == body
+    assert archive.provider_event == "dsync.user.created"
+    assert job.args["sync_event_id"] == event.id
+    refute inspect(archive) =~ @secret
+  end
+
+  test "same event identity with changed content conflicts without a second job" do
+    context = enterprise_context("conflict")
+    body = user_body("event_conflict", context.directory.provider_directory_id)
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(signed_headers(body), body)
+
+    changed =
+      body
+      |> Jason.decode!()
+      |> put_in(["data", "first_name"], "Changed")
+      |> Jason.encode!()
+
+    assert {:error, :event_conflict} =
+             EnterpriseIdentity.accept_webhook(signed_headers(changed), changed)
+
+    assert event_count("event_conflict") == 1
+    assert archive_count("event_conflict") == 1
+
+    assert length(
+             all_enqueued(
+               worker: DirectorySyncWorker,
+               args: %{"provider_event_id" => "event_conflict"}
+             )
+           ) == 1
+  end
+
+  test "invalid signatures and unknown directories create no receipt effects" do
+    context = enterprise_context("rejected")
+    invalid_body = user_body("event_invalid", context.directory.provider_directory_id)
+
+    assert {:error, :invalid_signature} =
+             EnterpriseIdentity.accept_webhook(
+               %{"workos-signature" => "t=0,v1=" <> String.duplicate("0", 64)},
+               invalid_body
+             )
+
+    unknown_body = user_body("event_unknown", "directory_unknown")
+
+    assert {:error, :unknown_directory} =
+             EnterpriseIdentity.accept_webhook(signed_headers(unknown_body), unknown_body)
+
+    assert event_count("event_invalid") == 0
+    assert event_count("event_unknown") == 0
+    assert archive_count("event_invalid") == 0
+    assert archive_count("event_unknown") == 0
+    assert operation_count("event_invalid") == 0
+    assert operation_count("event_unknown") == 0
+  end
+
+  test "worker applies the archived event and completes its sync event atomically" do
+    context = enterprise_context("worker")
+    body = user_body("event_worker", context.directory.provider_directory_id)
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(signed_headers(body), body)
+
+    [job] =
+      all_enqueued(
+        worker: DirectorySyncWorker,
+        args: %{"provider_event_id" => "event_worker"}
+      )
+
+    assert :ok = perform_job(DirectorySyncWorker, job.args)
+
+    sync_event =
+      DirectorySyncEvent
+      |> Ash.Query.filter(provider_event_id == "event_worker")
+      |> Ash.read_one!(authorize?: false)
+
+    user =
+      DirectoryUser
+      |> Ash.Query.filter(
+        directory_id == ^context.directory.id and provider_user_id == "directory_user_01"
+      )
+      |> Ash.read_one!(authorize?: false)
+
+    assert sync_event.status == "applied"
+    assert sync_event.result == "applied"
+    assert %DateTime{} = sync_event.processed_at
+    assert user.status == "active"
+    assert user.email == "person@example.test"
+
+    assert :ok = perform_job(DirectorySyncWorker, job.args)
+    assert event_count("event_worker") == 1
+    assert DirectoryUser |> Ash.Query.filter(id == ^user.id) |> Ash.count!(authorize?: false) == 1
+  end
+
+  test "worker retries a missing dependency and later applies the same archived event" do
+    context = enterprise_context("worker-retry")
+
+    body =
+      membership_body(
+        "event_worker_retry",
+        context.directory.provider_directory_id
+      )
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(signed_headers(body), body)
+
+    [job] =
+      all_enqueued(
+        worker: DirectorySyncWorker,
+        args: %{"provider_event_id" => "event_worker_retry"}
+      )
+
+    assert {:error, :directory_dependency_missing} =
+             DirectorySyncWorker.perform(%{job | attempt: 1, max_attempts: 10})
+
+    sync_event =
+      DirectorySyncEvent
+      |> Ash.Query.filter(provider_event_id == "event_worker_retry")
+      |> Ash.read_one!(authorize?: false)
+
+    assert sync_event.status == "pending"
+    assert is_nil(sync_event.processed_at)
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               dependency_event(:user),
+               context.operation.id
+             )
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               dependency_event(:group),
+               context.operation.id
+             )
+
+    assert :ok = DirectorySyncWorker.perform(%{job | attempt: 2, max_attempts: 10})
+
+    applied = Ash.get!(DirectorySyncEvent, sync_event.id, authorize?: false)
+    assert applied.status == "applied"
+    assert applied.result == "applied"
+  end
+
+  test "exhausted processing stages a terminalization-only retry phase" do
+    context = enterprise_context("worker-terminalization")
+
+    body =
+      membership_body(
+        "event_worker_terminalization",
+        context.directory.provider_directory_id
+      )
+
+    assert {:ok, :accepted} = EnterpriseIdentity.accept_webhook(signed_headers(body), body)
+
+    [job] =
+      all_enqueued(
+        worker: DirectorySyncWorker,
+        args: %{"provider_event_id" => "event_worker_terminalization"}
+      )
+
+    exhausted_job = %{job | attempt: 10, max_attempts: 10}
+
+    assert {:discard, "directory_dependency_missing"} =
+             DirectorySyncWorker.perform(exhausted_job)
+
+    stored_job = Ash.get!(StoredJob, job.id, authorize?: false)
+    assert stored_job.meta.terminal_failure_code == "directory_dependency_missing"
+
+    sync_event = Ash.get!(DirectorySyncEvent, job.args["sync_event_id"], authorize?: false)
+    assert sync_event.status == "failed"
+    assert sync_event.result == "directory_dependency_missing"
+  end
+
+  test "terminalization storage failures snooze beyond the processing attempt budget" do
+    terminalization_job = %Oban.Job{
+      args: %{
+        "sync_event_id" => Ash.UUID.generate(),
+        "provider_event_id" => "event_terminalization_storage_retry"
+      },
+      meta: %{"terminal_failure_code" => "directory_dependency_missing"},
+      attempt: 10,
+      max_attempts: 10
+    }
+
+    assert {:snooze, 5} = DirectorySyncWorker.perform(terminalization_job)
+  end
+
+  defp enterprise_context(label) do
+    {:ok, bootstrap} =
+      Foundation.bootstrap_local_owner(
+        organization_slug: unique("#{label}-organization"),
+        workspace_slug: unique("#{label}-workspace"),
+        initiative_slug: unique("#{label}-initiative"),
+        owner_email: "#{unique(label)}@example.test"
+      )
+
+    {:ok, webhook_principal} =
+      Identity.ensure_system_principal(
+        "#{unique("#{label}-webhook")}@office-graph.local",
+        "webhook"
+      )
+
+    assert :ok =
+             Authorization.ensure_system_role(
+               webhook_principal,
+               %{
+                 organization_id: bootstrap.organization.id,
+                 workspace_id: bootstrap.workspace.id
+               },
+               [:provider_webhook_receive]
+             )
+
+    {:ok, setup_request} =
+      Operations.new_system_operation_request(%{
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        principal_id: webhook_principal.id,
+        action: :provider_webhook_receive,
+        authority_basis: "workos:setup:#{label}",
+        causation_key: "workos:setup:#{label}",
+        idempotency_scope: "workos:setup",
+        idempotency_key: label
+      })
+
+    {:ok, setup_operation} = Operations.start_system_operation(setup_request)
+
+    connection =
+      Ash.create!(
+        EnterpriseConnection,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          webhook_principal_id: webhook_principal.id,
+          operation_id: setup_operation.id,
+          provider: "workos",
+          provider_organization_id: unique("workos-organization"),
+          directory_requirement: "required",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    directory =
+      Ash.create!(
+        Directory,
+        %{
+          connection_id: connection.id,
+          operation_id: setup_operation.id,
+          provider_directory_id: unique("workos-directory"),
+          status: "active",
+          provider_updated_at: ~U[2026-07-29 19:00:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    %{connection: connection, directory: directory, operation: setup_operation}
+  end
+
+  defp user_body(event_id, directory_id) do
+    Jason.encode!(%{
+      "id" => event_id,
+      "event" => "dsync.user.created",
+      "created_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "data" => %{
+        "id" => "directory_user_01",
+        "idp_id" => "idp_user_01",
+        "directory_id" => directory_id,
+        "first_name" => "Ada",
+        "last_name" => "Lovelace",
+        "state" => "active",
+        "updated_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "emails" => [%{"primary" => true, "value" => "Person@Example.TEST"}]
+      }
+    })
+  end
+
+  defp membership_body(event_id, directory_id) do
+    Jason.encode!(%{
+      "id" => event_id,
+      "event" => "dsync.group.user_added",
+      "created_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "data" => %{
+        "directory_id" => directory_id,
+        "group" => %{"id" => "directory_group_01"},
+        "user" => %{"id" => "directory_user_01"},
+        "updated_at" => DateTime.to_iso8601(DateTime.utc_now())
+      }
+    })
+  end
+
+  defp dependency_event(:user) do
+    DirectoryEvent.new!(
+      provider_event_id: unique("dependency-user-event"),
+      event_type: "dsync.user.created",
+      directory_id: "bound-by-action",
+      resource_kind: :user,
+      action: :upsert,
+      provider_occurred_at: ~U[2026-07-29 20:00:00Z],
+      data: %{
+        provider_user_id: "directory_user_01",
+        idp_id: "idp_user_01",
+        email: "person@example.test",
+        first_name: "Ada",
+        last_name: "Lovelace",
+        status: "active",
+        provider_updated_at: ~U[2026-07-29 20:00:00Z]
+      }
+    )
+  end
+
+  defp dependency_event(:group) do
+    DirectoryEvent.new!(
+      provider_event_id: unique("dependency-group-event"),
+      event_type: "dsync.group.created",
+      directory_id: "bound-by-action",
+      resource_kind: :group,
+      action: :upsert,
+      provider_occurred_at: ~U[2026-07-29 20:00:00Z],
+      data: %{
+        provider_group_id: "directory_group_01",
+        name: "Engineering",
+        status: "active",
+        provider_updated_at: ~U[2026-07-29 20:00:00Z]
+      }
+    )
+  end
+
+  defp signed_headers(body) do
+    timestamp = System.system_time(:second)
+
+    signature =
+      :crypto.mac(:hmac, :sha256, @secret, "#{timestamp}.#{body}")
+      |> Base.encode16(case: :lower)
+
+    %{"workos-signature" => "t=#{timestamp},v1=#{signature}"}
+  end
+
+  defp event_count(provider_event_id) do
+    DirectorySyncEvent
+    |> Ash.Query.filter(provider_event_id == ^provider_event_id)
+    |> Ash.count!(authorize?: false)
+  end
+
+  defp archive_count(provider_event_id) do
+    RawArchive
+    |> Ash.Query.filter(external_delivery_id == ^provider_event_id)
+    |> Ash.count!(authorize?: false)
+  end
+
+  defp operation_count(provider_event_id) do
+    OperationCorrelation
+    |> Ash.Query.filter(
+      operation_kind == "system" and idempotency_scope == "workos:directory_delivery" and
+        idempotency_key == ^provider_event_id
+    )
+    |> Ash.count!(authorize?: false)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
+  defp restore_env(key, value), do: Application.put_env(:office_graph, key, value)
+
+  defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
+end

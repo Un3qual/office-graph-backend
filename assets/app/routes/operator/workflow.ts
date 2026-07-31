@@ -4,33 +4,36 @@ import type {
   OperatorPacketReadinessFragment$key,
 } from "../../relay/__generated__/OperatorPacketReadinessFragment.graphql";
 import type { OperatorPacketReadinessQuery as OperatorPacketReadinessOperation } from "../../relay/__generated__/OperatorPacketReadinessQuery.graphql";
+import type { OperatorRunConversationQuery as OperatorRunConversationOperation } from "../../relay/__generated__/OperatorRunConversationQuery.graphql";
 import type {
   OperatorRunStateFragment$data,
   OperatorRunStateFragment$key,
 } from "../../relay/__generated__/OperatorRunStateFragment.graphql";
 import type { OperatorRunStateQuery as OperatorRunStateOperation } from "../../relay/__generated__/OperatorRunStateQuery.graphql";
-import type { OperatorRunConversationQuery as OperatorRunConversationOperation } from "../../relay/__generated__/OperatorRunConversationQuery.graphql";
 import type {
   OperatorWorkflowItemFragment$data,
   OperatorWorkflowItemFragment$key,
 } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
 import type { OperatorWorkflowRouteQuery as OperatorWorkflowRouteOperation } from "../../relay/__generated__/OperatorWorkflowRouteQuery.graphql";
+import { relayGlobalId, relayInternalId } from "../../relay/relayIds";
 import {
   OperatorPacketReadinessFragment,
   OperatorPacketReadinessQuery,
-  OperatorRunStateFragment,
   OperatorRunConversationQuery,
+  OperatorRunStateFragment,
   OperatorRunStateQuery,
   OperatorWorkflowItemFragment,
   OperatorWorkflowRouteQuery,
 } from "./data";
 import {
-  packetReadinessInputForItem,
   packetReadinessForItem,
+  packetReadinessInputForItem,
   primarySourceGraphItemIdForItem,
   runIdForItem,
 } from "./derived";
 import type { OperatorInbox, OperatorInboxPage, PacketReadinessInput } from "./types";
+
+const agentHistoryLimit = 100;
 
 type OperatorWorkflowInput = {
   fetchKey?: number;
@@ -40,10 +43,30 @@ type OperatorWorkflowInput = {
 };
 
 export type OperatorWorkflowItem = OperatorWorkflowItemFragment$data;
-export type OperatorRunState = OperatorRunStateFragment$data;
-export type OperatorRunConversation = NonNullable<
-  OperatorRunConversationOperation["response"]["operatorRunConversation"]
->;
+type OperatorRunResource = NonNullable<OperatorRunStateOperation["response"]["run"]>;
+type OperatorRunConnectionNode<
+  TConnection extends { readonly edges?: ReadonlyArray<unknown> | null },
+> = NonNullable<NonNullable<TConnection["edges"]>[number]> extends {
+  readonly node: infer TNode;
+}
+  ? NonNullable<TNode>
+  : never;
+
+export type OperatorRunState = OperatorRunStateFragment$data & {
+  packet: OperatorRunResource["workPacket"];
+  packetVersion: OperatorRunResource["workPacketVersion"];
+  run: Pick<OperatorRunResource, "id" | "aggregateState" | "executionState" | "verificationState">;
+  requiredChecks: Array<OperatorRunConnectionNode<OperatorRunResource["requiredChecks"]>>;
+  observations: Array<OperatorRunConnectionNode<OperatorRunResource["executionObservations"]>>;
+  evidenceCandidates: Array<
+    Omit<OperatorRunConnectionNode<OperatorRunResource["evidenceCandidates"]>, "candidateState"> & {
+      state: string;
+    }
+  >;
+  evidenceItems: Array<OperatorRunConnectionNode<OperatorRunResource["evidenceItems"]>>;
+  verificationResults: Array<OperatorRunConnectionNode<OperatorRunResource["verificationResults"]>>;
+};
+export type OperatorRunConversation = ReturnType<typeof runConversationFromRelay>;
 export type PacketReadinessState =
   | OperatorPacketReadinessFragment$data
   | ReturnType<typeof packetReadinessForItem>;
@@ -108,9 +131,15 @@ export function useOperatorRunState(
   fetchKey?: number,
   activityAfter: string | null = null,
 ) {
+  const projectionId = relayInternalId("work_run", runId);
   const data = useLazyLoadQuery<OperatorRunStateOperation>(
     OperatorRunStateQuery,
-    { id: runId, activityFirst: 5, activityAfter },
+    {
+      projectionId,
+      runId: relayGlobalId("work_run", projectionId),
+      activityFirst: 5,
+      activityAfter,
+    },
     { fetchKey, fetchPolicy: "network-only" },
   );
 
@@ -118,17 +147,122 @@ export function useOperatorRunState(
 }
 
 export function useOperatorRunConversation(runId: string, graphItemId: string, fetchKey?: number) {
+  const internalRunId = relayInternalId("work_run", runId);
+  const internalGraphItemId = relayInternalId("graph_item", graphItemId);
   const data = useLazyLoadQuery<OperatorRunConversationOperation>(
     OperatorRunConversationQuery,
-    { runId, graphItemId },
+    {
+      runId: internalRunId,
+      graphItemId: internalGraphItemId,
+      runRelayId: relayGlobalId("work_run", internalRunId),
+      graphItemRelayId: relayGlobalId("graph_item", internalGraphItemId),
+    },
     { fetchKey, fetchPolicy: "network-only" },
   );
 
-  if (!data.operatorRunConversation) {
-    throw new Error("The GraphQL operator run conversation projection was empty.");
-  }
+  return runConversationFromRelay(data);
+}
 
-  return data.operatorRunConversation;
+function runConversationFromRelay(data: OperatorRunConversationOperation["response"]) {
+  const projection = data.operatorRunConversation;
+  const contextByMessageId = new Map(
+    projection.messageContexts.map((context) => [
+      relayInternalId("conversation_message", context.messageId),
+      context.referencedContext,
+    ]),
+  );
+  const conversation = data.conversation;
+  const executions = prioritizedConnectionNodes(
+    data.activeAgentExecutions,
+    data.terminalAgentExecutions,
+  )
+    .sort(compareInsertedAt)
+    .map((execution) => ({
+      ...execution,
+      id: relayInternalId("agent_execution", execution.id),
+    }));
+  const approvalRequests = prioritizedConnectionNodes(
+    data.pendingAgentApprovalRequests,
+    data.resolvedAgentApprovalRequests,
+  )
+    .sort(compareInsertedAt)
+    .map((request) => ({
+      ...request,
+      id: relayInternalId("agent_approval_request", request.id),
+      executionId: relayInternalId("agent_execution", request.execution.id),
+    }));
+  const contextExpansionRequests = prioritizedConnectionNodes(
+    data.pendingAgentContextExpansionRequests,
+    data.resolvedAgentContextExpansionRequests,
+  )
+    .sort(compareInsertedAt)
+    .map((request) => ({
+      ...request,
+      id: relayInternalId("agent_context_expansion_request", request.id),
+      executionId: relayInternalId("agent_execution", request.execution.id),
+    }));
+
+  return {
+    ...projection,
+    conversation: conversation
+      ? {
+          id: relayInternalId("conversation", conversation.id),
+          runId: relayInternalId("work_run", conversation.run.id),
+          graphItemId: relayInternalId("graph_item", conversation.graphItem.id),
+          state: conversation.state,
+          stateVersion: conversation.stateVersion,
+        }
+      : null,
+    messages: conversation
+      ? connectionNodes(conversation.messages)
+          .reverse()
+          .map((message) => {
+            const id = relayInternalId("conversation_message", message.id);
+
+            return {
+              id,
+              source: message.source,
+              body: message.body,
+              executionId: message.execution
+                ? relayInternalId("agent_execution", message.execution.id)
+                : null,
+              insertedAt: message.insertedAt,
+              referencedContext: contextByMessageId.get(id) ?? null,
+            };
+          })
+      : [],
+    executions,
+    approvalRequests,
+    contextExpansionRequests,
+  };
+}
+
+function connectionNodes<T>(
+  connection:
+    | {
+        readonly edges?: ReadonlyArray<{ readonly node: T }> | null;
+      }
+    | null
+    | undefined,
+): T[] {
+  return (connection?.edges ?? []).map((edge) => edge.node);
+}
+
+function prioritizedConnectionNodes<T>(
+  priority: Parameters<typeof connectionNodes<T>>[0],
+  history: Parameters<typeof connectionNodes<T>>[0],
+) {
+  const priorityNodes = connectionNodes(priority);
+  const remaining = Math.max(agentHistoryLimit - priorityNodes.length, 0);
+
+  return priorityNodes.concat(connectionNodes(history).slice(0, remaining));
+}
+
+function compareInsertedAt(
+  left: { readonly insertedAt: string },
+  right: { readonly insertedAt: string },
+) {
+  return left.insertedAt.localeCompare(right.insertedAt);
 }
 
 function workflowConnectionFromRelay(
@@ -163,17 +297,38 @@ function workflowConnectionFromRelay(
   };
 }
 
-function runStateFromRelay(
-  data: OperatorRunStateOperation["response"],
-): OperatorRunStateFragment$data {
-  if (!data.operatorRunState) {
-    throw new Error("The GraphQL operator run state projection was empty.");
+function runStateFromRelay(data: OperatorRunStateOperation["response"]): OperatorRunState {
+  if (!data.operatorRunState || !data.run) {
+    throw new Error("The GraphQL operator run state read was empty.");
   }
 
-  return readInlineData<OperatorRunStateFragment$key>(
+  const projection = readInlineData<OperatorRunStateFragment$key>(
     OperatorRunStateFragment,
     data.operatorRunState,
   );
+  const run = data.run;
+
+  return {
+    ...projection,
+    packet: run.workPacket,
+    packetVersion: run.workPacketVersion,
+    run: {
+      id: run.id,
+      aggregateState: run.aggregateState,
+      executionState: run.executionState,
+      verificationState: run.verificationState,
+    },
+    requiredChecks: (run.requiredChecks.edges ?? []).map(({ node }) => node),
+    observations: (run.executionObservations.edges ?? []).map(({ node }) => node),
+    evidenceCandidates: (run.evidenceCandidates.edges ?? []).map(
+      ({ node: { candidateState, ...candidate } }) => ({
+        ...candidate,
+        state: candidateState,
+      }),
+    ),
+    evidenceItems: (run.evidenceItems.edges ?? []).map(({ node }) => node),
+    verificationResults: (run.verificationResults.edges ?? []).map(({ node }) => node),
+  };
 }
 
 function packetReadinessFromRelay(

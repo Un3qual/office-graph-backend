@@ -9,19 +9,65 @@ local worktrees.
 ## Requirements
 
 ### Requirement: One canonical repository gate
-The project SHALL expose one documented verification entry point that runs inside the pinned Nix flake and validates canonical OpenSpec artifacts, dependency advisories, backend formatting and static analysis, the complete ExUnit suite, frontend generated artifacts and types, frontend tests, and production frontend and backend builds.
+The project SHALL expose one documented verification entry point that runs
+inside the pinned Nix flake and validates canonical OpenSpec artifacts,
+repository planning boundaries, raw-SQL and direct-database inventories,
+dependency advisories, backend formatting and static analysis, the complete
+ExUnit suite, frontend generated artifacts and types, frontend tests, and
+production frontend and backend builds.
 
 #### Scenario: Clean repository verification
 - **WHEN** a contributor runs the canonical verification entry point from a clean checkout with required services available
-- **THEN** every specified backend, frontend, OpenSpec, dependency, and production-build check runs exactly once and the command exits successfully
+- **THEN** every specified backend, frontend, OpenSpec, planning-boundary, database-boundary, dependency, and production-build check runs exactly once and the command exits successfully
 
 #### Scenario: Behavioral regression outside architecture tests
 - **WHEN** any ExUnit test outside the focused architecture-conformance module fails
 - **THEN** the canonical verification entry point exits unsuccessfully
 
 #### Scenario: Layer-specific regression
-- **WHEN** OpenSpec validation, a dependency advisory, frontend generation or type-checking, a frontend test or build, backend static analysis, an ExUnit test, or a production build fails
+- **WHEN** OpenSpec validation, a planning-boundary check, a database-boundary check, a dependency advisory, frontend generation or type-checking, a frontend test or build, backend static analysis, an ExUnit test, or a production build fails
 - **THEN** the canonical verification entry point exits unsuccessfully at that layer
+
+### Requirement: OpenSpec-only durable planning
+OpenSpec SHALL be the repository's only durable system for proposals, designs,
+implementation tasks, and accepted project decisions.
+
+#### Scenario: Parallel planning directory is present
+- **WHEN** canonical verification finds `docs/superpowers/**` or another prohibited durable planning tree outside OpenSpec
+- **THEN** verification fails and identifies the conflicting path
+
+#### Scenario: Historical planning file contains a current decision
+- **WHEN** a parallel planning file contains a unique decision that remains current
+- **THEN** the decision MUST be promoted into the owning canonical OpenSpec capability before the parallel file is removed
+
+#### Scenario: Historical execution narration is reviewed
+- **WHEN** an old plan contains only completed tasks, execution narration, or decisions already represented by OpenSpec or shipped behavior
+- **THEN** it MUST be removed without copying that non-normative content into OpenSpec
+
+### Requirement: Non-growing database-boundary debt
+Canonical verification SHALL compare tracked project sources with deterministic
+raw-SQL and direct-Ecto inventories and SHALL reject unclassified occurrences,
+changed fingerprints, and stale inventory entries.
+
+#### Scenario: New repository-authored SQL is added
+- **WHEN** verification detects a raw-SQL occurrence that is absent from both the temporary debt inventory and the explicitly approved exception inventory
+- **THEN** verification fails with the occurrence path and construct class
+
+#### Scenario: SQL adapter execution spelling changes
+- **WHEN** tracked code calls a public Postgrex or Ecto SQL-adapter API that queries, prepares, executes, or streams SQL through a fully qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as repository-authored raw SQL
+
+#### Scenario: Existing debt is removed
+- **WHEN** implementation removes or replaces an inventoried raw-SQL or direct-Ecto occurrence
+- **THEN** verification fails until the stale debt entry is removed in the same change
+
+#### Scenario: Verification examines project scope
+- **WHEN** the database-boundary scan runs
+- **THEN** it MUST include tracked runtime code, tests, seeds, migrations, and SQL files while excluding dependency source and untracked build artifacts
+
+#### Scenario: Verification runs from a clean checkout
+- **WHEN** the planning and database-boundary checks complete
+- **THEN** they MUST NOT rewrite an inventory, source file, or OpenSpec artifact
 
 ### Requirement: Verification is non-mutating
 The canonical verification and precommit entry points MUST NOT intentionally rewrite dependency lockfiles, generated artifacts, source files, or planning artifacts.
@@ -62,3 +108,194 @@ Canonical specifications MUST contain a concise capability purpose and MUST NOT 
 #### Scenario: Purpose describes the capability
 - **WHEN** a change is archived into canonical specifications
 - **THEN** each affected specification retains a concise purpose that distinguishes its capability from adjacent specifications
+
+### Requirement: Project boundaries use canonical static analysis
+Office Graph SHALL enforce planning and database-boundary policy through one
+project-local, repository-wide Credo check. The check MUST preserve
+Git-tracked source discovery, SQL-file coverage, deterministic inventory
+comparison, and non-mutating behavior even when those paths are outside
+Credo's configured Elixir source list.
+
+#### Scenario: Canonical static analysis runs
+- **WHEN** canonical verification invokes `mix credo --strict`
+- **THEN** planning and database-boundary enforcement MUST run exactly once and report violations as normal Credo issues
+
+#### Scenario: Focused project-boundary linting runs
+- **WHEN** a contributor selects only the project-boundary Credo check
+- **THEN** it MUST apply the same repository-wide source and inventory semantics as canonical verification
+
+#### Scenario: A source violation is found
+- **WHEN** a new or changed database occurrence or a prohibited planning path is detected
+- **THEN** the Credo issue MUST identify the actionable source path, diagnostic kind, and available line, construct, and fingerprint context
+
+#### Scenario: An inventory violation is found
+- **WHEN** a database-access entry is stale or malformed
+- **THEN** the Credo issue MUST identify the owning inventory and the stale locator or missing metadata
+
+#### Scenario: Credo receives a narrowed source list
+- **WHEN** Credo's configured or command-line source selection excludes migrations, seeds, SQL files, removed files, or planning paths
+- **THEN** the project-boundary check MUST still evaluate the complete Git-tracked repository boundary
+
+#### Scenario: Canonical verification is configured
+- **WHEN** the Credo check has behavior parity with the existing boundary commands
+- **THEN** canonical verification MUST remove the separate planning-boundary and database-boundary command invocations rather than scanning twice
+
+### Requirement: Canonical test database logging is quiet by default
+
+Office Graph SHALL suppress Ecto, AshPostgres, and repository query debug logs
+during normal test and canonical verification runs while preserving an
+explicit opt-in diagnostic mode.
+
+#### Scenario: Canonical test suite passes
+
+- **WHEN** `bin/verify` runs the normal ExUnit suite
+- **THEN** query text and bound parameter dumps MUST NOT be emitted for
+  successful database operations
+
+#### Scenario: Contributor diagnoses a database failure
+
+- **WHEN** a contributor enables the documented SQL diagnostic switch for a
+  focused test run
+- **THEN** database query debug logging MUST be available without changing
+  tracked configuration
+
+#### Scenario: Logging contract regresses
+
+- **WHEN** a normal test environment emits successful query logs at its
+  configured logger level
+- **THEN** project-quality verification MUST fail with a focused logging
+  configuration diagnostic
+
+### Requirement: Canonical verification proves migration baseline integrity
+
+Canonical verification SHALL prove that AshPostgres resources, tracked
+snapshots, the current migration baseline, and required application setup
+remain synchronized and usable on PostgreSQL 18.
+
+#### Scenario: Resource and snapshot drift check runs
+
+- **WHEN** the canonical gate validates the migration baseline
+- **THEN** it MUST run AshPostgres migration generation in non-mutating check
+  mode and fail on resource or snapshot drift
+
+#### Scenario: Fresh baseline check runs
+
+- **WHEN** canonical verification starts its isolated PostgreSQL 18 service
+- **THEN** it MUST migrate an empty scratch database, run release setup twice,
+  and verify representative Ash reads without running the complete ExUnit
+  suite a second time
+
+#### Scenario: Baseline verification succeeds
+
+- **WHEN** migration drift and fresh baseline/setup checks pass from a clean
+  checkout
+- **THEN** the checks MUST leave the worktree clean and MUST NOT rewrite a
+  migration, resource snapshot, inventory, or OpenSpec artifact
+
+### Requirement: Database boundary scanning resolves explicit aliases
+
+The project-local database-boundary scanner SHALL recognize explicitly aliased
+repository receivers before classifying raw SQL and direct Ecto calls.
+
+#### Scenario: Repository is renamed with an alias
+
+- **WHEN** tracked Elixir source aliases `OfficeGraph.Repo` to another valid
+  module name and invokes a prohibited repository operation through that alias
+- **THEN** the canonical Credo boundary check MUST report the same raw-SQL or
+  direct-Ecto occurrence it would report for `Repo`
+
+#### Scenario: Unrelated receiver has a database-like function name
+
+- **WHEN** source calls `query`, `query!`, or another classified operation on a
+  receiver that is not `OfficeGraph.Repo` or its explicit alias
+- **THEN** the scanner MUST NOT classify that call as repository database
+  access solely from the function name
+
+#### Scenario: Aliases remain within their lexical scope
+
+- **WHEN** a repository alias is followed by a sibling or nested lexical scope
+  that does not inherit it or explicitly shadows it with a non-database module
+- **THEN** the scanner MUST classify calls using the repository alias only
+  where that alias is active and MUST restore the enclosing alias after leaving
+  a nested scope
+
+### Requirement: Database boundary scanning resolves imported operations
+
+The project-local database-boundary scanner SHALL recognize local calls that
+resolve to imported database operations, including import name and arity
+filters.
+
+#### Scenario: SQL adapter query is imported
+
+- **WHEN** tracked Elixir source imports `Ecto.Adapters.SQL.query/3` and invokes
+  `query/3` as a local call
+- **THEN** the canonical Credo boundary check MUST report the same raw-SQL
+  occurrence it would report for `Ecto.Adapters.SQL.query/3`
+
+#### Scenario: Database imports remain within their lexical scope
+
+- **WHEN** an imported database operation is invoked in its declaring scope and
+  a same-named local call appears in an unrelated sibling scope
+- **THEN** the scanner MUST classify only the call whose lexical import resolves
+  to the database operation
+
+### Requirement: Database boundary scanning classifies Ecto query fragments
+
+The project-local database-boundary scanner SHALL classify repository-authored Ecto query fragments as raw SQL regardless of whether the fragment macro is called locally, fully qualified, or through an explicit alias.
+
+#### Scenario: Ecto query fragment is fully qualified
+
+- **WHEN** tracked Elixir source calls `Ecto.Query.API.fragment`, `Ecto.Query.API.unsafe_fragment`, or the same operation through an explicit alias
+- **THEN** the canonical Credo boundary check MUST report a raw-SQL occurrence requiring the same exact approval as a locally imported fragment
+
+#### Scenario: Unrelated module defines a fragment function
+
+- **WHEN** tracked source calls `fragment` on a receiver that does not resolve to the Ecto query API
+- **THEN** the scanner MUST NOT classify the call solely from the operation name
+
+### Requirement: Database boundary scanning classifies repository connection ownership
+
+The project-local database-boundary scanner SHALL classify explicit connection
+and transaction control through the Office Graph repository as direct Ecto
+access.
+
+#### Scenario: Repository connection is checked out
+
+- **WHEN** tracked Elixir source calls `OfficeGraph.Repo.checkout` directly or
+  through an explicit repository alias
+- **THEN** the canonical Credo boundary check MUST report the call as direct
+  Ecto access requiring an inventory entry or removal
+
+#### Scenario: Repository transaction is rolled back
+
+- **WHEN** tracked Elixir source calls `OfficeGraph.Repo.rollback` directly or
+  through an explicit repository alias
+- **THEN** the canonical Credo boundary check MUST report the call as direct
+  Ecto access requiring an inventory entry or removal
+
+#### Scenario: Unrelated connection-control function is called
+
+- **WHEN** tracked Elixir source calls `checkout` or `rollback` on a receiver
+  that does not resolve to `OfficeGraph.Repo`
+- **THEN** the database-boundary scanner MUST NOT classify the call solely from
+  its function name
+
+### Requirement: Database boundary scanning classifies Ecto.Multi database operations
+
+The project-local database-boundary scanner SHALL classify database-reading and
+database-changing operations composed through `Ecto.Multi` as direct Ecto
+access while resolving the operation receiver before classification.
+
+#### Scenario: Ecto.Multi composes database reads
+
+- **WHEN** tracked Elixir source calls `Ecto.Multi.all`, `Ecto.Multi.one`, or
+  `Ecto.Multi.exists?` through a fully qualified or explicitly aliased receiver
+- **THEN** the canonical Credo boundary check MUST report each call as direct
+  Ecto access requiring an inventory entry or removal
+
+#### Scenario: Unrelated multi-like receiver reads data
+
+- **WHEN** tracked Elixir source calls `all`, `one`, or `exists?` on a receiver
+  that does not resolve to `Ecto.Multi`
+- **THEN** the database-boundary scanner MUST NOT classify the call solely from
+  its function name

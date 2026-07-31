@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<85c1a62bcc8b506ccd87fe2d122eecd7>>
+ * @generated SignedSource<<bdc499d1b9a46ac58a71f089566b4658>>
  * @lightSyntaxTransform
  */
 
@@ -10,27 +10,55 @@
 import { ConcreteRequest } from 'relay-runtime';
 export type OperatorRunConversationQuery$variables = {
   graphItemId: string;
+  graphItemRelayId: string;
   runId: string;
+  runRelayId: string;
 };
 export type OperatorRunConversationQuery$data = {
+  readonly activeAgentExecutions: {
+    readonly edges: ReadonlyArray<{
+      readonly node: {
+        readonly attemptCount: number;
+        readonly autonomyMode: string;
+        readonly currentStepKey: string | null | undefined;
+        readonly failureCode: string | null | undefined;
+        readonly id: string;
+        readonly insertedAt: string;
+        readonly invocationMode: string;
+        readonly origin: string;
+        readonly requestedOutcome: string;
+        readonly state: string;
+        readonly stateVersion: number;
+        readonly updatedAt: string;
+      };
+    }> | null | undefined;
+  } | null | undefined;
+  readonly conversation: {
+    readonly graphItem: {
+      readonly id: string;
+    };
+    readonly id: string;
+    readonly messages: {
+      readonly edges: ReadonlyArray<{
+        readonly node: {
+          readonly body: string;
+          readonly execution: {
+            readonly id: string;
+          } | null | undefined;
+          readonly id: string;
+          readonly insertedAt: string;
+          readonly source: string;
+        };
+      }> | null | undefined;
+    };
+    readonly run: {
+      readonly id: string;
+    };
+    readonly state: string;
+    readonly stateVersion: number;
+  } | null | undefined;
   readonly operatorRunConversation: {
     readonly allowedNextActions: ReadonlyArray<string>;
-    readonly approvalRequests: ReadonlyArray<{
-      readonly capabilityKey: string | null | undefined;
-      readonly executionId: string;
-      readonly expiresAt: string;
-      readonly externalWrite: boolean;
-      readonly id: string;
-      readonly reason: string;
-      readonly requestedAction: string;
-      readonly resolutionReason: string | null | undefined;
-      readonly scopeId: string;
-      readonly scopeType: string;
-      readonly sensitivity: string;
-      readonly state: string;
-      readonly stepKey: string;
-      readonly version: number;
-    }>;
     readonly commandAffordances: ReadonlyArray<{
       readonly blockerReasons: ReadonlyArray<string>;
       readonly identity: string;
@@ -48,51 +76,9 @@ export type OperatorRunConversationQuery$data = {
         readonly type: string;
       }>;
     }>;
-    readonly contextExpansionRequests: ReadonlyArray<{
-      readonly accessMode: string;
-      readonly capabilityKey: string | null | undefined;
-      readonly executionId: string;
-      readonly expectedDurationSeconds: number;
-      readonly expiresAt: string;
-      readonly id: string;
-      readonly reason: string;
-      readonly resolutionReason: string | null | undefined;
-      readonly sensitivity: string;
-      readonly state: string;
-      readonly stepKey: string;
-      readonly targetResourceId: string;
-      readonly targetResourceType: string;
-      readonly targetScopeId: string;
-      readonly targetScopeType: string;
-      readonly version: number;
-    }>;
-    readonly conversation: {
-      readonly graphItemId: string;
-      readonly id: string;
-      readonly runId: string;
-      readonly state: string;
-      readonly stateVersion: number;
-    } | null | undefined;
-    readonly executions: ReadonlyArray<{
-      readonly attemptCount: number;
-      readonly autonomyMode: string;
-      readonly bindingId: string;
-      readonly currentStepKey: string | null | undefined;
-      readonly failureCode: string | null | undefined;
-      readonly id: string;
-      readonly insertedAt: string;
-      readonly invocationMode: string;
-      readonly origin: string;
-      readonly requestedOutcome: string;
-      readonly state: string;
-      readonly stateVersion: number;
-      readonly updatedAt: string;
-    }>;
-    readonly messages: ReadonlyArray<{
-      readonly body: string;
-      readonly executionId: string | null | undefined;
-      readonly id: string;
-      readonly insertedAt: string;
+    readonly id: string;
+    readonly messageContexts: ReadonlyArray<{
+      readonly messageId: string;
       readonly referencedContext: {
         readonly entries: ReadonlyArray<{
           readonly posture: string;
@@ -102,11 +88,124 @@ export type OperatorRunConversationQuery$data = {
         readonly version: number | null | undefined;
         readonly visibility: string;
       } | null | undefined;
-      readonly source: string;
     }>;
     readonly sourceWatermark: string;
     readonly type: string;
   };
+  readonly pendingAgentApprovalRequests: {
+    readonly edges: ReadonlyArray<{
+      readonly node: {
+        readonly capabilityKey: string | null | undefined;
+        readonly execution: {
+          readonly id: string;
+        };
+        readonly expiresAt: string;
+        readonly externalWrite: boolean;
+        readonly id: string;
+        readonly insertedAt: string;
+        readonly reason: string;
+        readonly requestedAction: string;
+        readonly resolutionReason: string | null | undefined;
+        readonly scopeId: string;
+        readonly scopeType: string;
+        readonly sensitivity: string;
+        readonly state: string;
+        readonly stepKey: string;
+        readonly version: number;
+      };
+    }> | null | undefined;
+  } | null | undefined;
+  readonly pendingAgentContextExpansionRequests: {
+    readonly edges: ReadonlyArray<{
+      readonly node: {
+        readonly accessMode: string;
+        readonly capabilityKey: string | null | undefined;
+        readonly execution: {
+          readonly id: string;
+        };
+        readonly expectedDurationSeconds: number;
+        readonly expiresAt: string;
+        readonly id: string;
+        readonly insertedAt: string;
+        readonly reason: string;
+        readonly resolutionReason: string | null | undefined;
+        readonly sensitivity: string;
+        readonly state: string;
+        readonly stepKey: string;
+        readonly targetResourceId: string;
+        readonly targetResourceType: string;
+        readonly targetScopeId: string;
+        readonly targetScopeType: string;
+        readonly version: number;
+      };
+    }> | null | undefined;
+  } | null | undefined;
+  readonly resolvedAgentApprovalRequests: {
+    readonly edges: ReadonlyArray<{
+      readonly node: {
+        readonly capabilityKey: string | null | undefined;
+        readonly execution: {
+          readonly id: string;
+        };
+        readonly expiresAt: string;
+        readonly externalWrite: boolean;
+        readonly id: string;
+        readonly insertedAt: string;
+        readonly reason: string;
+        readonly requestedAction: string;
+        readonly resolutionReason: string | null | undefined;
+        readonly scopeId: string;
+        readonly scopeType: string;
+        readonly sensitivity: string;
+        readonly state: string;
+        readonly stepKey: string;
+        readonly version: number;
+      };
+    }> | null | undefined;
+  } | null | undefined;
+  readonly resolvedAgentContextExpansionRequests: {
+    readonly edges: ReadonlyArray<{
+      readonly node: {
+        readonly accessMode: string;
+        readonly capabilityKey: string | null | undefined;
+        readonly execution: {
+          readonly id: string;
+        };
+        readonly expectedDurationSeconds: number;
+        readonly expiresAt: string;
+        readonly id: string;
+        readonly insertedAt: string;
+        readonly reason: string;
+        readonly resolutionReason: string | null | undefined;
+        readonly sensitivity: string;
+        readonly state: string;
+        readonly stepKey: string;
+        readonly targetResourceId: string;
+        readonly targetResourceType: string;
+        readonly targetScopeId: string;
+        readonly targetScopeType: string;
+        readonly version: number;
+      };
+    }> | null | undefined;
+  } | null | undefined;
+  readonly terminalAgentExecutions: {
+    readonly edges: ReadonlyArray<{
+      readonly node: {
+        readonly attemptCount: number;
+        readonly autonomyMode: string;
+        readonly currentStepKey: string | null | undefined;
+        readonly failureCode: string | null | undefined;
+        readonly id: string;
+        readonly insertedAt: string;
+        readonly invocationMode: string;
+        readonly origin: string;
+        readonly requestedOutcome: string;
+        readonly state: string;
+        readonly stateVersion: number;
+        readonly updatedAt: string;
+      };
+    }> | null | undefined;
+  } | null | undefined;
 };
 export type OperatorRunConversationQuery = {
   response: OperatorRunConversationQuery$data;
@@ -122,21 +221,17 @@ var v0 = {
 v1 = {
   "defaultValue": null,
   "kind": "LocalArgument",
-  "name": "runId"
+  "name": "graphItemRelayId"
 },
 v2 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "type",
-  "storageKey": null
+  "defaultValue": null,
+  "kind": "LocalArgument",
+  "name": "runId"
 },
 v3 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
-  "name": "state",
-  "storageKey": null
+  "defaultValue": null,
+  "kind": "LocalArgument",
+  "name": "runRelayId"
 },
 v4 = {
   "alias": null,
@@ -149,73 +244,403 @@ v5 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "stateVersion",
+  "name": "type",
   "storageKey": null
 },
 v6 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "executionId",
+  "name": "state",
   "storageKey": null
 },
 v7 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
-  "name": "insertedAt",
-  "storageKey": null
-},
-v8 = {
-  "alias": null,
-  "args": null,
-  "kind": "ScalarField",
   "name": "version",
   "storageKey": null
 },
+v8 = [
+  (v4/*:: as any*/)
+],
 v9 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "stateVersion",
+  "storageKey": null
+},
+v10 = {
+  "kind": "Literal",
+  "name": "first",
+  "value": 100
+},
+v11 = {
+  "field": "INSERTED_AT",
+  "order": "DESC"
+},
+v12 = {
+  "alias": null,
+  "args": null,
+  "kind": "ScalarField",
+  "name": "insertedAt",
+  "storageKey": null
+},
+v13 = {
+  "alias": null,
+  "args": null,
+  "concreteType": "AgentExecution",
+  "kind": "LinkedField",
+  "name": "execution",
+  "plural": false,
+  "selections": (v8/*:: as any*/),
+  "storageKey": null
+},
+v14 = {
+  "fields": [
+    {
+      "kind": "Variable",
+      "name": "eq",
+      "variableName": "graphItemId"
+    }
+  ],
+  "kind": "ObjectValue",
+  "name": "graphItemId"
+},
+v15 = {
+  "fields": [
+    {
+      "kind": "Variable",
+      "name": "eq",
+      "variableName": "runId"
+    }
+  ],
+  "kind": "ObjectValue",
+  "name": "runId"
+},
+v16 = {
+  "kind": "Literal",
+  "name": "sort",
+  "value": [
+    (v11/*:: as any*/),
+    {
+      "field": "ID",
+      "order": "DESC"
+    }
+  ]
+},
+v17 = [
+  {
+    "alias": null,
+    "args": null,
+    "concreteType": "AgentExecutionEdge",
+    "kind": "LinkedField",
+    "name": "edges",
+    "plural": true,
+    "selections": [
+      {
+        "alias": null,
+        "args": null,
+        "concreteType": "AgentExecution",
+        "kind": "LinkedField",
+        "name": "node",
+        "plural": false,
+        "selections": [
+          (v4/*:: as any*/),
+          (v6/*:: as any*/),
+          (v9/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "currentStepKey",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "attemptCount",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "failureCode",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "requestedOutcome",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "invocationMode",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "origin",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "autonomyMode",
+            "storageKey": null
+          },
+          (v12/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "updatedAt",
+            "storageKey": null
+          }
+        ],
+        "storageKey": null
+      }
+    ],
+    "storageKey": null
+  }
+],
+v18 = {
+  "fields": [
+    (v14/*:: as any*/),
+    (v15/*:: as any*/)
+  ],
+  "kind": "ObjectValue",
+  "name": "execution"
+},
+v19 = [
+  {
+    "fields": [
+      (v18/*:: as any*/),
+      {
+        "kind": "Literal",
+        "name": "state",
+        "value": {
+          "eq": "pending"
+        }
+      }
+    ],
+    "kind": "ObjectValue",
+    "name": "filter"
+  },
+  (v10/*:: as any*/),
+  (v16/*:: as any*/)
+],
+v20 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "stepKey",
   "storageKey": null
 },
-v10 = {
+v21 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "reason",
   "storageKey": null
 },
-v11 = {
+v22 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "capabilityKey",
   "storageKey": null
 },
-v12 = {
+v23 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "sensitivity",
   "storageKey": null
 },
-v13 = {
+v24 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "expiresAt",
   "storageKey": null
 },
-v14 = {
+v25 = {
   "alias": null,
   "args": null,
   "kind": "ScalarField",
   "name": "resolutionReason",
   "storageKey": null
 },
-v15 = [
+v26 = [
+  {
+    "alias": null,
+    "args": null,
+    "concreteType": "AgentApprovalRequestEdge",
+    "kind": "LinkedField",
+    "name": "edges",
+    "plural": true,
+    "selections": [
+      {
+        "alias": null,
+        "args": null,
+        "concreteType": "AgentApprovalRequest",
+        "kind": "LinkedField",
+        "name": "node",
+        "plural": false,
+        "selections": [
+          (v4/*:: as any*/),
+          (v13/*:: as any*/),
+          (v20/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "requestedAction",
+            "storageKey": null
+          },
+          (v21/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "scopeType",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "scopeId",
+            "storageKey": null
+          },
+          (v22/*:: as any*/),
+          (v23/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "externalWrite",
+            "storageKey": null
+          },
+          (v6/*:: as any*/),
+          (v7/*:: as any*/),
+          (v24/*:: as any*/),
+          (v25/*:: as any*/),
+          (v12/*:: as any*/)
+        ],
+        "storageKey": null
+      }
+    ],
+    "storageKey": null
+  }
+],
+v27 = [
+  {
+    "fields": [
+      (v18/*:: as any*/),
+      {
+        "kind": "Literal",
+        "name": "state",
+        "value": {
+          "notEq": "pending"
+        }
+      }
+    ],
+    "kind": "ObjectValue",
+    "name": "filter"
+  },
+  (v10/*:: as any*/),
+  (v16/*:: as any*/)
+],
+v28 = [
+  {
+    "alias": null,
+    "args": null,
+    "concreteType": "AgentContextExpansionRequestEdge",
+    "kind": "LinkedField",
+    "name": "edges",
+    "plural": true,
+    "selections": [
+      {
+        "alias": null,
+        "args": null,
+        "concreteType": "AgentContextExpansionRequest",
+        "kind": "LinkedField",
+        "name": "node",
+        "plural": false,
+        "selections": [
+          (v4/*:: as any*/),
+          (v13/*:: as any*/),
+          (v20/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "targetResourceType",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "targetResourceId",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "targetScopeType",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "targetScopeId",
+            "storageKey": null
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "accessMode",
+            "storageKey": null
+          },
+          (v22/*:: as any*/),
+          (v21/*:: as any*/),
+          (v23/*:: as any*/),
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "expectedDurationSeconds",
+            "storageKey": null
+          },
+          (v6/*:: as any*/),
+          (v7/*:: as any*/),
+          (v24/*:: as any*/),
+          (v25/*:: as any*/),
+          (v12/*:: as any*/)
+        ],
+        "storageKey": null
+      }
+    ],
+    "storageKey": null
+  }
+],
+v29 = [
   {
     "alias": null,
     "args": [
@@ -235,7 +660,8 @@ v15 = [
     "name": "operatorRunConversation",
     "plural": false,
     "selections": [
-      (v2/*:: as any*/),
+      (v4/*:: as any*/),
+      (v5/*:: as any*/),
       {
         "alias": null,
         "args": null,
@@ -265,7 +691,7 @@ v15 = [
             "name": "identity",
             "storageKey": null
           },
-          (v3/*:: as any*/),
+          (v6/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -334,7 +760,7 @@ v15 = [
             "name": "targetIds",
             "plural": true,
             "selections": [
-              (v2/*:: as any*/),
+              (v5/*:: as any*/),
               (v4/*:: as any*/)
             ],
             "storageKey": null
@@ -345,56 +771,18 @@ v15 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorRunConversationRecord",
+        "concreteType": "OperatorRunConversationMessageContext",
         "kind": "LinkedField",
-        "name": "conversation",
-        "plural": false,
-        "selections": [
-          (v4/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "runId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "graphItemId",
-            "storageKey": null
-          },
-          (v3/*:: as any*/),
-          (v5/*:: as any*/)
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorRunConversationMessage",
-        "kind": "LinkedField",
-        "name": "messages",
+        "name": "messageContexts",
         "plural": true,
         "selections": [
-          (v4/*:: as any*/),
           {
             "alias": null,
             "args": null,
             "kind": "ScalarField",
-            "name": "source",
+            "name": "messageId",
             "storageKey": null
           },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "body",
-            "storageKey": null
-          },
-          (v6/*:: as any*/),
-          (v7/*:: as any*/),
           {
             "alias": null,
             "args": null,
@@ -417,7 +805,7 @@ v15 = [
                 "name": "packageId",
                 "storageKey": null
               },
-              (v8/*:: as any*/),
+              (v7/*:: as any*/),
               {
                 "alias": null,
                 "args": null,
@@ -448,198 +836,218 @@ v15 = [
           }
         ],
         "storageKey": null
+      }
+    ],
+    "storageKey": null
+  },
+  {
+    "alias": "conversation",
+    "args": [
+      {
+        "kind": "Variable",
+        "name": "graphItemId",
+        "variableName": "graphItemRelayId"
+      },
+      {
+        "kind": "Variable",
+        "name": "runId",
+        "variableName": "runRelayId"
+      }
+    ],
+    "concreteType": "Conversation",
+    "kind": "LinkedField",
+    "name": "conversationForRunGraphItem",
+    "plural": false,
+    "selections": [
+      (v4/*:: as any*/),
+      {
+        "alias": null,
+        "args": null,
+        "concreteType": "WorkRun",
+        "kind": "LinkedField",
+        "name": "run",
+        "plural": false,
+        "selections": (v8/*:: as any*/),
+        "storageKey": null
       },
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorRunConversationExecution",
+        "concreteType": "GraphItem",
         "kind": "LinkedField",
-        "name": "executions",
-        "plural": true,
+        "name": "graphItem",
+        "plural": false,
+        "selections": (v8/*:: as any*/),
+        "storageKey": null
+      },
+      (v6/*:: as any*/),
+      (v9/*:: as any*/),
+      {
+        "alias": null,
+        "args": [
+          (v10/*:: as any*/),
+          {
+            "kind": "Literal",
+            "name": "sort",
+            "value": [
+              (v11/*:: as any*/)
+            ]
+          }
+        ],
+        "concreteType": "ConversationMessageConnection",
+        "kind": "LinkedField",
+        "name": "messages",
+        "plural": false,
         "selections": [
-          (v4/*:: as any*/),
           {
             "alias": null,
             "args": null,
-            "kind": "ScalarField",
-            "name": "bindingId",
-            "storageKey": null
-          },
-          (v3/*:: as any*/),
-          (v5/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "currentStepKey",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "attemptCount",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "failureCode",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "requestedOutcome",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "invocationMode",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "origin",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "autonomyMode",
-            "storageKey": null
-          },
-          (v7/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "updatedAt",
+            "concreteType": "ConversationMessageEdge",
+            "kind": "LinkedField",
+            "name": "edges",
+            "plural": true,
+            "selections": [
+              {
+                "alias": null,
+                "args": null,
+                "concreteType": "ConversationMessage",
+                "kind": "LinkedField",
+                "name": "node",
+                "plural": false,
+                "selections": [
+                  (v4/*:: as any*/),
+                  {
+                    "alias": null,
+                    "args": null,
+                    "kind": "ScalarField",
+                    "name": "source",
+                    "storageKey": null
+                  },
+                  {
+                    "alias": null,
+                    "args": null,
+                    "kind": "ScalarField",
+                    "name": "body",
+                    "storageKey": null
+                  },
+                  (v12/*:: as any*/),
+                  (v13/*:: as any*/)
+                ],
+                "storageKey": null
+              }
+            ],
             "storageKey": null
           }
         ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorRunConversationApprovalRequest",
-        "kind": "LinkedField",
-        "name": "approvalRequests",
-        "plural": true,
-        "selections": [
-          (v4/*:: as any*/),
-          (v6/*:: as any*/),
-          (v9/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "requestedAction",
-            "storageKey": null
-          },
-          (v10/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "scopeType",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "scopeId",
-            "storageKey": null
-          },
-          (v11/*:: as any*/),
-          (v12/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "externalWrite",
-            "storageKey": null
-          },
-          (v3/*:: as any*/),
-          (v8/*:: as any*/),
-          (v13/*:: as any*/),
-          (v14/*:: as any*/)
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorRunConversationContextExpansionRequest",
-        "kind": "LinkedField",
-        "name": "contextExpansionRequests",
-        "plural": true,
-        "selections": [
-          (v4/*:: as any*/),
-          (v6/*:: as any*/),
-          (v9/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "targetResourceType",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "targetResourceId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "targetScopeType",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "targetScopeId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "accessMode",
-            "storageKey": null
-          },
-          (v11/*:: as any*/),
-          (v10/*:: as any*/),
-          (v12/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "expectedDurationSeconds",
-            "storageKey": null
-          },
-          (v3/*:: as any*/),
-          (v8/*:: as any*/),
-          (v13/*:: as any*/),
-          (v14/*:: as any*/)
-        ],
-        "storageKey": null
+        "storageKey": "messages(first:100,sort:[{\"field\":\"INSERTED_AT\",\"order\":\"DESC\"}])"
       }
     ],
+    "storageKey": null
+  },
+  {
+    "alias": "activeAgentExecutions",
+    "args": [
+      {
+        "fields": [
+          (v14/*:: as any*/),
+          (v15/*:: as any*/),
+          {
+            "kind": "Literal",
+            "name": "state",
+            "value": {
+              "in": [
+                "queued",
+                "running",
+                "waiting_approval",
+                "waiting_context",
+                "retry_scheduled"
+              ]
+            }
+          }
+        ],
+        "kind": "ObjectValue",
+        "name": "filter"
+      },
+      (v10/*:: as any*/),
+      (v16/*:: as any*/)
+    ],
+    "concreteType": "AgentExecutionConnection",
+    "kind": "LinkedField",
+    "name": "listAgentExecutions",
+    "plural": false,
+    "selections": (v17/*:: as any*/),
+    "storageKey": null
+  },
+  {
+    "alias": "terminalAgentExecutions",
+    "args": [
+      {
+        "fields": [
+          (v14/*:: as any*/),
+          (v15/*:: as any*/),
+          {
+            "kind": "Literal",
+            "name": "state",
+            "value": {
+              "in": [
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            }
+          }
+        ],
+        "kind": "ObjectValue",
+        "name": "filter"
+      },
+      (v10/*:: as any*/),
+      (v16/*:: as any*/)
+    ],
+    "concreteType": "AgentExecutionConnection",
+    "kind": "LinkedField",
+    "name": "listAgentExecutions",
+    "plural": false,
+    "selections": (v17/*:: as any*/),
+    "storageKey": null
+  },
+  {
+    "alias": "pendingAgentApprovalRequests",
+    "args": (v19/*:: as any*/),
+    "concreteType": "AgentApprovalRequestConnection",
+    "kind": "LinkedField",
+    "name": "listAgentApprovalRequests",
+    "plural": false,
+    "selections": (v26/*:: as any*/),
+    "storageKey": null
+  },
+  {
+    "alias": "resolvedAgentApprovalRequests",
+    "args": (v27/*:: as any*/),
+    "concreteType": "AgentApprovalRequestConnection",
+    "kind": "LinkedField",
+    "name": "listAgentApprovalRequests",
+    "plural": false,
+    "selections": (v26/*:: as any*/),
+    "storageKey": null
+  },
+  {
+    "alias": "pendingAgentContextExpansionRequests",
+    "args": (v19/*:: as any*/),
+    "concreteType": "AgentContextExpansionRequestConnection",
+    "kind": "LinkedField",
+    "name": "listAgentContextExpansionRequests",
+    "plural": false,
+    "selections": (v28/*:: as any*/),
+    "storageKey": null
+  },
+  {
+    "alias": "resolvedAgentContextExpansionRequests",
+    "args": (v27/*:: as any*/),
+    "concreteType": "AgentContextExpansionRequestConnection",
+    "kind": "LinkedField",
+    "name": "listAgentContextExpansionRequests",
+    "plural": false,
+    "selections": (v28/*:: as any*/),
     "storageKey": null
   }
 ];
@@ -647,38 +1055,42 @@ return {
   "fragment": {
     "argumentDefinitions": [
       (v0/*:: as any*/),
-      (v1/*:: as any*/)
+      (v1/*:: as any*/),
+      (v2/*:: as any*/),
+      (v3/*:: as any*/)
     ],
     "kind": "Fragment",
     "metadata": {
       "throwOnFieldError": true
     },
     "name": "OperatorRunConversationQuery",
-    "selections": (v15/*:: as any*/),
+    "selections": (v29/*:: as any*/),
     "type": "RootQueryType",
     "abstractKey": null
   },
   "kind": "Request",
   "operation": {
     "argumentDefinitions": [
-      (v1/*:: as any*/),
-      (v0/*:: as any*/)
+      (v2/*:: as any*/),
+      (v0/*:: as any*/),
+      (v3/*:: as any*/),
+      (v1/*:: as any*/)
     ],
     "kind": "Operation",
     "name": "OperatorRunConversationQuery",
-    "selections": (v15/*:: as any*/)
+    "selections": (v29/*:: as any*/)
   },
   "params": {
-    "cacheID": "6d23d24b1256b0fd943a21835cd574bf",
+    "cacheID": "35e37af836a6214d99a748d34aeba5ee",
     "id": null,
     "metadata": {},
     "name": "OperatorRunConversationQuery",
     "operationKind": "query",
-    "text": "query OperatorRunConversationQuery(\n  $runId: ID!\n  $graphItemId: ID!\n) {\n  operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {\n    type\n    sourceWatermark\n    allowedNextActions\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n    }\n    conversation {\n      id\n      runId\n      graphItemId\n      state\n      stateVersion\n    }\n    messages {\n      id\n      source\n      body\n      executionId\n      insertedAt\n      referencedContext {\n        visibility\n        packageId\n        version\n        entries {\n          posture\n          rationaleCode\n        }\n      }\n    }\n    executions {\n      id\n      bindingId\n      state\n      stateVersion\n      currentStepKey\n      attemptCount\n      failureCode\n      requestedOutcome\n      invocationMode\n      origin\n      autonomyMode\n      insertedAt\n      updatedAt\n    }\n    approvalRequests {\n      id\n      executionId\n      stepKey\n      requestedAction\n      reason\n      scopeType\n      scopeId\n      capabilityKey\n      sensitivity\n      externalWrite\n      state\n      version\n      expiresAt\n      resolutionReason\n    }\n    contextExpansionRequests {\n      id\n      executionId\n      stepKey\n      targetResourceType\n      targetResourceId\n      targetScopeType\n      targetScopeId\n      accessMode\n      capabilityKey\n      reason\n      sensitivity\n      expectedDurationSeconds\n      state\n      version\n      expiresAt\n      resolutionReason\n    }\n  }\n}\n"
+    "text": "query OperatorRunConversationQuery(\n  $runId: ID!\n  $graphItemId: ID!\n  $runRelayId: ID!\n  $graphItemRelayId: ID!\n) {\n  operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {\n    id\n    type\n    sourceWatermark\n    allowedNextActions\n    commandAffordances {\n      identity\n      state\n      reasonCodes\n      blockerReasons\n      safeExplanation\n      requiredFields\n      inputDefaults {\n        field\n        value\n        values\n      }\n      targetIds {\n        type\n        id\n      }\n    }\n    messageContexts {\n      messageId\n      referencedContext {\n        visibility\n        packageId\n        version\n        entries {\n          posture\n          rationaleCode\n        }\n      }\n    }\n  }\n  conversation: conversationForRunGraphItem(runId: $runRelayId, graphItemId: $graphItemRelayId) {\n    id\n    run {\n      id\n    }\n    graphItem {\n      id\n    }\n    state\n    stateVersion\n    messages(first: 100, sort: [{field: INSERTED_AT, order: DESC}]) {\n      edges {\n        node {\n          id\n          source\n          body\n          insertedAt\n          execution {\n            id\n          }\n        }\n      }\n    }\n  }\n  activeAgentExecutions: listAgentExecutions(first: 100, filter: {runId: {eq: $runId}, graphItemId: {eq: $graphItemId}, state: {in: [\"queued\", \"running\", \"waiting_approval\", \"waiting_context\", \"retry_scheduled\"]}}, sort: [{field: INSERTED_AT, order: DESC}, {field: ID, order: DESC}]) {\n    edges {\n      node {\n        id\n        state\n        stateVersion\n        currentStepKey\n        attemptCount\n        failureCode\n        requestedOutcome\n        invocationMode\n        origin\n        autonomyMode\n        insertedAt\n        updatedAt\n      }\n    }\n  }\n  terminalAgentExecutions: listAgentExecutions(first: 100, filter: {runId: {eq: $runId}, graphItemId: {eq: $graphItemId}, state: {in: [\"completed\", \"failed\", \"cancelled\"]}}, sort: [{field: INSERTED_AT, order: DESC}, {field: ID, order: DESC}]) {\n    edges {\n      node {\n        id\n        state\n        stateVersion\n        currentStepKey\n        attemptCount\n        failureCode\n        requestedOutcome\n        invocationMode\n        origin\n        autonomyMode\n        insertedAt\n        updatedAt\n      }\n    }\n  }\n  pendingAgentApprovalRequests: listAgentApprovalRequests(first: 100, filter: {execution: {runId: {eq: $runId}, graphItemId: {eq: $graphItemId}}, state: {eq: \"pending\"}}, sort: [{field: INSERTED_AT, order: DESC}, {field: ID, order: DESC}]) {\n    edges {\n      node {\n        id\n        execution {\n          id\n        }\n        stepKey\n        requestedAction\n        reason\n        scopeType\n        scopeId\n        capabilityKey\n        sensitivity\n        externalWrite\n        state\n        version\n        expiresAt\n        resolutionReason\n        insertedAt\n      }\n    }\n  }\n  resolvedAgentApprovalRequests: listAgentApprovalRequests(first: 100, filter: {execution: {runId: {eq: $runId}, graphItemId: {eq: $graphItemId}}, state: {notEq: \"pending\"}}, sort: [{field: INSERTED_AT, order: DESC}, {field: ID, order: DESC}]) {\n    edges {\n      node {\n        id\n        execution {\n          id\n        }\n        stepKey\n        requestedAction\n        reason\n        scopeType\n        scopeId\n        capabilityKey\n        sensitivity\n        externalWrite\n        state\n        version\n        expiresAt\n        resolutionReason\n        insertedAt\n      }\n    }\n  }\n  pendingAgentContextExpansionRequests: listAgentContextExpansionRequests(first: 100, filter: {execution: {runId: {eq: $runId}, graphItemId: {eq: $graphItemId}}, state: {eq: \"pending\"}}, sort: [{field: INSERTED_AT, order: DESC}, {field: ID, order: DESC}]) {\n    edges {\n      node {\n        id\n        execution {\n          id\n        }\n        stepKey\n        targetResourceType\n        targetResourceId\n        targetScopeType\n        targetScopeId\n        accessMode\n        capabilityKey\n        reason\n        sensitivity\n        expectedDurationSeconds\n        state\n        version\n        expiresAt\n        resolutionReason\n        insertedAt\n      }\n    }\n  }\n  resolvedAgentContextExpansionRequests: listAgentContextExpansionRequests(first: 100, filter: {execution: {runId: {eq: $runId}, graphItemId: {eq: $graphItemId}}, state: {notEq: \"pending\"}}, sort: [{field: INSERTED_AT, order: DESC}, {field: ID, order: DESC}]) {\n    edges {\n      node {\n        id\n        execution {\n          id\n        }\n        stepKey\n        targetResourceType\n        targetResourceId\n        targetScopeType\n        targetScopeId\n        accessMode\n        capabilityKey\n        reason\n        sensitivity\n        expectedDurationSeconds\n        state\n        version\n        expiresAt\n        resolutionReason\n        insertedAt\n      }\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "8c2d740cc5a26cb511577e4a31caa5ea";
+(node as any).hash = "72a1d12d5a3eadb9fa24db1bd20f8e83";
 
 export default node;

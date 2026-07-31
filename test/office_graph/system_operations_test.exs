@@ -1,13 +1,32 @@
 defmodule OfficeGraph.SystemOperationsTest do
   use OfficeGraph.DataCase, async: false
+  use Oban.Testing, repo: OfficeGraph.Repo
 
-  import Ecto.Query
+  alias OfficeGraph.{DurableDelivery, Foundation, Operations}
 
-  alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
-  alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
-  alias OfficeGraph.DurableDelivery.{DomainEvent, Subscriptions, SystemConformanceWorker}
+  alias OfficeGraph.Authorization.{
+    Capability,
+    Role,
+    RoleAssignment,
+    RoleCapability
+  }
+
+  alias OfficeGraph.Authorization.PersistenceTestAdapter,
+    as: AuthorizationPersistenceTestAdapter
+
+  alias OfficeGraph.DurableDelivery.{
+    DispatchEventWorker,
+    DomainEvent,
+    Subscriptions,
+    SystemConformanceWorker
+  }
+
   alias OfficeGraph.Identity.Principal
   alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.Operations.PersistenceTestAdapter, as: OperationPersistenceTestAdapter
+  alias OfficeGraph.TestSupport.GitHubIntegrationCleanup.Job, as: StoredJob
+
+  require Ash.Query
 
   test "organization-scoped system operations authorize and replay without a human session" do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -142,16 +161,14 @@ defmodule OfficeGraph.SystemOperationsTest do
              |> system_operation_attrs(principal)
              |> Operations.new_system_operation_request()
 
-    Repo.query!("SET LOCAL search_path TO pg_catalog")
+    AuthorizationPersistenceTestAdapter.configure!(
+      system_principal: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Operations.start_system_operation(request)
-      after
-        Repo.query!("SET LOCAL search_path TO public")
-      end
+    assert {:error, :integration_storage_unavailable} =
+             Operations.start_system_operation(request)
 
-    assert {:error, :integration_storage_unavailable} = result
+    AuthorizationPersistenceTestAdapter.clear!()
     assert {:ok, _operation} = Operations.start_system_operation(request)
   end
 
@@ -166,16 +183,14 @@ defmodule OfficeGraph.SystemOperationsTest do
 
     assert {:ok, operation} = Operations.start_system_operation(request)
 
-    Repo.query!("SET LOCAL search_path TO pg_catalog")
+    AuthorizationPersistenceTestAdapter.configure!(
+      system_principal: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        Operations.validate_system_operation(operation, :system_conformance)
-      after
-        Repo.query!("SET LOCAL search_path TO public")
-      end
+    assert {:error, :integration_storage_unavailable} =
+             Operations.validate_system_operation(operation, :system_conformance)
 
-    assert {:error, :integration_storage_unavailable} = result
+    AuthorizationPersistenceTestAdapter.clear!()
     assert :ok = Operations.validate_system_operation(operation, :system_conformance)
   end
 
@@ -189,8 +204,7 @@ defmodule OfficeGraph.SystemOperationsTest do
       workspace_id: nil,
       action: "integration.reconcile",
       correlation_id: Ecto.UUID.generate(),
-      idempotency_key: "missing-system-envelope",
-      metadata: %{}
+      idempotency_key: "missing-system-envelope"
     }
 
     assert {:error, error} =
@@ -259,7 +273,11 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert system_operation_count() == 1
     assert system_event_count() == 1
 
-    [event] = Repo.all(from(event in DomainEvent, where: event.operation_kind == "system"))
+    [event] =
+      DomainEvent
+      |> Ash.Query.filter(operation_kind == "system")
+      |> Ash.read!(authorize?: false)
+
     assert length(jobs_for_event(event.id)) == 1
   end
 
@@ -278,23 +296,18 @@ defmodule OfficeGraph.SystemOperationsTest do
 
     assert {:ok, job} = args |> SystemConformanceWorker.new() |> Oban.insert()
 
-    Repo.query!("""
-    ALTER TABLE operation_correlations
-    ADD CONSTRAINT test_system_conformance_storage_unavailable
-    CHECK (action <> 'system.conformance')
-    """)
+    OperationPersistenceTestAdapter.configure!(system_operation: {:error, :database_unavailable})
 
-    result =
-      try do
-        SystemConformanceWorker.perform(job)
-      after
-        Repo.query!(
-          "ALTER TABLE operation_correlations DROP CONSTRAINT test_system_conformance_storage_unavailable"
-        )
-      end
+    assert {:error, "system_conformance_storage_unavailable"} =
+             SystemConformanceWorker.perform(job)
 
-    assert {:error, "system_conformance_storage_unavailable"} = result
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    OperationPersistenceTestAdapter.clear_operation_failures!()
+
+    refute Map.has_key?(
+             Ash.get!(StoredJob, job.id, authorize?: false).meta,
+             "terminal_failure_code"
+           )
+
     assert :ok = SystemConformanceWorker.perform(job)
   end
 
@@ -313,17 +326,20 @@ defmodule OfficeGraph.SystemOperationsTest do
 
     assert {:ok, job} = args |> SystemConformanceWorker.new() |> Oban.insert()
 
-    Repo.query!("SET LOCAL search_path TO pg_catalog")
+    AuthorizationPersistenceTestAdapter.configure!(
+      system_principal: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        SystemConformanceWorker.perform(job)
-      after
-        Repo.query!("SET LOCAL search_path TO public")
-      end
+    assert {:error, "system_conformance_storage_unavailable"} =
+             SystemConformanceWorker.perform(job)
 
-    assert {:error, "system_conformance_storage_unavailable"} = result
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    AuthorizationPersistenceTestAdapter.clear!()
+
+    refute Map.has_key?(
+             Ash.get!(StoredJob, job.id, authorize?: false).meta,
+             "terminal_failure_code"
+           )
+
     assert :ok = SystemConformanceWorker.perform(job)
   end
 
@@ -368,7 +384,10 @@ defmodule OfficeGraph.SystemOperationsTest do
     assert :ok = SystemConformanceWorker.perform(first_job)
     assert :ok = SystemConformanceWorker.perform(second_job)
 
-    events = Repo.all(from(event in DomainEvent, where: event.operation_kind == "system"))
+    events =
+      DomainEvent
+      |> Ash.Query.filter(operation_kind == "system")
+      |> Ash.read!(authorize?: false)
 
     assert Enum.sort(Enum.map(events, & &1.workspace_id)) ==
              Enum.sort([first_scope.workspace.id, second_scope.workspace.id])
@@ -400,10 +419,8 @@ defmodule OfficeGraph.SystemOperationsTest do
         assert {:ok, job} = args |> SystemConformanceWorker.new() |> Oban.insert()
         assert {:cancel, ^failure_code} = SystemConformanceWorker.perform(job)
 
-        job =
-          job
-          |> Ecto.Changeset.change(state: "cancelled", cancelled_at: DateTime.utc_now())
-          |> Repo.update!()
+        assert :ok = Oban.cancel_job(job)
+        job = Ash.get!(StoredJob, job.id, authorize?: false)
 
         {job, failure_code}
       end)
@@ -497,23 +514,19 @@ defmodule OfficeGraph.SystemOperationsTest do
   end
 
   defp jobs_for_event(event_id) do
-    Oban.Job
-    |> where([job], fragment("?->>'event_id'", job.args) == ^event_id)
-    |> Repo.all()
+    all_enqueued(worker: DispatchEventWorker, args: %{event_id: event_id})
   end
 
   defp system_operation_count do
-    %{rows: [[count]]} =
-      Repo.query!("SELECT count(*) FROM operation_correlations WHERE operation_kind = 'system'")
-
-    count
+    OperationCorrelation
+    |> Ash.Query.filter(operation_kind == "system")
+    |> Ash.count!(authorize?: false)
   end
 
   defp system_event_count do
-    %{rows: [[count]]} =
-      Repo.query!("SELECT count(*) FROM domain_events WHERE operation_kind = 'system'")
-
-    count
+    DomainEvent
+    |> Ash.Query.filter(operation_kind == "system")
+    |> Ash.count!(authorize?: false)
   end
 
   defp capability!(key) do

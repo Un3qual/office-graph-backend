@@ -4,10 +4,10 @@ defmodule OfficeGraphWeb.JsonApi.Common.Errors do
   import Phoenix.Controller, only: [json: 2]
   import Plug.Conn, only: [put_status: 2]
 
-  alias OfficeGraphWeb.OperatorCommands.Errors
+  alias OfficeGraph.CommandSupport.CommandError
 
   def render(conn, error, opts \\ []) do
-    classification = Errors.classify(error)
+    classification = CommandError.classify(error)
 
     public_error =
       classification.metadata

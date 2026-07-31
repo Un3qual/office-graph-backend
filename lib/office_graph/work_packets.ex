@@ -6,17 +6,17 @@ defmodule OfficeGraph.WorkPackets do
   use Boundary,
     deps: [
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.Operations,
-      OfficeGraph.Repo,
       OfficeGraph.WorkGraph
     ],
     exports: []
 
   alias OfficeGraph.Authorization
   alias OfficeGraph.Operations
-  alias OfficeGraph.Repo
 
   alias OfficeGraph.WorkPackets.{
+    PacketActionResult,
     Readiness,
     PacketResult,
     WorkPacket,
@@ -32,14 +32,54 @@ defmodule OfficeGraph.WorkPackets do
   @work_packet_create_action "work_packet.create"
   @work_packet_version_create_action "work_packet.version.create"
 
-  def graphql_node_type(%WorkPacket{}), do: :work_packet
-  def graphql_node_type(_value), do: nil
+  defguardp is_packet_business_error(error)
+            when is_tuple(error) and
+                   elem(error, 0) in [
+                     :packet_current_version_mismatch,
+                     :stale_packet_version,
+                     :work_packet_operation_conflict,
+                     :work_packet_version_operation_conflict
+                   ]
 
-  def graphql_node(session_context, :work_packet, id) do
-    Ash.get(WorkPacket, id, actor: session_context, not_found_error?: false)
+  @behaviour Ash.Resource.Actions.Implementation
+
+  @impl true
+  def run(input, [mode: :create_packet], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id) do
+      case create_packet_records(
+             session_context,
+             operation,
+             Map.delete(attrs, :operation_id)
+           ) do
+        {:ok, result} -> PacketActionResult.accepted(result)
+        {:error, error} when is_packet_business_error(error) -> PacketActionResult.rejected(error)
+        {:error, error} -> {:error, error}
+      end
+    end
   end
 
-  def graphql_node(_session_context, _type, _id), do: {:ok, nil}
+  def run(input, [mode: :create_version], %{actor: session_context})
+      when is_map(session_context) do
+    attrs = input.arguments
+
+    with {:ok, operation} <- Operations.lock_operation(attrs.operation_id) do
+      case create_version_records(
+             session_context,
+             operation,
+             attrs.packet_id,
+             Map.drop(attrs, [:operation_id, :packet_id])
+           ) do
+        {:ok, result} -> PacketActionResult.accepted(result)
+        {:error, error} when is_packet_business_error(error) -> PacketActionResult.rejected(error)
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def get_packet_for_version_command(session_context, id) do
     Operations.read_command_target(
@@ -57,7 +97,16 @@ defmodule OfficeGraph.WorkPackets do
            Authorization.authorize_operation(session_context, operation, :work_packet_create,
              organization_id: session_context.organization_id
            ) do
-      create_packet_records(session_context, operation, attrs)
+      WorkPacket
+      |> Ash.ActionInput.for_action(
+        :persist_packet_contract,
+        Map.put(attrs, :operation_id, operation.id)
+      )
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> case do
+        {:ok, %PacketActionResult{} = result} -> PacketActionResult.to_public_result(result)
+        {:error, error} -> {:error, error}
+      end
     end
   end
 
@@ -76,7 +125,18 @@ defmodule OfficeGraph.WorkPackets do
              :work_packet_version_create,
              organization_id: session_context.organization_id
            ) do
-      create_version_records(session_context, operation, packet.id, attrs)
+      WorkPacket
+      |> Ash.ActionInput.for_action(
+        :persist_packet_version_contract,
+        attrs
+        |> Map.put(:operation_id, operation.id)
+        |> Map.put(:packet_id, packet.id)
+      )
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> case do
+        {:ok, %PacketActionResult{} = result} -> PacketActionResult.to_public_result(result)
+        {:error, error} -> {:error, error}
+      end
     end
   end
 
@@ -203,58 +263,51 @@ defmodule OfficeGraph.WorkPackets do
   end
 
   defp create_version_records(session_context, operation, packet_id, attrs) do
-    Repo.transaction(fn ->
-      _operation = lock_operation!(operation.id)
-      packet = lock_packet!(session_context, packet_id)
-
-      case existing_version_result(session_context, operation, packet) do
-        {:ok, nil} ->
-          create_next_version_records!(session_context, operation, packet, attrs)
-
-        {:ok, version_result} ->
-          replay_version_result!(version_result, attrs)
-
-        {:error, error} ->
-          Repo.rollback(error)
+    with {:ok, packet} <-
+           Operations.lock_scoped_target(WorkPacket, session_context, packet_id),
+         {:ok, existing_result} <-
+           existing_version_result(session_context, operation, packet) do
+      case existing_result do
+        nil -> create_next_version_records(session_context, operation, packet, attrs)
+        version_result -> replay_version_result(version_result, attrs)
       end
-    end)
-    |> normalize_transaction_result()
+    end
   end
 
-  defp create_next_version_records!(session_context, operation, packet, attrs) do
+  defp create_next_version_records(session_context, operation, packet, attrs) do
     with {:ok, current_version} <- read_current_version(packet),
          :ok <- validate_expected_current_version(packet, current_version, attrs),
-         :ok <- validate_source_check_pairs(session_context, attrs) do
-      version =
-        Repo.ash_create!(
-          WorkPacketVersion,
-          version_attrs(
-            session_context,
-            operation,
-            packet,
-            current_version.version_number + 1,
-            attrs
-          )
-        )
-
-      source_references = create_source_references!(session_context, version, attrs)
-      required_checks = create_required_checks!(session_context, version, attrs)
-
-      packet =
-        packet
-        |> Ash.Changeset.for_update(:set_current_version, %{
-          current_version_id: version.id
-        })
-        |> Repo.ash_update!()
-
-      %PacketResult{
-        packet: packet,
-        version: version,
-        source_references: source_references,
-        required_checks: required_checks
-      }
-    else
-      {:error, error} -> Repo.rollback(error)
+         :ok <- validate_source_check_pairs(session_context, attrs),
+         {:ok, version, _version_notifications} <-
+           WorkPacketVersion
+           |> Ash.Changeset.for_create(
+             :create,
+             version_attrs(
+               session_context,
+               operation,
+               packet,
+               current_version.version_number + 1,
+               attrs
+             )
+           )
+           |> Ash.create(authorize?: false, return_notifications?: true),
+         {:ok, source_references} <-
+           create_source_references(session_context, version, attrs),
+         {:ok, required_checks} <-
+           create_required_checks(session_context, version, attrs),
+         {:ok, packet, _packet_notifications} <-
+           packet
+           |> Ash.Changeset.for_update(:set_current_version, %{
+             current_version_id: version.id
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true) do
+      {:ok,
+       PacketResult.build!(
+         packet,
+         version,
+         source_references,
+         required_checks
+       )}
     end
   end
 
@@ -282,12 +335,12 @@ defmodule OfficeGraph.WorkPackets do
         with {:ok, source_references} <- read_source_references(version.id),
              {:ok, required_checks} <- read_required_checks(version.id) do
           {:ok,
-           %PacketResult{
-             packet: packet,
-             version: version,
-             source_references: source_references,
-             required_checks: required_checks
-           }}
+           PacketResult.build!(
+             packet,
+             version,
+             source_references,
+             required_checks
+           )}
         end
 
       {:error, error} ->
@@ -295,7 +348,7 @@ defmodule OfficeGraph.WorkPackets do
     end
   end
 
-  defp replay_version_result!(
+  defp replay_version_result(
          %PacketResult{
            version: version,
            source_references: source_references,
@@ -304,9 +357,9 @@ defmodule OfficeGraph.WorkPackets do
          attrs
        ) do
     if same_version_replay?(version, source_references, required_checks, attrs) do
-      version_result
+      {:ok, version_result}
     else
-      Repo.rollback({:work_packet_version_operation_conflict, version.id})
+      {:error, {:work_packet_version_operation_conflict, version.id}}
     end
   end
 
@@ -321,93 +374,59 @@ defmodule OfficeGraph.WorkPackets do
       required_check_ids(required_checks) == Map.get(attrs, :verification_check_ids, [])
   end
 
-  defp lock_packet!(session_context, packet_id) do
-    case Operations.lock_scoped_target(WorkPacket, session_context, packet_id) do
-      {:ok, packet} -> packet
-      {:error, error} -> Repo.rollback(error)
+  defp create_packet_records(session_context, operation, attrs) do
+    with {:ok, existing_result} <- existing_packet_result(session_context, operation) do
+      case existing_result do
+        nil ->
+          with :ok <- validate_source_check_pairs(session_context, attrs) do
+            create_packet_contract(session_context, operation, attrs)
+          end
+
+        packet_result ->
+          replay_packet_result(packet_result, attrs)
+      end
     end
   end
 
-  defp create_packet_records(session_context, operation, attrs) do
-    packet_id = Ecto.UUID.generate()
-    version_id = Ecto.UUID.generate()
-
-    Repo.transaction(fn ->
-      _operation = lock_operation!(operation.id)
-
-      case existing_packet_result(session_context, operation) do
-        {:ok, nil} ->
-          case validate_source_check_pairs(session_context, attrs) do
-            :ok ->
-              create_packet_records!(
-                session_context,
-                operation,
-                attrs,
-                packet_id,
-                version_id
-              )
-
-            {:error, error} ->
-              Repo.rollback(error)
-          end
-
-        {:ok, packet_result} ->
-          replay_packet_result!(packet_result, attrs)
-
-        {:error, error} ->
-          Repo.rollback(error)
-      end
-    end)
-    |> normalize_transaction_result()
-  end
-
-  defp create_packet_records!(
-         session_context,
-         operation,
-         attrs,
-         packet_id,
-         version_id
-       ) do
-    packet =
-      Repo.ash_create!(
-        WorkPacket,
-        %{
-          id: packet_id,
-          organization_id: session_context.organization_id,
-          workspace_id: session_context.workspace_id,
-          operation_id: operation.id,
-          title: attrs[:title]
-        }
-      )
-
-    version =
-      Repo.ash_create!(
-        WorkPacketVersion,
-        version_attrs(session_context, operation, packet, 1, attrs)
-        |> Map.put(:id, version_id)
-      )
-
-    source_references = create_source_references!(session_context, version, attrs)
-    required_checks = create_required_checks!(session_context, version, attrs)
-
-    packet =
-      packet
-      |> Ash.Changeset.for_update(:set_current_version, %{
-        current_version_id: version.id
-      })
-      |> Repo.ash_update!()
-
-    %PacketResult{
-      packet: packet,
-      version: version,
-      source_references: source_references,
-      required_checks: required_checks
-    }
+  defp create_packet_contract(session_context, operation, attrs) do
+    with {:ok, packet, _packet_notifications} <-
+           WorkPacket
+           |> Ash.Changeset.for_create(:create, %{
+             organization_id: session_context.organization_id,
+             workspace_id: session_context.workspace_id,
+             operation_id: operation.id,
+             title: attrs[:title]
+           })
+           |> Ash.create(authorize?: false, return_notifications?: true),
+         {:ok, version, _version_notifications} <-
+           WorkPacketVersion
+           |> Ash.Changeset.for_create(
+             :create,
+             version_attrs(session_context, operation, packet, 1, attrs)
+           )
+           |> Ash.create(authorize?: false, return_notifications?: true),
+         {:ok, source_references} <-
+           create_source_references(session_context, version, attrs),
+         {:ok, required_checks} <-
+           create_required_checks(session_context, version, attrs),
+         {:ok, packet, _update_notifications} <-
+           packet
+           |> Ash.Changeset.for_update(:set_current_version, %{
+             current_version_id: version.id
+           })
+           |> Ash.update(authorize?: false, return_notifications?: true) do
+      {:ok,
+       PacketResult.build!(
+         packet,
+         version,
+         source_references,
+         required_checks
+       )}
+    end
   end
 
   defp version_attrs(session_context, operation, packet, version_number, attrs) do
     %{
-      id: Ecto.UUID.generate(),
       work_packet_id: packet.id,
       organization_id: session_context.organization_id,
       workspace_id: session_context.workspace_id,
@@ -424,14 +443,13 @@ defmodule OfficeGraph.WorkPackets do
     }
   end
 
-  defp create_source_references!(session_context, version, attrs) do
+  defp create_source_references(session_context, version, attrs) do
     inputs =
       attrs
       |> Map.get(:source_graph_item_ids, [])
       |> Enum.with_index()
       |> Enum.map(fn {graph_item_id, position} ->
         %{
-          id: Ecto.UUID.generate(),
           work_packet_version_id: version.id,
           graph_item_id: graph_item_id,
           organization_id: session_context.organization_id,
@@ -440,17 +458,16 @@ defmodule OfficeGraph.WorkPackets do
         }
       end)
 
-    Repo.ash_bulk_create!(WorkPacketSourceReference, inputs)
+    create_packet_children(WorkPacketSourceReference, inputs)
   end
 
-  defp create_required_checks!(session_context, version, attrs) do
+  defp create_required_checks(session_context, version, attrs) do
     inputs =
       attrs
       |> Map.get(:verification_check_ids, [])
       |> Enum.with_index()
       |> Enum.map(fn {verification_check_id, position} ->
         %{
-          id: Ecto.UUID.generate(),
           work_packet_version_id: version.id,
           verification_check_id: verification_check_id,
           organization_id: session_context.organization_id,
@@ -459,7 +476,30 @@ defmodule OfficeGraph.WorkPackets do
         }
       end)
 
-    Repo.ash_bulk_create!(WorkPacketRequiredCheck, inputs)
+    create_packet_children(WorkPacketRequiredCheck, inputs)
+  end
+
+  defp create_packet_children(_resource, []), do: {:ok, []}
+
+  defp create_packet_children(resource, inputs) do
+    case Ash.bulk_create(inputs, resource, :create,
+           authorize?: false,
+           return_errors?: true,
+           return_notifications?: true,
+           return_records?: true,
+           sorted?: true,
+           stop_on_error?: true,
+           transaction: false
+         ) do
+      %Ash.BulkResult{status: :success, records: records} ->
+        {:ok, records}
+
+      %Ash.BulkResult{errors: errors} when is_list(errors) and errors != [] ->
+        {:error, Ash.Error.to_error_class(errors)}
+
+      %Ash.BulkResult{status: status} ->
+        {:error, {:packet_child_create_failed, resource, status}}
+    end
   end
 
   defp existing_packet_result(session_context, operation) do
@@ -480,12 +520,12 @@ defmodule OfficeGraph.WorkPackets do
              {:ok, source_references} <- read_source_references(version.id),
              {:ok, required_checks} <- read_required_checks(version.id) do
           {:ok,
-           %PacketResult{
-             packet: packet,
-             version: version,
-             source_references: source_references,
-             required_checks: required_checks
-           }}
+           PacketResult.build!(
+             packet,
+             version,
+             source_references,
+             required_checks
+           )}
         end
 
       {:error, error} ->
@@ -530,7 +570,7 @@ defmodule OfficeGraph.WorkPackets do
     end
   end
 
-  defp replay_packet_result!(
+  defp replay_packet_result(
          %PacketResult{
            packet: packet,
            version: version,
@@ -541,9 +581,9 @@ defmodule OfficeGraph.WorkPackets do
          attrs
        ) do
     if same_packet_replay?(packet, version, source_references, required_checks, attrs) do
-      packet_result
+      {:ok, packet_result}
     else
-      Repo.rollback({:work_packet_operation_conflict, packet.id})
+      {:error, {:work_packet_operation_conflict, packet.id}}
     end
   end
 
@@ -571,13 +611,6 @@ defmodule OfficeGraph.WorkPackets do
     Enum.map(required_checks, & &1.verification_check_id)
   end
 
-  defp lock_operation!(operation_id) do
-    case Operations.lock_operation(operation_id) do
-      {:ok, operation} -> operation
-      {:error, error} -> Repo.rollback(error)
-    end
-  end
-
   defp read_source_references(version_id) do
     WorkPacketSourceReference
     |> Ash.Query.filter(work_packet_version_id == ^version_id)
@@ -591,8 +624,4 @@ defmodule OfficeGraph.WorkPackets do
     |> Ash.Query.sort(position: :asc, inserted_at: :asc, id: :asc)
     |> Ash.read(authorize?: false)
   end
-
-  defp normalize_transaction_result({:ok, result}), do: {:ok, result}
-  defp normalize_transaction_result({:error, error}), do: {:error, error}
-  defp normalize_transaction_result(other), do: other
 end

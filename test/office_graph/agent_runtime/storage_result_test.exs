@@ -10,6 +10,13 @@ defmodule OfficeGraph.AgentRuntime.StorageResultTest do
              end)
   end
 
+  test "returned Ash storage failures map to stable storage unavailability" do
+    assert {:error, :integration_storage_unavailable} =
+             StorageResult.run(fn ->
+               {:error, %Ash.Error.Unknown{errors: []}}
+             end)
+  end
+
   test "programming errors are not disguised as storage unavailability" do
     assert_raise RuntimeError, "programming fault", fn ->
       StorageResult.run(fn -> raise "programming fault" end)

@@ -6,7 +6,6 @@ defmodule OfficeGraph.SoftwareProving.Commit do
     accept: [:repository_id, :oid, :summary, :authored_at, :committed_at]
 
   attributes do
-    attribute :repository_id, :uuid, allow_nil?: false, public?: true
     attribute :oid, :string, allow_nil?: false, public?: true
     attribute :summary, :string, public?: true
     attribute :authored_at, :utc_datetime_usec, public?: true
@@ -17,8 +16,8 @@ defmodule OfficeGraph.SoftwareProving.Commit do
     belongs_to :repository, OfficeGraph.SoftwareProving.Repository do
       source_attribute :repository_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
   end
 

@@ -20,10 +20,10 @@
   "include": [
     "app",
     "src",
+    "tests",
     "react-router.config.ts",
     "vite.config.ts",
-    "vite.react-router.config.ts",
-    "vitest.setup.ts"
+    "vite.react-router.config.ts"
   ],
   "references": []
 }

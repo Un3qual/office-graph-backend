@@ -1,8 +1,9 @@
 defmodule OfficeGraphWeb.GitHubActionsApiTest do
   use OfficeGraphWeb.ConnCase, async: false
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Repo}
-  alias OfficeGraphWeb.OperatorCommands.Input
+  alias OfficeGraph.{Foundation, GitHubIntegration}
+  alias OfficeGraph.GitHubIntegration.OutboundAction
+  alias OfficeGraph.Operations.PersistenceTestAdapter
 
   setup do
     {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -34,8 +35,9 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     installation: installation
   } do
     query = """
-    query GitHubHealth($installationId: ID!) {
-      githubIntegrationHealth(installationId: $installationId, limit: 50) {
+    query GitHubHealth($installationId: ID!, $limit: Int) {
+      githubIntegrationHealth(installationId: $installationId, limit: $limit) {
+        id
         installationId
         lifecycle
         accountLogin
@@ -52,7 +54,7 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     }
     """
 
-    graphql = graphql(conn, query, %{installationId: installation.id})
+    graphql = graphql(conn, query, %{installationId: installation.id, limit: 50})
 
     json =
       recycle_human_session(conn)
@@ -66,6 +68,31 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
     assert graphql["credentialPosture"] == "active"
     assert graphql["retryableCount"] == 0
     assert graphql["terminalCount"] == 0
+
+    node =
+      graphql(
+        conn,
+        """
+        query GitHubHealthNode($id: ID!) {
+          node(id: $id) {
+            id
+            __typename
+            ... on GithubIntegrationHealth {
+              installationId
+              lifecycle
+              permissionPosture
+            }
+          }
+        }
+        """,
+        %{id: graphql["id"]}
+      )
+
+    assert node["id"] == graphql["id"]
+    assert node["__typename"] == "GithubIntegrationHealth"
+    assert node["installationId"] == installation.id
+    assert node["lifecycle"] == graphql["lifecycle"]
+    assert node["permissionPosture"] == graphql["permissionPosture"]
 
     assert json["installation_id"] == graphql["installationId"]
     assert json["lifecycle"] == graphql["lifecycle"]
@@ -106,56 +133,48 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
 
     error =
       build_conn()
-      |> post("/api/v1/commands/reply-to-github-review", payload)
+      |> generated_json_api()
+      |> post("/api/v1/commands/reply-to-github-review", %{data: payload})
       |> json_response(403)
 
-    assert error["command"] == "reply_to_github_review"
-    assert error["error"]["code"] == "forbidden"
+    assert %{"errors" => [%{"code" => "forbidden"}]} = error
   end
 
   test "public check-update input accepts an omitted conclusion for progress states" do
-    assert {:ok, parsed} =
-             Input.parse(:update_github_check, %{
-               idempotency_key: "check-progress-input",
-               installation_id: Ecto.UUID.generate(),
-               check_run_id: Ecto.UUID.generate(),
-               status: "in_progress",
-               details_url: "https://example.test/checks/progress",
-               expected_provider_version: "v1"
-             })
+    input =
+      Ash.ActionInput.for_action(OutboundAction, :update_github_check, %{
+        idempotency_key: "check-progress-input",
+        installation_id: Ecto.UUID.generate(),
+        check_run_id: Ecto.UUID.generate(),
+        status: "in_progress",
+        details_url: "https://example.test/checks/progress",
+        expected_provider_version: "v1"
+      })
 
-    refute Map.has_key?(parsed, :conclusion)
+    assert input.valid?
+    refute Map.has_key?(input.arguments, :conclusion)
   end
 
   test "JSON command start storage outages return only the safe availability response", %{
     conn: conn
   } do
-    Repo.query!("""
-    ALTER TABLE operation_correlations
-    ADD CONSTRAINT test_github_command_start_storage
-    CHECK (action <> 'github.review.reply')
-    """)
+    PersistenceTestAdapter.configure!(human_operation: {:error, :database_unavailable})
 
     response =
-      try do
-        recycle_human_session(conn)
-        |> post("/api/v1/commands/reply-to-github-review", %{
+      recycle_human_session(conn)
+      |> generated_json_api()
+      |> post("/api/v1/commands/reply-to-github-review", %{
+        data: %{
           idempotency_key: "reply-api-operation-storage",
           installation_id: Ecto.UUID.generate(),
           review_comment_id: Ecto.UUID.generate(),
           body: "Retry after operation storage recovers.",
           expected_provider_version: "v1"
-        })
-        |> json_response(503)
-      after
-        Repo.query!("""
-        ALTER TABLE operation_correlations
-        DROP CONSTRAINT test_github_command_start_storage
-        """)
-      end
+        }
+      })
+      |> json_response(503)
 
-    assert response["command"] == "reply_to_github_review"
-    assert response["error"]["code"] == "integration_storage_unavailable"
+    assert %{"errors" => [%{"code" => "integration_storage_unavailable"}]} = response
     refute inspect(response) =~ "Ash.Error"
     refute inspect(response) =~ "Postgrex"
   end
@@ -168,5 +187,11 @@ defmodule OfficeGraphWeb.GitHubActionsApiTest do
 
     assert response["errors"] in [nil, []], inspect(response["errors"])
     response["data"] |> Map.values() |> hd()
+  end
+
+  defp generated_json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

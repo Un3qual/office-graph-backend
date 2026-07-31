@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "occurrence_fields": [
+    "fingerprint",
+    "class",
+    "construct",
+    "function",
+    "ordinal"
+  ],
+  "status": "unapproved_removal_debt",
+  "version": 1
+}

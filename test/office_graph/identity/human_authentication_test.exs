@@ -217,34 +217,45 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert linked.external_identity_link.verified_email == normalized_email
     end
 
-    test "persists review when multiple principals own the normalized identifier" do
-      normalized_email = "#{unique("ambiguous-owner")}@example.test"
+    test "canonicalizes principal email variants before identity upsert" do
+      canonical_email = "#{unique("canonical-owner")}@example.test"
 
-      for email <- [String.upcase(normalized_email), " #{normalized_email} "] do
+      first =
         Ash.create!(
           Principal,
           %{
-            id: Ecto.UUID.generate(),
-            email: email,
+            email: String.upcase(canonical_email),
             kind: "human",
             status: "active"
           },
-          action: :create,
+          action: :ensure,
           authorize?: false
         )
-      end
 
-      assert {:error, :identity_review_required} =
+      replayed =
+        Ash.create!(
+          Principal,
+          %{
+            email: " #{canonical_email} ",
+            kind: "human",
+            status: "active"
+          },
+          action: :ensure,
+          authorize?: false
+        )
+
+      assert first.id == replayed.id
+      assert first.email == canonical_email
+      assert replayed.email == canonical_email
+
+      assert {:ok, linked} =
                Identity.reconcile_oidc_identity(
-                 claims(normalized_email, "ambiguous-owner-subject"),
+                 claims(String.upcase(canonical_email), "canonical-owner-subject"),
                  reconciliation_opts()
                )
 
-      assert %ExternalIdentityLink{
-               principal_id: nil,
-               status: "review_required",
-               review_reason: "ambiguous_verified_identifier"
-             } = link_for_subject("ambiguous-owner-subject")
+      assert linked.principal.id == first.id
+      assert linked.external_identity_link.verified_email == canonical_email
     end
 
     test "persists a stable review state for an unknown verified identifier" do
@@ -480,6 +491,40 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
       assert persisted.status == "active"
       assert persisted.linking_state == "linked"
     end
+
+    test "lifecycle updates cannot reassign identity ownership", %{bootstrap: bootstrap} do
+      {:ok, linked} =
+        Identity.reconcile_oidc_identity(
+          claims(bootstrap.principal.email, unique("ownership-subject")),
+          reconciliation_opts()
+        )
+
+      replacement =
+        Ash.create!(
+          Principal,
+          %{
+            email: "#{unique("replacement-principal")}@example.test",
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               linked.external_identity_link
+               |> Ash.Changeset.for_update(:set_lifecycle, %{
+                 status: "disabled",
+                 principal_id: replacement.id
+               })
+               |> Ash.update(authorize?: false)
+
+      persisted =
+        Ash.get!(ExternalIdentityLink, linked.external_identity_link.id, authorize?: false)
+
+      assert persisted.status == "active"
+      assert persisted.principal_id == bootstrap.principal.id
+    end
   end
 
   describe "human session lifecycle" do
@@ -561,61 +606,6 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
              ]
     end
 
-    test "reports principal storage failures while issuing a session", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      Repo.query!("ALTER TABLE principals RENAME TO unavailable_principals")
-
-      assert {:error, :identity_storage_unavailable} =
-               issue_session(linked, bootstrap, "principal-storage-failure")
-    end
-
-    test "reports external identity storage failures while issuing a session", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      Repo.query!(
-        "ALTER TABLE external_identity_links RENAME TO unavailable_external_identity_links"
-      )
-
-      assert {:error, :identity_storage_unavailable} =
-               issue_session(linked, bootstrap, "external-identity-storage-failure")
-    end
-
-    test "reports session storage failures separately from invalid sessions", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      assert {:ok, issued} = issue_session(linked, bootstrap, "resolve-storage-failure")
-      Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
-
-      assert {:error, :identity_storage_unavailable} =
-               Identity.resolve_human_session(issued.session.id)
-    end
-
-    test "propagates session storage failures while revalidating a governed context", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      assert {:ok, issued} = issue_session(linked, bootstrap, "validate-storage-failure")
-      Repo.query!("ALTER TABLE sessions RENAME TO unavailable_sessions")
-
-      assert {:error, :identity_storage_unavailable} =
-               Identity.validate_session_context(issued.session_context)
-    end
-
-    test "reports tenant scope storage failures separately from invalid sessions", %{
-      bootstrap: bootstrap,
-      linked: linked
-    } do
-      assert {:ok, issued} = issue_session(linked, bootstrap, "tenant-storage-failure")
-      Repo.query!("ALTER TABLE workspaces RENAME TO unavailable_workspaces")
-
-      assert {:error, :identity_storage_unavailable} =
-               Identity.resolve_human_session(issued.session.id)
-    end
-
     test "classifies malformed workspace identifiers as an invalid scope", %{
       bootstrap: bootstrap,
       linked: linked
@@ -632,6 +622,11 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                  source_surface: "web",
                  trace_id: "malformed-workspace"
                )
+    end
+
+    test "classifies malformed logout session identifiers as invalid" do
+      assert {:error, :invalid_session} =
+               Identity.revoke_human_session("not-a-uuid", trace_id: "malformed-logout")
     end
 
     test "rejects expired, revoked, disabled-link, and disabled-principal sessions", %{
@@ -792,6 +787,34 @@ defmodule OfficeGraph.Identity.HumanAuthenticationTest do
                AuthenticationEvent
                |> Ash.Query.filter(trace_id == "unrecognized-reason")
                |> Ash.read!(authorize?: false)
+    end
+
+    test "rejects authentication evidence with unsupported event or result values" do
+      for {trace_id, override} <- [
+            {"unsupported-event", %{event: "token_teleported"}},
+            {"unsupported-result", %{result: "maybe"}}
+          ] do
+        attrs =
+          Map.merge(
+            %{
+              event: "login",
+              result: "rejected",
+              reason: "authentication_failed",
+              authentication_method: "oidc",
+              source_surface: "web",
+              trace_id: trace_id
+            },
+            override
+          )
+
+        assert {:error, :invalid_authentication_event} =
+                 Identity.record_authentication_event(attrs)
+
+        assert [] =
+                 AuthenticationEvent
+                 |> Ash.Query.filter(trace_id == ^trace_id)
+                 |> Ash.read!(authorize?: false)
+      end
     end
   end
 

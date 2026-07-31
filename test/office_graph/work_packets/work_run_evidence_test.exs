@@ -151,8 +151,7 @@ defmodule OfficeGraph.WorkPackets.WorkRunEvidenceTest do
                  normalized_status: "succeeded",
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
-                 rationale: "Direct creates must not link foreign runs.",
-                 metadata: %{}
+                 rationale: "Direct creates must not link foreign runs."
                },
                actor: first_scope.session,
                action: :create
@@ -190,8 +189,7 @@ defmodule OfficeGraph.WorkPackets.WorkRunEvidenceTest do
                  normalized_status: "succeeded",
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
-                 rationale: "Direct creates must not attach unrelated checks.",
-                 metadata: %{}
+                 rationale: "Direct creates must not attach unrelated checks."
                },
                actor: bootstrap.session,
                action: :create
@@ -228,8 +226,7 @@ defmodule OfficeGraph.WorkPackets.WorkRunEvidenceTest do
                  normalized_status: "succeeded",
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
-                 rationale: "Direct creates must not attach unrelated graph items.",
-                 metadata: %{}
+                 rationale: "Direct creates must not attach unrelated graph items."
                },
                actor: bootstrap.session,
                action: :create
@@ -267,8 +264,7 @@ defmodule OfficeGraph.WorkPackets.WorkRunEvidenceTest do
                  ingested_at: DateTime.add(DateTime.utc_now(), -3600, :second),
                  freshness_state: "fresh",
                  trust_basis: "owner_attested",
-                 rationale: "Direct creates cannot spoof ingestion time.",
-                 metadata: %{}
+                 rationale: "Direct creates cannot spoof ingestion time."
                },
                actor: bootstrap.session,
                action: :create

@@ -2,7 +2,7 @@
 
 ## Implemented Table Inventory
 
-Derived from committed migrations; expected count: 83 tables.
+Derived from committed migrations; expected count: 89 tables.
 
 | Table | Owning domain | Canonical Ash resource |
 | --- | --- | --- |
@@ -27,7 +27,6 @@ Derived from committed migrations; expected count: 83 tables.
 | `domain_events` | `OfficeGraph.DurableDelivery.Domain` | `OfficeGraph.DurableDelivery.DomainEvent` |
 | `audit_records` | `OfficeGraph.Audit.Domain` | `OfficeGraph.Audit.AuditRecord` |
 | `revisions` | `OfficeGraph.Revisions.Domain` | `OfficeGraph.Revisions.Revision` |
-| `tombstones` | `OfficeGraph.Tombstones.Domain` | `OfficeGraph.Tombstones.Tombstone` |
 | `documents` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.Document` |
 | `document_blocks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.DocumentBlock` |
 | `document_marks` | `OfficeGraph.Content.Domain` | `OfficeGraph.Content.DocumentMark` |
@@ -56,6 +55,13 @@ Derived from committed migrations; expected count: 83 tables.
 | `github_installation_credentials` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.InstallationCredential` |
 | `github_sync_outcomes` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.SyncOutcome` |
 | `github_outbound_actions` | `OfficeGraph.GitHubIntegration.Domain` | `OfficeGraph.GitHubIntegration.OutboundAction` |
+| `enterprise_identity_connections` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.EnterpriseConnection` |
+| `enterprise_directories` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.Directory` |
+| `enterprise_directory_users` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.DirectoryUser` |
+| `enterprise_directory_groups` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.DirectoryGroup` |
+| `enterprise_directory_memberships` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.DirectoryMembership` |
+| `enterprise_directory_sync_events` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.DirectorySyncEvent` |
+| `external_group_role_mappings` | `OfficeGraph.EnterpriseIdentity.Domain` | `OfficeGraph.EnterpriseIdentity.ExternalGroupRoleMapping` |
 | `graph_items` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.GraphItem` |
 | `relationship_definitions` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipDefinition` |
 | `relationship_endpoint_rules` | `OfficeGraph.WorkGraph.Domain` | `OfficeGraph.WorkGraph.RelationshipEndpointRule` |

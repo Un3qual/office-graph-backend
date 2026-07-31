@@ -1,11 +1,20 @@
 defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
   @moduledoc false
 
-  alias OfficeGraph.{AgentRuntime, Foundation, Operations, Repo}
-  alias OfficeGraph.AgentRuntime.{ExecutionWorker, GateExpiryWorker, InvocationRequest}
+  alias OfficeGraph.{AgentRuntime, Foundation, Operations}
+
+  alias OfficeGraph.AgentRuntime.{
+    ContextEntry,
+    ContextPackage,
+    ExecutionWorker,
+    GateExpiryWorker,
+    InvocationRequest
+  }
+
+  alias OfficeGraph.Authorization.{Capability, RoleAssignment, RoleCapability}
   alias OfficeGraph.TestSupport.OperatorProjectionSupport
 
-  import Ecto.Query
+  require Ash.Query
 
   def invocation_fixture(opts \\ []) do
     suffix = System.unique_integer([:positive])
@@ -105,34 +114,159 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
   end
 
   def execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
+    Oban.Testing.all_enqueued(
+      repo: OfficeGraph.Repo,
+      worker: ExecutionWorker,
+      args: %{execution_id: execution_id}
     )
-    |> Repo.all()
   end
 
   def approval_resume_jobs(request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'approval_request_id'", job.args) == ^request_id
+    Oban.Testing.all_enqueued(
+      repo: OfficeGraph.Repo,
+      worker: ExecutionWorker,
+      args: %{approval_request_id: request_id}
     )
-    |> Repo.all()
   end
 
   def gate_expiry_jobs(request_kind, request_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(GateExpiryWorker) and
-        fragment("?->>'request_kind'", job.args) == ^request_kind and
-        fragment("?->>'request_id'", job.args) == ^request_id
+    Oban.Testing.all_enqueued(
+      repo: OfficeGraph.Repo,
+      worker: GateExpiryWorker,
+      args: %{request_kind: request_kind, request_id: request_id}
     )
-    |> Repo.all()
+  end
+
+  def configure_definition!(definition, attrs) do
+    definition
+    |> Ash.Changeset.for_update(:configure_authority, attrs)
+    |> Ash.update!(authorize?: false)
+  end
+
+  def require_context_expansion!(invocation, count \\ 1)
+      when is_integer(count) and count > 0 do
+    target_ordinals =
+      invocation.context_entries
+      |> Enum.sort_by(& &1.ordinal)
+      |> Enum.take(count)
+      |> MapSet.new(& &1.ordinal)
+
+    entry_attrs =
+      Enum.map(invocation.context_entries, fn entry ->
+        expansion_required? = MapSet.member?(target_ordinals, entry.ordinal)
+
+        %{
+          organization_id: entry.organization_id,
+          workspace_id: entry.workspace_id,
+          entry_type: entry.entry_type,
+          resource_type: entry.resource_type,
+          resource_id: entry.resource_id,
+          external_reference_id: entry.external_reference_id,
+          posture: if(expansion_required?, do: "expansion_required", else: entry.posture),
+          rationale_code:
+            if(
+              expansion_required?,
+              do: "fixture_context_expansion_required",
+              else: entry.rationale_code
+            ),
+          source_version: entry.source_version,
+          ordinal: entry.ordinal,
+          operation_id: entry.operation_id
+        }
+        |> then(&Map.put(&1, :content_hash, fixture_digest(&1)))
+      end)
+
+    package =
+      Ash.create!(
+        ContextPackage,
+        %{
+          execution_id: invocation.execution.id,
+          authority_snapshot_id: invocation.authority_snapshot.id,
+          organization_id: invocation.execution.organization_id,
+          workspace_id: invocation.execution.workspace_id,
+          selected_graph_item_id: invocation.execution.graph_item_id,
+          run_id: invocation.execution.run_id,
+          previous_package_id: invocation.context_package.id,
+          operation_id: invocation.operation.id,
+          version: invocation.context_package.version + 1,
+          package_hash: fixture_digest(entry_attrs),
+          assembled_at: DateTime.utc_now()
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    entries =
+      Enum.map(entry_attrs, fn attrs ->
+        Ash.create!(
+          ContextEntry,
+          Map.put(attrs, :context_package_id, package.id),
+          action: :create,
+          authorize?: false
+        )
+      end)
+
+    %{
+      context_package: package,
+      context_entries: entries,
+      targets: Enum.filter(entries, &(&1.posture == "expansion_required"))
+    }
+  end
+
+  def grant_capabilities!(context, capability_keys, principal_ids \\ nil) do
+    principal_ids = principal_ids || [context.agent_principal.id]
+
+    assignments =
+      RoleAssignment
+      |> Ash.Query.filter(
+        principal_id in ^principal_ids and
+          organization_id == ^context.bootstrap.organization.id and
+          workspace_id == ^context.bootstrap.workspace.id
+      )
+      |> Ash.read!(authorize?: false)
+
+    capabilities =
+      Capability
+      |> Ash.Query.filter(key in ^capability_keys)
+      |> Ash.read!(authorize?: false)
+
+    if Enum.sort(Enum.map(capabilities, & &1.key)) != Enum.sort(capability_keys) do
+      raise ArgumentError, "unknown AgentRuntime fixture capability"
+    end
+
+    Enum.each(assignments, fn assignment ->
+      Enum.each(capabilities, fn capability ->
+        Ash.create!(
+          RoleCapability,
+          %{role_id: assignment.role_id, capability_id: capability.id},
+          action: :ensure,
+          authorize?: false
+        )
+      end)
+    end)
+  end
+
+  def revoke_capabilities!(context, capability_keys) do
+    role_ids =
+      RoleAssignment
+      |> Ash.Query.filter(
+        principal_id == ^context.agent_principal.id and
+          organization_id == ^context.bootstrap.organization.id and
+          workspace_id == ^context.bootstrap.workspace.id
+      )
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.role_id)
+
+    capability_ids =
+      Capability
+      |> Ash.Query.filter(key in ^capability_keys)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.id)
+
+    RoleCapability
+    |> Ash.Query.filter(role_id in ^role_ids and capability_id in ^capability_ids)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, action: :revoke, authorize?: false))
   end
 
   defp base_request(context) do
@@ -150,5 +284,12 @@ defmodule OfficeGraph.TestSupport.AgentRuntimeSupport do
         |> Kernel.--(["agent.invoke"]),
       autonomy_mode: "human_supervised"
     }
+  end
+
+  defp fixture_digest(value) do
+    value
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 end

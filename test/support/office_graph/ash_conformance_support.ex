@@ -11,10 +11,18 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   @architecture_exception_ledger "openspec/specs/backend-model-ownership/architecture-exceptions.md"
   @stabilization_change_archive "openspec/changes/archive/2026-06-30-stabilize-architecture-foundation"
   @api_migration_ledger "openspec/specs/backend-model-ownership/api-migration-ledger.md"
-  @implementation_summary "openspec/specs/walking-skeleton-verification/implementation-summary.md"
+  @api_surface_classification "openspec/changes/archive/2026-07-28-complete-ash-generated-apis/api-surface-classification.md"
   @map_field_classification "#{@stabilization_change_archive}/map-field-classification.md"
   @model_inventory "openspec/specs/backend-model-ownership/model-inventory.md"
   @stabilization_inventory "#{@stabilization_change_archive}/stabilization-inventory.md"
+
+  @shared_primary_key_relationships %{
+    OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => :repository_id,
+    OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => :pull_request_id,
+    OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => :review_thread_id,
+    OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => :review_comment_id,
+    OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => :check_run_id
+  }
 
   @expected_resources %{
     "organizations" => {OfficeGraph.Tenancy.Domain, OfficeGraph.Tenancy.Organization},
@@ -47,7 +55,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       {OfficeGraph.DurableDelivery.Domain, OfficeGraph.DurableDelivery.DomainEvent},
     "audit_records" => {OfficeGraph.Audit.Domain, OfficeGraph.Audit.AuditRecord},
     "revisions" => {OfficeGraph.Revisions.Domain, OfficeGraph.Revisions.Revision},
-    "tombstones" => {OfficeGraph.Tombstones.Domain, OfficeGraph.Tombstones.Tombstone},
     "documents" => {OfficeGraph.Content.Domain, OfficeGraph.Content.Document},
     "document_blocks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.DocumentBlock},
     "document_marks" => {OfficeGraph.Content.Domain, OfficeGraph.Content.DocumentMark},
@@ -99,6 +106,21 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.SyncOutcome},
     "github_outbound_actions" =>
       {OfficeGraph.GitHubIntegration.Domain, OfficeGraph.GitHubIntegration.OutboundAction},
+    "enterprise_identity_connections" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.EnterpriseConnection},
+    "enterprise_directories" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.Directory},
+    "enterprise_directory_users" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectoryUser},
+    "enterprise_directory_groups" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectoryGroup},
+    "enterprise_directory_memberships" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectoryMembership},
+    "enterprise_directory_sync_events" =>
+      {OfficeGraph.EnterpriseIdentity.Domain, OfficeGraph.EnterpriseIdentity.DirectorySyncEvent},
+    "external_group_role_mappings" =>
+      {OfficeGraph.EnterpriseIdentity.Domain,
+       OfficeGraph.EnterpriseIdentity.ExternalGroupRoleMapping},
     "graph_items" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.GraphItem},
     "relationship_definitions" =>
       {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.RelationshipDefinition},
@@ -166,6 +188,177 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.WorkGraph.VerificationResult
   ]
 
+  @intentional_non_relationship_uuid_identifiers %{
+    {OfficeGraph.Operations.OperationCorrelation, :credential_id} => {:boundary_opaque, :action},
+    {OfficeGraph.Identity.Session, :enterprise_connection_id} =>
+      {:authentication_provenance, :authentication_method},
+    {OfficeGraph.Operations.OperationCorrelation, :subject_id} => {:polymorphic, :subject_kind},
+    {OfficeGraph.DurableDelivery.DomainEvent, :subject_id} => {:polymorphic, :subject_kind},
+    {OfficeGraph.Audit.AuditRecord, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.Revisions.Revision, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.Content.DocumentReference, :target_id} => {:polymorphic, :target_type},
+    {OfficeGraph.ExternalRefs.ExternalReference, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.GitHubIntegration.SyncOutcome, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.GitHubIntegration.OutboundAction, :target_id} =>
+      {:provider_polymorphic, :target_type},
+    {OfficeGraph.ProposedChanges.ProposedGraphChange, :applied_resource_id} =>
+      {:change_result, :change_type},
+    {OfficeGraph.WorkGraph.GraphItem, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.AgentRuntime.ContextEntry, :resource_id} => {:polymorphic, :resource_type},
+    {OfficeGraph.AgentRuntime.ApprovalRequest, :scope_id} => {:polymorphic, :scope_type},
+    {OfficeGraph.AgentRuntime.ContextExpansionRequest, :target_resource_id} =>
+      {:polymorphic, :target_resource_type},
+    {OfficeGraph.AgentRuntime.ContextExpansionRequest, :target_scope_id} =>
+      {:polymorphic, :target_scope_type}
+  }
+
+  @stable_inverse_relationships %{
+    OfficeGraph.Tenancy.Organization => %{
+      workspaces: {:has_many, OfficeGraph.Tenancy.Workspace, :id, :organization_id}
+    },
+    OfficeGraph.Tenancy.Workspace => %{
+      initiatives: {:has_many, OfficeGraph.Tenancy.Initiative, :id, :workspace_id},
+      workstreams: {:has_many, OfficeGraph.Tenancy.Workstream, :id, :workspace_id}
+    },
+    OfficeGraph.Tenancy.Initiative => %{
+      workstreams: {:has_many, OfficeGraph.Tenancy.Workstream, :id, :initiative_id}
+    },
+    OfficeGraph.Identity.Principal => %{
+      profile: {:has_one, OfficeGraph.Identity.PrincipalProfile, :id, :principal_id},
+      credentials: {:has_many, OfficeGraph.Identity.Credential, :id, :principal_id},
+      external_identity_links:
+        {:has_many, OfficeGraph.Identity.ExternalIdentityLink, :id, :principal_id},
+      sessions: {:has_many, OfficeGraph.Identity.Session, :id, :principal_id},
+      authentication_events:
+        {:has_many, OfficeGraph.Identity.AuthenticationEvent, :id, :principal_id},
+      role_assignments: {:has_many, OfficeGraph.Authorization.RoleAssignment, :id, :principal_id}
+    },
+    OfficeGraph.Identity.ExternalIdentityLink => %{
+      sessions: {:has_many, OfficeGraph.Identity.Session, :id, :external_identity_link_id},
+      authentication_events:
+        {:has_many, OfficeGraph.Identity.AuthenticationEvent, :id, :external_identity_link_id}
+    },
+    OfficeGraph.Authorization.Role => %{
+      role_capabilities: {:has_many, OfficeGraph.Authorization.RoleCapability, :id, :role_id},
+      assignments: {:has_many, OfficeGraph.Authorization.RoleAssignment, :id, :role_id}
+    },
+    OfficeGraph.Authorization.Capability => %{
+      role_capabilities:
+        {:has_many, OfficeGraph.Authorization.RoleCapability, :id, :capability_id}
+    },
+    OfficeGraph.Content.Document => %{
+      blocks: {:has_many, OfficeGraph.Content.DocumentBlock, :id, :document_id},
+      references: {:has_many, OfficeGraph.Content.DocumentReference, :id, :document_id},
+      revisions: {:has_many, OfficeGraph.Content.DocumentRevision, :id, :document_id}
+    },
+    OfficeGraph.Content.DocumentBlock => %{
+      marks: {:has_many, OfficeGraph.Content.DocumentMark, :id, :block_id}
+    },
+    OfficeGraph.Integrations.ExternalSource => %{
+      raw_archives: {:has_many, OfficeGraph.Integrations.RawArchive, :id, :source_id},
+      external_references:
+        {:has_many, OfficeGraph.ExternalRefs.ExternalReference, :id, :source_id}
+    },
+    OfficeGraph.Integrations.RawArchive => %{
+      normalized_events:
+        {:has_many, OfficeGraph.Integrations.NormalizedIntakeEvent, :id, :raw_archive_id}
+    },
+    OfficeGraph.Integrations.NormalizedIntakeEvent => %{
+      duplicate_events:
+        {:has_many, OfficeGraph.Integrations.NormalizedIntakeEvent, :id, :duplicate_of_id},
+      proposed_changes:
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :normalized_event_id,
+         true}
+    },
+    OfficeGraph.ExternalRefs.ExternalReference => %{
+      context_entries:
+        {:has_many, OfficeGraph.AgentRuntime.ContextEntry, :id, :external_reference_id}
+    },
+    OfficeGraph.WorkGraph.GraphItem => %{
+      signal: {:has_one, OfficeGraph.WorkGraph.Signal, :id, :graph_item_id, true},
+      task: {:has_one, OfficeGraph.WorkGraph.Task, :id, :graph_item_id, true},
+      review_finding: {:has_one, OfficeGraph.WorkGraph.ReviewFinding, :id, :graph_item_id, true},
+      verification_check:
+        {:has_one, OfficeGraph.WorkGraph.VerificationCheck, :id, :graph_item_id, true},
+      artifact: {:has_one, OfficeGraph.WorkGraph.Artifact, :id, :graph_item_id, true},
+      evidence_item: {:has_one, OfficeGraph.WorkGraph.EvidenceItem, :id, :graph_item_id}
+    },
+    OfficeGraph.WorkGraph.Signal => %{
+      tasks: {:has_many, OfficeGraph.WorkGraph.Task, :id, :source_signal_id, true}
+    },
+    OfficeGraph.WorkGraph.Task => %{
+      review_findings: {:has_many, OfficeGraph.WorkGraph.ReviewFinding, :id, :task_id, true}
+    },
+    OfficeGraph.WorkGraph.ReviewFinding => %{
+      verification_checks:
+        {:has_many, OfficeGraph.WorkGraph.VerificationCheck, :id, :review_finding_id, true}
+    },
+    OfficeGraph.WorkGraph.VerificationCheck => %{
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :verification_check_id, true},
+      evidence_items:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :verification_check_id, true},
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :verification_check_id, true}
+    },
+    OfficeGraph.WorkGraph.Artifact => %{
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :artifact_id, true},
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :artifact_id, true}
+    },
+    OfficeGraph.WorkGraph.EvidenceCandidate => %{
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :candidate_id}
+    },
+    OfficeGraph.WorkGraph.EvidenceItem => %{
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :evidence_item_id}
+    },
+    OfficeGraph.WorkPackets.WorkPacketVersion => %{
+      runs: {:has_many, OfficeGraph.Runs.Run, :id, :work_packet_version_id},
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :work_packet_version_id}
+    },
+    OfficeGraph.Runs.Run => %{
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :work_run_id, true},
+      evidence_items: {:has_many, OfficeGraph.WorkGraph.EvidenceItem, :id, :work_run_id, true},
+      verification_results:
+        {:has_many, OfficeGraph.WorkGraph.VerificationResult, :id, :work_run_id, true},
+      agent_executions: {:has_many, OfficeGraph.AgentRuntime.AgentExecution, :id, :run_id},
+      conversations: {:has_many, OfficeGraph.NodeConversations.Conversation, :id, :run_id}
+    },
+    OfficeGraph.AgentRuntime.OrganizationBinding => %{
+      executions:
+        {:has_many, OfficeGraph.AgentRuntime.AgentExecution, :id, :organization_binding_id}
+    },
+    OfficeGraph.AgentRuntime.AgentExecution => %{
+      authority_snapshots:
+        {:has_many, OfficeGraph.AgentRuntime.AuthoritySnapshot, :id, :execution_id},
+      context_packages: {:has_many, OfficeGraph.AgentRuntime.ContextPackage, :id, :execution_id},
+      model_requests: {:has_many, OfficeGraph.AgentRuntime.ModelRequest, :id, :execution_id},
+      tool_requests: {:has_many, OfficeGraph.AgentRuntime.ToolRequest, :id, :execution_id},
+      approval_requests:
+        {:has_many, OfficeGraph.AgentRuntime.ApprovalRequest, :id, :execution_id, true},
+      context_expansion_requests:
+        {:has_many, OfficeGraph.AgentRuntime.ContextExpansionRequest, :id, :execution_id, true},
+      proposed_changes:
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :execution_id}
+    },
+    OfficeGraph.AgentRuntime.ContextPackage => %{
+      model_requests:
+        {:has_many, OfficeGraph.AgentRuntime.ModelRequest, :id, :context_package_id},
+      tool_requests: {:has_many, OfficeGraph.AgentRuntime.ToolRequest, :id, :context_package_id},
+      proposed_changes:
+        {:has_many, OfficeGraph.ProposedChanges.ProposedGraphChange, :id, :context_package_id},
+      execution_observations:
+        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :context_package_id},
+      evidence_candidates:
+        {:has_many, OfficeGraph.WorkGraph.EvidenceCandidate, :id, :context_package_id},
+      conversation_messages:
+        {:has_many, OfficeGraph.NodeConversations.ConversationMessage, :id, :context_package_id}
+    }
+  }
+
   @planned_mvp_resources %{
     "requirements" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Requirement},
     "questions" => {OfficeGraph.WorkGraph.Domain, OfficeGraph.WorkGraph.Question},
@@ -223,10 +416,13 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_definition_kinds: [:relationship_definition_id, :source_kind, :target_kind]
     },
     OfficeGraph.WorkGraph.GraphRelationship => %{
-      active_definition_edge: %{
-        keys: [:organization_id, :definition_id, :source_item_id, :target_item_id],
-        where: ~s(lifecycle == "active")
-      }
+      active_definition_edge: [
+        :organization_id,
+        :definition_id,
+        :source_item_id,
+        :target_item_id,
+        :active_identity_slot
+      ]
     },
     OfficeGraph.Identity.Principal => %{email: [:email]},
     OfficeGraph.Identity.PrincipalProfile => %{principal_id: [:principal_id]},
@@ -235,16 +431,16 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       provider_subject: [:provider, :provider_tenant, :subject]
     },
     OfficeGraph.Integrations.RawArchive => %{
-      provider_delivery: %{
-        keys: [:source_id, :external_delivery_id],
-        where: "not is_nil(external_delivery_id)"
-      }
+      provider_delivery: [:source_id, :external_delivery_id]
     },
     OfficeGraph.Identity.Session => %{
-      unique_context: %{
-        keys: [:principal_id, :organization_id, :workspace_id, :purpose],
-        where: "is_nil(revoked_at)"
-      }
+      unique_context: [
+        :principal_id,
+        :organization_id,
+        :workspace_id,
+        :purpose,
+        :active_identity_slot
+      ]
     },
     OfficeGraph.Authorization.Capability => %{key: [:key]},
     OfficeGraph.Authorization.Role => %{unique_key: [:organization_id, :key]},
@@ -285,16 +481,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_execution_step_idempotency: [:execution_id, :step_key, :idempotency_key]
     },
     OfficeGraph.AgentRuntime.ApprovalRequest => %{
-      unique_pending_step: %{
-        keys: [:execution_id, :step_key],
-        where: ~s(state == "pending")
-      }
+      unique_pending_step: [:execution_id, :step_key, :pending_identity_slot]
     },
     OfficeGraph.AgentRuntime.ContextExpansionRequest => %{
-      unique_pending_step: %{
-        keys: [:execution_id, :step_key],
-        where: ~s(state == "pending")
-      }
+      unique_pending_step: [:execution_id, :step_key, :pending_identity_slot]
     },
     OfficeGraph.NodeConversations.Conversation => %{
       unique_run_graph_item: [
@@ -316,19 +506,28 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
           :session_id,
           :action,
           :idempotency_key
-        ],
-        where: "not is_nil(idempotency_key)"
+        ]
       },
-      unique_system_idempotency: %{
+      unique_system_organization_idempotency: %{
+        keys: [
+          :organization_id,
+          :principal_id,
+          :system_organization_identity_slot,
+          :action,
+          :idempotency_scope,
+          :idempotency_key
+        ]
+      },
+      unique_system_workspace_idempotency: %{
         keys: [
           :organization_id,
           :workspace_id,
           :principal_id,
+          :system_workspace_identity_slot,
           :action,
           :idempotency_scope,
           :idempotency_key
-        ],
-        where: ~s(operation_kind == "system")
+        ]
       }
     },
     OfficeGraph.SoftwareProving.RepositoryRef => %{
@@ -341,64 +540,39 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_repository_number: [:repository_id, :number]
     },
     OfficeGraph.SoftwareProving.GitHub.RepositoryExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.PullRequestExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.ReviewThreadExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id]
     },
     OfficeGraph.SoftwareProving.GitHub.CheckRunExtension => %{
-      unique_workspace_node_id: %{
-        keys: [:organization_id, :workspace_id, :node_id, :pull_request_id],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_node_id: %{
-        keys: [:organization_id, :node_id, :pull_request_id],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_node_id: [:organization_id, :workspace_id, :node_id, :pull_request_id]
     },
     OfficeGraph.Integrations.IntegrationCredential => %{
-      unique_workspace_reference: %{
-        keys: [:organization_id, :workspace_id, :kind, :secret_reference],
-        where: "not is_nil(workspace_id)"
-      },
-      unique_organization_reference: %{
-        keys: [:organization_id, :kind, :secret_reference],
-        where: "is_nil(workspace_id)"
-      }
+      unique_scope_reference: [:organization_id, :workspace_id, :kind, :secret_reference]
+    },
+    OfficeGraph.Integrations.NormalizedIntakeEvent => %{
+      accepted_replay_key: [
+        :organization_id,
+        :workspace_id,
+        :source_identity,
+        :replay_identity,
+        :accepted_identity_slot
+      ]
+    },
+    OfficeGraph.ExternalRefs.ExternalReference => %{
+      unique_scope_source_external_id: [
+        :organization_id,
+        :workspace_id,
+        :source_id,
+        :external_id
+      ]
     },
     OfficeGraph.GitHubIntegration.Installation => %{
       unique_external_installation: [:external_installation_id],
@@ -427,10 +601,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       unique_document_revision: [:document_id, :revision_number]
     },
     OfficeGraph.ProposedChanges.ProposedGraphChange => %{
-      unique_normalized_event_change_type: %{
-        keys: [:normalized_event_id, :change_type],
-        where: "not is_nil(normalized_event_id)"
-      }
+      unique_normalized_event_change_type: [:normalized_event_id, :change_type]
     }
   }
 
@@ -547,30 +718,34 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       superseded_relationship:
         {:belongs_to, OfficeGraph.WorkGraph.GraphRelationship, :supersedes_relationship_id, :id},
-      tombstone: {:belongs_to, OfficeGraph.Tombstones.Tombstone, :tombstone_id, :id}
+      deletion_operation:
+        {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :deletion_operation_id, :id},
+      deleted_by_principal:
+        {:belongs_to, OfficeGraph.Identity.Principal, :deleted_by_principal_id, :id}
     },
     OfficeGraph.WorkGraph.Signal => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
       body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
     },
     OfficeGraph.WorkGraph.Task => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
-      source_signal: {:belongs_to, OfficeGraph.WorkGraph.Signal, :source_signal_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
+      source_signal: {:belongs_to, OfficeGraph.WorkGraph.Signal, :source_signal_id, :id, true},
       body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
     },
     OfficeGraph.WorkGraph.ReviewFinding => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
-      task: {:belongs_to, OfficeGraph.WorkGraph.Task, :task_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
+      task: {:belongs_to, OfficeGraph.WorkGraph.Task, :task_id, :id, true},
       body_document: {:belongs_to, OfficeGraph.Content.Document, :body_document_id, :id}
     },
     OfficeGraph.WorkGraph.VerificationCheck => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id},
-      review_finding: {:belongs_to, OfficeGraph.WorkGraph.ReviewFinding, :review_finding_id, :id},
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true},
+      review_finding:
+        {:belongs_to, OfficeGraph.WorkGraph.ReviewFinding, :review_finding_id, :id, true},
       description_document:
         {:belongs_to, OfficeGraph.Content.Document, :description_document_id, :id}
     },
     OfficeGraph.WorkGraph.Artifact => %{
-      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id}
+      graph_item: {:belongs_to, OfficeGraph.WorkGraph.GraphItem, :graph_item_id, :id, true}
     },
     OfficeGraph.WorkGraph.EvidenceCandidate => %{
       verification_check:
@@ -602,17 +777,18 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     OfficeGraph.WorkPackets.WorkPacket => %{
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       current_version:
-        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :current_version_id, :id},
-      versions: {:has_many, OfficeGraph.WorkPackets.WorkPacketVersion, :id, :work_packet_id}
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :current_version_id, :id, true},
+      versions: {:has_many, OfficeGraph.WorkPackets.WorkPacketVersion, :id, :work_packet_id, true}
     },
     OfficeGraph.WorkPackets.WorkPacketVersion => %{
       work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       source_references:
         {:has_many, OfficeGraph.WorkPackets.WorkPacketSourceReference, :id,
-         :work_packet_version_id},
+         :work_packet_version_id, true},
       required_checks:
-        {:has_many, OfficeGraph.WorkPackets.WorkPacketRequiredCheck, :id, :work_packet_version_id}
+        {:has_many, OfficeGraph.WorkPackets.WorkPacketRequiredCheck, :id, :work_packet_version_id,
+         true}
     },
     OfficeGraph.WorkPackets.WorkPacketSourceReference => %{
       work_packet_version:
@@ -670,21 +846,22 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   @expected_runs_relationships %{
     OfficeGraph.Runs.Run => %{
-      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id},
+      work_packet: {:belongs_to, OfficeGraph.WorkPackets.WorkPacket, :work_packet_id, :id, true},
       work_packet_version:
-        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id},
+        {:belongs_to, OfficeGraph.WorkPackets.WorkPacketVersion, :work_packet_version_id, :id,
+         true},
       operation: {:belongs_to, OfficeGraph.Operations.OperationCorrelation, :operation_id, :id},
       initiator_principal:
         {:belongs_to, OfficeGraph.Identity.Principal, :initiator_principal_id, :id},
-      required_checks: {:has_many, OfficeGraph.Runs.RunRequiredCheck, :id, :run_id},
+      required_checks: {:has_many, OfficeGraph.Runs.RunRequiredCheck, :id, :run_id, true},
       execution_observations:
-        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :work_run_id},
+        {:has_many, OfficeGraph.Runs.ExecutionObservation, :id, :work_run_id, true},
       events: {:has_many, OfficeGraph.Runs.RunEvent, :id, :run_id}
     },
     OfficeGraph.Runs.RunRequiredCheck => %{
       run: {:belongs_to, OfficeGraph.Runs.Run, :run_id, :id},
       verification_check:
-        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id}
+        {:belongs_to, OfficeGraph.WorkGraph.VerificationCheck, :verification_check_id, :id, true}
     },
     OfficeGraph.Runs.ExecutionObservation => %{
       work_run: {:belongs_to, OfficeGraph.Runs.Run, :work_run_id, :id},
@@ -752,12 +929,19 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
       @architecture_exception_ledger unquote(@architecture_exception_ledger)
       @stabilization_change_archive unquote(@stabilization_change_archive)
       @api_migration_ledger unquote(@api_migration_ledger)
-      @implementation_summary unquote(@implementation_summary)
+      @api_surface_classification unquote(@api_surface_classification)
       @map_field_classification unquote(@map_field_classification)
       @model_inventory unquote(@model_inventory)
       @stabilization_inventory unquote(@stabilization_inventory)
       @expected_resources unquote(Macro.escape(@expected_resources))
       @work_graph_resources unquote(Macro.escape(@work_graph_resources))
+      @shared_primary_key_relationships unquote(Macro.escape(@shared_primary_key_relationships))
+      @intentional_non_relationship_uuid_identifiers unquote(
+                                                       Macro.escape(
+                                                         @intentional_non_relationship_uuid_identifiers
+                                                       )
+                                                     )
+      @stable_inverse_relationships unquote(Macro.escape(@stable_inverse_relationships))
       @planned_mvp_resources unquote(Macro.escape(@planned_mvp_resources))
 
       @accepted_software_proving_planned_tables unquote(
@@ -809,13 +993,202 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   def migration_tables do
     "priv/repo/migrations/*.exs"
     |> Path.wildcard()
-    |> Enum.flat_map(fn path ->
+    |> Enum.sort()
+    |> Enum.reduce(MapSet.new(), fn path, tables ->
       path
       |> File.read!()
-      |> then(&Regex.scan(~r/create\s+table\(:([a-zA-Z0-9_]+)\b/, &1, capture: :all_but_first))
-      |> List.flatten()
+      |> migration_forward_source()
+      |> String.split("\n")
+      |> Enum.reduce(tables, fn line, current_tables ->
+        case {
+          Regex.run(~r/create\s+table\(:([a-zA-Z0-9_]+)\b/, line),
+          Regex.run(~r/drop\s+table\(:([a-zA-Z0-9_]+)\b/, line)
+        } do
+          {[_, table], _drop} ->
+            MapSet.put(current_tables, table)
+
+          {_create, [_, table]} ->
+            MapSet.delete(current_tables, table)
+
+          _no_table_operation ->
+            current_tables
+        end
+      end)
+    end)
+    |> MapSet.to_list()
+    |> Enum.sort()
+  end
+
+  def migration_foreign_key_relationship_errors(expected_resources) do
+    resources_by_table =
+      Map.new(expected_resources, fn {table, {_domain, resource}} -> {table, resource} end)
+
+    migration_foreign_keys()
+    |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
+      with source when not is_nil(source) <- Map.get(resources_by_table, source_table),
+           destination when not is_nil(destination) <-
+             Map.get(resources_by_table, destination_table),
+           source_attribute <- String.to_existing_atom(source_attribute),
+           destination_attribute <- String.to_existing_atom(destination_attribute),
+           nil <-
+             Enum.find(Ash.Resource.Info.relationships(source), fn relationship ->
+               match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
+                 relationship.source_attribute == source_attribute and
+                 relationship.destination == destination and
+                 relationship.destination_attribute == destination_attribute
+             end) do
+        [
+          "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
+        ]
+      else
+        %Ash.Resource.Relationships.BelongsTo{} -> []
+        _table_without_resource -> []
+      end
     end)
     |> Enum.sort()
+  end
+
+  def unmodeled_uuid_identifier_fields(expected_resources) do
+    expected_resources
+    |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+      relationships = Ash.Resource.Info.relationships(resource)
+
+      resource
+      |> Ash.Resource.Info.attributes()
+      |> Enum.filter(fn attribute ->
+        attribute.type == Ash.Type.UUID and
+          String.ends_with?(Atom.to_string(attribute.name), "_id") and
+          is_nil(
+            Enum.find(relationships, fn relationship ->
+              match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
+                relationship.source_attribute == attribute.name
+            end)
+          )
+      end)
+      |> Enum.map(&{resource, &1.name})
+    end)
+    |> MapSet.new()
+  end
+
+  def stable_inverse_relationships, do: @stable_inverse_relationships
+
+  def migration_foreign_keys do
+    "priv/repo/migrations/*.exs"
+    |> Path.wildcard()
+    |> Enum.sort()
+    |> Enum.reduce(%{}, fn path, foreign_keys ->
+      path
+      |> File.read!()
+      |> migration_forward_ast()
+      |> migration_foreign_key_operations()
+      |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
+    end)
+    |> Map.values()
+    |> Enum.sort()
+  end
+
+  def migration_forward_ast(source) do
+    ast = Code.string_to_quoted!(source)
+
+    {_ast, functions} =
+      Macro.prewalk(ast, [], fn
+        {:def, _meta, [{name, _name_meta, _arguments}, [do: body]]} = node, functions
+        when name in [:up, :change] ->
+          {node, [{name, body} | functions]}
+
+        node, functions ->
+          {node, functions}
+      end)
+
+    case Enum.find(functions, &(elem(&1, 0) == :up)) ||
+           Enum.find(functions, &(elem(&1, 0) == :change)) do
+      {_name, body} -> body
+      nil -> {:__block__, [], []}
+    end
+  end
+
+  def migration_foreign_key_operations(ast) do
+    {_ast, operations} =
+      Macro.prewalk(ast, [], fn
+        {operation, _meta, [{:table, _table_meta, [table | _table_options]}, [do: block]]} =
+            node,
+        operations
+        when operation in [:create, :alter] and is_atom(table) ->
+          table_operations = table_foreign_key_operations(table, block)
+          {node, Enum.reverse(table_operations, operations)}
+
+        {:drop, _meta, [{:table, _table_meta, [table | _table_options]}]} = node, operations
+        when is_atom(table) ->
+          {node, [{:drop_table, Atom.to_string(table)} | operations]}
+
+        node, operations ->
+          {node, operations}
+      end)
+
+    Enum.reverse(operations)
+  end
+
+  def table_foreign_key_operations(table, block) do
+    table = Atom.to_string(table)
+
+    {_block, operations} =
+      Macro.prewalk(block, [], fn
+        {operation, _meta,
+         [
+           column,
+           {:references, _references_meta, [destination | reference_options]}
+           | _column_options
+         ]} = node,
+        operations
+        when operation in [:add, :modify] and is_atom(column) and is_atom(destination) ->
+          destination_attribute =
+            reference_options
+            |> List.flatten()
+            |> Keyword.get(:column, :id)
+
+          foreign_key = {
+            table,
+            Atom.to_string(column),
+            Atom.to_string(destination),
+            Atom.to_string(destination_attribute)
+          }
+
+          {node, [{:put, foreign_key} | operations]}
+
+        {:remove, _meta, [column | _options]} = node, operations when is_atom(column) ->
+          {node, [{:remove, table, Atom.to_string(column)} | operations]}
+
+        node, operations ->
+          {node, operations}
+      end)
+
+    Enum.reverse(operations)
+  end
+
+  def apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do
+    {table, column, _destination_table, _destination_column} = foreign_key
+    Map.put(foreign_keys, {table, column}, foreign_key)
+  end
+
+  def apply_foreign_key_operation({:remove, table, column}, foreign_keys),
+    do: Map.delete(foreign_keys, {table, column})
+
+  def apply_foreign_key_operation({:drop_table, table}, foreign_keys) do
+    Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_key} ->
+      source_table == table
+    end)
+  end
+
+  def migration_forward_source(source) do
+    case String.split(source, ~r/^\s*def up do\s*$/m, parts: 2) do
+      [_before_up, up_and_after] ->
+        up_and_after
+        |> String.split(~r/^\s*def down do\s*$/m, parts: 2)
+        |> hd()
+
+      [_change_migration] ->
+        source
+    end
   end
 
   def expected_domains do
@@ -991,7 +1364,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         table,
         resource,
         "postgres.migrate?",
-        false,
+        true,
         safe_info(fn -> AshPostgres.DataLayer.Info.migrate?(resource) end)
       )
     else
@@ -1124,8 +1497,21 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def work_graph_resources_modules do
-    "lib/office_graph/work_graph/resources/*.ex"
+    "lib/office_graph/work_graph/**/*.ex"
     |> Path.wildcard()
+    |> Enum.flat_map(fn path ->
+      path
+      |> File.stream!()
+      |> Enum.flat_map(fn line ->
+        case Regex.run(
+               ~r/^\s*defmodule\s+(OfficeGraph\.WorkGraph\.Resources\.[A-Za-z0-9_.]+)/,
+               line
+             ) do
+          [_, module] -> ["#{path}: #{module}"]
+          _no_parallel_namespace -> []
+        end
+      end)
+    end)
     |> Enum.sort()
   end
 
@@ -1181,8 +1567,10 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   def assert_relationship_contracts!(expected_relationships_by_resource) do
     for {resource, expected_relationships} <- expected_relationships_by_resource do
-      for {name, {type, destination, source_attribute, destination_attribute}} <-
-            expected_relationships do
+      for {name, contract} <- expected_relationships do
+        {type, destination, source_attribute, destination_attribute, public?} =
+          normalize_relationship_contract(contract)
+
         relationship = Ash.Resource.Info.relationship(resource, name)
 
         assert relationship,
@@ -1192,9 +1580,24 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
         assert relationship.destination == destination
         assert relationship.source_attribute == source_attribute
         assert relationship.destination_attribute == destination_attribute
-        refute relationship.public?
+
+        assert relationship.public? == public?,
+               "#{inspect(resource)}.#{name} publicness must be #{inspect(public?)}"
       end
     end
+  end
+
+  defp normalize_relationship_contract(
+         {type, destination, source_attribute, destination_attribute}
+       ) do
+    {type, destination, source_attribute, destination_attribute, false}
+  end
+
+  defp normalize_relationship_contract(
+         {type, destination, source_attribute, destination_attribute, public?}
+       )
+       when is_boolean(public?) do
+    {type, destination, source_attribute, destination_attribute, public?}
   end
 
   def capability_policy?(resource, action_name, action_type, capability) do
@@ -1368,12 +1771,14 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def scan_file_for_ash_authorization_bypasses(path) do
-    path
-    |> File.read!()
+    source = File.read!(path)
+    function_declarations = function_declarations_by_line(source)
+
+    source
     |> String.split("\n")
     |> Enum.with_index(1)
     |> Enum.reduce({nil, []}, fn {line, line_number}, {current_function, bypasses} ->
-      current_function = function_name(line) || current_function
+      current_function = Map.get(function_declarations, line_number, current_function)
 
       bypasses =
         if line =~ "authorize?: false" do
@@ -1400,11 +1805,27 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     graphql_root_surfaces() ++ json_api_route_surfaces() ++ json_serializer_surfaces()
   end
 
+  def manual_graphql_type_surfaces do
+    [
+      "lib/office_graph_web/graphql/operator_workflow/types.ex"
+    ]
+    |> Enum.flat_map(fn path ->
+      if File.exists?(path) do
+        ~r/^\s*(?:node\s+)?(?:object|input_object)(?:\s+|\()\:([a-z0-9_]+)/m
+        |> Regex.scan(File.read!(path), capture: :all_but_first)
+        |> List.flatten()
+        |> Enum.map(&"graphql.type.#{&1}")
+      else
+        []
+      end
+    end)
+    |> Enum.sort()
+  end
+
   def graphql_root_surfaces do
     [
       {:query, "lib/office_graph_web/graphql/common/queries.ex"},
-      {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"},
-      {:mutation, "lib/office_graph_web/graphql/operator_commands/mutations.ex"}
+      {:query, "lib/office_graph_web/graphql/operator_workflow/queries.ex"}
     ]
     |> Enum.flat_map(fn {root_kind, path} ->
       graphql_root_surfaces_in_file(root_kind, path)
@@ -1682,66 +2103,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   defp function_head({:when, _metadata, [head | _guards]}), do: function_head(head)
   defp function_head({name, _metadata, arguments}), do: {name, arguments}
 
-  def direct_ecto_ledger_entries do
-    @architecture_exception_ledger
-    |> File.read!()
-    |> parse_direct_ecto_ledger_entries()
-  end
-
-  def parse_direct_ecto_ledger_entries(ledger) do
-    ledger
-    |> String.split("\n")
-    |> Enum.flat_map(fn line ->
-      case Regex.run(~r/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|/, line) do
-        [_, path, _functions_cell] ->
-          ledger_tuple_values(line)
-          |> Enum.map(fn {function, operation} ->
-            %{path: path, function: function, operation: operation}
-          end)
-
-        _ ->
-          []
-      end
-    end)
-  end
-
-  def ledger_approves_operation?(entries, operation) do
-    Enum.any?(entries, fn entry ->
-      entry.path == operation.path and
-        entry.function == operation.function and
-        entry.operation == operation.operation
-    end)
-  end
-
-  def direct_ecto_ledger_metadata_errors(ledger) do
-    rows = markdown_table_rows(ledger)
-    [header | data_rows] = rows
-
-    required_headers = [
-      "File",
-      "Owner",
-      "Approved functions",
-      "Allowed operation type",
-      "Approving spec",
-      "Reason",
-      "Retirement condition"
-    ]
-
-    missing_headers = required_headers -- header
-
-    row_errors =
-      data_rows
-      |> Enum.with_index(1)
-      |> Enum.flat_map(fn {row, row_number} ->
-        for header_name <- required_headers,
-            blank?(table_cell(row, header, header_name)) do
-          "row #{row_number} missing #{header_name}"
-        end
-      end)
-
-    Enum.map(missing_headers, &"missing required column #{&1}") ++ row_errors
-  end
-
   def markdown_table_rows(markdown) do
     markdown
     |> String.split("\n")
@@ -1845,58 +2206,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def blank?(value), do: String.trim(to_string(value)) == ""
-
-  def ledger_tuple_values(line) do
-    tuple_values =
-      ~r/`\{\s*([^`,{}]+)\s*,\s*((?:Repo|Ecto\.Multi|Ecto\.Adapters\.SQL)\.[^`,{}]+)\s*\}`/
-      |> Regex.scan(line, capture: :all_but_first)
-      |> Enum.map(fn [function, operation] ->
-        {String.trim(function), String.trim(operation)}
-      end)
-
-    tuple_values ++ ledger_row_tuple_values(line)
-  end
-
-  def ledger_row_tuple_values(line) do
-    cells =
-      line
-      |> String.trim()
-      |> String.trim_leading("|")
-      |> String.trim_trailing("|")
-      |> String.split("|")
-      |> Enum.map(&String.trim/1)
-
-    case cells do
-      [_path_cell, function_cell, operation_cell | _rest] ->
-        with {:ok, function} <- single_backticked_value(function_cell),
-             {:ok, operation} <- single_operation_value(operation_cell) do
-          [{function, operation}]
-        else
-          _ -> []
-        end
-
-      _ ->
-        []
-    end
-  end
-
-  def single_backticked_value(cell) do
-    case Regex.scan(~r/`([^`]+)`/, cell, capture: :all_but_first) do
-      [[value]] -> {:ok, value}
-      _ -> :error
-    end
-  end
-
-  def single_operation_value(cell) do
-    case Regex.scan(
-           ~r/`((?:Repo|Ecto\.Multi|Ecto\.Adapters\.SQL)\.[^`]+)`/,
-           cell,
-           capture: :all_but_first
-         ) do
-      [[value]] -> {:ok, value}
-      _ -> :error
-    end
-  end
 
   def normalize_direct_ecto_operation(receiver, operation)
       when receiver in ["Multi", "Ecto.Multi"] do

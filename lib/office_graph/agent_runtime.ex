@@ -7,6 +7,7 @@ defmodule OfficeGraph.AgentRuntime do
     deps: [
       OfficeGraph.Audit,
       OfficeGraph.Authorization,
+      OfficeGraph.CommandSupport,
       OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
@@ -22,16 +23,18 @@ defmodule OfficeGraph.AgentRuntime do
       OfficeGraph.Verification,
       OfficeGraph.WorkGraph
     ],
-    exports: [InvocationRequest]
+    exports: [Domain, InvocationRequest]
 
   require Ash.Query
 
-  alias OfficeGraph.{Authorization, Identity, Operations, Repo}
+  alias OfficeGraph.{Authorization, CommandSupport, Identity, Operations}
 
   alias OfficeGraph.AgentRuntime.{
+    ActionSupport,
     AgentDefinition,
     ApprovalCommands,
     Authority,
+    BindingResult,
     CancellationCommands,
     ContextExpansionCommands,
     InvocationCommands,
@@ -42,6 +45,8 @@ defmodule OfficeGraph.AgentRuntime do
 
   alias OfficeGraph.Identity.Principal
 
+  @behaviour Ash.Resource.Actions.Implementation
+
   @canonical_definition_key "run-review"
   @agent_capabilities [
     :agent_runtime_execute,
@@ -50,6 +55,17 @@ defmodule OfficeGraph.AgentRuntime do
     :agent_proposal_create,
     :agent_evidence_suggest
   ]
+
+  @impl true
+  def run(input, [mode: :bind_run_review], %{actor: session_context})
+      when is_map(session_context) do
+    case persist_binding_records(session_context, input.arguments.operation_id) do
+      {:ok, result} -> {:ok, result}
+      {:error, error} -> ActionSupport.rollback(OrganizationBinding, error)
+    end
+  end
+
+  def run(_input, _opts, _context), do: {:error, :forbidden}
 
   def invoke(session_context, operation, %InvocationRequest{} = request) do
     InvocationCommands.invoke(session_context, operation, request)
@@ -234,78 +250,95 @@ defmodule OfficeGraph.AgentRuntime do
 
   defp persist_binding(session_context, operation) do
     StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
-          lock_binding_scope!(session_context.organization_id, session_context.workspace_id)
-
-          definition = canonical_definition!()
-
-          case binding_for_scope(
-                 definition.id,
-                 session_context.organization_id,
-                 session_context.workspace_id
-               ) do
-            nil -> create_binding!(session_context, operation, definition)
-            binding -> replay_binding!(session_context, operation, definition, binding)
-          end
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
+      OrganizationBinding
+      |> Ash.ActionInput.for_action(:persist_run_review_binding_contract, %{
+        operation_id: operation.id
+      })
+      |> Ash.run_action(actor: session_context, authorize?: false)
+      |> ActionSupport.normalize_action_result()
     end)
   end
 
-  defp canonical_definition! do
-    definition =
-      AgentDefinition
-      |> Ash.Query.filter(key == ^@canonical_definition_key)
-      |> Ash.Query.lock(:for_update)
-      |> Ash.read_one!(authorize?: false)
-
-    if definition && definition.lifecycle_state == "active" do
-      definition
-    else
-      Repo.rollback(:forbidden)
+  defp persist_binding_records(session_context, operation_id) do
+    with {:ok, operation} <- Operations.lock_operation(operation_id),
+         {:ok, definition} <- canonical_definition(),
+         {:ok, binding} <-
+           binding_for_scope(
+             definition.id,
+             session_context.organization_id,
+             session_context.workspace_id
+           ) do
+      case binding do
+        nil -> create_binding(session_context, operation, definition)
+        binding -> replay_binding(session_context, operation, definition, binding)
+      end
     end
   end
 
-  defp create_binding!(session_context, operation, definition) do
-    principal = ensure_agent_principal!(session_context.organization_id)
-    ensure_agent_role!(principal, session_context)
+  defp canonical_definition do
+    AgentDefinition
+    |> Ash.Query.filter(key == ^@canonical_definition_key)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %AgentDefinition{lifecycle_state: "active"} = definition} ->
+        {:ok, definition}
 
-    binding =
-      Repo.ash_create!(OrganizationBinding, %{
-        id: Ecto.UUID.generate(),
-        definition_id: definition.id,
-        organization_id: session_context.organization_id,
-        workspace_id: session_context.workspace_id,
-        agent_principal_id: principal.id,
-        bound_by_principal_id: session_context.principal_id,
-        lifecycle_state: "active",
-        operation_id: operation.id
-      })
+      {:ok, _missing_or_inactive} ->
+        {:error, :forbidden}
 
-    binding_result(operation, definition, binding, principal)
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
-  defp replay_binding!(session_context, operation, definition, binding) do
+  defp create_binding(session_context, operation, definition) do
+    with {:ok, principal} <- ensure_agent_principal(session_context.organization_id),
+         :ok <- ensure_agent_role(principal, session_context),
+         {:ok, binding} <-
+           OrganizationBinding
+           |> Ash.Changeset.for_create(:create, %{
+             definition_id: definition.id,
+             organization_id: session_context.organization_id,
+             workspace_id: session_context.workspace_id,
+             agent_principal_id: principal.id,
+             bound_by_principal_id: session_context.principal_id,
+             lifecycle_state: "active",
+             operation_id: operation.id
+           })
+           |> Ash.create(
+             authorize?: false,
+             return_notifications?: true,
+             upsert?: true,
+             upsert_identity: :unique_definition_organization_workspace,
+             upsert_fields: []
+           )
+           |> CommandSupport.normalize_ash_write(),
+         :ok <- validate_binding_replay(session_context, binding, principal) do
+      {:ok, binding_result(operation, definition, binding, principal)}
+    end
+  end
+
+  defp replay_binding(session_context, operation, definition, binding) do
+    with {:ok, principal} when is_struct(principal) <-
+           Ash.get(Principal, binding.agent_principal_id, authorize?: false),
+         :ok <- validate_binding_replay(session_context, binding, principal),
+         :ok <- ensure_agent_role(principal, session_context) do
+      {:ok, binding_result(operation, definition, binding, principal)}
+    else
+      {:ok, _missing_principal} -> {:error, :forbidden}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp validate_binding_replay(session_context, binding, principal) do
     if binding.organization_id == session_context.organization_id and
          binding.workspace_id == session_context.workspace_id and
-         binding.lifecycle_state == "active" do
-      principal = Ash.get!(Principal, binding.agent_principal_id, authorize?: false)
-
-      if principal.kind == "agent" and principal.status == "active" do
-        ensure_agent_role!(principal, session_context)
-        binding_result(operation, definition, binding, principal)
-      else
-        Repo.rollback(:forbidden)
-      end
+         binding.lifecycle_state == "active" and principal.kind == "agent" and
+         principal.status == "active" and binding.agent_principal_id == principal.id do
+      :ok
     else
-      Repo.rollback(:forbidden)
+      {:error, :forbidden}
     end
   end
 
@@ -316,43 +349,25 @@ defmodule OfficeGraph.AgentRuntime do
         workspace_id == ^workspace_id
     )
     |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
+    |> Ash.read_one(authorize?: false)
   end
 
-  defp ensure_agent_principal!(organization_id) do
+  defp ensure_agent_principal(organization_id) do
     email = "run-review+#{organization_id}@agents.office-graph.local"
-
-    case Identity.ensure_system_principal(email, "agent") do
-      {:ok, principal} -> principal
-      {:error, reason} -> Repo.rollback(reason)
-    end
+    Identity.ensure_system_principal(email, "agent")
   end
 
-  defp ensure_agent_role!(principal, session_context) do
+  defp ensure_agent_role(principal, session_context) do
     scope = %{
       organization_id: session_context.organization_id,
       workspace_id: session_context.workspace_id
     }
 
-    case Authorization.ensure_system_role(principal, scope, @agent_capabilities) do
-      :ok -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
+    Authorization.ensure_system_role(principal, scope, @agent_capabilities)
   end
 
   defp binding_result(operation, definition, binding, principal) do
-    %{
-      operation: operation,
-      definition: definition,
-      binding: binding,
-      principal: principal
-    }
-  end
-
-  defp lock_binding_scope!(organization_id, workspace_id) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "agent-runtime:run-review:#{organization_id}:#{workspace_id}"
-    ])
+    BindingResult.build!(operation, definition, binding, principal)
   end
 
   defp required_string(attrs, key) do

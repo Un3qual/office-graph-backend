@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<e88c69004168477626cc5633511ab80c>>
+ * @generated SignedSource<<d14f1561c7e76bccfadf0f3af0bf178b>>
  * @lightSyntaxTransform
  */
 
@@ -203,6 +203,13 @@ return {
             "key": "RunActivityFragment_activity",
             "kind": "LinkedHandle",
             "name": "activity"
+          },
+          {
+            "alias": null,
+            "args": null,
+            "kind": "ScalarField",
+            "name": "id",
+            "storageKey": null
           }
         ],
         "storageKey": null
@@ -210,12 +217,12 @@ return {
     ]
   },
   "params": {
-    "cacheID": "767d0e011592161f4b2e50910c395307",
+    "cacheID": "ff58de2b6a8dae47560db58d239c07b4",
     "id": null,
     "metadata": {},
     "name": "RunActivityPaginationQuery",
     "operationKind": "query",
-    "text": "query RunActivityPaginationQuery(\n  $after: String\n  $first: Int = 5\n  $id: ID!\n) {\n  ...RunActivityFragment_XKRaI\n}\n\nfragment RunActivityFragment_XKRaI on RootQueryType {\n  operatorRunState(id: $id) {\n    activity(first: $first, after: $after) {\n      edges {\n        node {\n          kind\n          stableId\n          title\n          status\n          __typename\n        }\n        cursor\n      }\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n    }\n  }\n}\n"
+    "text": "query RunActivityPaginationQuery(\n  $after: String\n  $first: Int = 5\n  $id: ID!\n) {\n  ...RunActivityFragment_XKRaI\n}\n\nfragment RunActivityFragment_XKRaI on RootQueryType {\n  operatorRunState(id: $id) {\n    activity(first: $first, after: $after) {\n      edges {\n        node {\n          kind\n          stableId\n          title\n          status\n          __typename\n        }\n        cursor\n      }\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n    }\n    id\n  }\n}\n"
   }
 };
 })();

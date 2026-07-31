@@ -1,4 +1,4 @@
-defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
+defmodule OfficeGraphWeb.CommandSemanticsTest do
   use OfficeGraphWeb.ConnCase, async: true
 
   @moduletag :unauthenticated
@@ -9,73 +9,7 @@ defmodule OfficeGraphWeb.OperatorCommandSemanticsTest do
 
   alias OfficeGraphWeb.GraphQL.Common.Errors, as: GraphQLErrors
   alias OfficeGraphWeb.JsonApi.Common.Errors, as: JsonErrors
-  alias OfficeGraphWeb.OperatorCommands.{Errors, Input}
-
-  describe "shared command input" do
-    test "preserves raw strings while trimming ordinary strings" do
-      assert {:ok,
-              %{
-                idempotency_key: "intake-key",
-                source_identity: "manual:test",
-                replay_identity: "paste:test",
-                body: "\n  pasted body  \n"
-              }} =
-               Input.parse(:submit_manual_intake, %{
-                 "idempotency_key" => "  intake-key  ",
-                 "source_identity" => "  manual:test  ",
-                 "replay_identity" => " paste:test ",
-                 "body" => "\n  pasted body  \n"
-               })
-    end
-
-    test "casts UUID lists and reports stable field errors" do
-      event_id = Ecto.UUID.generate()
-      proposed_change_id = Ecto.UUID.generate()
-
-      assert {:ok,
-              %{
-                idempotency_key: "apply-key",
-                normalized_event_id: ^event_id,
-                proposed_change_ids: [^proposed_change_id]
-              }} =
-               Input.parse(:apply_proposed_changes, %{
-                 idempotency_key: "apply-key",
-                 normalized_event_id: event_id,
-                 proposed_change_ids: [proposed_change_id]
-               })
-
-      assert {:error, {:missing_field, :normalized_event_id}} =
-               Input.parse(:apply_proposed_changes, %{
-                 idempotency_key: "apply-key",
-                 proposed_change_ids: [proposed_change_id]
-               })
-
-      assert {:error, {:invalid_field, :proposed_change_ids}} =
-               Input.parse(:apply_proposed_changes, %{
-                 idempotency_key: "apply-key",
-                 normalized_event_id: event_id,
-                 proposed_change_ids: ["not-a-uuid"]
-               })
-    end
-
-    test "atom keys take precedence over string keys even for false and nil values" do
-      common = %{
-        "idempotency_key" => "string-key",
-        "source_identity" => "manual:string",
-        "replay_identity" => "paste:string",
-        "body" => "string body"
-      }
-
-      assert {:error, {:invalid_field, :idempotency_key}} =
-               Input.parse(:submit_manual_intake, Map.put(common, :idempotency_key, false))
-
-      assert {:error, {:missing_field, :source_identity}} =
-               Input.parse(:submit_manual_intake, Map.put(common, :source_identity, nil))
-
-      assert {:ok, %{replay_identity: "paste:atom"}} =
-               Input.parse(:submit_manual_intake, Map.put(common, :replay_identity, "paste:atom"))
-    end
-  end
+  alias OfficeGraph.CommandSupport.CommandError, as: Errors
 
   describe "shared public error semantics" do
     test "table-drives GraphQL and JSON parity across public command outcomes" do

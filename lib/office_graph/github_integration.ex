@@ -7,6 +7,7 @@ defmodule OfficeGraph.GitHubIntegration do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Audit,
+      OfficeGraph.CommandSupport,
       OfficeGraph.DurableDelivery,
       OfficeGraph.ExternalRefs,
       OfficeGraph.Identity,
@@ -19,25 +20,17 @@ defmodule OfficeGraph.GitHubIntegration do
     ],
     exports: [SecretStore]
 
-  require Ash.Query
-
-  alias OfficeGraph.{Authorization, Identity, Operations, Repo}
+  alias OfficeGraph.{Authorization, Operations}
 
   alias OfficeGraph.GitHubIntegration.{
-    Installation,
-    InstallationCredential,
     Health,
+    InstallationCommands,
     OutboundCommands,
-    PermissionEntry,
-    PermissionSnapshot,
-    RecordLoader,
     Reconciler,
     ReconciliationRequest,
     StorageResult,
     WebhookReceipt
   }
-
-  alias OfficeGraph.Integrations.IntegrationCredential
 
   @permission_levels ~w(none read write admin)
   @secret_reference ~r/\A(?:[a-z][a-z0-9+.-]*:\/\/\S+|env:[A-Z][A-Z0-9_]*)\z/
@@ -168,289 +161,8 @@ defmodule OfficeGraph.GitHubIntegration do
 
   defp normalize_permissions(_permissions), do: {:error, {:invalid_field, :permissions}}
 
-  defp installation_available?(session_context, operation, normalized) do
-    case installation_by_external_id(normalized.external_installation_id) do
-      {:ok, nil} ->
-        :ok
-
-      {:ok, %Installation{organization_id: organization_id, operation_id: operation_id}}
-      when organization_id == session_context.organization_id and operation_id == operation.id ->
-        :ok
-
-      {:error, :integration_storage_unavailable} = error ->
-        error
-
-      _other ->
-        {:error, :forbidden}
-    end
-  end
-
   defp persist_binding(session_context, operation, normalized) do
-    StorageResult.run(fn ->
-      Repo.transaction(fn ->
-        with {:ok, _locked_operation} <- Operations.lock_operation(operation.id) do
-          lock_installation!(normalized.external_installation_id)
-
-          with :ok <- installation_available?(session_context, operation, normalized),
-               {:ok, existing} <- installation_by_operation(operation.id) do
-            case existing do
-              nil -> create_binding!(session_context, operation, normalized)
-              installation -> binding_result(operation, installation)
-            end
-          else
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-    end)
-  end
-
-  defp create_binding!(session_context, operation, attrs) do
-    service_principal =
-      ensure_system_principal!(attrs.service_principal_email, "service")
-
-    webhook_principal =
-      ensure_system_principal!(attrs.webhook_principal_email, "webhook")
-
-    ensure_system_role!(
-      webhook_principal,
-      %{organization_id: session_context.organization_id, workspace_id: nil},
-      [:provider_webhook_receive]
-    )
-
-    ensure_system_role!(
-      service_principal,
-      %{
-        organization_id: session_context.organization_id,
-        workspace_id: attrs.workspace_id
-      },
-      [:integration_reconcile]
-    )
-
-    installation =
-      Repo.ash_create!(Installation, %{
-        id: Ecto.UUID.generate(),
-        organization_id: session_context.organization_id,
-        workspace_id: attrs.workspace_id,
-        external_installation_id: attrs.external_installation_id,
-        app_slug: attrs.app_slug,
-        account_login: attrs.account_login,
-        account_type: attrs.account_type,
-        service_principal_id: service_principal.id,
-        webhook_principal_id: webhook_principal.id,
-        lifecycle_state: "active",
-        operation_id: operation.id
-      })
-
-    snapshot =
-      Repo.ash_create!(PermissionSnapshot, %{
-        id: Ecto.UUID.generate(),
-        installation_id: installation.id,
-        version: 1,
-        captured_at: DateTime.utc_now(),
-        operation_id: operation.id
-      })
-
-    permissions =
-      Enum.map(attrs.permissions, fn permission ->
-        Repo.ash_create!(
-          PermissionEntry,
-          Map.merge(permission, %{
-            id: Ecto.UUID.generate(),
-            permission_snapshot_id: snapshot.id
-          })
-        )
-      end)
-
-    installation =
-      installation
-      |> Ash.Changeset.for_update(:set_permission_snapshot, %{
-        current_permission_snapshot_id: snapshot.id
-      })
-      |> Repo.ash_update!()
-
-    credentials = [
-      create_credential_binding!(
-        session_context,
-        operation,
-        installation,
-        "webhook_secret",
-        attrs.webhook_secret_reference
-      ),
-      create_credential_binding!(
-        session_context,
-        operation,
-        installation,
-        "app_private_key",
-        attrs.app_private_key_reference
-      )
-    ]
-
-    result(operation, installation, snapshot, permissions, credentials)
-  end
-
-  defp ensure_system_role!(principal, scope, actions) do
-    case Authorization.ensure_system_role(principal, scope, actions) do
-      :ok -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp create_credential_binding!(session_context, operation, installation, purpose, reference) do
-    lookup = [
-      organization_id: session_context.organization_id,
-      workspace_id: installation.workspace_id,
-      kind: "secret_reference",
-      secret_reference: reference
-    ]
-
-    credential =
-      Repo.get_or_insert!(
-        IntegrationCredential,
-        lookup,
-        %{
-          organization_id: session_context.organization_id,
-          workspace_id: installation.workspace_id,
-          kind: "secret_reference",
-          secret_reference: reference,
-          status: "active",
-          operation_id: operation.id
-        },
-        &credential_insert_contract/2,
-        &credential_by_reference/2
-      )
-
-    if credential.status != "active" or
-         credential.organization_id != session_context.organization_id or
-         credential.workspace_id != installation.workspace_id do
-      Repo.rollback(:forbidden)
-    end
-
-    binding =
-      Repo.ash_create!(InstallationCredential, %{
-        id: Ecto.UUID.generate(),
-        installation_id: installation.id,
-        credential_id: credential.id,
-        purpose: purpose,
-        operation_id: operation.id
-      })
-
-    safe_credential(binding, credential)
-  end
-
-  defp binding_result(operation, installation) do
-    snapshot =
-      Ash.get!(PermissionSnapshot, installation.current_permission_snapshot_id, authorize?: false)
-
-    permissions =
-      PermissionEntry
-      |> Ash.Query.filter(permission_snapshot_id == ^snapshot.id)
-      |> Ash.Query.sort(name: :asc)
-      |> Ash.read!(authorize?: false)
-
-    credentials =
-      InstallationCredential
-      |> Ash.Query.filter(installation_id == ^installation.id)
-      |> Ash.Query.sort(purpose: :asc)
-      |> Ash.read!(authorize?: false)
-      |> Enum.map(fn binding ->
-        credential = Ash.get!(IntegrationCredential, binding.credential_id, authorize?: false)
-        safe_credential(binding, credential)
-      end)
-
-    result(operation, installation, snapshot, permissions, credentials)
-  end
-
-  defp result(operation, installation, snapshot, permissions, credentials) do
-    %{
-      operation: operation,
-      installation: installation,
-      permission_snapshot: snapshot,
-      permissions: Enum.sort_by(permissions, & &1.name),
-      credentials: Enum.sort_by(credentials, & &1.purpose)
-    }
-  end
-
-  defp safe_credential(binding, credential) do
-    %{
-      id: binding.id,
-      credential_id: credential.id,
-      purpose: binding.purpose,
-      kind: credential.kind,
-      status: credential.status
-    }
-  end
-
-  defp ensure_system_principal!(email, kind) do
-    case Identity.ensure_system_principal(email, kind) do
-      {:ok, principal} -> principal
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp installation_by_external_id(external_installation_id) do
-    Installation
-    |> Ash.Query.filter(external_installation_id == ^external_installation_id)
-    |> read_installation()
-  end
-
-  defp installation_by_operation(operation_id) do
-    Installation
-    |> Ash.Query.filter(operation_id == ^operation_id)
-    |> read_installation()
-  end
-
-  defp read_installation(query) do
-    case RecordLoader.read_one(Installation, query, authorize?: false) do
-      {:ok, installation} -> {:ok, installation}
-      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
-    end
-  end
-
-  defp credential_by_reference(IntegrationCredential, lookup) do
-    organization_id = Keyword.fetch!(lookup, :organization_id)
-    workspace_id = Keyword.fetch!(lookup, :workspace_id)
-    kind = Keyword.fetch!(lookup, :kind)
-    secret_reference = Keyword.fetch!(lookup, :secret_reference)
-
-    query =
-      IntegrationCredential
-      |> Ash.Query.filter(
-        organization_id == ^organization_id and kind == ^kind and
-          secret_reference == ^secret_reference
-      )
-
-    query =
-      if is_nil(workspace_id),
-        do: Ash.Query.filter(query, is_nil(workspace_id)),
-        else: Ash.Query.filter(query, workspace_id == ^workspace_id)
-
-    Ash.read_one(query, authorize?: false)
-  end
-
-  defp credential_insert_contract(IntegrationCredential, %{workspace_id: nil}) do
-    {
-      "integration_credentials",
-      {:unsafe_fragment, "(organization_id, kind, secret_reference) WHERE workspace_id IS NULL"},
-      [:id, :organization_id, :operation_id]
-    }
-  end
-
-  defp credential_insert_contract(IntegrationCredential, _attrs) do
-    {
-      "integration_credentials",
-      {:unsafe_fragment,
-       "(organization_id, workspace_id, kind, secret_reference) WHERE workspace_id IS NOT NULL"},
-      [:id, :organization_id, :workspace_id, :operation_id]
-    }
-  end
-
-  defp lock_installation!(external_installation_id) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "github:installation:#{external_installation_id}"
-    ])
+    InstallationCommands.bind(session_context, operation, normalized)
   end
 
   defp positive_integer(attrs, key) do

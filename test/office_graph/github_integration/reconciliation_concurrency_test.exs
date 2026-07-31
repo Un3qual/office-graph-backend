@@ -6,8 +6,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
     Foundation,
     GitHubIntegration,
     Integrations,
-    Operations,
-    Repo
+    Operations
   }
 
   alias OfficeGraph.GitHubIntegration.{
@@ -103,7 +102,7 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationConcurrencyTest do
       |> Task.await_many(10_000)
 
     assert Enum.all?(results, &match?({:ok, _outcome}, &1))
-    assert Repo.aggregate(PullRequest, :count) == 1
+    assert Ash.count!(PullRequest, authorize?: false) == 1
   end
 
   test "sync outcome writes serialize concurrent failures and failure-success races" do

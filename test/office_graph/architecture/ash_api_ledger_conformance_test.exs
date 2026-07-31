@@ -22,6 +22,24 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     end
   end
 
+  test "active API classification covers every manual root, type, route, and transport helper" do
+    assert File.exists?(@api_surface_classification)
+    classification = File.read!(@api_surface_classification)
+
+    classified_surface_ids =
+      manual_api_surfaces()
+      |> Enum.map(& &1.id)
+      |> Kernel.++(manual_graphql_type_surfaces())
+
+    missing_surface_ids =
+      Enum.reject(classified_surface_ids, &String.contains?(classification, "`#{&1}`"))
+
+    assert missing_surface_ids == [],
+           "#{@api_surface_classification} is missing:\n#{format_errors(missing_surface_ids)}"
+
+    refute classification =~ "OfficeGraphWeb.OperatorCommands"
+  end
+
   test "manual GraphQL and JSON API surfaces are covered by migration ledger entries" do
     unledgered =
       manual_api_surfaces()
@@ -144,6 +162,146 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
     end
   end
 
+  test "every generated GraphQL resource type and accepted stable projection is a Relay node" do
+    generated_resource_types =
+      "lib/office_graph/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        source = File.read!(path)
+
+        if source =~ "AshGraphql.Resource" or Regex.match?(~r/^\s+graphql do$/m, source) do
+          ~r/^\s+type :([a-z0-9_]+)$/m
+          |> Regex.scan(source, capture: :all_but_first)
+          |> List.flatten()
+        else
+          []
+        end
+      end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    expected_resource_types =
+      [
+        "agent_approval_request",
+        "agent_context_expansion_request",
+        "agent_execution",
+        "artifact",
+        "conversation",
+        "conversation_message",
+        "evidence_candidate",
+        "evidence_item",
+        "execution_observation",
+        "graph_item",
+        "github_installation",
+        "github_outbound_action",
+        "github_permission_entry",
+        "github_permission_snapshot",
+        "normalized_intake_event",
+        "proposed_graph_change",
+        "review_finding",
+        "run_required_check",
+        "signal",
+        "task",
+        "verification_check",
+        "work_graph_verification_result",
+        "work_packet",
+        "work_packet_required_check",
+        "work_packet_source_reference",
+        "work_packet_version",
+        "work_run"
+      ]
+      |> Enum.sort()
+
+    assert generated_resource_types == expected_resource_types
+    schema_types = Absinthe.Schema.types(OfficeGraphWeb.GraphQL.Schema)
+
+    for type <- generated_resource_types do
+      object =
+        Enum.find(schema_types, fn schema_type ->
+          schema_type
+          |> Map.get(:identifier)
+          |> to_string()
+          |> Kernel.==(type)
+        end)
+
+      assert object != nil, "Expected generated GraphQL object #{type}"
+
+      assert :node in object.interfaces,
+             "Expected generated GraphQL object #{type} to implement Node"
+
+      assert Map.has_key?(object.fields, :id),
+             "Expected generated GraphQL object #{type} to expose id"
+    end
+
+    projection_source = File.read!("lib/office_graph_web/graphql/operator_workflow/types.ex")
+
+    for type <- [
+          :github_integration_health,
+          :graph_relationship_view,
+          :operator_packet_workspace,
+          :operator_run_conversation,
+          :operator_run_state,
+          :operator_workflow_item
+        ] do
+      assert Regex.match?(
+               ~r/node object\(\s*:#{type}\b/,
+               projection_source
+             ),
+             "Expected stable projection #{type} to use Relay node object"
+    end
+  end
+
+  test "generated growing lists are Relay connections and dataloader calls have no wrapper resolver" do
+    non_relay_lists =
+      "lib/office_graph/**/domain.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        ast = path |> File.read!() |> Code.string_to_quoted!(file: path)
+
+        {_ast, offenders} =
+          Macro.prewalk(ast, [], fn
+            {:list, metadata, [resource, name, action, options]} = node, offenders
+            when is_list(options) ->
+              if Keyword.get(options, :relay?) == true do
+                {node, offenders}
+              else
+                {node,
+                 [
+                   "#{path}:#{Keyword.fetch!(metadata, :line)} " <>
+                     "#{Macro.to_string(resource)} #{name} #{action}"
+                   | offenders
+                 ]}
+              end
+
+            node, offenders ->
+              {node, offenders}
+          end)
+
+        Enum.reverse(offenders)
+      end)
+
+    assert non_relay_lists == [],
+           "Generated growing lists must be Relay connections:\n#{format_errors(non_relay_lists)}"
+
+    wrapper_dataloaders =
+      "lib/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        source = File.read!(path)
+        dataloader_count = length(Regex.scan(~r/\bdataloader\s*\(/, source))
+        direct_count = length(Regex.scan(~r/resolve:\s*dataloader\s*\(/, source))
+
+        if dataloader_count == direct_count do
+          []
+        else
+          ["#{path} has #{dataloader_count - direct_count} wrapped dataloader resolver(s)"]
+        end
+      end)
+
+    assert wrapper_dataloaders == [],
+           "Use resolve: dataloader(Source) directly:\n#{format_errors(wrapper_dataloaders)}"
+  end
+
   test "generated Ash API declarations stay declarative" do
     forbidden_patterns = [
       "OfficeGraphWeb.",
@@ -222,41 +380,31 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
           "lib/office_graph_web/graphql/common/errors.ex",
           "lib/office_graph_web/graphql/common/queries.ex",
           "lib/office_graph_web/graphql/operator_workflow/types.ex",
-          "lib/office_graph_web/graphql/operator_workflow/queries.ex",
-          "lib/office_graph_web/graphql/operator_commands/types.ex",
-          "lib/office_graph_web/graphql/operator_commands/mutations.ex"
+          "lib/office_graph_web/graphql/operator_workflow/queries.ex"
         ] do
       assert File.exists?(required_path),
              "Expected GraphQL transport module file #{required_path}"
     end
   end
 
-  test "operator command resolvers remain transport-only" do
-    resolver_paths =
-      "lib/office_graph_web/graphql/operator_commands/resolvers/*.ex"
+  test "generated commands have no operator command compatibility namespace" do
+    paths = [
+      "lib/office_graph_web/operator_commands",
+      "lib/office_graph_web/graphql/operator_commands",
+      "lib/office_graph_web/json_api/operator_commands"
+    ]
+
+    assert Enum.all?(paths, &(not File.dir?(&1))),
+           "generated commands must not retain operator_commands transport folders"
+
+    modules =
+      "lib/**/*.ex"
       |> Path.wildcard()
-      |> Enum.sort()
+      |> Enum.flat_map(&modules_in_file/1)
 
-    assert length(resolver_paths) == 6
-
-    for path <- resolver_paths do
-      source = File.read!(path)
-      resolver_body = source |> String.split("\n") |> tl() |> Enum.join("\n")
-
-      refute source =~ "Repo.", "#{path} must not perform direct repository operations"
-      refute source =~ "Ash.Changeset", "#{path} must not build Ash changesets"
-      refute resolver_body =~ "Resolvers.", "#{path} must not call another resolver"
-
-      refute source =~ "defp validate_",
-             "#{path} must leave command validation inside the owning domain"
-
-      assert source =~ "Input.parse", "#{path} must parse transport input"
-
-      assert source =~ "RequestSession.resolve_resolution",
-             "#{path} must resolve request sessions"
-
-      assert source =~ "Operations.start_command", "#{path} must start server-owned commands"
-    end
+    refute Enum.any?(modules, fn {_path, module} ->
+             String.starts_with?(module, "OfficeGraphWeb.OperatorCommands")
+           end)
   end
 
   test "old compatibility GraphQL modules stay retired" do
@@ -436,18 +584,13 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
   end
 
   @tag :scanner_contract
-  test "direct Ecto scanner reports proposed-change transaction boundaries" do
+  test "completed proposed-change slice has no direct Ecto operations" do
     operations =
       direct_ecto_operations()
       |> Enum.filter(&(&1.path == "lib/office_graph/proposed_changes.ex"))
-      |> MapSet.new(&{&1.path, &1.function, &1.operation})
 
-    assert operations ==
-             MapSet.new([
-               {"lib/office_graph/proposed_changes.ex", "apply_all/3", "Repo.transaction"},
-               {"lib/office_graph/proposed_changes.ex", "create_for_manual_intake/4",
-                "Repo.transaction"}
-             ])
+    assert operations == [],
+           "ProposedChanges must persist through owning Ash actions:\n#{format_direct_operations(operations)}"
   end
 
   @tag :scanner_contract
@@ -465,28 +608,5 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
 
     assert operations == [],
            "Traceability contexts must create/count through Ash actions:\n#{format_direct_operations(operations)}"
-  end
-
-  @tag :scanner_contract
-  test "direct Ecto ledger approval requires exact path function operation tuples" do
-    entries =
-      parse_direct_ecto_ledger_entries("""
-      | File | Function | Operation |
-      | --- | --- | --- |
-      | `lib/example.ex` | `allowed/0` | `Repo.insert` |
-      | `lib/example.ex` | `{other/0, Repo.update}` | Synthetic tuple approval |
-      """)
-
-    assert ledger_approves_operation?(entries, %{
-             path: "lib/example.ex",
-             function: "allowed/0",
-             operation: "Repo.insert"
-           })
-
-    refute ledger_approves_operation?(entries, %{
-             path: "lib/example.ex",
-             function: "other/0",
-             operation: "Repo.insert"
-           })
   end
 end

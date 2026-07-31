@@ -9,19 +9,32 @@ defmodule OfficeGraph.Content.DocumentReference do
   postgres do
     table "document_references"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names document_id: "document_references_document_id_fkey"
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :document_id, :uuid, allow_nil?: false, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :target_type, :string, allow_nil?: false, public?: true
     attribute :target_id, :uuid, allow_nil?: false, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :document, OfficeGraph.Content.Document do
+      source_attribute :document_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
   end
 
   actions do

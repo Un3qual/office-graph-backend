@@ -64,10 +64,12 @@ defmodule OfficeGraph.MixProject do
       {:ash_postgres, "~> 2.10"},
       {:ash_graphql, "~> 1.9"},
       {:ash_json_api, "~> 1.6"},
+      {:open_api_spex, "~> 3.16"},
       {:absinthe, "~> 1.11"},
       {:absinthe_relay, "~> 1.6"},
       {:absinthe_plug, "~> 1.5"},
       {:oidcc, "~> 3.7"},
+      {:req, "~> 0.7.2"},
       {:oban, "~> 2.20"},
       {:boundary, "~> 0.10.4", runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -93,9 +95,15 @@ defmodule OfficeGraph.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "assets.setup", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      "ecto.setup": [
+        "ecto.create",
+        "ecto.migrate",
+        "run -e \"OfficeGraph.Release.setup!()\""
+      ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "demo.seed": ["run priv/repo/seeds.exs"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "migration.drift": ["ash_postgres.generate_migrations --check"],
       "architecture.conformance": [
         "test test/office_graph/architecture/ash_api_ledger_conformance_test.exs test/office_graph/architecture/ash_resource_conformance_test.exs test/office_graph/architecture/ash_boundary_heuristics_test.exs"
       ],
@@ -132,6 +140,7 @@ defmodule OfficeGraph.MixProject do
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
         "format --check-formatted",
+        "migration.drift",
         "boundary.check",
         "architecture.check",
         "static.analysis",
@@ -153,12 +162,12 @@ defmodule OfficeGraph.MixProject do
       "lib/office_graph/verification/*.ex",
       "lib/office_graph/runs/changes/*.ex",
       "lib/office_graph/work_graph/changes/*.ex",
-      "lib/office_graph/work_graph/proposal_commands.ex",
-      "lib/office_graph/work_graph/command_support.ex",
-      "lib/office_graph/work_graph/queries.ex",
-      "lib/office_graph/work_graph/verification_commands.ex",
+      "lib/office_graph/work_graph/commands/proposal_commands.ex",
+      "lib/office_graph/work_graph/commands/command_support.ex",
+      "lib/office_graph/work_graph/queries/queries.ex",
+      "lib/office_graph/work_graph/commands/verification_commands.ex",
       "lib/office_graph/work_packets/changes/*.ex",
-      "lib/office_graph/work_packets/readiness.ex"
+      "lib/office_graph/work_packets/services/readiness.ex"
     ]
   end
 end

@@ -10,9 +10,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     def fetch(_reference, _scope), do: {:error, :unavailable}
   end
 
-  import Ecto.Query
-
-  alias OfficeGraph.{DurableDelivery, Foundation, GitHubIntegration, Operations, Repo}
+  alias OfficeGraph.{Audit, DurableDelivery, Foundation, GitHubIntegration, Operations, Revisions}
+  alias OfficeGraph.Authorization.DecisionStoreTestAdapter
 
   alias OfficeGraph.GitHubIntegration.{
     Adapter,
@@ -20,6 +19,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     InstallationCredential,
     OutboundAction,
     OutboundCommands,
+    OutboundPersistenceTestAdapter,
     OutboundWorker,
     PermissionEntry,
     RecordLoaderTestAdapter,
@@ -33,6 +33,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
   alias OfficeGraph.Integrations.IntegrationCredential
   alias OfficeGraph.SoftwareProving.{CheckRun, ReviewComment, ReviewThread}
   alias OfficeGraph.SoftwareProving.GitHub.{CheckRunExtension, ReviewCommentExtension}
+  alias OfficeGraph.TestSupport.GitHubIntegrationCleanup
+  alias OfficeGraph.TestSupport.GitHubIntegrationCleanup.Job, as: PersistedJob
 
   require Ash.Query
 
@@ -79,24 +81,12 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation =
       command_operation!(context, :github_review_reply, "reply:authorization-write", attrs)
 
-    Repo.query!("""
-    ALTER TABLE authorization_decisions
-    ADD CONSTRAINT test_github_outbound_authorization_write_storage
-    CHECK (action <> 'github.review.reply')
-    """)
+    DecisionStoreTestAdapter.configure!({:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundCommands.reply_to_review(context.session, operation, attrs)
-      after
-        Repo.query!("""
-        ALTER TABLE authorization_decisions
-        DROP CONSTRAINT test_github_outbound_authorization_write_storage
-        """)
-      end
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert {:error, :integration_storage_unavailable} = result
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -154,7 +144,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       provider_sequence: 2,
       operation_id: context.comment.operation_id
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     assert {:ok, replay} = OutboundCommands.reply_to_review(context.session, operation, attrs)
     assert replay.id == first.id
@@ -167,7 +157,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:whitespace", attrs)
 
     assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
-    assert action.input["body"] == body
+    assert action.reply_body == body
 
     Provider.put(%{
       {"review_reply", "PRRC_outbound"} => {:ok, %{id: "reply-whitespace", version: "v1"}}
@@ -188,7 +178,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
             provider_sequence: sequence,
             operation_id: comment.operation_id
           })
-          |> Repo.ash_update!()
+          |> Ash.update!(authorize?: false)
 
         attrs = %{
           installation_id: context.installation.id,
@@ -212,32 +202,42 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
   test "review replies reject replies-to-replies before enqueue", context do
     reply =
-      Repo.ash_create!(ReviewComment, %{
-        organization_id: context.comment.organization_id,
-        workspace_id: context.comment.workspace_id,
-        source_id: context.comment.source_id,
-        pull_request_id: context.comment.pull_request_id,
-        review_thread_id: context.comment.review_thread_id,
-        parent_comment_id: context.comment.id,
-        body: "Already a reply",
-        author_label: "reviewer",
-        state: "published",
-        published_at: ~U[2026-07-14 15:59:00Z],
-        provider_version: "v2",
-        provider_sequence: 2,
-        provider_updated_at: ~U[2026-07-14 16:01:00Z],
-        sync_state: "synced",
-        operation_id: context.comment.operation_id
-      })
+      Ash.create!(
+        ReviewComment,
+        %{
+          organization_id: context.comment.organization_id,
+          workspace_id: context.comment.workspace_id,
+          source_id: context.comment.source_id,
+          pull_request_id: context.comment.pull_request_id,
+          review_thread_id: context.comment.review_thread_id,
+          parent_comment_id: context.comment.id,
+          body: "Already a reply",
+          author_label: "reviewer",
+          state: "published",
+          published_at: ~U[2026-07-14 15:59:00Z],
+          provider_version: "v2",
+          provider_sequence: 2,
+          provider_updated_at: ~U[2026-07-14 16:01:00Z],
+          sync_state: "synced",
+          operation_id: context.comment.operation_id
+        },
+        action: :create,
+        authorize?: false
+      )
 
-    Repo.ash_create!(ReviewCommentExtension, %{
-      review_comment_id: reply.id,
-      organization_id: reply.organization_id,
-      workspace_id: reply.workspace_id,
-      node_id: "PRRC_outbound_reply",
-      database_id: 705,
-      review_database_id: 706
-    })
+    Ash.create!(
+      ReviewCommentExtension,
+      %{
+        review_comment_id: reply.id,
+        organization_id: reply.organization_id,
+        workspace_id: reply.workspace_id,
+        node_id: "PRRC_outbound_reply",
+        database_id: 705,
+        review_database_id: 706
+      },
+      action: :create,
+      authorize?: false
+    )
 
     attrs = %{
       installation_id: context.installation.id,
@@ -251,7 +251,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, :forbidden} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -295,7 +295,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       provider_sequence: 2,
       operation_id: context.comment.operation_id
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     Provider.put(%{
       {"review_reply", "PRRC_outbound"} => {:ok, %{id: "must-not-send", version: "v2"}}
@@ -328,7 +328,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       provider_updated_at: ~U[2026-07-14 16:01:00Z],
       operation_id: context.comment.operation_id
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     Provider.put(%{
       {"review_reply", "PRRC_outbound"} =>
@@ -353,7 +353,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -368,7 +368,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -381,7 +381,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -394,7 +394,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -425,7 +425,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       assert {:error, :integration_storage_unavailable} =
                command.(context.session, operation, attrs)
 
-      assert Repo.aggregate(OutboundAction, :count) == 0
+      assert Ash.count!(OutboundAction, authorize?: false) == 0
       assert count_jobs_for_worker() == 0
     end
   end
@@ -441,7 +441,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, :integration_storage_unavailable} =
              OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -452,24 +452,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation =
       command_operation!(context, :github_review_reply, "reply:transaction-outage", attrs)
 
-    Repo.query!("""
-    ALTER TABLE github_outbound_actions
-    ADD CONSTRAINT test_github_outbound_transaction_storage
-    CHECK (action_kind <> 'review_reply')
-    """)
+    OutboundPersistenceTestAdapter.configure!(
+      command_persistence: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        OutboundCommands.reply_to_review(context.session, operation, attrs)
-      after
-        Repo.query!("""
-        ALTER TABLE github_outbound_actions
-        DROP CONSTRAINT test_github_outbound_transaction_storage
-        """)
-      end
+    assert {:error, :integration_storage_unavailable} =
+             OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    assert {:error, :integration_storage_unavailable} = result
-    assert Repo.aggregate(OutboundAction, :count) == 0
+    assert Ash.count!(OutboundAction, authorize?: false) == 0
     assert count_jobs_for_worker() == 0
   end
 
@@ -486,7 +476,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert {:error, "integration_storage_unavailable"} = OutboundWorker.perform(job)
 
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    refute Map.has_key?(job_for(action.id).meta, "terminal_failure_code")
   end
 
   test "exhausted action lookup retries terminalization until the action can be persisted",
@@ -502,7 +492,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     assert {:snooze, 5} = OutboundWorker.perform(%{job | attempt: job.max_attempts})
 
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = job_for(action.id)
     assert staged_job.meta["terminal_action_id"] == action.id
     assert staged_job.meta["terminal_failure_code"] == "integration_storage_unavailable"
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
@@ -531,26 +521,15 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       OutboundAction => {:error, :database_unavailable}
     })
 
-    Repo.query!("""
-    ALTER TABLE oban_jobs
-    ADD CONSTRAINT test_github_outbound_lookup_terminal_staging
-    CHECK (NOT (meta ? 'terminal_action_id'))
-    """)
+    OutboundPersistenceTestAdapter.configure!(job_metadata: {:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundWorker.perform(%{job | attempt: job.max_attempts})
-      after
-        Repo.query!("""
-        ALTER TABLE oban_jobs
-        DROP CONSTRAINT test_github_outbound_lookup_terminal_staging
-        """)
+    result = OutboundWorker.perform(%{job | attempt: job.max_attempts})
 
-        RecordLoaderTestAdapter.put(%{})
-      end
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
+    RecordLoaderTestAdapter.put(%{})
 
     assert {:snooze, 5} = result
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_action_id")
+    refute Map.has_key?(job_for(action.id).meta, "terminal_action_id")
 
     Provider.put(%{
       {"review_reply", "PRRC_outbound"} =>
@@ -558,7 +537,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     })
 
     replay_job = %{
-      Repo.get!(Oban.Job, job.id)
+      job_for(action.id)
       | attempt: job.max_attempts + 1,
         max_attempts: job.max_attempts + 1
     }
@@ -583,23 +562,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
         {:ok, %{id: "must-not-send-without-attempt-marker", version: "v1"}}
     })
 
-    Repo.query!("""
-    ALTER TABLE github_outbound_actions
-    ADD CONSTRAINT test_github_outbound_attempt_marker
-    CHECK (attempted_at IS NULL)
-    """)
+    OutboundPersistenceTestAdapter.configure!(
+      provider_attempt: {:error, :database_unavailable},
+      retryable_action: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        OutboundWorker.perform(job_for(action.id))
-      after
-        Repo.query!("""
-        ALTER TABLE github_outbound_actions
-        DROP CONSTRAINT test_github_outbound_attempt_marker
-        """)
-      end
+    assert {:error, "integration_storage_unavailable"} =
+             OutboundWorker.perform(job_for(action.id))
 
-    assert {:error, "integration_storage_unavailable"} = result
     assert Provider.calls("review_reply_lookup", action.id) == 0
     assert Provider.calls("review_reply", "PRRC_outbound") == 0
 
@@ -616,32 +586,18 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     Provider.put(%{{"review_reply", "PRRC_outbound"} => {:error, :permission_denied}})
 
-    Repo.query!("""
-    ALTER TABLE github_outbound_actions
-    ADD CONSTRAINT test_github_outbound_terminal_write
-    CHECK (state <> 'terminal')
-    """)
+    OutboundPersistenceTestAdapter.configure!(terminal_action: {:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundWorker.perform(job)
-      rescue
-        error -> {:raised, error}
-      after
-        Repo.query!("""
-        ALTER TABLE github_outbound_actions
-        DROP CONSTRAINT test_github_outbound_terminal_write
-        """)
-      end
+    assert {:snooze, 5} = OutboundWorker.perform(job)
 
-    assert {:snooze, 5} = result
-
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = job_for(action.id)
     assert staged_job.meta["terminal_action_id"] == action.id
     assert staged_job.meta["terminal_failure_class"] == "authorization"
     assert staged_job.meta["terminal_failure_code"] == "permission_denied"
     assert staged_job.meta["terminal_result_code"] == "permission_denied"
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert {:cancel, "permission_denied"} = OutboundWorker.perform(staged_job)
 
@@ -650,11 +606,6 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     assert terminal_action.failure_class == "authorization"
     assert terminal_action.failure_code == "permission_denied"
     assert trace_counts(action, "github.review_reply.terminal") == {1, 1}
-
-    Repo.query!(
-      "DELETE FROM revisions WHERE operation_id = $1 AND revision_type = $2",
-      [Ecto.UUID.dump!(action.operation_id), "github.review_reply.terminal"]
-    )
 
     assert {:cancel, "permission_denied"} = OutboundWorker.perform(staged_job)
     assert trace_counts(action, "github.review_reply.terminal") == {1, 1}
@@ -680,30 +631,18 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       {"check_update", "CR_outbound"} => {:ok, %{id: "CR_staged_success", version: "check-v2"}}
     })
 
-    Repo.query!("""
-    ALTER TABLE github_outbound_actions
-    ADD CONSTRAINT test_github_outbound_success_write
-    CHECK (state <> 'succeeded')
-    """)
+    OutboundPersistenceTestAdapter.configure!(successful_action: {:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundWorker.perform(job)
-      after
-        Repo.query!("""
-        ALTER TABLE github_outbound_actions
-        DROP CONSTRAINT test_github_outbound_success_write
-        """)
-      end
+    assert {:snooze, 5} = OutboundWorker.perform(job)
 
-    assert {:snooze, 5} = result
-
-    staged_job = Repo.get!(Oban.Job, job.id)
+    staged_job = job_for(action.id)
     assert staged_job.meta["successful_action_id"] == action.id
     assert staged_job.meta["successful_provider_response_id"] == "CR_staged_success"
     assert staged_job.meta["successful_provider_response_version"] == "check-v2"
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
     assert Provider.calls("check_update", "CR_outbound") == 1
+
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert :ok = OutboundWorker.perform(staged_job)
 
@@ -735,26 +674,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       {"check_update", "CR_outbound"} => {:ok, %{id: "CR_outbound", version: "check-v2"}}
     })
 
-    Repo.query!("""
-    ALTER TABLE oban_jobs
-    ADD CONSTRAINT test_github_outbound_success_staging
-    CHECK (NOT (meta ? 'successful_action_id'))
-    """)
+    OutboundPersistenceTestAdapter.configure!(job_metadata: {:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundWorker.perform(job)
-      after
-        Repo.query!("""
-        ALTER TABLE oban_jobs
-        DROP CONSTRAINT test_github_outbound_success_staging
-        """)
-      end
-
-    assert {:snooze, 5} = result
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "successful_action_id")
+    assert {:snooze, 5} = OutboundWorker.perform(job)
+    refute Map.has_key?(job_for(action.id).meta, "successful_action_id")
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
     assert Provider.calls("check_update", "CR_outbound") == 1
+
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     context.check
     |> Ash.Changeset.for_update(:reconcile, %{
@@ -765,9 +692,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       provider_sequence: 2,
       operation_id: context.check.operation_id
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
-    assert :ok = OutboundWorker.perform(Repo.get!(Oban.Job, job.id))
+    assert :ok = OutboundWorker.perform(job_for(action.id))
 
     succeeded = Ash.get!(OutboundAction, action.id, authorize?: false)
     assert succeeded.state == "succeeded"
@@ -821,7 +748,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     assert {:ok, action} = OutboundCommands.update_check(context.session, operation, attrs)
     assert action.state == "pending"
-    assert action.input["conclusion"] == nil
+    assert action.check_conclusion == nil
   end
 
   test "outbound check updates reject provider-only startup failures", context do
@@ -882,28 +809,14 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
         {:ok, %{id: "PRRC_trace_recovery", version: "reply-v1"}}
     })
 
-    Repo.query!("""
-    ALTER TABLE revisions
-    ADD CONSTRAINT test_github_outbound_trace_write
-    CHECK (revision_type <> 'github.review_reply.succeeded')
-    """)
+    OutboundPersistenceTestAdapter.configure!(trace: {:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundWorker.perform(job)
-      rescue
-        error -> {:raised, error}
-      after
-        Repo.query!("""
-        ALTER TABLE revisions
-        DROP CONSTRAINT test_github_outbound_trace_write
-        """)
-      end
-
-    assert {:snooze, 5} = result
+    assert {:snooze, 5} = OutboundWorker.perform(job)
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "succeeded"
     assert trace_counts(action, "github.review_reply.succeeded") == {0, 0}
     assert Provider.calls("review_reply", "PRRC_outbound") == 1
+
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert :ok = OutboundWorker.perform(job)
     assert trace_counts(action, "github.review_reply.succeeded") == {1, 1}
@@ -930,7 +843,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
       provider_sequence: 2,
       operation_id: context.comment.operation_id
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     Provider.put(%{
       {"review_reply_lookup", action.id} =>
@@ -1061,23 +974,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
         {:error, {:rate_limited, DateTime.add(DateTime.utc_now(), 30, :second)}}
     })
 
-    Repo.query!("""
-    ALTER TABLE github_outbound_actions
-    ADD CONSTRAINT test_github_outbound_rate_limit_write
-    CHECK (state <> 'retryable')
-    """)
+    OutboundPersistenceTestAdapter.configure!(retryable_action: {:error, :database_unavailable})
 
-    result =
-      try do
-        OutboundWorker.perform(job_for(action.id))
-      after
-        Repo.query!("""
-        ALTER TABLE github_outbound_actions
-        DROP CONSTRAINT test_github_outbound_rate_limit_write
-        """)
-      end
-
-    assert {:snooze, delay} = result
+    assert {:snooze, delay} = OutboundWorker.perform(job_for(action.id))
     assert delay in 1..30
     assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
     assert Provider.calls("review_reply", "PRRC_outbound") == 1
@@ -1117,27 +1016,20 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     Provider.put(%{{"review_reply", "PRRC_outbound"} => {:error, :installation_revoked}})
 
-    Repo.query!("""
-    ALTER TABLE github_installations
-    ADD CONSTRAINT test_github_outbound_installation_revocation
-    CHECK (lifecycle_state <> 'revoked')
-    """)
+    OutboundPersistenceTestAdapter.configure!(
+      installation_revocation: {:error, :database_unavailable}
+    )
 
-    try do
-      assert {:snooze, 5} = OutboundWorker.perform(job_for(action.id))
-      assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
+    assert {:snooze, 5} = OutboundWorker.perform(job_for(action.id))
+    assert Ash.get!(OutboundAction, action.id, authorize?: false).state == "pending"
 
-      assert Ash.get!(Installation, context.installation.id, authorize?: false).lifecycle_state ==
-               "active"
-    after
-      Repo.query!("""
-      ALTER TABLE github_installations
-      DROP CONSTRAINT test_github_outbound_installation_revocation
-      """)
-    end
+    assert Ash.get!(Installation, context.installation.id, authorize?: false).lifecycle_state ==
+             "active"
 
-    staged_job = Repo.get!(Oban.Job, job_for(action.id).id)
+    staged_job = job_for(action.id)
     assert staged_job.meta["terminal_action_id"] == action.id
+
+    OutboundPersistenceTestAdapter.clear_outbound_failures!()
 
     assert {:cancel, "installation_revoked"} = OutboundWorker.perform(staged_job)
     assert Provider.calls("review_reply", "PRRC_outbound") == 1
@@ -1226,12 +1118,9 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
     operation = command_operation!(context, :github_review_reply, "reply:invalid-input", attrs)
     assert {:ok, action} = OutboundCommands.reply_to_review(context.session, operation, attrs)
 
-    unknown_key = "unrecognized_#{Ecto.UUID.generate()}"
-
-    Repo.query!(
-      "UPDATE github_outbound_actions SET input = $2 WHERE id::text = $1",
-      [action.id, %{unknown_key => "value"}]
-    )
+    RecordLoaderTestAdapter.configure!(%{
+      OutboundAction => {:ok, %{action | target_node_id: nil}}
+    })
 
     assert {:cancel, "invalid_provider_response"} = OutboundWorker.perform(job_for(action.id))
 
@@ -1344,14 +1233,8 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     assert {:cancel, "invalid_credential"} = OutboundWorker.perform(job)
 
-    terminal_job =
-      job.id
-      |> then(&Repo.get!(Oban.Job, &1))
-      |> Ecto.Changeset.change(%{
-        state: "cancelled",
-        cancelled_at: DateTime.utc_now()
-      })
-      |> Repo.update!()
+    assert :ok = Oban.cancel_job(job)
+    terminal_job = job_for(action.id)
 
     assert terminal_job.meta["terminal_failure_code"] == "invalid_credential"
     assert {:ok, summaries} = DurableDelivery.list_terminal_jobs(context.session)
@@ -1367,7 +1250,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     context.credential
     |> Ash.Changeset.for_update(:set_status, %{status: "revoked"})
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     assert {:cancel, "invalid_credential"} = OutboundWorker.perform(job_for(action.id))
 
@@ -1386,7 +1269,7 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
 
     context.installation
     |> Ash.Changeset.for_update(:set_lifecycle, %{lifecycle_state: "revoked"})
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
 
     assert {:cancel, "installation_revoked"} = OutboundWorker.perform(job_for(action.id))
 
@@ -1485,45 +1368,39 @@ defmodule OfficeGraph.GitHubIntegration.OutboundCommandsTest do
   end
 
   defp count_jobs(action_id) do
-    Repo.aggregate(
-      from(job in Oban.Job,
-        where:
-          job.worker == ^inspect(OutboundWorker) and
-            fragment("?->>'action_id'", job.args) == ^action_id
-      ),
-      :count
-    )
+    action_id
+    |> GitHubIntegrationCleanup.jobs_for_action()
+    |> Enum.count(&(&1.worker == inspect(OutboundWorker)))
   end
 
   defp count_jobs_for_worker do
-    Repo.aggregate(from(job in Oban.Job, where: job.worker == ^inspect(OutboundWorker)), :count)
+    PersistedJob
+    |> Ash.Query.filter(worker == ^inspect(OutboundWorker))
+    |> Ash.count!(authorize?: false)
   end
 
   defp trace_counts(action, event) do
-    %{rows: [[audit_count, revision_count]]} =
-      Repo.query!(
-        """
-        SELECT
-          (SELECT count(*) FROM audit_records
-           WHERE operation_id = $1 AND action = $2
-             AND resource_type = 'github_outbound_action' AND resource_id = $3),
-          (SELECT count(*) FROM revisions
-           WHERE operation_id = $1 AND revision_type = $2
-             AND resource_type = 'github_outbound_action' AND resource_id = $3)
-        """,
-        [Ecto.UUID.dump!(action.operation_id), event, Ecto.UUID.dump!(action.id)]
+    audit_count =
+      Audit.AuditRecord
+      |> Ash.Query.filter(
+        operation_id == ^action.operation_id and action == ^event and
+          resource_type == "github_outbound_action" and resource_id == ^action.id
       )
+      |> Ash.count!(authorize?: false)
+
+    revision_count =
+      Revisions.Revision
+      |> Ash.Query.filter(
+        operation_id == ^action.operation_id and revision_type == ^event and
+          resource_type == "github_outbound_action" and resource_id == ^action.id
+      )
+      |> Ash.count!(authorize?: false)
 
     {audit_count, revision_count}
   end
 
   defp job_for(action_id) do
-    Repo.one!(
-      from job in Oban.Job,
-        where:
-          job.worker == ^inspect(OutboundWorker) and
-            fragment("?->>'action_id'", job.args) == ^action_id
-    )
+    GitHubIntegrationCleanup.oban_job_for_action!(action_id)
   end
 
   defp snapshot do

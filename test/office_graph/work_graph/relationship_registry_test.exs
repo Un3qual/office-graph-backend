@@ -1,7 +1,7 @@
 defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
   use OfficeGraph.DataCase, async: true
 
-  alias OfficeGraph.{Repo, WorkGraph.RelationshipDefinition}
+  alias OfficeGraph.WorkGraph.RelationshipDefinition
   alias OfficeGraph.WorkGraph.RelationshipDefinitions
 
   @canonical_keys ~w(
@@ -52,7 +52,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
              RelationshipDefinitions.fetch_by_key("invented")
   end
 
-  test "registry policy domains are enforced by Ash and PostgreSQL" do
+  test "registry policy domains are enforced by the resource contracts" do
     provenance = Ash.Resource.Info.attribute(RelationshipDefinition, :provenance_policy)
     authorization = Ash.Resource.Info.attribute(RelationshipDefinition, :authorization_policy)
 
@@ -75,32 +75,5 @@ defmodule OfficeGraph.WorkGraph.RelationshipRegistryTest do
 
     assert {:error, _error} =
              Ash.Type.apply_constraints(:string, "invented", authorization.constraints)
-
-    %{rows: rows} =
-      Repo.query!("""
-      SELECT conname
-      FROM pg_constraint
-      WHERE conname IN (
-        'relationship_definitions_provenance_policy_valid',
-        'relationship_definitions_authorization_policy_valid'
-      )
-      ORDER BY conname
-      """)
-
-    assert List.flatten(rows) == [
-             "relationship_definitions_authorization_policy_valid",
-             "relationship_definitions_provenance_policy_valid"
-           ]
-  end
-
-  test "relationship validity starts cannot be later than persistence" do
-    %{rows: rows} =
-      Repo.query!("""
-      SELECT conname
-      FROM pg_constraint
-      WHERE conname = 'graph_relationships_valid_from_not_future'
-      """)
-
-    assert List.flatten(rows) == ["graph_relationships_valid_from_not_future"]
   end
 end

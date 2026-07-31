@@ -9,19 +9,31 @@ defmodule OfficeGraph.Content.DocumentMark do
   postgres do
     table "document_marks"
     repo OfficeGraph.Repo
-    migrate? false
 
     foreign_key_names block_id: "document_marks_block_id_fkey"
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :block_id, :uuid, allow_nil?: false, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :mark_type, :string, allow_nil?: false, public?: true
-    attribute :attrs, :map, allow_nil?: false, default: %{}, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
+  end
+
+  relationships do
+    belongs_to :block, OfficeGraph.Content.DocumentBlock do
+      source_attribute :block_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
   end
 
   actions do
@@ -31,7 +43,7 @@ defmodule OfficeGraph.Content.DocumentMark do
     end
 
     create :create do
-      accept [:id, :block_id, :mark_type, :attrs]
+      accept [:id, :block_id, :mark_type]
     end
   end
 end

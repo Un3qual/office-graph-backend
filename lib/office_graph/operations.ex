@@ -8,7 +8,7 @@ defmodule OfficeGraph.Operations do
   require Ash.Query
 
   alias OfficeGraph.Identity
-  alias OfficeGraph.Operations.{OperationCorrelation, SystemOperationRequest}
+  alias OfficeGraph.Operations.{OperationCorrelation, Persistence, SystemOperationRequest}
 
   @storage_exceptions [
     Ash.Error.Forbidden,
@@ -48,6 +48,7 @@ defmodule OfficeGraph.Operations do
     github_installation_bind: "github.installation.bind",
     github_review_reply: "github.review.reply",
     github_check_update: "github.check.update",
+    enterprise_identity_manage: "enterprise_identity.manage",
     integration_reconcile: "integration.reconcile",
     verification_waive: "verification.waive",
     skeleton_read: "skeleton.read"
@@ -143,7 +144,7 @@ defmodule OfficeGraph.Operations do
       with {:ok, operation} <-
              start_operation(session_context, action,
                idempotency_key: idempotency_key,
-               metadata: %{"command_input_digest" => digest}
+               command_input_digest: digest
              ),
            :ok <- validate_command_replay(operation, input) do
         {:ok, operation}
@@ -152,10 +153,7 @@ defmodule OfficeGraph.Operations do
   end
 
   def validate_command_replay(operation, input) when is_map(operation) do
-    expected_digest =
-      operation
-      |> Map.get(:metadata, %{})
-      |> command_digest_from_metadata()
+    expected_digest = Map.get(operation, :command_input_digest)
 
     if expected_digest == command_input_digest(input) do
       :ok
@@ -287,7 +285,6 @@ defmodule OfficeGraph.Operations do
 
   defp create_system_operation(request) do
     attrs = %{
-      id: Ecto.UUID.generate(),
       operation_kind: "system",
       principal_id: request.principal_id,
       session_id: nil,
@@ -303,24 +300,29 @@ defmodule OfficeGraph.Operations do
       subject_kind: request.subject_kind,
       subject_id: request.subject_id,
       subject_version: request.subject_version,
-      metadata: %{}
+      command_input_digest: nil
     }
 
-    OperationCorrelation
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(
-      authorize?: false,
-      return_notifications?: true,
-      upsert?: true,
-      upsert_identity: :unique_system_idempotency,
-      upsert_fields: []
-    )
-    |> case do
-      {:ok, operation, _notifications} -> {:ok, operation}
-      {:ok, operation} -> {:ok, operation}
-      {:error, error} -> refetch_system_operation_after_conflict(request, error)
+    with :ok <- Persistence.before_write(:system_operation) do
+      OperationCorrelation
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> Ash.create(
+        authorize?: false,
+        return_notifications?: true,
+        upsert?: true,
+        upsert_identity: system_idempotency_identity(request.workspace_id),
+        upsert_fields: []
+      )
+      |> case do
+        {:ok, operation, _notifications} -> {:ok, operation}
+        {:ok, operation} -> {:ok, operation}
+        {:error, error} -> refetch_system_operation_after_conflict(request, error)
+      end
     end
   end
+
+  defp system_idempotency_identity(nil), do: :unique_system_organization_idempotency
+  defp system_idempotency_identity(_workspace_id), do: :unique_system_workspace_idempotency
 
   defp refetch_system_operation_after_conflict(request, error) do
     case existing_system_operation(request) do
@@ -373,7 +375,6 @@ defmodule OfficeGraph.Operations do
 
   defp create_operation(session_context, action_name, correlation_id, idempotency_key, attrs) do
     operation_attrs = %{
-      id: Ecto.UUID.generate(),
       principal_id: session_context.principal_id,
       session_id: session_context.session_id,
       organization_id: session_context.organization_id,
@@ -381,32 +382,34 @@ defmodule OfficeGraph.Operations do
       action: action_name,
       correlation_id: correlation_id,
       idempotency_key: idempotency_key,
-      metadata: Map.new(attrs[:metadata] || %{})
+      command_input_digest: attrs[:command_input_digest]
     }
 
-    OperationCorrelation
-    |> Ash.Changeset.for_create(:create, operation_attrs)
-    |> Ash.create(
-      authorize?: false,
-      return_notifications?: true,
-      upsert?: not is_nil(idempotency_key),
-      upsert_identity: :unique_idempotency_key,
-      upsert_fields: []
-    )
-    |> case do
-      {:ok, operation, _notifications} ->
-        {:ok, operation}
+    with :ok <- Persistence.before_write(:human_operation) do
+      OperationCorrelation
+      |> Ash.Changeset.for_create(:create, operation_attrs)
+      |> Ash.create(
+        authorize?: false,
+        return_notifications?: true,
+        upsert?: not is_nil(idempotency_key),
+        upsert_identity: :unique_idempotency_key,
+        upsert_fields: []
+      )
+      |> case do
+        {:ok, operation, _notifications} ->
+          {:ok, operation}
 
-      {:ok, operation} ->
-        {:ok, operation}
+        {:ok, operation} ->
+          {:ok, operation}
 
-      {:error, error} ->
-        refetch_existing_operation_after_conflict(
-          session_context,
-          action_name,
-          idempotency_key,
-          error
-        )
+        {:error, error} ->
+          refetch_existing_operation_after_conflict(
+            session_context,
+            action_name,
+            idempotency_key,
+            error
+          )
+      end
     end
   end
 
@@ -452,11 +455,6 @@ defmodule OfficeGraph.Operations do
     do: Enum.map(value, &normalize_command_input/1)
 
   defp normalize_command_input(value), do: value
-
-  defp command_digest_from_metadata(%{"command_input_digest" => digest}), do: digest
-  defp command_digest_from_metadata(%{command_input_digest: digest}), do: digest
-
-  defp command_digest_from_metadata(_metadata), do: nil
 
   defp with_operation_storage_boundary(fun) do
     fun.()

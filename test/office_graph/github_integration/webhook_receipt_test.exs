@@ -1,12 +1,11 @@
 defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
   use OfficeGraph.DataCase, async: false
 
-  import Ecto.Query
   import OfficeGraph.SessionCaseHelpers
 
   require Ash.Query
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Integrations, Repo}
+  alias OfficeGraph.{Foundation, GitHubIntegration, Integrations}
   alias OfficeGraph.DurableDelivery.DomainEvent
 
   alias OfficeGraph.GitHubIntegration.{
@@ -14,12 +13,14 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     InstallationCredential,
     RecordLoaderTestAdapter,
     SecretStore.TestAdapter,
+    WebhookReceiptPersistenceTestAdapter,
     WebhookReceipt,
     WebhookWorker
   }
 
   alias OfficeGraph.Integrations.{ExternalSource, RawArchive}
   alias OfficeGraph.Operations.OperationCorrelation
+  alias OfficeGraph.TestSupport.GitHubIntegrationCleanup
 
   defmodule UnavailableSecretStore do
     @behaviour OfficeGraph.GitHubIntegration.SecretStore
@@ -49,7 +50,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     assert archive.body == body
     assert archive.archive_kind == "provider_delivery"
-    refute inspect(archive.metadata) =~ context.webhook_secret
+    assert archive.provider_event == "pull_request"
+    assert archive.external_installation_id == context.external_installation_id
+    refute inspect(archive) =~ context.webhook_secret
 
     assert {:ok, scoped_archive} =
              Integrations.provider_delivery_archive(
@@ -84,13 +87,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
 
     jobs =
-      from(job in Oban.Job,
-        where:
-          job.worker == ^inspect(WebhookWorker) and
-            fragment("?->>'delivery_id'", job.args) == ^delivery_id,
-        order_by: fragment("?->>'pull_request_id'", job.args)
-      )
-      |> Repo.all()
+      delivery_id
+      |> webhook_jobs()
+      |> Enum.sort_by(& &1.args["pull_request_id"])
 
     assert Enum.map(jobs, & &1.args["pull_request_id"]) == [
              "PR_multi_pr_first",
@@ -116,13 +115,7 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
 
-    jobs =
-      from(job in Oban.Job,
-        where:
-          job.worker == ^inspect(WebhookWorker) and
-            fragment("?->>'delivery_id'", job.args) == ^delivery_id
-      )
-      |> Repo.all()
+    jobs = webhook_jobs(delivery_id)
 
     assert [job] = jobs
     refute Map.has_key?(job.args, "pull_request_id")
@@ -136,15 +129,8 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
 
     assert {:ok, :accepted} = WebhookReceipt.accept(headers, body)
 
-    WebhookWorker
-    |> inspect()
-    |> then(fn worker ->
-      from(job in Oban.Job,
-        where: job.worker == ^worker and fragment("?->>'delivery_id'", job.args) == ^delivery_id
-      )
-    end)
-    |> Repo.one!()
-    |> Repo.delete!()
+    [job] = webhook_jobs(delivery_id)
+    Ash.destroy!(job, authorize?: false)
 
     assert count_webhook_jobs(delivery_id) == 0
     assert {:ok, :duplicate} = WebhookReceipt.accept(headers, body)
@@ -281,22 +267,11 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
     body = payload(context.external_installation_id)
     headers = signed_headers(delivery_id, "pull_request", body, context.webhook_secret)
 
-    Repo.query!("""
-    ALTER TABLE external_sources
-    ADD CONSTRAINT test_github_receipt_provider_source_storage
-    CHECK (NOT (kind = 'provider' AND key = 'github_app:office-graph'))
-    """)
+    WebhookReceiptPersistenceTestAdapter.configure!(
+      provider_source: {:error, :database_unavailable}
+    )
 
-    result =
-      try do
-        WebhookReceipt.accept(headers, body)
-      after
-        Repo.query!(
-          "ALTER TABLE external_sources DROP CONSTRAINT test_github_receipt_provider_source_storage"
-        )
-      end
-
-    assert {:error, :receipt_unavailable} = result
+    assert {:error, :receipt_unavailable} = WebhookReceipt.accept(headers, body)
     assert no_receipt_effects?(delivery_id)
   end
 
@@ -312,22 +287,9 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
                "GitHub App #{context.app_slug}"
              )
 
-    Repo.query!("""
-    ALTER TABLE raw_archives
-    ADD CONSTRAINT test_github_receipt_raw_archive_storage
-    CHECK (external_delivery_id <> 'delivery-raw-archive-write-unavailable')
-    """)
+    WebhookReceiptPersistenceTestAdapter.configure!(archive: {:error, :database_unavailable})
 
-    result =
-      try do
-        WebhookReceipt.accept(headers, body)
-      after
-        Repo.query!(
-          "ALTER TABLE raw_archives DROP CONSTRAINT test_github_receipt_raw_archive_storage"
-        )
-      end
-
-    assert {:error, :receipt_unavailable} = result
+    assert {:error, :receipt_unavailable} = WebhookReceipt.accept(headers, body)
     assert no_receipt_effects?(delivery_id)
   end
 
@@ -412,13 +374,14 @@ defmodule OfficeGraph.GitHubIntegration.WebhookReceiptTest do
   end
 
   defp count_webhook_jobs(delivery_id) do
-    worker = inspect(WebhookWorker)
+    delivery_id
+    |> webhook_jobs()
+    |> length()
+  end
 
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^worker and fragment("?->>'delivery_id'", job.args) == ^delivery_id
-    )
-    |> Repo.aggregate(:count)
+  defp webhook_jobs(delivery_id) do
+    delivery_id
+    |> GitHubIntegrationCleanup.jobs_for_delivery()
+    |> Enum.filter(&(&1.worker == inspect(WebhookWorker)))
   end
 end

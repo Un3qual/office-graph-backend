@@ -15,10 +15,6 @@ defmodule OfficeGraph.SoftwareProving.ReviewComment do
     validations: [state: ~w(pending published minimized deleted)]
 
   attributes do
-    attribute :pull_request_id, :uuid, allow_nil?: false, public?: true
-    attribute :review_thread_id, :uuid, public?: true
-    attribute :parent_comment_id, :uuid, public?: true
-
     attribute :body, :string,
       allow_nil?: false,
       public?: true,
@@ -35,22 +31,22 @@ defmodule OfficeGraph.SoftwareProving.ReviewComment do
     belongs_to :pull_request, OfficeGraph.SoftwareProving.PullRequest do
       source_attribute :pull_request_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :review_thread, OfficeGraph.SoftwareProving.ReviewThread do
       source_attribute :review_thread_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     belongs_to :parent_comment, OfficeGraph.SoftwareProving.ReviewComment do
       source_attribute :parent_comment_id
       destination_attribute :id
-      define_attribute? false
       public? true
+      attribute_public? true
     end
 
     has_one :github_extension, OfficeGraph.SoftwareProving.GitHub.ReviewCommentExtension do

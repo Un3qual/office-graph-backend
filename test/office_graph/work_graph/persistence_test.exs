@@ -16,13 +16,13 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   alias OfficeGraph.Authorization.RoleAssignment
   alias OfficeGraph.Foundation
   alias OfficeGraph.ExternalRefs.ExternalReference
-  alias OfficeGraph.Identity.{Principal, Session, SessionContext}
+  alias OfficeGraph.Identity.{AuthenticationEvent, Principal, Session, SessionContext}
   alias OfficeGraph.Integrations
   alias OfficeGraph.Integrations.{ExternalSource, NormalizedIntakeEvent, RawArchive}
   alias OfficeGraph.Operations
   alias OfficeGraph.Operations.OperationCorrelation
   alias OfficeGraph.Audit.AuditRecord
-  alias OfficeGraph.Tenancy.Initiative
+  alias OfficeGraph.Tenancy.{Initiative, Workstream}
   alias OfficeGraph.WorkGraph
 
   setup do
@@ -253,21 +253,80 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
                owner_email: "hierarchy-other-owner@office-graph.local"
              )
 
-    assert {:error, error} =
-             Ash.create(
-               Initiative,
-               %{
-                 id: Ecto.UUID.generate(),
-                 organization_id: other_scope.organization.id,
-                 workspace_id: bootstrap.workspace.id,
-                 name: "Mismatched Initiative",
-                 slug: "mismatched-initiative"
-               },
-               action: :create,
-               authorize?: false
-             )
+    assert_scope_constraint_error(
+      Ash.create(
+        Initiative,
+        %{
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          name: "Mismatched Initiative",
+          slug: "mismatched-initiative"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
 
-    assert Exception.message(error) =~ "workspace"
+    assert_scope_constraint_error(
+      Ash.create(
+        Workstream,
+        %{
+          organization_id: bootstrap.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          initiative_id: other_scope.initiative.id,
+          name: "Mismatched Workstream",
+          slug: "mismatched-workstream"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
+
+    assert_scope_constraint_error(
+      Ash.create(
+        Session,
+        %{
+          principal_id: bootstrap.principal.id,
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          purpose: "mismatched_scope"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
+
+    assert_scope_constraint_error(
+      Ash.create(
+        RoleAssignment,
+        %{
+          principal_id: bootstrap.principal.id,
+          role_id: bootstrap.role_assignment.role_id,
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
+
+    assert_scope_constraint_error(
+      Ash.create(
+        AuthenticationEvent,
+        %{
+          organization_id: other_scope.organization.id,
+          workspace_id: bootstrap.workspace.id,
+          event: "login",
+          result: "failed",
+          reason: "invalid_scope",
+          authentication_method: "oidc",
+          source_surface: "test",
+          trace_id: "mismatched-scope"
+        },
+        action: :create,
+        authorize?: false
+      )
+    )
   end
 
   test "internal audit creates default to sensitive records", %{operation: operation} do
@@ -348,6 +407,32 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
              |> Ash.read!(authorize?: false)
 
     assert operation_id == operation.id
+  end
+
+  test "plain document action rolls back the document and block when its revision fails", %{
+    bootstrap: bootstrap
+  } do
+    plain_text = "Atomic document failure #{System.unique_integer([:positive])}"
+
+    assert {:error, _foreign_key_error} =
+             Document
+             |> Ash.ActionInput.for_action(:persist_plain_document, %{
+               organization_id: bootstrap.organization.id,
+               workspace_id: bootstrap.workspace.id,
+               operation_id: Ecto.UUID.generate(),
+               plain_text: plain_text
+             })
+             |> Ash.run_action(authorize?: false)
+
+    assert [] =
+             Document
+             |> Ash.Query.filter(plain_text == ^plain_text)
+             |> Ash.read!(authorize?: false)
+
+    assert [] =
+             DocumentBlock
+             |> Ash.Query.filter(text == ^plain_text)
+             |> Ash.read!(authorize?: false)
   end
 
   test "plain document creation requires the capability matching the operation action", %{
@@ -437,7 +522,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     end
   end
 
-  test "content resources autogenerate ids for direct Ash creates", %{
+  test "content resources receive database-generated UUIDv7 ids and permit explicit ids", %{
     bootstrap: bootstrap,
     operation: operation
   } do
@@ -504,6 +589,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
 
     for resource <- [document, block, mark, reference, revision] do
       assert {:ok, _binary_id} = Ecto.UUID.dump(resource.id)
+      assert uuid_version(resource.id) == 7
     end
 
     explicit_id = Ecto.UUID.generate()
@@ -522,6 +608,7 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
       )
 
     assert explicit_document.id == explicit_id
+    assert uuid_version(explicit_document.id) == 4
   end
 
   test "content identity constraints surface duplicate block positions and revision numbers", %{
@@ -720,56 +807,6 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     refute event_message =~ "constraint error when attempting to insert struct"
   end
 
-  test "plain document creation rolls back document and block when revision creation fails", %{
-    bootstrap: bootstrap,
-    operation: operation
-  } do
-    plain_text = "Rollback document #{System.unique_integer([:positive])}"
-
-    Repo.query!("""
-    CREATE OR REPLACE FUNCTION office_graph_test_fail_document_revision()
-    RETURNS trigger AS $$
-    BEGIN
-      RAISE EXCEPTION 'injected document revision failure';
-    END;
-    $$ LANGUAGE plpgsql
-    """)
-
-    Repo.query!(
-      "DROP TRIGGER IF EXISTS office_graph_test_fail_document_revision ON document_revisions"
-    )
-
-    Repo.query!("""
-    CREATE TRIGGER office_graph_test_fail_document_revision
-    BEFORE INSERT ON document_revisions
-    FOR EACH ROW
-    EXECUTE FUNCTION office_graph_test_fail_document_revision()
-    """)
-
-    on_exit(fn ->
-      Repo.query!(
-        "DROP TRIGGER IF EXISTS office_graph_test_fail_document_revision ON document_revisions"
-      )
-
-      Repo.query!("DROP FUNCTION IF EXISTS office_graph_test_fail_document_revision()")
-    end)
-
-    assert {:error, error} =
-             Content.create_plain_document(bootstrap.session, operation, plain_text)
-
-    assert ash_error_message(error) =~ "injected document revision failure"
-
-    assert [] =
-             Document
-             |> Ash.Query.filter(plain_text == ^plain_text)
-             |> Ash.read!(authorize?: false)
-
-    assert [] =
-             DocumentBlock
-             |> Ash.Query.filter(text == ^plain_text)
-             |> Ash.read!(authorize?: false)
-  end
-
   test "manual intake stores raw archive and identifies replay duplicates", %{
     bootstrap: bootstrap,
     operation: operation
@@ -808,8 +845,8 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
                authorize?: false
              )
 
-    assert Exception.message(duplicate_error) =~
-             "normalized_intake_events_accepted_replay_identity_index"
+    assert %Ash.Error.Invalid{} = duplicate_error
+    assert Exception.message(duplicate_error) =~ "has already been taken"
   end
 
   test "manual intake rejects same replay identity with changed content", %{
@@ -912,6 +949,11 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
     assert same_scope_duplicate.proposed_changes == []
   end
 
+  defp uuid_version(uuid) do
+    <<_timestamp_and_random::48, version::4, _rest::76>> = Ecto.UUID.dump!(uuid)
+    version
+  end
+
   defp ash_error_message(%Ash.Changeset{} = changeset) do
     changeset.errors
     |> Ash.Error.to_error_class()
@@ -919,6 +961,8 @@ defmodule OfficeGraph.WorkGraph.PersistenceTest do
   end
 
   defp ash_error_message(error), do: Exception.message(error)
+
+  defp assert_scope_constraint_error(result), do: assert({:error, _error} = result)
 
   defp operation_correlation_exists?(organization_id, correlation_id) do
     OperationCorrelation

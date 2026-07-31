@@ -11,58 +11,34 @@ defmodule OfficeGraphWeb.GraphQL.Schema do
     domains: [
       OfficeGraph.WorkGraph.Domain,
       OfficeGraph.WorkPackets.Domain,
-      OfficeGraph.Runs.Domain
+      OfficeGraph.Runs.Domain,
+      OfficeGraph.Integrations.Domain,
+      OfficeGraph.ProposedChanges.Domain,
+      OfficeGraph.AgentRuntime.Domain,
+      OfficeGraph.NodeConversations.Domain,
+      OfficeGraph.GitHubIntegration.Domain
     ]
 
-  alias OfficeGraph.Projections
-  alias OfficeGraphWeb.GraphQL.Common.Errors
-  alias OfficeGraphWeb.RequestSession
+  alias OfficeGraphWeb.GraphQL.Common.NodeResolver
 
   import_types(OfficeGraphWeb.GraphQL.Common.Queries)
   import_types(OfficeGraphWeb.GraphQL.OperatorWorkflow.Types)
   import_types(OfficeGraphWeb.GraphQL.OperatorWorkflow.Queries)
-  import_types(OfficeGraphWeb.GraphQL.OperatorCommands.Types)
-  import_types(OfficeGraphWeb.GraphQL.OperatorCommands.Mutations)
 
   node interface do
-    resolve_type(fn
-      %{type: "operator_workflow_item"}, _ ->
-        :operator_workflow_item
-
-      %{normalized_event_id: _}, _ ->
-        :operator_workflow_item
-
-      value, _ ->
-        Projections.graphql_node_type(value)
-    end)
+    resolve_type(fn value, _ -> NodeResolver.resolve_type(value) end)
   end
 
   query do
     import_fields(:common_queries)
     import_fields(:operator_workflow_queries)
 
-    node field do
-      resolve(fn
-        %{type: :operator_workflow_item, id: id}, resolution ->
-          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-               {:ok, item} <- Projections.operator_workflow_item(session_context, id) do
-            {:ok, item}
-          else
-            error -> Errors.to_absinthe(error)
-          end
-
-        %{type: type, id: id}, resolution ->
-          with {:ok, session_context} <- RequestSession.resolve_resolution(resolution),
-               {:ok, node} <- Projections.generated_graphql_node(session_context, type, id) do
-            {:ok, node}
-          else
-            error -> Errors.to_absinthe(error)
-          end
-      end)
+    field :node, :node do
+      arg(:id, non_null(:id))
+      middleware(NodeResolver)
     end
   end
 
   mutation do
-    import_fields(:operator_command_mutations)
   end
 end

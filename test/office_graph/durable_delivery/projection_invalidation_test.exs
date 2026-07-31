@@ -1,7 +1,9 @@
 defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
   use OfficeGraph.DataCase, async: false
+  use Oban.Testing, repo: OfficeGraph.Repo
 
-  alias OfficeGraph.{DurableDelivery, Foundation, Operations, Repo}
+  alias OfficeGraph.{DurableDelivery, Foundation, Operations}
+  alias OfficeGraph.Identity.Session
 
   alias OfficeGraph.DurableDelivery.{
     DispatchEventWorker,
@@ -26,6 +28,28 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
   defmodule ExitingBroadcaster do
     def broadcast(_invalidation), do: exit(:pubsub_unavailable)
+  end
+
+  defmodule RejectingJobTerminalizer do
+    def dispatch(event_id, scope), do: DurableDelivery.dispatch(event_id, scope)
+
+    def stage_terminal_failure(_job, _failure_code), do: {:error, :job_storage_unavailable}
+
+    def mark_failed(_event_id, _scope, _failure_code) do
+      raise "event transition must not run before job terminalization is staged"
+    end
+  end
+
+  defmodule RejectingEventTerminalizer do
+    def dispatch(_event_id, _scope), do: {:error, {:retryable, :event_update_failed}}
+
+    def stage_terminal_failure(job, failure_code) do
+      DurableDelivery.stage_terminal_failure(job, failure_code)
+    end
+
+    def mark_failed(_event_id, _scope, _failure_code) do
+      {:error, {:retryable, :event_update_failed}}
+    end
   end
 
   test "authorized same-scope subscribers receive one bounded invalidation" do
@@ -300,26 +324,19 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
 
     [job] = jobs_for_event(event.id)
 
-    Repo.query!("""
-    ALTER TABLE oban_jobs
-    ADD CONSTRAINT test_terminal_staging_retry
-    CHECK (NOT (meta ? 'terminal_failure_code'))
-    """)
-
     unavailable_job = %{
       job
       | attempt: job.max_attempts,
         args: Map.put(job.args, "workspace_id", Ecto.UUID.generate())
     }
 
-    assert {:snooze, 5} = DispatchEventWorker.perform(unavailable_job)
+    assert {:snooze, 5} =
+             DispatchEventWorker.perform(unavailable_job, RejectingJobTerminalizer)
 
-    refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "terminal_failure_code")
+    refute Map.has_key?(job.meta, "terminal_failure_code")
 
     assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
              Ash.get(DomainEvent, event.id)
-
-    Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT test_terminal_staging_retry")
   end
 
   test "the dispatch worker persists terminal state before cancelling" do
@@ -334,34 +351,24 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
                subject_id: Ecto.UUID.generate()
              })
 
-    Repo.query!("""
-    ALTER TABLE domain_events
-    ADD CONSTRAINT test_terminal_transition_retry
-    CHECK (delivery_state <> 'dispatched' AND failure_code <> 'attempts_exhausted')
-    """)
-
     [job] = jobs_for_event(event.id)
 
-    exhausted_job =
+    exhausted_job = %{
       job
-      |> Ecto.Changeset.change(%{
-        state: "executing",
+      | state: "executing",
         attempt: job.max_attempts,
         attempted_at: DateTime.utc_now()
-      })
-      |> Repo.update!()
+    }
 
-    assert {:snooze, 5} = DispatchEventWorker.perform(exhausted_job)
+    assert {:snooze, 5} =
+             DispatchEventWorker.perform(exhausted_job, RejectingEventTerminalizer)
 
-    assert %{meta: %{"terminal_failure_code" => "attempts_exhausted"}} =
-             Repo.get!(Oban.Job, job.id)
+    assert [%{meta: %{"terminal_failure_code" => "attempts_exhausted"}} = terminalization_job] =
+             jobs_for_event(event.id)
 
     assert {:ok, %{delivery_state: "pending", failure_code: nil}} =
              Ash.get(DomainEvent, event.id)
 
-    Repo.query!("ALTER TABLE domain_events DROP CONSTRAINT test_terminal_transition_retry")
-
-    terminalization_job = Repo.get!(Oban.Job, job.id)
     assert {:cancel, "attempts_exhausted"} = DispatchEventWorker.perform(terminalization_job)
 
     assert {:ok, %{delivery_state: "failed", failure_code: "attempts_exhausted"}} =
@@ -369,17 +376,14 @@ defmodule OfficeGraph.DurableDelivery.ProjectionInvalidationTest do
   end
 
   defp jobs_for_event(event_id) do
-    Oban.Job
-    |> where([job], fragment("?->>'event_id'", job.args) == ^event_id)
-    |> Repo.all()
+    all_enqueued(worker: DispatchEventWorker, args: %{event_id: event_id})
   end
 
   defp revoke_session!(session_id) do
-    now = DateTime.utc_now()
+    session = Ash.get!(Session, session_id, authorize?: false)
 
-    Repo.query!(
-      "UPDATE sessions SET revoked_at = $1, updated_at = $1 WHERE id = $2",
-      [now, Ecto.UUID.dump!(session_id)]
-    )
+    session
+    |> Ash.Changeset.for_update(:revoke, %{revoked_at: DateTime.utc_now()})
+    |> Ash.update!(authorize?: false)
   end
 end

@@ -1,3 +1,76 @@
+defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.RunRequiredCheckRow do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.Domain,
+    data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "run_required_checks"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :run_id, :uuid, allow_nil?: false
+    attribute :verification_check_id, :uuid, allow_nil?: false
+  end
+
+  actions do
+    read :read do
+      primary? true
+    end
+
+    destroy :destroy do
+      primary? true
+    end
+  end
+end
+
+defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.WorkPacketVersionRow do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.Domain,
+    data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "work_packet_versions"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+
+    attribute :context_summary, :string,
+      allow_nil?: false,
+      constraints: [allow_empty?: true]
+
+    attribute :requirements, :string,
+      allow_nil?: false,
+      constraints: [allow_empty?: true]
+  end
+
+  actions do
+    read :read do
+      primary? true
+    end
+  end
+end
+
+defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.Domain do
+  @moduledoc false
+
+  use Ash.Domain, validate_config_inclusion?: false
+
+  resources do
+    resource OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.RunRequiredCheckRow
+    resource OfficeGraph.TestSupport.WorkPacketCommandLoopSupport.WorkPacketVersionRow
+  end
+end
+
 defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
   @moduledoc false
 
@@ -7,7 +80,7 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
   alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
   alias OfficeGraph.Verification
   alias OfficeGraph.WorkGraph
-  alias OfficeGraph.{Audit, Repo, Revisions}
+  alias OfficeGraph.{Audit, Revisions}
 
   alias OfficeGraph.WorkGraph.{
     Artifact,
@@ -44,7 +117,7 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
       alias OfficeGraph.Runs.{ExecutionObservation, Run, RunRequiredCheck}
       alias OfficeGraph.Verification
       alias OfficeGraph.WorkGraph
-      alias OfficeGraph.{Audit, Repo, Revisions}
+      alias OfficeGraph.{Audit, Revisions}
 
       alias OfficeGraph.WorkGraph.{
         Artifact,
@@ -332,115 +405,49 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
     id = Ecto.UUID.generate()
     now = DateTime.utc_now()
 
-    Repo.query!(
-      """
-      INSERT INTO execution_observations (
-        id,
-        organization_id,
-        workspace_id,
-        work_run_id,
-        operation_id,
-        verification_check_id,
-        graph_item_id,
-        source_kind,
-        source_identity,
-        idempotency_key,
-        observed_status,
-        normalized_status,
-        ingested_at,
-        freshness_state,
-        trust_basis,
-        rationale,
-        metadata,
-        inserted_at,
-        updated_at
-      )
-      VALUES (
-        $1::uuid,
-        $2::uuid,
-        $3::uuid,
-        $4::uuid,
-        $5::uuid,
-        $6::uuid,
-        $7::uuid,
-        'human',
-        'manual:malformed-summary-observation',
-        'malformed-summary-observation',
-        'passed',
-        'succeeded',
-        $8,
-        'fresh',
-        'owner_attested',
-        'Malformed legacy row.',
-        '{}'::jsonb,
-        $8,
-        $8
-      )
-      """,
-      [
-        db_uuid(id),
-        db_uuid(session.organization_id),
-        db_uuid(session.workspace_id),
-        db_uuid(run.id),
-        db_uuid(operation.id),
-        db_uuid(verification_check.id),
-        db_uuid(verification_check.graph_item_id),
-        now
-      ]
-    )
+    Ash.Seed.seed!(ExecutionObservation, %{
+      id: id,
+      organization_id: session.organization_id,
+      workspace_id: session.workspace_id,
+      work_run_id: run.id,
+      operation_id: operation.id,
+      verification_check_id: verification_check.id,
+      graph_item_id: verification_check.graph_item_id,
+      source_kind: "human",
+      source_identity: "manual:malformed-summary-observation",
+      idempotency_key: "malformed-summary-observation",
+      observed_status: "passed",
+      normalized_status: "succeeded",
+      ingested_at: now,
+      freshness_state: "fresh",
+      trust_basis: "owner_attested",
+      rationale: "Malformed legacy row."
+    })
 
     id
   end
 
   def delete_run_required_check!(run_id, verification_check_id) do
-    Repo.query!(
-      """
-      DELETE FROM run_required_checks
-      WHERE run_id = $1::uuid AND verification_check_id = $2::uuid
-      """,
-      [db_uuid(run_id), db_uuid(verification_check_id)]
-    )
+    __MODULE__.RunRequiredCheckRow
+    |> Ash.Query.filter(run_id == ^run_id and verification_check_id == ^verification_check_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, authorize?: false))
   end
 
   def insert_non_packet_run!(session, work_packet_id) do
     run_id = Ecto.UUID.generate()
 
-    Repo.query!(
-      """
-      INSERT INTO runs (
-        id,
-        organization_id,
-        workspace_id,
-        work_packet_id,
-        work_packet_version_id,
-        state,
-        aggregate_state,
-        execution_state,
-        verification_state,
-        inserted_at,
-        updated_at
-      )
-      VALUES (
-        $1::uuid,
-        $2::uuid,
-        $3::uuid,
-        $4::uuid,
-        NULL,
-        'running',
-        'running',
-        'pending',
-        'unverified',
-        NOW(),
-        NOW()
-      )
-      """,
-      [
-        db_uuid(run_id),
-        db_uuid(session.organization_id),
-        db_uuid(session.workspace_id),
-        db_uuid(work_packet_id)
-      ]
-    )
+    Ash.Seed.seed!(Run, %{
+      id: run_id,
+      organization_id: session.organization_id,
+      workspace_id: session.workspace_id,
+      work_packet_id: work_packet_id,
+      work_packet_version_id: nil,
+      state: "running",
+      aggregate_state: "running",
+      execution_state: "pending",
+      verification_state: "unverified"
+    })
 
     run_id
   end
@@ -459,25 +466,15 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
   end
 
   def forge_packet_current_version!(packet_id, version_id) do
-    Repo.query!(
-      """
-      UPDATE work_packets
-      SET current_version_id = $1::uuid
-      WHERE id = $2::uuid
-      """,
-      [db_uuid(version_id), db_uuid(packet_id)]
-    )
+    WorkPacket
+    |> Ash.get!(packet_id, authorize?: false)
+    |> Ash.Seed.update!(%{current_version_id: version_id})
   end
 
   def blank_packet_execution_context!(version_id) do
-    Repo.query!(
-      """
-      UPDATE work_packet_versions
-      SET context_summary = '', requirements = ''
-      WHERE id = $1::uuid
-      """,
-      [db_uuid(version_id)]
-    )
+    __MODULE__.WorkPacketVersionRow
+    |> Ash.get!(version_id, authorize?: false)
+    |> Ash.Seed.update!(%{context_summary: "", requirements: ""})
   end
 
   def run_exists_for_operation?(operation_id) do
@@ -487,6 +484,4 @@ defmodule OfficeGraph.TestSupport.WorkPacketCommandLoopSupport do
     |> Ash.Query.filter(operation_id: expected_operation_id)
     |> Ash.exists?(authorize?: false)
   end
-
-  def db_uuid(value), do: Ecto.UUID.dump!(value)
 end

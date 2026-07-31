@@ -23,25 +23,30 @@ soft-deleted or tombstoned lifecycle state rather than ordinary hard deletion.
   purge workflows rather than normal product soft deletion
 
 ### Requirement: Tombstone Metadata
-Office Graph SHALL use tombstones when deletion needs metadata beyond simple
-deleted columns.
+Office Graph SHALL keep common deletion metadata on the mutable resource that
+owns the lifecycle and SHALL use a domain-specific one-to-one deleted-state
+resource only when richer metadata cannot reasonably live on that resource.
+A generic polymorphic tombstone table keyed by resource type and resource
+identifier is prohibited.
+
+#### Scenario: Mutable record is soft-deleted
+- **WHEN** a mutable owning resource is removed from normal use
+- **THEN** its own table MUST preserve deletion time, deletion actor or source, operation correlation, reason when available, lifecycle state, and restore or purge eligibility
 
 #### Scenario: Deleted record needs rich deletion state
 - **WHEN** deletion needs legal-hold state, redaction status, external-provider
-  reconciliation, restore-as-new linkage, purge state, or detailed deletion
-  rationale
-- **THEN** Office Graph MUST preserve a tombstone or domain-specific deleted
-  state with concrete references to the deleted resource and operation
+  reconciliation, restore-as-new linkage, purge state, or detailed rationale
+  beyond the owning row's common fields
+- **THEN** the owning context MUST use typed columns or a domain-specific
+  related resource with a concrete foreign key
 
-#### Scenario: First tombstone shapes are modeled
-- **WHEN** graph items, work containers, conversations, messages,
-  provider-neutral imported records, or artifacts are deleted
-- **THEN** Office Graph MUST preserve tombstone or deleted-state metadata with
-  organization and scope, concrete resource reference, deletion actor/source,
-  operation correlation, deletion time, reason when available, lifecycle
-  state, restore eligibility, purge eligibility, retention class, legal-hold
-  state, redaction state, and any provider reconciliation, storage-reference,
-  digest, replacement, or restore-as-new linkage required by the record family
+#### Scenario: Generic tombstone relationship is proposed
+- **WHEN** a design proposes `resource_type` and `resource_id` polymorphism for deletion state
+- **THEN** verification MUST reject it and require lifecycle ownership by the concrete resource or owning context
+
+#### Scenario: Graph relationship is deleted
+- **WHEN** a graph relationship is tombstoned
+- **THEN** `graph_relationships` MUST preserve its deletion metadata directly and projections MUST derive deletion state without a generic tombstone join
 
 ### Requirement: Soft-Delete-Aware Uniqueness
 Office Graph SHALL define uniqueness behavior explicitly for soft-deletable

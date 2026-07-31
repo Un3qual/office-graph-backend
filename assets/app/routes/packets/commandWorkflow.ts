@@ -17,6 +17,7 @@ import {
   type CommandMutationSuccess,
   type CommandMutationConfig,
 } from "../../relay/commandMutation";
+import { translateRelayMutationInput } from "../../relay/relayIds";
 import {
   PacketsCreateWorkPacketMutation,
   PacketsCreateWorkPacketVersionMutation,
@@ -40,7 +41,12 @@ export type StartWorkRunResult = Pick<
 
 const createWorkPacketConfig = {
   mutation: PacketsCreateWorkPacketMutation,
-  toVariables: (input: CreateWorkPacketVariables["input"]) => ({ input }),
+  toVariables: (input: CreateWorkPacketVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      sourceGraphItemIds: "graph_item",
+      verificationCheckIds: "verification_check",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.createWorkPacket;
     return commandMutationSuccess(payload, {
@@ -56,7 +62,14 @@ const createWorkPacketConfig = {
 
 const createWorkPacketVersionConfig = {
   mutation: PacketsCreateWorkPacketVersionMutation,
-  toVariables: (input: CreateWorkPacketVersionVariables["input"]) => ({ input }),
+  toVariables: (input: CreateWorkPacketVersionVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      expectedCurrentVersionId: "work_packet_version",
+      packetId: "work_packet",
+      sourceGraphItemIds: "graph_item",
+      verificationCheckIds: "verification_check",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.createWorkPacketVersion;
     return commandMutationSuccess(payload, {
@@ -72,7 +85,11 @@ const createWorkPacketVersionConfig = {
 
 const startWorkRunConfig = {
   mutation: PacketsStartWorkRunMutation,
-  toVariables: (input: StartWorkRunVariables["input"]) => ({ input }),
+  toVariables: (input: StartWorkRunVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      packetVersionId: "work_packet_version",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.startWorkRun;
     return commandMutationSuccess(payload, {

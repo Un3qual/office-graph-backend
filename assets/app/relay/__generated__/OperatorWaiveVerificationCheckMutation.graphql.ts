@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<565928ad60371b65820c085c57565d51>>
+ * @generated SignedSource<<464f5a987aab8ddbdab22307bd505101>>
  * @lightSyntaxTransform
  */
 
@@ -25,19 +25,9 @@ export type OperatorWaiveVerificationCheckMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly operationId: string;
-    readonly requiredCheck: {
-      readonly id: string;
-      readonly state: string;
-      readonly verificationCheckId: string;
-    };
-    readonly run: {
-      readonly executionState: string;
-      readonly id: string;
-      readonly verificationState: string;
-    };
     readonly verificationResult: {
       readonly id: string;
       readonly result: string;
@@ -115,7 +105,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorCommandVerificationResult",
+        "concreteType": "WorkGraphVerificationResult",
         "kind": "LinkedField",
         "name": "verificationResult",
         "plural": false,
@@ -126,58 +116,6 @@ v2 = [
             "args": null,
             "kind": "ScalarField",
             "name": "result",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorCommandRunRequiredCheck",
-        "kind": "LinkedField",
-        "name": "requiredCheck",
-        "plural": false,
-        "selections": [
-          (v1/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "verificationCheckId",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "state",
-            "storageKey": null
-          }
-        ],
-        "storageKey": null
-      },
-      {
-        "alias": null,
-        "args": null,
-        "concreteType": "OperatorCommandWorkRun",
-        "kind": "LinkedField",
-        "name": "run",
-        "plural": false,
-        "selections": [
-          (v1/*:: as any*/),
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "executionState",
-            "storageKey": null
-          },
-          {
-            "alias": null,
-            "args": null,
-            "kind": "ScalarField",
-            "name": "verificationState",
             "storageKey": null
           }
         ],
@@ -205,16 +143,16 @@ return {
     "selections": (v2/*:: as any*/)
   },
   "params": {
-    "cacheID": "c365528b4ef8a3a4c9183271cafdaa30",
+    "cacheID": "109ac9fefd839ec90a3a9ce9814f9a2f",
     "id": null,
     "metadata": {},
     "name": "OperatorWaiveVerificationCheckMutation",
     "operationKind": "mutation",
-    "text": "mutation OperatorWaiveVerificationCheckMutation(\n  $input: WaiveVerificationCheckInput!\n) {\n  waiveVerificationCheck(input: $input) {\n    command\n    operationId\n    affectedIds {\n      type\n      id\n    }\n    verificationResult {\n      id\n      result\n    }\n    requiredCheck {\n      id\n      verificationCheckId\n      state\n    }\n    run {\n      id\n      executionState\n      verificationState\n    }\n  }\n}\n"
+    "text": "mutation OperatorWaiveVerificationCheckMutation(\n  $input: WaiveVerificationCheckInput!\n) {\n  waiveVerificationCheck(input: $input) {\n    command\n    operationId\n    affectedIds {\n      type\n      id\n    }\n    verificationResult {\n      id\n      result\n    }\n  }\n}\n"
   }
 };
 })();
 
-(node as any).hash = "138504c4919902d6eec0146e5f75540a";
+(node as any).hash = "0c53d6fad02a37cac37634abedb40c07";
 
 export default node;

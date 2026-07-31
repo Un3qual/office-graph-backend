@@ -8,7 +8,6 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
     ExecutionWorker
   }
 
-  alias OfficeGraph.Repo
   alias OfficeGraph.TestSupport.AgentRuntimeSupport
 
   require Ash.Query
@@ -53,18 +52,29 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
     assert payload["execution"]["state"] == "queued"
     assert is_binary(payload["contextPackageId"])
 
+    raw_execution_id =
+      payload["affectedIds"]
+      |> Enum.find(&(&1["type"] == "agent_execution"))
+      |> Map.fetch!("id")
+
+    assert {:ok, %{type: :agent_execution, id: ^raw_execution_id}} =
+             AshGraphql.Resource.decode_relay_id(payload["execution"]["id"])
+
     cancelled =
       conn
+      |> generated_json_api()
       |> post(~p"/api/v1/commands/cancel-agent-execution", %{
-        idempotency_key: "json-cancel-agent-#{context.suffix}",
-        execution_id: payload["execution"]["id"],
-        expected_state_version: payload["execution"]["stateVersion"]
+        data: %{
+          idempotency_key: "json-cancel-agent-#{context.suffix}",
+          execution_id: raw_execution_id,
+          expected_state_version: payload["execution"]["stateVersion"]
+        }
       })
-      |> json_response(200)
+      |> json_response(201)
 
     assert cancelled["command"] == "cancel_agent_execution"
-    assert cancelled["result"]["execution"]["state"] == "cancelled"
-    assert cancelled["result"]["execution"]["state_version"] == 2
+    assert cancelled["execution"]["state"] == "cancelled"
+    assert cancelled["execution"]["state_version"] == 2
   end
 
   test "GraphQL resolves the exact durable approval and returns its queued execution", %{
@@ -129,30 +139,38 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
 
     first =
       conn
-      |> post(~p"/api/v1/commands/resolve-agent-context-expansion", input)
-      |> json_response(200)
+      |> generated_json_api()
+      |> post(~p"/api/v1/commands/resolve-agent-context-expansion", %{data: input})
+      |> json_response(201)
 
     assert first["command"] == "resolve_agent_context_expansion"
-    assert first["result"]["request"]["state"] == "approved"
-    assert first["result"]["request"]["version"] == 2
-    assert first["result"]["execution"]["state"] == "queued"
-    assert is_binary(first["result"]["context_package_id"])
+    assert first["request"]["state"] == "approved"
+    assert first["request"]["version"] == 2
+    assert first["execution"]["state"] == "queued"
+    assert is_binary(first["context_package_id"])
 
     stale =
       conn
+      |> generated_json_api()
       |> post(
         ~p"/api/v1/commands/resolve-agent-context-expansion",
-        %{input | idempotency_key: "json-context-expansion-stale-#{fixture.context.suffix}"}
+        %{
+          data: %{
+            input
+            | idempotency_key: "json-context-expansion-stale-#{fixture.context.suffix}"
+          }
+        }
       )
 
     assert stale.status == 409
 
     assert %{
-             "command" => "resolve_agent_context_expansion",
-             "error" => %{
-               "code" => "stale_agent_context_expansion",
-               "current_version" => 2
-             }
+             "errors" => [
+               %{
+                 "code" => "stale_agent_context_expansion",
+                 "meta" => %{"current_version" => 2}
+               }
+             ]
            } = json_response(stale, 409)
   end
 
@@ -188,10 +206,7 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
     [job] = AgentRuntimeSupport.execution_jobs(invoked.execution.id)
     target = Enum.min_by(invoked.context_entries, & &1.ordinal)
 
-    Repo.query!(
-      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = $1",
-      [Ecto.UUID.dump!(target.id)]
-    )
+    Ash.Seed.update!(target, %{posture: "expansion_required"})
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
     execution = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
@@ -205,38 +220,28 @@ defmodule OfficeGraphWeb.AgentGovernanceApiTest do
   end
 
   defp allow_generic_context_expansion!(context) do
-    Repo.query!(
-      """
-      UPDATE agent_definitions
-      SET requested_capabilities = ARRAY[
-            'agent.model.generate',
-            'agent.tool.read',
-            'evidence.suggest',
-            'proposal.create'
-          ]::text[],
-          updated_at = now()
-      WHERE id = $1
-      """,
-      [Ecto.UUID.dump!(context.definition.id)]
-    )
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      requested_capabilities: [
+        "agent.model.generate",
+        "agent.tool.read",
+        "evidence.suggest",
+        "proposal.create"
+      ]
+    })
 
-    Repo.query!(
-      """
-      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
-      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
-      FROM role_assignments AS assignments
-      JOIN capabilities ON capabilities.key = 'agent.tool.read'
-      WHERE assignments.principal_id IN ($1, $2)
-        AND assignments.organization_id = $3
-        AND assignments.workspace_id = $4
-      ON CONFLICT (role_id, capability_id) DO NOTHING
-      """,
+    AgentRuntimeSupport.grant_capabilities!(
+      context,
+      ["agent.tool.read"],
       [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+        context.agent_principal.id,
+        context.bootstrap.principal.id
       ]
     )
+  end
+
+  defp generated_json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

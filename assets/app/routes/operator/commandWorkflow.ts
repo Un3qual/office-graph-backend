@@ -57,6 +57,7 @@ import {
   type CommandMutationSuccess,
   type CommandMutationConfig,
 } from "../../relay/commandMutation";
+import { translateRelayMutationInput } from "../../relay/relayIds";
 import {
   OperatorAcceptEvidenceMutation,
   OperatorAppendConversationMessageMutation,
@@ -100,12 +101,12 @@ type CreateEvidenceCandidateResult = Pick<
 
 type AcceptEvidenceResult = Pick<
   AcceptEvidenceMutation["response"]["acceptEvidence"],
-  "evidenceCandidate" | "evidenceItem" | "run" | "verificationResult"
+  "evidenceCandidate" | "evidenceItem"
 >;
 
 type WaiveVerificationCheckResult = Pick<
   WaiveVerificationCheckMutation["response"]["waiveVerificationCheck"],
-  "requiredCheck" | "run" | "verificationResult"
+  "verificationResult"
 >;
 
 type InvokeAgentResult = Pick<
@@ -138,9 +139,17 @@ const submitManualIntakeConfig = {
   toVariables: (input: SubmitManualIntakeVariables["input"]) => ({ input }),
   mapSuccess(response) {
     const payload = response.submitManualIntake;
+    const normalizedEventAffectedId = payload.affectedIds.find(
+      (affectedId) => affectedId?.type === "normalized_intake_event",
+    );
+
+    if (!normalizedEventAffectedId) {
+      throw new Error("Manual intake response omitted its normalized event affected ID.");
+    }
+
     return commandMutationSuccess(payload, {
-      normalizedEventId: payload.normalizedEventId,
-      proposedChangeIds: payload.proposedChangeIds,
+      normalizedEventId: normalizedEventAffectedId.id,
+      proposedChangeIds: payload.proposedChanges.map(({ id }) => id),
     });
   },
 } satisfies CommandMutationConfig<
@@ -151,7 +160,12 @@ const submitManualIntakeConfig = {
 
 const applyProposedChangesConfig = {
   mutation: OperatorApplyProposedChangesMutation,
-  toVariables: (input: ApplyProposedChangesVariables["input"]) => ({ input }),
+  toVariables: (input: ApplyProposedChangesVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      normalizedEventId: "normalized_intake_event",
+      proposedChangeIds: "proposed_graph_change",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.applyProposedChanges;
     return commandMutationSuccess(payload, {
@@ -169,7 +183,12 @@ const applyProposedChangesConfig = {
 
 const createWorkPacketConfig = {
   mutation: OperatorCreateWorkPacketMutation,
-  toVariables: (input: CreateWorkPacketVariables["input"]) => ({ input }),
+  toVariables: (input: CreateWorkPacketVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      sourceGraphItemIds: "graph_item",
+      verificationCheckIds: "verification_check",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.createWorkPacket;
     return commandMutationSuccess(payload, {
@@ -185,7 +204,13 @@ const createWorkPacketConfig = {
 
 const recordExecutionObservationConfig = {
   mutation: OperatorRecordExecutionObservationMutation,
-  toVariables: (input: RecordExecutionObservationVariables["input"]) => ({ input }),
+  toVariables: (input: RecordExecutionObservationVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      runId: "work_run",
+      sourceGraphItemId: "graph_item",
+      verificationCheckId: "verification_check",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.recordExecutionObservation;
     return commandMutationSuccess(payload, {
@@ -201,7 +226,13 @@ const recordExecutionObservationConfig = {
 
 const createEvidenceCandidateConfig = {
   mutation: OperatorCreateEvidenceCandidateMutation,
-  toVariables: (input: CreateEvidenceCandidateVariables["input"]) => ({ input }),
+  toVariables: (input: CreateEvidenceCandidateVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      executionObservationId: "execution_observation",
+      verificationCheckId: "verification_check",
+      workRunId: "work_run",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.createEvidenceCandidate;
     return commandMutationSuccess(payload, {
@@ -216,14 +247,16 @@ const createEvidenceCandidateConfig = {
 
 const acceptEvidenceConfig = {
   mutation: OperatorAcceptEvidenceMutation,
-  toVariables: (input: AcceptEvidenceVariables["input"]) => ({ input }),
+  toVariables: (input: AcceptEvidenceVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      evidenceCandidateId: "evidence_candidate",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.acceptEvidence;
     return commandMutationSuccess(payload, {
       evidenceCandidate: payload.evidenceCandidate,
       evidenceItem: payload.evidenceItem,
-      verificationResult: payload.verificationResult,
-      run: payload.run,
     });
   },
 } satisfies CommandMutationConfig<
@@ -234,13 +267,16 @@ const acceptEvidenceConfig = {
 
 const waiveVerificationCheckConfig = {
   mutation: OperatorWaiveVerificationCheckMutation,
-  toVariables: (input: WaiveVerificationCheckVariables["input"]) => ({ input }),
+  toVariables: (input: WaiveVerificationCheckVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      runId: "work_run",
+      runRequiredCheckId: "run_required_check",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.waiveVerificationCheck;
     return commandMutationSuccess(payload, {
       verificationResult: payload.verificationResult,
-      requiredCheck: payload.requiredCheck,
-      run: payload.run,
     });
   },
 } satisfies CommandMutationConfig<
@@ -251,7 +287,12 @@ const waiveVerificationCheckConfig = {
 
 const invokeAgentConfig = {
   mutation: OperatorInvokeAgentMutation,
-  toVariables: (input: InvokeAgentVariables["input"]) => ({ input }),
+  toVariables: (input: InvokeAgentVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      graphItemId: "graph_item",
+      runId: "work_run",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.invokeAgent;
     return commandMutationSuccess(payload, {
@@ -267,7 +308,11 @@ const invokeAgentConfig = {
 
 const cancelAgentExecutionConfig = {
   mutation: OperatorCancelAgentExecutionMutation,
-  toVariables: (input: CancelAgentExecutionVariables["input"]) => ({ input }),
+  toVariables: (input: CancelAgentExecutionVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      executionId: "agent_execution",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.cancelAgentExecution;
     return commandMutationSuccess(payload, { execution: payload.execution });
@@ -280,7 +325,12 @@ const cancelAgentExecutionConfig = {
 
 const startRunConversationConfig = {
   mutation: OperatorStartRunConversationMutation,
-  toVariables: (input: StartRunConversationVariables["input"]) => ({ input }),
+  toVariables: (input: StartRunConversationVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      graphItemId: "graph_item",
+      runId: "work_run",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.startRunConversation;
     return commandMutationSuccess(payload, { conversation: payload.conversation });
@@ -293,7 +343,12 @@ const startRunConversationConfig = {
 
 const appendConversationMessageConfig = {
   mutation: OperatorAppendConversationMessageMutation,
-  toVariables: (input: AppendConversationMessageVariables["input"]) => ({ input }),
+  toVariables: (input: AppendConversationMessageVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      conversationId: "conversation",
+      proposedGraphChangeId: "proposed_graph_change",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.appendConversationMessage;
     return commandMutationSuccess(payload, { message: payload.message });
@@ -306,7 +361,11 @@ const appendConversationMessageConfig = {
 
 const resolveAgentApprovalConfig = {
   mutation: OperatorResolveAgentApprovalMutation,
-  toVariables: (input: ResolveAgentApprovalVariables["input"]) => ({ input }),
+  toVariables: (input: ResolveAgentApprovalVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      approvalRequestId: "agent_approval_request",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.resolveAgentApproval;
     return commandMutationSuccess(payload, {
@@ -322,7 +381,11 @@ const resolveAgentApprovalConfig = {
 
 const resolveAgentContextExpansionConfig = {
   mutation: OperatorResolveAgentContextExpansionMutation,
-  toVariables: (input: ResolveAgentContextExpansionVariables["input"]) => ({ input }),
+  toVariables: (input: ResolveAgentContextExpansionVariables["input"]) => ({
+    input: translateRelayMutationInput(input, {
+      contextExpansionRequestId: "agent_context_expansion_request",
+    }),
+  }),
   mapSuccess(response) {
     const payload = response.resolveAgentContextExpansion;
     return commandMutationSuccess(payload, {

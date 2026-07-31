@@ -10,24 +10,26 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
   postgres do
     table "execution_observations"
     repo OfficeGraph.Repo
-    migrate? false
 
     identity_index_names unique_operation: "execution_observations_operation_id_unique_index",
                          unique_source_idempotency_key:
                            "execution_observations_idempotency_key_index"
+
+    custom_indexes do
+      index [:work_run_id, :inserted_at, :id],
+        name: "execution_observations_work_run_inserted_at_id_index"
+    end
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
-    attribute :workspace_id, :uuid, allow_nil?: false, public?: true
-    attribute :work_run_id, :uuid, allow_nil?: false, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :execution_id, :uuid, public?: true
-    attribute :context_package_id, :uuid, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :step_key, :string, public?: true
-    attribute :verification_check_id, :uuid, allow_nil?: true, public?: true
-    attribute :graph_item_id, :uuid, allow_nil?: true, public?: true
     attribute :source_kind, :string, allow_nil?: false, public?: true
     attribute :source_identity, :string, allow_nil?: false, public?: true
     attribute :idempotency_key, :string, allow_nil?: true, public?: true
@@ -38,7 +40,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     attribute :freshness_state, :string, allow_nil?: false, public?: true
     attribute :trust_basis, :string, allow_nil?: false, public?: true
     attribute :rationale, :string, allow_nil?: true, public?: true
-    attribute :metadata, :map, allow_nil?: false, public?: true, default: %{}
+    attribute :classification, :string, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -47,29 +49,58 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
   relationships do
     belongs_to :work_run, OfficeGraph.Runs.Run do
       source_attribute :work_run_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :verification_check, OfficeGraph.WorkGraph.VerificationCheck do
       source_attribute :verification_check_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :graph_item, OfficeGraph.WorkGraph.GraphItem do
       source_attribute :graph_item_id
-      define_attribute? false
+      attribute_public? true
+    end
+
+    belongs_to :context_package, OfficeGraph.AgentRuntime.ContextPackage do
+      source_attribute :context_package_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :execution_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+
+    belongs_to :workspace, OfficeGraph.Tenancy.Workspace do
+      source_attribute :workspace_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
     end
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      pagination keyset?: true, countable: false, required?: false
+    end
 
     create :create do
       public? false
@@ -94,7 +125,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
         :freshness_state,
         :trust_basis,
         :rationale,
-        :metadata
+        :classification
       ]
 
       change {OfficeGraph.WorkGraph.Changes.ValidateSameScopeReferences,
@@ -114,8 +145,7 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     identity :unique_operation, [:operation_id]
 
     identity :unique_source_idempotency_key,
-             [:organization_id, :workspace_id, :source_kind, :source_identity, :idempotency_key],
-             where: expr(not is_nil(idempotency_key))
+             [:organization_id, :workspace_id, :source_kind, :source_identity, :idempotency_key]
   end
 
   policies do

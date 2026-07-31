@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<13c337379486a1189bcad6bb93183310>>
+ * @generated SignedSource<<58f7753e3a5ddc2b03aabd54daf5ac34>>
  * @lightSyntaxTransform
  */
 
@@ -109,75 +109,14 @@ export type OperatorRunStateFragment$data = {
     }>;
   };
   readonly commandOptionsOverflow: boolean;
-  readonly evidenceCandidates: ReadonlyArray<{
-    readonly claim: string;
-    readonly executionObservationId: string | null | undefined;
-    readonly freshnessState: string;
-    readonly id: string;
-    readonly sourceIdentity: string;
-    readonly sourceKind: string;
-    readonly state: string;
-    readonly trustBasis: string;
-    readonly verificationCheckId: string;
-  }>;
-  readonly evidenceItems: ReadonlyArray<{
-    readonly candidateId: string | null | undefined;
-    readonly id: string;
-    readonly state: string;
-    readonly workRunId: string | null | undefined;
-  }>;
+  readonly id: string;
   readonly missingEvidence: ReadonlyArray<{
     readonly reason: string;
     readonly verificationCheckId: string;
   }>;
-  readonly observations: ReadonlyArray<{
-    readonly freshnessState: string;
-    readonly graphItemId: string | null | undefined;
-    readonly id: string;
-    readonly normalizedStatus: string;
-    readonly sourceIdentity: string;
-    readonly sourceKind: string;
-    readonly trustBasis: string;
-    readonly verificationCheckId: string | null | undefined;
-  }>;
-  readonly packet: {
-    readonly id: string;
-    readonly state: string;
-    readonly title: string;
-  };
-  readonly packetVersion: {
-    readonly id: string;
-    readonly lifecycleState: string;
-    readonly objective: string | null | undefined;
-    readonly versionNumber: number;
-  } | null | undefined;
-  readonly requiredChecks: ReadonlyArray<{
-    readonly graphItemId: string | null | undefined;
-    readonly id: string;
-    readonly state: string;
-    readonly verificationCheckId: string | null | undefined;
-  }>;
-  readonly run: {
-    readonly aggregateState: string;
-    readonly executionState: string;
-    readonly id: string;
-    readonly verificationState: string;
-  };
   readonly sourceWatermark: string | null | undefined;
   readonly status: string;
   readonly type: string;
-  readonly verificationResults: ReadonlyArray<{
-    readonly actorPrincipalId: string | null | undefined;
-    readonly evidenceItemId: string | null | undefined;
-    readonly id: string;
-    readonly operationId: string | null | undefined;
-    readonly policyBasis: string | null | undefined;
-    readonly result: string;
-    readonly targetGraphItemId: string | null | undefined;
-    readonly verificationCheckId: string;
-    readonly workPacketVersionId: string | null | undefined;
-    readonly workRunId: string | null | undefined;
-  }>;
   readonly " $fragmentType": "OperatorRunStateFragment";
 };
 export type OperatorRunStateFragment$key = {
@@ -190,6 +129,6 @@ const node: ReaderInlineDataFragment = {
   "name": "OperatorRunStateFragment"
 };
 
-(node as any).hash = "c03edc0383ecebfff0f5b3f5a9eb679f";
+(node as any).hash = "74ebc79b11e8466eccd27e5e9bb4345f";
 
 export default node;

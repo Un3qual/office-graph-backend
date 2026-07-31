@@ -1,0 +1,126 @@
+/// <reference types="vite/client" />
+
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ConcreteRequest } from "relay-runtime";
+import { describe, expect, it } from "vitest";
+
+const assetsRoot = process.cwd();
+const generatedArtifacts = import.meta.glob<{
+  default: ConcreteRequest;
+}>("../../../app/relay/__generated__/*.graphql.ts", { eager: true });
+
+describe("Relay compiler workflow", () => {
+  it("declares a compiler workflow and runs stale-artifact checks during verification", () => {
+    const packageJson = JSON.parse(readFileSync(join(assetsRoot, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+      devDependencies: Record<string, string>;
+    };
+
+    expect(packageJson.devDependencies).toHaveProperty("relay-compiler");
+    expect(packageJson.scripts["relay:schema"]).toBe("node scripts/graphql-schema.mjs --write");
+    expect(packageJson.scripts.relay).toBe("pnpm run relay:schema && relay-compiler --noWatchman");
+    expect(packageJson.scripts["relay:check"]).toBe(
+      "node scripts/graphql-schema.mjs --check && relay-compiler --noWatchman --validate",
+    );
+    expect(packageJson.scripts.verify).toContain("pnpm run relay:check");
+
+    const relayConfigPath = join(assetsRoot, "relay.config.json");
+    expect(existsSync(relayConfigPath)).toBe(true);
+    expect(JSON.parse(readFileSync(relayConfigPath, "utf8"))).toMatchObject({
+      src: "./app",
+      schema: "./schema.graphql",
+      language: "typescript",
+      artifactDirectory: "./app/relay/__generated__",
+      eagerEsModules: true,
+      customScalarTypes: { DateTime: "string" },
+    });
+
+    expect(
+      readGenerated(
+        join(assetsRoot, "app/relay/__generated__"),
+        "PacketsRoutePacketFragment.graphql.ts",
+      ),
+    ).toContain("readonly updatedAt: string;");
+  });
+
+  it("extracts the schema without starting the OTP application or mixing compile logs into SDL", () => {
+    const schemaScript = readFileSync(join(assetsRoot, "scripts/graphql-schema.mjs"), "utf8");
+
+    expect(schemaScript).toContain('["compile", "--quiet"]');
+    expect(schemaScript).toContain('["run", "--no-start", "--no-compile", "-e", schemaExpression]');
+  });
+
+  it("keeps route-owned operator GraphQL documents near the route", () => {
+    const dataSource = readFileSync(join(assetsRoot, "app/routes/operator/data.ts"), "utf8");
+
+    expect(dataSource).toContain("OperatorWorkflowRouteQuery");
+    expect(dataSource).toContain("OperatorWorkflowItemFragment");
+    expect(dataSource).toContain("OperatorPacketReadinessQuery");
+    expect(dataSource).toContain("OperatorRunStateQuery");
+    expect(dataSource).not.toContain("updateOperatorWorkflowAfterVerification");
+    expect(dataSource).toContain("operatorWorkflowItems");
+    expect(dataSource).not.toContain("@connection");
+    expect(dataSource).not.toContain("ConnectionHandler.getConnection");
+    expect(dataSource).not.toContain("@tanstack/react-query");
+  });
+
+  it("generates TypeScript artifacts for the operator queries and fragments", () => {
+    const generatedDir = join(assetsRoot, "app/relay/__generated__");
+
+    expect(readGenerated(generatedDir, "OperatorWorkflowRouteQuery.graphql.ts")).toContain(
+      "export type OperatorWorkflowRouteQuery$data",
+    );
+    expect(readGenerated(generatedDir, "OperatorWorkflowItemFragment.graphql.ts")).toContain(
+      "export type OperatorWorkflowItemFragment$key",
+    );
+    expect(readGenerated(generatedDir, "OperatorPacketReadinessQuery.graphql.ts")).toContain(
+      "export type OperatorPacketReadinessQuery$data",
+    );
+    expect(readGenerated(generatedDir, "OperatorRunStateQuery.graphql.ts")).toContain(
+      "export type OperatorRunStateQuery$data",
+    );
+  });
+
+  it("compiles an explicit uncaught field-error policy for every query", () => {
+    const queryArtifacts = Object.entries(generatedArtifacts).filter(
+      ([, module]) =>
+        module.default.kind === "Request" && module.default.params.operationKind === "query",
+    );
+    const policyOwnedRefetchQueries = new Set(
+      Object.values(generatedArtifacts).flatMap(({ default: artifact }) => {
+        const metadata = (
+          artifact as unknown as {
+            metadata?: {
+              refetch?: { operation?: ConcreteRequest };
+              throwOnFieldError?: boolean;
+            };
+          }
+        ).metadata;
+
+        return metadata?.throwOnFieldError && metadata.refetch?.operation
+          ? [metadata.refetch.operation]
+          : [];
+      }),
+    );
+    expect(queryArtifacts.length).toBeGreaterThan(0);
+
+    for (const [artifactPath, module] of queryArtifacts) {
+      const metadata = module.default.fragment.metadata as {
+        readonly throwOnFieldError?: boolean;
+      } | null;
+
+      expect(
+        metadata?.throwOnFieldError || policyOwnedRefetchQueries.has(module.default),
+        artifactPath,
+      ).toBe(true);
+    }
+  });
+});
+
+function readGenerated(generatedDir: string, filename: string) {
+  const artifactPath = join(generatedDir, filename);
+
+  expect(existsSync(artifactPath)).toBe(true);
+  return readFileSync(artifactPath, "utf8");
+}

@@ -1,5 +1,5 @@
 /**
- * @generated SignedSource<<b5daca2c53f9f2b15a3228a1b5ed096f>>
+ * @generated SignedSource<<03f5da1892635d8edbca2dfbcc4d5cdd>>
  * @lightSyntaxTransform
  */
 
@@ -21,7 +21,7 @@ export type OperatorStartRunConversationMutation$data = {
     readonly affectedIds: ReadonlyArray<{
       readonly id: string;
       readonly type: string;
-    }>;
+    } | null | undefined>;
     readonly command: string;
     readonly conversation: {
       readonly graphItemId: string;
@@ -104,7 +104,7 @@ v2 = [
       {
         "alias": null,
         "args": null,
-        "concreteType": "OperatorRunConversationRecord",
+        "concreteType": "Conversation",
         "kind": "LinkedField",
         "name": "conversation",
         "plural": false,

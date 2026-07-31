@@ -13,12 +13,8 @@ defmodule OfficeGraph.SoftwareProving.ProviderExtension do
       postgres do
         table unquote(table)
         repo OfficeGraph.Repo
-        migrate? false
 
-        identity_index_names unique_workspace_node_id:
-                               unquote("#{table}_workspace_node_id_index"),
-                             unique_organization_node_id:
-                               unquote("#{table}_organization_node_id_index")
+        identity_index_names unique_scope_node_id: unquote("#{table}_scope_node_id_index")
       end
 
       actions do

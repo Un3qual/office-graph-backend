@@ -92,6 +92,11 @@ function LoadedRunDetail({
           id: check.id,
           text: `${check.verificationCheckId ?? "Unknown check"} · ${formatLabel(check.state)}`,
         }))}
+        overflowText={
+          detail.relationshipOverflow.requiredChecks
+            ? "More required checks are available."
+            : undefined
+        }
         title="Required checks"
       />
       <DetailCollection
@@ -100,6 +105,11 @@ function LoadedRunDetail({
           id: candidate.id,
           text: `${candidate.claim} · ${formatLabel(candidate.state)}`,
         }))}
+        overflowText={
+          detail.relationshipOverflow.evidenceCandidates
+            ? "More evidence candidates are available."
+            : undefined
+        }
         title="Evidence candidates"
       />
       <DetailCollection
@@ -108,6 +118,11 @@ function LoadedRunDetail({
           id: item.id,
           text: `${item.id} · ${formatLabel(item.state)}`,
         }))}
+        overflowText={
+          detail.relationshipOverflow.evidenceItems
+            ? "More evidence items are available."
+            : undefined
+        }
         title="Evidence"
       />
       <DetailCollection
@@ -126,6 +141,11 @@ function LoadedRunDetail({
             result.result,
           )} · ${formatLabel(result.policyBasis)}`,
         }))}
+        overflowText={
+          detail.relationshipOverflow.verificationResults
+            ? "More verification results are available."
+            : undefined
+        }
         title="Verification results"
       />
 
@@ -152,10 +172,12 @@ function LoadedRunDetail({
 function DetailCollection({
   emptyText,
   items,
+  overflowText,
   title,
 }: {
   emptyText: string;
   items: Array<{ id: string; text: string }>;
+  overflowText?: string;
   title: string;
 }) {
   return (
@@ -170,6 +192,7 @@ function DetailCollection({
           ))}
         </ul>
       )}
+      {overflowText ? <p>{overflowText}</p> : null}
     </section>
   );
 }

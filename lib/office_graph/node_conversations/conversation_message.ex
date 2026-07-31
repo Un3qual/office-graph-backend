@@ -1,39 +1,110 @@
+defmodule OfficeGraph.NodeConversations.CommandResults.AppendConversationMessage do
+  @moduledoc false
+
+  alias OfficeGraph.CommandSupport.TypedId
+
+  use Ash.TypedStruct
+
+  typed_struct do
+    field :command, :string, allow_nil?: false
+    field :operation_id, :uuid, allow_nil?: false
+    field :affected_ids, {:array, TypedId}, allow_nil?: false
+
+    field :message, :struct,
+      allow_nil?: false,
+      constraints: [instance_of: OfficeGraph.NodeConversations.ConversationMessage]
+  end
+
+  use AshGraphql.Type
+
+  @impl true
+  def graphql_type(_constraints), do: :append_conversation_message_payload
+
+  def from_result(operation, message) do
+    new(
+      command: "append_conversation_message",
+      operation_id: operation.id,
+      affected_ids: [
+        TypedId.new!(type: "conversation", id: message.conversation_id),
+        TypedId.new!(type: "conversation_message", id: message.id)
+      ],
+      message: message
+    )
+  end
+end
+
+defimpl Jason.Encoder,
+  for: OfficeGraph.NodeConversations.CommandResults.AppendConversationMessage do
+  def encode(result, options) do
+    Jason.Encode.map(
+      %{
+        command: result.command,
+        operation_id: result.operation_id,
+        affected_ids: result.affected_ids,
+        message:
+          Map.take(result.message, [
+            :id,
+            :conversation_id,
+            :source,
+            :body,
+            :visibility,
+            :author_principal_id,
+            :execution_id,
+            :context_package_id,
+            :operation_id,
+            :proposed_graph_change_id,
+            :domain_action_operation_id,
+            :inserted_at
+          ])
+      },
+      options
+    )
+  end
+end
+
 defmodule OfficeGraph.NodeConversations.ConversationMessage do
   @moduledoc false
 
   use Ash.Resource,
     domain: OfficeGraph.NodeConversations.Domain,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshGraphql.Resource, AshJsonApi.Resource]
 
   postgres do
     table "conversation_messages"
     repo OfficeGraph.Repo
-    migrate? false
 
-    identity_index_names unique_operation: "conversation_messages_operation_index"
+    identity_index_names unique_operation: "conversation_messages_operation_index",
+                         unique_agent_step: "conversation_messages_agent_step_index"
+
+    custom_indexes do
+      index [:conversation_id, :inserted_at, :id],
+        name: "conversation_messages_conversation_inserted_at_index"
+    end
   end
 
   attributes do
-    uuid_primary_key :id, writable?: true
-    attribute :conversation_id, :uuid, allow_nil?: false, public?: true
-    attribute :execution_id, :uuid, public?: true
-    attribute :author_principal_id, :uuid, public?: true
-    attribute :context_package_id, :uuid, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :step_key, :string, public?: true
-    attribute :operation_id, :uuid, allow_nil?: false, public?: true
-    attribute :proposed_graph_change_id, :uuid, public?: true
-    attribute :domain_action_operation_id, :uuid, public?: true
     attribute :source, :string, allow_nil?: false, public?: true
     attribute :visibility, :string, allow_nil?: false, public?: true
     attribute :body, :string, allow_nil?: false, public?: true
-    attribute :body_hash, :string, allow_nil?: false, public?: true
+    attribute :body_hash, :string, allow_nil?: false
     create_timestamp :inserted_at, public?: true
   end
 
   actions do
     read :read do
       primary? true
-      public? false
+      public? true
+      pagination keyset?: true, countable: false, required?: false
     end
 
     create :create do
@@ -65,33 +136,161 @@ defmodule OfficeGraph.NodeConversations.ConversationMessage do
 
       validate absent(:execution_id), where: [attribute_equals(:source, "system")]
     end
+
+    action :persist_human_message_contract, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        OfficeGraph.Authorization.AuthorizationDecision,
+        Module.concat([OfficeGraph, NodeConversations, Conversation]),
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.ProposedChanges.ProposedGraphChange
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+      argument :conversation_id, :uuid, allow_nil?: false
+      argument :body, :string, allow_nil?: false, constraints: [trim?: false]
+      argument :contribution_kind, :string, allow_nil?: false
+      argument :proposed_graph_change_id, :uuid
+      argument :domain_action_operation_id, :uuid
+
+      validate argument_in(:contribution_kind, ~w(comment proposal domain_action))
+
+      run {Module.concat([OfficeGraph, NodeConversations, MessageCommands]), mode: :human}
+    end
+
+    action :persist_agent_message_contract, :struct do
+      public? false
+      transaction? true
+      constraints instance_of: __MODULE__
+
+      touches_resources [
+        Module.concat([OfficeGraph, AgentRuntime, AgentExecution]),
+        OfficeGraph.AgentRuntime.ContextPackage,
+        Module.concat([OfficeGraph, NodeConversations, Conversation]),
+        OfficeGraph.Operations.OperationCorrelation,
+        OfficeGraph.Runs.Run,
+        OfficeGraph.WorkPackets.WorkPacketSourceReference
+      ]
+
+      argument :operation_id, :uuid, allow_nil?: false
+
+      argument :execution, :struct,
+        allow_nil?: false,
+        constraints: [
+          instance_of: Module.concat([OfficeGraph, AgentRuntime, AgentExecution])
+        ]
+
+      argument :context_package, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: OfficeGraph.AgentRuntime.ContextPackage]
+
+      argument :step_key, :string, allow_nil?: false
+      argument :body, :string, allow_nil?: false, constraints: [trim?: false]
+
+      run {Module.concat([OfficeGraph, NodeConversations, MessageCommands]), mode: :agent}
+    end
+
+    action :append_conversation_message,
+           OfficeGraph.NodeConversations.CommandResults.AppendConversationMessage do
+      argument :idempotency_key, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\S/]
+
+      argument :conversation_id, :uuid, allow_nil?: false
+
+      argument :body, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, match: ~r/\S/, max_length: 32_768]
+
+      argument :contribution_kind, :string, allow_nil?: false
+
+      argument :proposed_graph_change_id, :uuid
+      argument :domain_action_operation_id, :uuid
+
+      validate argument_in(:contribution_kind, ~w(comment proposal domain_action))
+
+      run fn input, context ->
+        OfficeGraph.NodeConversations.Actions.AppendConversationMessage.run(input, [], context)
+      end
+    end
   end
 
   identities do
     identity :unique_operation, [:operation_id]
+
+    identity :unique_agent_step, [:execution_id, :step_key]
   end
 
   relationships do
     belongs_to :conversation, OfficeGraph.NodeConversations.Conversation do
       source_attribute :conversation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
+      public? true
     end
 
     belongs_to :author_principal, OfficeGraph.Identity.Principal do
       source_attribute :author_principal_id
-      define_attribute? false
+      attribute_public? true
     end
 
     belongs_to :operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :operation_id
-      define_attribute? false
       allow_nil? false
+      attribute_public? true
     end
 
     belongs_to :domain_action_operation, OfficeGraph.Operations.OperationCorrelation do
       source_attribute :domain_action_operation_id
-      define_attribute? false
+      attribute_public? true
     end
+
+    belongs_to :context_package, OfficeGraph.AgentRuntime.ContextPackage do
+      source_attribute :context_package_id
+      destination_attribute :id
+      attribute_public? true
+    end
+
+    belongs_to :execution, OfficeGraph.AgentRuntime.AgentExecution do
+      source_attribute :execution_id
+      destination_attribute :id
+      attribute_public? true
+      public? true
+    end
+
+    belongs_to :proposed_graph_change, OfficeGraph.ProposedChanges.ProposedGraphChange do
+      source_attribute :proposed_graph_change_id
+      destination_attribute :id
+      attribute_public? true
+    end
+  end
+
+  policies do
+    policy action(:append_conversation_message) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability,
+                    capability: :conversation_write}
+    end
+
+    policy action_type(:read) do
+      authorize_if {OfficeGraph.Authorization.Checks.HasCapability, capability: :skeleton_read}
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(
+                     conversation.organization_id == ^actor(:organization_id) and
+                       conversation.workspace_id == ^actor(:workspace_id)
+                   )
+    end
+  end
+
+  graphql do
+    type :conversation_message
+  end
+
+  json_api do
+    type "conversation_message"
   end
 end

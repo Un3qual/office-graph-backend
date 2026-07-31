@@ -9,12 +9,18 @@ defmodule OfficeGraph.Authorization.PolicyBundle do
   postgres do
     table "policy_bundles"
     repo OfficeGraph.Repo
-    migrate? false
+
+    identity_index_names unique_version: "policy_bundles_organization_id_version_index"
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false, public?: true, writable?: true
-    attribute :organization_id, :uuid, allow_nil?: false, public?: true
+    attribute :id, :uuid,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      writable?: true,
+      generated?: true
+
     attribute :version, :integer, allow_nil?: false, public?: true
     attribute :status, :string, allow_nil?: false, public?: true
 
@@ -22,11 +28,29 @@ defmodule OfficeGraph.Authorization.PolicyBundle do
     update_timestamp :updated_at, public?: true
   end
 
+  relationships do
+    belongs_to :organization, OfficeGraph.Tenancy.Organization do
+      source_attribute :organization_id
+      destination_attribute :id
+      allow_nil? false
+      attribute_public? true
+    end
+  end
+
   actions do
     defaults [:read]
 
     create :create do
       accept [:id, :organization_id, :version, :status]
+    end
+
+    create :ensure do
+      public? false
+      accept [:organization_id, :version, :status]
+      upsert? true
+      upsert_identity :unique_version
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 

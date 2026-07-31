@@ -1,7 +1,7 @@
 defmodule OfficeGraph.Foundation.BootstrapTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.{Authorization, Foundation, Identity, Operations, Repo}
+  alias OfficeGraph.{Authorization, Foundation, Identity, Operations}
   alias OfficeGraph.Identity.SessionContext
 
   require Ash.Query
@@ -120,6 +120,36 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
     end
   end
 
+  describe "seed_local_development_fixtures/1" do
+    test "replays all identity and role fixtures without duplicates" do
+      attrs = unique_bootstrap_attrs("local-development-fixtures")
+
+      assert {:ok, first} = Foundation.seed_local_development_fixtures(attrs)
+      assert {:ok, second} = Foundation.seed_local_development_fixtures(attrs)
+
+      assert Map.keys(first.fixtures) |> Enum.sort() ==
+               ~w(deprovisioned_member member owner workspace_admin)
+
+      for key <- Map.keys(first.fixtures) do
+        first_fixture = first.fixtures[key]
+        second_fixture = second.fixtures[key]
+
+        assert first_fixture.identity.principal.id == second_fixture.identity.principal.id
+
+        assert first_fixture.identity.external_identity_link.id ==
+                 second_fixture.identity.external_identity_link.id
+
+        assert first_fixture.role_assignment.id == second_fixture.role_assignment.id
+        assert first_fixture.role_assignment.role_id == second_fixture.role_assignment.role_id
+      end
+
+      deprovisioned = first.fixtures["deprovisioned_member"]
+      assert deprovisioned.identity.principal.status == "disabled"
+      assert deprovisioned.identity.external_identity_link.status == "disabled"
+      assert deprovisioned.role_assignment.workspace_id == first.bootstrap.workspace.id
+    end
+  end
+
   describe "authorize/3" do
     test "allows owner skeleton actions and denies a principal without capabilities" do
       assert {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
@@ -224,19 +254,55 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
                )
     end
 
-    test "revalidates trusted session capabilities against live role assignments" do
+    test "revalidates trusted session capability hints against live role assignments" do
       assert {:ok, bootstrap} =
                Foundation.bootstrap_local_owner(unique_bootstrap_attrs("trusted-revalidation"))
 
-      assert :ok =
-               Authorization.authorize(bootstrap.session, :manual_intake_submit,
+      bare_principal =
+        Ash.create!(
+          OfficeGraph.Identity.Principal,
+          %{
+            id: Ecto.UUID.generate(),
+            email: "live-role-#{System.unique_integer([:positive])}@office-graph.local",
+            kind: "human",
+            status: "active"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      bare_session =
+        Ash.create!(
+          OfficeGraph.Identity.Session,
+          %{
+            id: Ecto.UUID.generate(),
+            principal_id: bare_principal.id,
+            organization_id: bootstrap.organization.id,
+            workspace_id: bootstrap.workspace.id,
+            purpose: "live_role_revalidation_test"
+          },
+          action: :create,
+          authorize?: false
+        )
+
+      trusted_context = %SessionContext{
+        principal_id: bare_principal.id,
+        session_id: bare_session.id,
+        organization_id: bootstrap.organization.id,
+        workspace_id: bootstrap.workspace.id,
+        capabilities: MapSet.new(["manual_intake.submit"]),
+        trusted?: true
+      }
+
+      assert {:error, :forbidden} =
+               Authorization.authorize(trusted_context, :manual_intake_submit,
                  organization_id: bootstrap.organization.id
                )
 
-      delete_role_assignment!(bootstrap.role_assignment.id)
+      assert {:ok, _role_setup} = Authorization.ensure_owner_role(bare_principal, bootstrap)
 
-      assert {:error, :forbidden} =
-               Authorization.authorize(bootstrap.session, :manual_intake_submit,
+      assert :ok =
+               Authorization.authorize(trusted_context, :manual_intake_submit,
                  organization_id: bootstrap.organization.id
                )
     end
@@ -336,26 +402,16 @@ defmodule OfficeGraph.Foundation.BootstrapTest do
   end
 
   defp revoke_session!(session_id) do
-    now = DateTime.utc_now()
-
-    Repo.query!(
-      "UPDATE sessions SET revoked_at = $1, updated_at = $1 WHERE id = $2",
-      [now, db_uuid(session_id)]
-    )
+    OfficeGraph.Identity.Session
+    |> Ash.get!(session_id, authorize?: false)
+    |> Ash.Changeset.for_update(:revoke, %{revoked_at: DateTime.utc_now()})
+    |> Ash.update!(authorize?: false)
   end
 
   defp deactivate_principal!(principal_id) do
-    now = DateTime.utc_now()
-
-    Repo.query!(
-      "UPDATE principals SET status = 'inactive', updated_at = $1 WHERE id = $2",
-      [now, db_uuid(principal_id)]
-    )
+    OfficeGraph.Identity.Principal
+    |> Ash.get!(principal_id, authorize?: false)
+    |> Ash.Changeset.for_update(:set_status, %{status: "inactive"})
+    |> Ash.update!(authorize?: false)
   end
-
-  defp delete_role_assignment!(role_assignment_id) do
-    Repo.query!("DELETE FROM role_assignments WHERE id = $1", [db_uuid(role_assignment_id)])
-  end
-
-  defp db_uuid(uuid), do: Ecto.UUID.dump!(uuid)
 end

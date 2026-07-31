@@ -1,6 +1,7 @@
 import Config
 
 config :office_graph, allow_local_api_owner_bootstrap: true
+config :office_graph, local_development_auth_routes: true
 config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
 config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.TestAdapter
 
@@ -22,7 +23,8 @@ config :office_graph, OfficeGraph.Repo,
     System.get_env("OFFICE_GRAPH_TEST_DATABASE_NAME", "office_graph_test") <>
       System.get_env("MIX_TEST_PARTITION", ""),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online() * 2,
+  log: false
 
 config :office_graph, Oban,
   testing: :manual,

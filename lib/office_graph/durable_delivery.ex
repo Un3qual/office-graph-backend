@@ -7,8 +7,7 @@ defmodule OfficeGraph.DurableDelivery do
     deps: [
       OfficeGraph.Authorization,
       OfficeGraph.Identity,
-      OfficeGraph.Operations,
-      OfficeGraph.Repo
+      OfficeGraph.Operations
     ],
     exports: [DomainEvent, ProjectionInvalidation, TerminalJob]
 
@@ -17,15 +16,14 @@ defmodule OfficeGraph.DurableDelivery do
     DomainEvent,
     EventRequest,
     ProjectionInvalidation,
+    StoredJob,
+    StoredJobArgs,
+    StoredJobMeta,
     Subscriptions,
     SystemEventRequest,
     TerminalJob,
     WorkerResult
   }
-
-  alias OfficeGraph.Repo
-
-  import Ecto.Query
 
   require Ash.Query
 
@@ -41,13 +39,13 @@ defmodule OfficeGraph.DurableDelivery do
 
   def record_and_enqueue(session_context, operation, attrs) do
     with {:ok, request} <- EventRequest.new(session_context, operation, attrs) do
-      transaction(fn -> record_and_enqueue_request(request) end)
+      record_event_request(request)
     end
   end
 
   def record_system_and_enqueue(operation, attrs) do
     with {:ok, request} <- SystemEventRequest.new(operation, attrs) do
-      transaction(fn -> record_and_enqueue_request(request) end)
+      record_event_request(request)
     end
   end
 
@@ -69,27 +67,16 @@ defmodule OfficeGraph.DurableDelivery do
       limit = opts |> Keyword.get(:limit, 50) |> normalize_limit()
 
       jobs =
-        Oban.Job
-        |> where(
-          [job],
-          job.state in ["cancelled", "discarded"] and
-            fragment("?->>'organization_id'", job.args) == ^session_context.organization_id and
-            (fragment("?->>'workspace_id'", job.args) == ^session_context.workspace_id or
-               fragment("?->>'workspace_id' IS NULL", job.args))
+        StoredJob
+        |> Ash.Query.filter(
+          state in ["cancelled", "discarded"] and
+            get_path(args, [:organization_id]) == ^session_context.organization_id and
+            (get_path(args, [:workspace_id]) == ^session_context.workspace_id or
+               is_nil(get_path(args, [:workspace_id])))
         )
-        |> order_by([job],
-          desc:
-            fragment(
-              "COALESCE(?, ?, ?, ?)",
-              job.cancelled_at,
-              job.discarded_at,
-              job.attempted_at,
-              job.inserted_at
-            ),
-          desc: job.id
-        )
-        |> limit(^limit)
-        |> Repo.all()
+        |> Ash.Query.sort(terminal_at: :desc, id: :desc)
+        |> Ash.Query.limit(limit)
+        |> Ash.read!()
 
       failure_codes = failure_codes_by_event(jobs, session_context)
 
@@ -167,9 +154,16 @@ defmodule OfficeGraph.DurableDelivery do
   end
 
   defp dispatch_safely(event_id, expected_scope, broadcaster) do
-    case transaction(fn -> dispatch_locked(event_id, expected_scope, broadcaster) end) do
-      {:ok, result} -> result
-      {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
+    case run_domain_event_action(
+           :dispatch,
+           scope_action_attrs(event_id, expected_scope)
+           |> Map.put(:broadcaster, broadcaster)
+         ) do
+      {:ok, result} ->
+        result
+
+      {:error, _error} ->
+        {:error, {:retryable, :event_transaction_failed}}
     end
   catch
     _kind, _reason -> {:error, {:retryable, :event_dispatch_crashed}}
@@ -209,11 +203,19 @@ defmodule OfficeGraph.DurableDelivery do
       OfficeGraph.DurableDelivery.WorkerResult.safe_code(failure_code, "delivery_failed")
 
     if valid_event_id?(event_id) do
-      case transaction(fn ->
-             mark_failed_locked(event_id, expected_scope, failure_code, allowed_states)
-           end) do
-        {:ok, result} -> result
-        {:error, _error} -> {:error, {:retryable, :event_transaction_failed}}
+      case run_domain_event_action(
+             :mark_failure,
+             scope_action_attrs(event_id, expected_scope)
+             |> Map.merge(%{
+               failure_code: failure_code,
+               allowed_states: allowed_states
+             })
+           ) do
+        {:ok, result} ->
+          result
+
+        {:error, _error} ->
+          {:error, {:retryable, :event_transaction_failed}}
       end
     else
       :ok
@@ -253,19 +255,24 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp record_and_enqueue_request(request) do
-    with {:ok, event, insert_result} <- create_or_replay_event(request),
-         :ok <- validate_replay(event, request),
+  @doc false
+  def record_and_enqueue_action(attrs) do
+    with {:ok, event, insert_result} <- create_or_replay_event(attrs),
+         :ok <- validate_replay(event, attrs),
          :ok <- enqueue_if_created(event, insert_result) do
-      event
+      {:ok, {:accepted, event}}
     else
-      {:error, error} -> Repo.rollback(error)
+      {:error, :event_identity_conflict} ->
+        {:ok, {:rejected, :event_identity_conflict}}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
-  defp create_or_replay_event(request) do
+  defp create_or_replay_event(attrs) do
     DomainEvent
-    |> Ash.Changeset.for_create(:create, event_attrs(request))
+    |> Ash.Changeset.for_create(:create, Map.put(attrs, :delivery_state, "pending"))
     |> Ash.create(
       upsert?: true,
       upsert_identity: :event_key,
@@ -294,10 +301,11 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp event_attrs(%EventRequest{} = request), do: EventRequest.to_attrs(request)
+  defp event_attrs(%EventRequest{} = request),
+    do: request |> EventRequest.to_attrs() |> Map.delete(:delivery_state)
 
   defp event_attrs(%SystemEventRequest{} = request),
-    do: SystemEventRequest.to_attrs(request)
+    do: request |> SystemEventRequest.to_attrs() |> Map.delete(:delivery_state)
 
   defp validate_replay(event, request) do
     matching? =
@@ -362,7 +370,7 @@ defmodule OfficeGraph.DurableDelivery do
     event_ids =
       jobs
       |> Enum.flat_map(fn job ->
-        event_id = job.args["event_id"]
+        event_id = job.args.event_id
 
         case Ecto.UUID.cast(event_id) do
           {:ok, event_id} -> [event_id]
@@ -385,7 +393,7 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp terminal_failure_code(%Oban.Job{meta: %{"terminal_failure_code" => code}}) do
+  defp terminal_failure_code(%{meta: %StoredJobMeta{terminal_failure_code: code}}) do
     OfficeGraph.DurableDelivery.WorkerResult.safe_code(code, nil)
   end
 
@@ -398,11 +406,11 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp terminal_event_scope(%Oban.Job{args: args}) do
+  defp terminal_event_scope(%{args: %StoredJobArgs{} = args}) do
     {
-      normalized_event_id(args["event_id"]),
-      normalized_scope_id(args["organization_id"]),
-      normalized_scope_id(args["workspace_id"])
+      normalized_event_id(args.event_id),
+      normalized_scope_id(args.organization_id),
+      normalized_scope_id(args.workspace_id)
     }
   end
 
@@ -464,11 +472,67 @@ defmodule OfficeGraph.DurableDelivery do
     end
   end
 
-  defp transaction(fun) do
-    if Repo.in_transaction?() do
-      {:ok, fun.()}
-    else
-      Repo.transaction(fun)
+  @doc false
+  def dispatch_action(attrs) do
+    expected_scope = expected_scope(attrs)
+
+    try do
+      dispatch_locked(attrs.event_id, expected_scope, attrs.broadcaster)
+    catch
+      _kind, _reason -> {:error, {:retryable, :event_dispatch_crashed}}
     end
   end
+
+  @doc false
+  def mark_failure_action(attrs) do
+    expected_scope = expected_scope(attrs)
+
+    try do
+      mark_failed_locked(
+        attrs.event_id,
+        expected_scope,
+        attrs.failure_code,
+        attrs.allowed_states
+      )
+    catch
+      _kind, _reason -> {:error, {:retryable, :event_failure_transition_crashed}}
+    end
+  end
+
+  defp run_domain_event_action(action, attrs) do
+    DomainEvent
+    |> Ash.ActionInput.for_action(action, attrs)
+    |> Ash.run_action(authorize?: false)
+  end
+
+  defp record_event_request(request) do
+    case run_domain_event_action(:record_and_enqueue, event_attrs(request)) do
+      {:ok, {:accepted, event}} -> {:ok, event}
+      {:ok, {:rejected, error}} -> {:error, error}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp scope_action_attrs(event_id, nil) do
+    %{
+      event_id: event_id,
+      enforce_scope?: false,
+      organization_id: nil,
+      workspace_id: nil
+    }
+  end
+
+  defp scope_action_attrs(event_id, scope) do
+    %{
+      event_id: event_id,
+      enforce_scope?: true,
+      organization_id: scope.organization_id,
+      workspace_id: scope.workspace_id
+    }
+  end
+
+  defp expected_scope(%{enforce_scope?: false}), do: nil
+
+  defp expected_scope(attrs),
+    do: %{organization_id: attrs.organization_id, workspace_id: attrs.workspace_id}
 end

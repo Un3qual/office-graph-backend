@@ -15,9 +15,39 @@ defmodule OfficeGraph.AgentRuntime.PersistenceResourceTest do
       assert Ash.Resource.Info.data_layer(resource) == AshPostgres.DataLayer
       assert AshPostgres.DataLayer.Info.table(resource) == table
       assert AshPostgres.DataLayer.Info.repo(resource) == OfficeGraph.Repo
-      refute AshPostgres.DataLayer.Info.migrate?(resource)
+      assert AshPostgres.DataLayer.Info.migrate?(resource)
       assert resource in Ash.Domain.Info.resources(domain)
     end
+  end
+
+  test "conversation messages declare the bounded history-read index" do
+    assert Enum.any?(
+             AshPostgres.DataLayer.Info.custom_indexes(
+               OfficeGraph.NodeConversations.ConversationMessage
+             ),
+             &match?(
+               %AshPostgres.CustomIndex{
+                 name: "conversation_messages_conversation_inserted_at_index",
+                 fields: [:conversation_id, :inserted_at, :id],
+                 unique: false
+               },
+               &1
+             )
+           )
+  end
+
+  test "agent executions declare the focused run history-read index" do
+    assert Enum.any?(
+             AshPostgres.DataLayer.Info.custom_indexes(OfficeGraph.AgentRuntime.AgentExecution),
+             &match?(
+               %AshPostgres.CustomIndex{
+                 name: "agent_executions_run_graph_item_inserted_at_id_index",
+                 fields: [:run_id, :graph_item_id, :inserted_at, :id],
+                 unique: false
+               },
+               &1
+             )
+           )
   end
 
   test "runtime resources expose typed lifecycle, scope, and provenance attributes" do

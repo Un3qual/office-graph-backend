@@ -13,7 +13,6 @@ defmodule OfficeGraph.Revisions do
     Ash.create!(
       Revision,
       %{
-        id: Ecto.UUID.generate(),
         operation_id: operation.id,
         resource_type: resource_type,
         resource_id: resource_id,

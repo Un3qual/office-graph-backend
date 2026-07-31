@@ -38,7 +38,10 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
     assert replay == first
     assert first["command"] == "bind_github_installation"
     assert is_binary(first["operationId"])
-    assert first["installation"]["externalInstallationId"] == input.externalInstallationId
+
+    assert first["installation"]["externalInstallationId"] ==
+             String.to_integer(input.externalInstallationId)
+
     assert first["installation"]["lifecycleState"] == "active"
     assert first["permissionSnapshot"]["version"] == 1
     assert Enum.map(first["permissions"], & &1["name"]) == ["checks", "pull_requests"]
@@ -58,23 +61,25 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
 
     first =
       conn
-      |> post("/api/v1/commands/bind-github-installation", input)
-      |> json_response(200)
+      |> generated_json_api()
+      |> post("/api/v1/commands/bind-github-installation", %{data: input})
+      |> json_response(201)
 
     replay =
       recycle_human_session(conn)
-      |> post("/api/v1/commands/bind-github-installation", input)
-      |> json_response(200)
+      |> generated_json_api()
+      |> post("/api/v1/commands/bind-github-installation", %{data: input})
+      |> json_response(201)
 
     assert replay == first
     assert first["command"] == "bind_github_installation"
     assert is_binary(first["operation_id"])
 
-    assert first["result"]["installation"]["external_installation_id"] ==
+    assert first["installation"]["external_installation_id"] ==
              input.external_installation_id
 
-    assert first["result"]["permission_snapshot"]["version"] == 1
-    assert Enum.map(first["result"]["permissions"], & &1["name"]) == ["checks", "pull_requests"]
+    assert first["permission_snapshot"]["version"] == 1
+    assert Enum.map(first["permissions"], & &1["name"]) == ["checks", "pull_requests"]
 
     encoded = Jason.encode!(first)
     refute encoded =~ input.webhook_secret_reference
@@ -102,10 +107,11 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
 
     json_result =
       recycle_human_session(conn)
-      |> post("/api/v1/commands/bind-github-installation", json_input)
-      |> json_response(200)
+      |> generated_json_api()
+      |> post("/api/v1/commands/bind-github-installation", %{data: json_input})
+      |> json_response(201)
 
-    assert json_result["result"]["installation"]["workspace_id"] == nil
+    assert json_result["installation"]["workspace_id"] == nil
   end
 
   defp graphql(conn, query, variables) do
@@ -156,5 +162,11 @@ defmodule OfficeGraphWeb.GitHubInstallationApiTest do
         %{name: "checks", access_level: "write"}
       ]
     }
+  end
+
+  defp generated_json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

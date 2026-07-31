@@ -390,10 +390,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     context = AgentRuntimeSupport.invocation_fixture()
 
-    Repo.query!("UPDATE agent_definitions SET model_adapter_key = $1 WHERE id = $2", [
-      "manifest-violating",
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_adapter_key: "manifest-violating"
+    })
 
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
@@ -416,10 +415,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
 
-    Repo.query!(
-      "UPDATE agent_definitions SET allowed_output_kinds = ARRAY['message']::text[] WHERE id = $1",
-      [Ecto.UUID.dump!(context.definition.id)]
-    )
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      allowed_output_kinds: ["message"]
+    })
 
     assert {:cancel, "agent_output_kind_not_allowed"} =
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -571,10 +569,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     original_credential = create_model_credential!(context, "original")
     rotated_credential = create_model_credential!(context, "rotated")
 
-    Repo.query!("UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2", [
-      Ecto.UUID.dump!(original_credential.id),
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_credential_id: original_credential.id
+    })
 
     invoked =
       AgentRuntimeSupport.invoke_human(context, %{
@@ -583,10 +580,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     assert invoked.authority_snapshot.credential_ids == [original_credential.id]
 
-    Repo.query!("UPDATE agent_definitions SET model_credential_id = $1 WHERE id = $2", [
-      Ecto.UUID.dump!(rotated_credential.id),
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_credential_id: rotated_credential.id
+    })
 
     [job] = execution_jobs(invoked.execution.id)
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -613,9 +609,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     context = AgentRuntimeSupport.invocation_fixture()
     invoked = AgentRuntimeSupport.invoke_human(context)
 
-    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'rotated' WHERE id = $1", [
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_adapter_key: "rotated"
+    })
 
     [job] = execution_jobs(invoked.execution.id)
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -673,9 +669,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     context = AgentRuntimeSupport.invocation_fixture()
 
-    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'credentialed' WHERE id = $1", [
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_adapter_key: "credentialed"
+    })
 
     invoked = AgentRuntimeSupport.invoke_human(context)
     assert invoked.authority_snapshot.credential_ids == []
@@ -801,9 +797,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     assert_receive {:blocking_model_started, request_id}, 1_000
 
-    Repo.query!("UPDATE agent_definitions SET model_adapter_key = 'rotated' WHERE id = $1", [
-      Ecto.UUID.dump!(context.definition.id)
-    ])
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      model_adapter_key: "rotated"
+    })
 
     running = Ash.get!(AgentExecution, invoked.execution.id, authorize?: false)
 
@@ -896,10 +892,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     [expansion_job] = execution_jobs(expansion_invocation.execution.id)
 
-    Repo.query!(
-      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE context_package_id = $1 AND ordinal = 0",
-      [Ecto.UUID.dump!(expansion_invocation.context_package.id)]
-    )
+    AgentRuntimeSupport.require_context_expansion!(expansion_invocation)
 
     assert :ok = ExecutionWorker.perform(%{expansion_job | attempt: 1, max_attempts: 3})
 
@@ -1005,19 +998,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
 
     [job] = execution_jobs(invoked.execution.id)
 
-    Repo.query!(
-      """
-      UPDATE agent_context_entries
-      SET posture = 'expansion_required'
-      WHERE context_package_id = $1
-        AND ordinal = (
-          SELECT MIN(ordinal)
-          FROM agent_context_entries
-          WHERE context_package_id = $1
-        )
-      """,
-      [Ecto.UUID.dump!(invoked.context_package.id)]
-    )
+    AgentRuntimeSupport.require_context_expansion!(invoked)
 
     assert :ok = ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
 
@@ -1038,12 +1019,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
       })
 
     [job] = execution_jobs(invoked.execution.id)
-    target = Enum.min_by(invoked.context_entries, & &1.ordinal)
-
-    OfficeGraph.Repo.query!(
-      "UPDATE agent_context_entries SET posture = 'expansion_required' WHERE id = $1",
-      [Ecto.UUID.dump!(target.id)]
-    )
+    AgentRuntimeSupport.require_context_expansion!(invoked)
 
     assert {:cancel, "agent_context_expansion_not_authorized"} =
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -1090,9 +1066,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
     invoked = AgentRuntimeSupport.invoke_human(context)
     [job] = execution_jobs(invoked.execution.id)
 
-    Repo.query!("UPDATE principals SET status = 'inactive', updated_at = now() WHERE id = $1", [
-      Ecto.UUID.dump!(context.agent_principal.id)
-    ])
+    context.agent_principal
+    |> Ash.Changeset.for_update(:set_status, %{status: "inactive"})
+    |> Ash.update!(authorize?: false)
 
     assert {:cancel, "agent_authority_revoked"} =
              ExecutionWorker.perform(%{job | attempt: 1, max_attempts: 3})
@@ -1238,13 +1214,7 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   defp execution_jobs(execution_id) do
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^inspect(ExecutionWorker) and
-        fragment("?->>'execution_id'", job.args) == ^execution_id
-    )
-    |> Repo.all()
+    AgentRuntimeSupport.execution_jobs(execution_id)
   end
 
   defp execution_record_count(resource, execution_id) do
@@ -1262,39 +1232,16 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorkerTest do
   end
 
   defp allow_generic_context_expansion!(context) do
-    Repo.query!(
-      """
-      UPDATE agent_definitions
-      SET requested_capabilities = ARRAY[
-            'agent.model.generate',
-            'agent.tool.read',
-            'evidence.suggest',
-            'proposal.create'
-          ]::text[],
-          updated_at = now()
-      WHERE id = $1
-      """,
-      [Ecto.UUID.dump!(context.definition.id)]
-    )
-
-    Repo.query!(
-      """
-      INSERT INTO role_capabilities (id, role_id, capability_id, inserted_at, updated_at)
-      SELECT gen_random_uuid(), assignments.role_id, capabilities.id, now(), now()
-      FROM role_assignments AS assignments
-      JOIN capabilities ON capabilities.key = 'agent.tool.read'
-      WHERE assignments.principal_id IN ($1, $2)
-        AND assignments.organization_id = $3
-        AND assignments.workspace_id = $4
-      ON CONFLICT (role_id, capability_id) DO NOTHING
-      """,
-      [
-        Ecto.UUID.dump!(context.agent_principal.id),
-        Ecto.UUID.dump!(context.bootstrap.principal.id),
-        Ecto.UUID.dump!(context.bootstrap.organization.id),
-        Ecto.UUID.dump!(context.bootstrap.workspace.id)
+    AgentRuntimeSupport.configure_definition!(context.definition, %{
+      requested_capabilities: [
+        "agent.model.generate",
+        "agent.tool.read",
+        "evidence.suggest",
+        "proposal.create"
       ]
-    )
+    })
+
+    AgentRuntimeSupport.grant_capabilities!(context, ["agent.tool.read"])
   end
 
   defp configure_adapter_registry(update) when is_function(update, 1) do

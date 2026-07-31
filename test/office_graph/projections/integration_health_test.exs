@@ -3,7 +3,8 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
 
   import OfficeGraph.SessionCaseHelpers
 
-  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Projections, QueryCounter, Repo}
+  alias OfficeGraph.{Foundation, GitHubIntegration, Operations, Projections, QueryCounter}
+  alias OfficeGraph.Authorization.PersistenceTestAdapter
 
   alias OfficeGraph.GitHubIntegration.{
     Installation,
@@ -84,9 +85,7 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
   test "capability lookup outages remain distinguishable from forbidden reads" do
     context = health_context("capability-lookup-unavailable")
 
-    # The rename is scoped to the DataCase transaction and is rolled back after
-    # the assertion, including when PostgreSQL marks the transaction aborted.
-    Repo.query!("ALTER TABLE role_capabilities RENAME TO unavailable_role_capabilities")
+    PersistenceTestAdapter.configure!(principal_capability: {:error, :database_unavailable})
 
     assert {:error, :integration_storage_unavailable} =
              Projections.integration_health(
@@ -172,7 +171,7 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
         failure_class: nil,
         failure_code: nil
       })
-      |> Repo.ash_update!()
+      |> Ash.update!(authorize?: false)
 
     assert DateTime.compare(recovered.updated_at, recovered.inserted_at) == :gt
 
@@ -319,25 +318,30 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
   defp create_outcome!(context, label, state, failure_code) do
     operation = sync_operation!(context, label)
 
-    Repo.ash_create!(SyncOutcome, %{
-      id: Ecto.UUID.generate(),
-      installation_id: context.installation.id,
-      operation_id: operation.id,
-      object_type: "pull_request",
-      object_id: "PR_health_#{label}",
-      delivery_id: "delivery-health-#{label}",
-      state: state,
-      signal_ids: [],
-      failure_class: if(failure_code, do: state),
-      failure_code: failure_code
-    })
+    Ash.create!(
+      SyncOutcome,
+      %{
+        id: Ecto.UUID.generate(),
+        installation_id: context.installation.id,
+        operation_id: operation.id,
+        object_type: "pull_request",
+        object_id: "PR_health_#{label}",
+        delivery_id: "delivery-health-#{label}",
+        state: state,
+        signal_ids: [],
+        failure_class: if(failure_code, do: state),
+        failure_code: failure_code
+      },
+      action: :create,
+      authorize?: false
+    )
   end
 
   defp create_action!(context, label, state, failure_code) do
     operation = sync_operation!(context, "action-#{label}")
 
     OutboundAction
-    |> Repo.ash_create!(%{
+    |> Ash.Changeset.for_create(:create, %{
       id: Ecto.UUID.generate(),
       installation_id: context.installation.id,
       operation_id: operation.id,
@@ -347,16 +351,18 @@ defmodule OfficeGraph.Projections.IntegrationHealthTest do
       action_kind: "review_reply",
       target_type: "review_comment",
       target_id: Ecto.UUID.generate(),
+      target_node_id: "PRRC_health_#{label}",
       expected_provider_version: "v1",
-      input: %{}
+      reply_body: "Health action #{label}"
     })
+    |> Ash.create!(authorize?: false)
     |> Ash.Changeset.for_update(:record_result, %{
       state: state,
       failure_class: state,
       failure_code: failure_code,
       attempted_at: DateTime.utc_now()
     })
-    |> Repo.ash_update!()
+    |> Ash.update!(authorize?: false)
   end
 
   defp sync_operation!(context, label) do

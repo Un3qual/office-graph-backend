@@ -1,10 +1,10 @@
 defmodule OfficeGraphWeb.GraphQL.Common.Errors do
   @moduledoc false
 
-  alias OfficeGraphWeb.OperatorCommands.Errors
+  alias OfficeGraph.CommandSupport.CommandError
 
   def to_absinthe(error) do
-    classification = Errors.classify(error)
+    classification = CommandError.classify(error)
 
     extensions =
       classification.metadata
