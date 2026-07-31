@@ -357,6 +357,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              Map.new(changed_occurrences, &{&1.construct, &1.fingerprint})
   end
 
+  test "does not reclassify executable module attribute expressions at references" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            @repo OfficeGraph.Repo
+
+            @rows @repo.query!("SELECT 1", [])
+
+            def rows, do: @rows
+            def cached_rows, do: @rows
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == nil
+    assert occurrence.line == 4
+  end
+
   test "ignores where and check keywords outside SQL-bearing migration constructs" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{

@@ -175,6 +175,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
      occurrences}
   end
 
+  defp scan_node(
+         {:@, _metadata, [{name, _name_metadata, nil}]},
+         environment,
+         _context,
+         occurrences
+       )
+       when is_atom(name),
+       do: {environment, occurrences}
+
   defp scan_node({:alias, metadata, arguments}, environment, _context, occurrences) do
     {put_aliases(environment, metadata, arguments), occurrences}
   end
