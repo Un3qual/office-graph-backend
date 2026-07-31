@@ -58,8 +58,8 @@ describe("packet workspace route reads", () => {
         requirements: "Preserve immutable history",
         successCriteria: "The required check passes",
         autonomyPosture: "human_supervised",
-        sourceGraphItemIds: ["graph_1"],
-        verificationCheckIds: ["check_1"],
+        sourceGraphItemIds: ["Z3JhcGhfaXRlbTpncmFwaF8x"],
+        verificationCheckIds: ["dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzE="],
       });
       created = true;
 
@@ -280,8 +280,8 @@ describe("packet workspace route reads", () => {
         packetId: support.packetIdentity.relayId,
         expectedCurrentVersionId: support.packetVersionIdentity.relayId,
         title: "Revised packet",
-        sourceGraphItemIds: ["graph_1"],
-        verificationCheckIds: ["check_1"],
+        sourceGraphItemIds: ["Z3JhcGhfaXRlbTpncmFwaF8x"],
+        verificationCheckIds: ["dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzE="],
       });
 
       const versionTwo = support.packetVersion({
@@ -348,7 +348,7 @@ describe("packet workspace route reads", () => {
 
       expect(request.name).toBe("PacketsStartWorkRunMutation");
       expect(variables.input).toMatchObject({
-        packetVersionId: "version_1",
+        packetVersionId: "d29ya19wYWNrZXRfdmVyc2lvbjp2ZXJzaW9uXzE=",
         sourceSurface: "packet_workspace",
         reason: "Start work from the packet workspace.",
         authorityPosture: "human_supervised",

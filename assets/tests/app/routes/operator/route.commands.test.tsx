@@ -47,7 +47,9 @@ describe("operator route reads", () => {
           commandAffordances: [support.enabledCommandAffordance("record_execution_observation")],
         });
         return {
-          data: { operatorRunState: { ...state, run: { ...state.run, id: variables.id } } },
+          data: {
+            operatorRunState: { ...state, run: { ...state.run, id: variables.projectionId } },
+          },
         };
       }
       if (request.name === "OperatorRunCommandOptionPageQuery") {
@@ -471,8 +473,8 @@ describe("operator route reads", () => {
         input: {
           title: "Run console verification",
           objective: "Run console verification",
-          sourceGraphItemIds: ["graph_1"],
-          verificationCheckIds: ["check_1"],
+          sourceGraphItemIds: ["Z3JhcGhfaXRlbTpncmFwaF8x"],
+          verificationCheckIds: ["dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzE="],
         },
       }),
     );
@@ -540,7 +542,7 @@ describe("operator route reads", () => {
         )?.[1],
       ).toMatchObject({
         input: {
-          evidenceCandidateId: "candidate_1",
+          evidenceCandidateId: "ZXZpZGVuY2VfY2FuZGlkYXRlOmNhbmRpZGF0ZV8x",
           title: "Deployment verified",
           body: "The deployment completed successfully.",
           result: "passed",
@@ -609,7 +611,10 @@ describe("operator route reads", () => {
 
     await waitFor(() =>
       expect(support.lastVariablesFor(network, "OperatorAcceptEvidenceMutation")).toMatchObject({
-        input: { evidenceCandidateId: "candidate_2", result: "failed" },
+        input: {
+          evidenceCandidateId: "ZXZpZGVuY2VfY2FuZGlkYXRlOmNhbmRpZGF0ZV8y",
+          result: "failed",
+        },
       }),
     );
   });
@@ -713,7 +718,7 @@ describe("operator route reads", () => {
       );
       expect(submissions).toHaveLength(2);
       expect(submissions[1]?.[1]).toMatchObject({
-        input: { evidenceCandidateId: "candidate_1" },
+        input: { evidenceCandidateId: "ZXZpZGVuY2VfY2FuZGlkYXRlOmNhbmRpZGF0ZV8x" },
       });
     });
   });
@@ -772,8 +777,8 @@ describe("operator route reads", () => {
         support.lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation"),
       ).toMatchObject({
         input: {
-          executionObservationId: "observation_2",
-          verificationCheckId: "check_2",
+          executionObservationId: "ZXhlY3V0aW9uX29ic2VydmF0aW9uOm9ic2VydmF0aW9uXzI=",
+          verificationCheckId: "dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzI=",
         },
       }),
     );
@@ -829,7 +834,10 @@ describe("operator route reads", () => {
       expect(
         support.lastVariablesFor(network, "OperatorWaiveVerificationCheckMutation"),
       ).toMatchObject({
-        input: { runRequiredCheckId: "required_2", policyBasis: "security_exception" },
+        input: {
+          runRequiredCheckId: "cnVuX3JlcXVpcmVkX2NoZWNrOnJlcXVpcmVkXzI=",
+          policyBasis: "security_exception",
+        },
       }),
     );
   });

@@ -140,7 +140,36 @@ describe("operator command workflow", () => {
       "applyProposedChanges",
       result,
       result,
+      {
+        idempotencyKey: "apply-1",
+        normalizedEventId: "bm9ybWFsaXplZF9pbnRha2VfZXZlbnQ6ZXZlbnQtMQ==",
+        proposedChangeIds: ["cHJvcG9zZWRfZ3JhcGhfY2hhbmdlOnByb3Bvc2FsLTE="],
+      },
     );
+  });
+
+  it("encodes projection IDs before submitting a Relay-translated command", async () => {
+    const request = deferredRequest();
+    const environment = relayEnvironment(request.fetch);
+    const { result } = renderHook(() => useApplyProposedChangesCommand(), {
+      wrapper: relayWrapper(environment),
+    });
+
+    act(() => {
+      result.current.submit({
+        idempotencyKey: "apply-relay-ids",
+        normalizedEventId: "event-1",
+        proposedChangeIds: ["proposal-1"],
+      });
+    });
+
+    expect(request.variables).toEqual({
+      input: {
+        idempotencyKey: "apply-relay-ids",
+        normalizedEventId: "bm9ybWFsaXplZF9pbnRha2VfZXZlbnQ6ZXZlbnQtMQ==",
+        proposedChangeIds: ["cHJvcG9zZWRfZ3JhcGhfY2hhbmdlOnByb3Bvc2FsLTE="],
+      },
+    });
   });
 
   it("maps work-packet creation results", async () => {
@@ -171,6 +200,17 @@ describe("operator command workflow", () => {
       "createWorkPacket",
       result,
       result,
+      {
+        autonomyPosture: "human_supervised",
+        contextSummary: "Context",
+        idempotencyKey: "packet-1",
+        objective: "Objective",
+        requirements: "Requirements",
+        sourceGraphItemIds: ["Z3JhcGhfaXRlbTpncmFwaC1pdGVtLTE="],
+        successCriteria: "Success",
+        title: "Packet",
+        verificationCheckIds: ["dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrLTE="],
+      },
     );
   });
 
@@ -200,6 +240,20 @@ describe("operator command workflow", () => {
       "recordExecutionObservation",
       result,
       result,
+      {
+        freshnessState: "current",
+        idempotencyKey: "observation-command-1",
+        normalizedStatus: "passed",
+        observationIdempotencyKey: "observation-1",
+        observationRationale: "Observed success",
+        observationSourceIdentity: "operator:test",
+        observationSourceKind: "manual",
+        observedStatus: "passed",
+        runId: "d29ya19ydW46cnVuLTE=",
+        sourceGraphItemId: "Z3JhcGhfaXRlbTpncmFwaC1pdGVtLTE=",
+        trustBasis: "operator_attested",
+        verificationCheckId: "dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrLTE=",
+      },
     );
   });
 
@@ -224,6 +278,18 @@ describe("operator command workflow", () => {
       "createEvidenceCandidate",
       result,
       result,
+      {
+        claim: "The check passed.",
+        executionObservationId: "ZXhlY3V0aW9uX29ic2VydmF0aW9uOm9ic2VydmF0aW9uLTE=",
+        freshnessState: "current",
+        idempotencyKey: "candidate-1",
+        sensitivity: "internal",
+        sourceIdentity: "operator:test",
+        sourceKind: "manual",
+        trustBasis: "operator_attested",
+        verificationCheckId: "dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrLTE=",
+        workRunId: "d29ya19ydW46cnVuLTE=",
+      },
     );
   });
 
@@ -247,6 +313,14 @@ describe("operator command workflow", () => {
       "acceptEvidence",
       result,
       result,
+      {
+        acceptancePolicyBasis: "operator_review",
+        body: "Evidence body",
+        evidenceCandidateId: "ZXZpZGVuY2VfY2FuZGlkYXRlOmNhbmRpZGF0ZS0x",
+        idempotencyKey: "accept-1",
+        result: "passed",
+        title: "Accepted evidence",
+      },
     );
   });
 
@@ -270,6 +344,15 @@ describe("operator command workflow", () => {
       "waiveVerificationCheck",
       result,
       result,
+      {
+        expectedExecutionState: "completed",
+        expectedVerificationState: "pending",
+        idempotencyKey: "waive-1",
+        policyBasis: "approved_exception",
+        reason: "Approved exception",
+        runId: "d29ya19ydW46cnVuLTE=",
+        runRequiredCheckId: "cnVuX3JlcXVpcmVkX2NoZWNrOnJlcXVpcmVkLTE=",
+      },
     );
   });
 
@@ -325,6 +408,7 @@ async function expectCommandSuccess<TInput, TResult>(
   responseField: string,
   responseResult: Record<string, unknown>,
   expectedResult: TResult,
+  expectedInput: unknown = input,
 ) {
   const request = deferredRequest();
   const environment = relayEnvironment(request.fetch);
@@ -337,7 +421,7 @@ async function expectCommandSuccess<TInput, TResult>(
   });
 
   expect(request.name).toBe(mutationName);
-  expect(request.variables).toEqual({ input });
+  expect(request.variables).toEqual({ input: expectedInput });
 
   act(() => {
     request.resolve({

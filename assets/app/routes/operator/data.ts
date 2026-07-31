@@ -322,13 +322,18 @@ export const OperatorRunCommandOptionPageConnectionFragment = graphql`
 `;
 
 export const OperatorRunStateQuery = graphql`
-  query OperatorRunStateQuery($id: ID!, $activityFirst: Int!, $activityAfter: String)
+  query OperatorRunStateQuery(
+    $projectionId: ID!
+    $runId: ID!
+    $activityFirst: Int!
+    $activityAfter: String
+  )
   @throwOnFieldError {
-    operatorRunState(id: $id) {
+    operatorRunState(id: $projectionId) {
       ...OperatorRunStateFragment
         @arguments(activityFirst: $activityFirst, activityAfter: $activityAfter)
     }
-    run: getWorkRun(id: $id) {
+    run: getWorkRun(id: $runId) {
       id
       aggregateState
       executionState
@@ -417,7 +422,12 @@ export const OperatorRunStateQuery = graphql`
 `;
 
 export const OperatorRunConversationQuery = graphql`
-  query OperatorRunConversationQuery($runId: ID!, $graphItemId: ID!) @throwOnFieldError {
+  query OperatorRunConversationQuery(
+    $runId: ID!
+    $graphItemId: ID!
+    $runRelayId: ID!
+    $graphItemRelayId: ID!
+  ) @throwOnFieldError {
     operatorRunConversation(runId: $runId, graphItemId: $graphItemId) {
       id
       type
@@ -443,7 +453,10 @@ export const OperatorRunConversationQuery = graphql`
         }
       }
     }
-    conversation: conversationForRunGraphItem(runId: $runId, graphItemId: $graphItemId) {
+    conversation: conversationForRunGraphItem(
+      runId: $runRelayId
+      graphItemId: $graphItemRelayId
+    ) {
       id
       run { id }
       graphItem { id }

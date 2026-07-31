@@ -124,7 +124,8 @@ describe("operator route reads", () => {
         ([request]) => request.name === "OperatorRunStateQuery",
       );
       expect(runCall?.[1]).toEqual({
-        id: "run_linked",
+        projectionId: "run_linked",
+        runId: "d29ya19ydW46cnVuX2xpbmtlZA==",
         activityFirst: 5,
         activityAfter: null,
       });
@@ -607,8 +608,11 @@ describe("operator route reads", () => {
         )?.[1],
       ).toMatchObject({
         input: {
-          normalizedEventId: "evt_1",
-          proposedChangeIds: ["change_1", "change_2"],
+          normalizedEventId: "bm9ybWFsaXplZF9pbnRha2VfZXZlbnQ6ZXZ0XzE=",
+          proposedChangeIds: [
+            "cHJvcG9zZWRfZ3JhcGhfY2hhbmdlOmNoYW5nZV8x",
+            "cHJvcG9zZWRfZ3JhcGhfY2hhbmdlOmNoYW5nZV8y",
+          ],
         },
       });
     });
@@ -662,9 +666,9 @@ describe("operator route reads", () => {
         support.lastVariablesFor(network, "OperatorRecordExecutionObservationMutation"),
       ).toMatchObject({
         input: {
-          runId: "run_1",
-          verificationCheckId: "check_2",
-          sourceGraphItemId: "graph_2",
+          runId: "d29ya19ydW46cnVuXzE=",
+          verificationCheckId: "dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzI=",
+          sourceGraphItemId: "Z3JhcGhfaXRlbTpncmFwaF8y",
           observationSourceKind: "human",
           observationSourceIdentity: "operator-console",
           freshnessState: "fresh",
@@ -684,9 +688,9 @@ describe("operator route reads", () => {
         support.lastVariablesFor(network, "OperatorCreateEvidenceCandidateMutation"),
       ).toMatchObject({
         input: {
-          workRunId: "run_1",
-          verificationCheckId: "check_2",
-          executionObservationId: "observation_2",
+          workRunId: "d29ya19ydW46cnVuXzE=",
+          verificationCheckId: "dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzI=",
+          executionObservationId: "ZXhlY3V0aW9uX29ic2VydmF0aW9uOm9ic2VydmF0aW9uXzI=",
           sourceKind: "human",
           sourceIdentity: "manual:approved-source",
           freshnessState: "fresh",

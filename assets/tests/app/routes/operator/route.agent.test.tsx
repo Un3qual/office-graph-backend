@@ -55,7 +55,7 @@ describe("operator run agent surface", () => {
         input: {
           autonomyMode: "human_supervised",
           bindingId: "binding_1",
-          graphItemId: "graph_1",
+          graphItemId: "Z3JhcGhfaXRlbTpncmFwaF8x",
           idempotencyKey: expect.any(String),
           requestedCapabilities: [
             "agent.model.generate",
@@ -66,7 +66,7 @@ describe("operator run agent surface", () => {
             "repository.read",
           ],
           requestedOutcome: "Review this run for specification gaps.",
-          runId: "run_1",
+          runId: "d29ya19ydW46cnVuXzE=",
         },
       });
     });
@@ -77,7 +77,7 @@ describe("operator run agent surface", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "OperatorCancelAgentExecutionMutation")).toEqual({
         input: {
-          executionId: "execution_1",
+          executionId: "YWdlbnRfZXhlY3V0aW9uOmV4ZWN1dGlvbl8x",
           expectedStateVersion: 1,
           idempotencyKey: expect.any(String),
         },
@@ -143,7 +143,7 @@ describe("operator run agent surface", () => {
         input: {
           body: "Please inspect the authorization boundary.",
           contributionKind: "comment",
-          conversationId: "conversation_1",
+          conversationId: "Y29udmVyc2F0aW9uOmNvbnZlcnNhdGlvbl8x",
           domainActionOperationId: null,
           idempotencyKey: expect.any(String),
           proposedGraphChangeId: null,
@@ -158,7 +158,7 @@ describe("operator run agent surface", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "OperatorResolveAgentApprovalMutation")).toEqual({
         input: {
-          approvalRequestId: "approval_1",
+          approvalRequestId: "YWdlbnRfYXBwcm92YWxfcmVxdWVzdDphcHByb3ZhbF8x",
           decision: "approved",
           expectedVersion: 1,
           idempotencyKey: expect.any(String),
@@ -174,7 +174,7 @@ describe("operator run agent surface", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "OperatorResolveAgentContextExpansionMutation")).toEqual({
         input: {
-          contextExpansionRequestId: "expansion_1",
+          contextExpansionRequestId: "YWdlbnRfY29udGV4dF9leHBhbnNpb25fcmVxdWVzdDpleHBhbnNpb25fMQ==",
           decision: "approved",
           expectedVersion: 1,
           idempotencyKey: expect.any(String),
@@ -284,7 +284,9 @@ describe("operator run agent surface", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "OperatorRunConversationQuery")).toEqual({
         graphItemId: "graph_2",
+        graphItemRelayId: "Z3JhcGhfaXRlbTpncmFwaF8y",
         runId: "run_2",
+        runRelayId: "d29ya19ydW46cnVuXzI=",
       });
     });
     await waitFor(() => expect(screen.getByLabelText("Run message")).toHaveValue(""));
@@ -323,7 +325,9 @@ describe("operator run agent surface", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "OperatorRunConversationQuery")).toEqual({
         graphItemId: "graph_primary",
+        graphItemRelayId: "Z3JhcGhfaXRlbTpncmFwaF9wcmltYXJ5",
         runId: "run_1",
+        runRelayId: "d29ya19ydW46cnVuXzE=",
       });
     });
   });
@@ -338,9 +342,9 @@ describe("operator run agent surface", () => {
     await waitFor(() => {
       expect(lastVariablesFor(network, "OperatorStartRunConversationMutation")).toEqual({
         input: {
-          graphItemId: "graph_1",
+          graphItemId: "Z3JhcGhfaXRlbTpncmFwaF8x",
           idempotencyKey: expect.any(String),
-          runId: "run_1",
+          runId: "d29ya19ydW46cnVuXzE=",
         },
       });
     });
@@ -385,21 +389,22 @@ function agentNetwork({
   > = {
     OperatorWorkflowRouteQuery: (variables) => workflowConnectionResponse(workflowItems, variables),
     OperatorRunStateQuery: (variables) => {
-      const graphItemId = variables.id === "run_2" ? "graph_2" : "graph_1";
+      const runId = variables.projectionId;
+      const graphItemId = runId === "run_2" ? "graph_2" : "graph_1";
       const runState = {
         ...operatorRunState({
           requiredChecks: [
             {
-              id: `required_${variables.id}`,
+              id: `required_${runId}`,
               graphItemId,
-              verificationCheckId: `check_${variables.id}`,
+              verificationCheckId: `check_${runId}`,
               state: "open",
             },
           ],
         }),
-        id: `operator_run_state:${variables.id}`,
+        id: `operator_run_state:${runId}`,
         run: {
-          id: variables.id,
+          id: runId,
           aggregateState: "running",
           executionState: "running",
           verificationState: "pending",

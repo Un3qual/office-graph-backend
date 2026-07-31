@@ -287,7 +287,7 @@ describe("operator route reads", () => {
       }
 
       if (request.name === "OperatorRunStateQuery") {
-        if (variables.id === "run_2") {
+        if (variables.projectionId === "run_2") {
           return secondRunState.promise;
         }
 
@@ -654,8 +654,8 @@ describe("operator route reads", () => {
         support.lastVariablesFor(network, "OperatorRecordExecutionObservationMutation"),
       ).toMatchObject({
         input: {
-          verificationCheckId: "check_2",
-          sourceGraphItemId: "graph_2",
+          verificationCheckId: "dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrXzI=",
+          sourceGraphItemId: "Z3JhcGhfaXRlbTpncmFwaF8y",
           observedStatus: "failed",
           normalizedStatus: "attention_required",
         },

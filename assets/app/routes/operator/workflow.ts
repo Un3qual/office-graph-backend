@@ -15,6 +15,7 @@ import type {
   OperatorWorkflowItemFragment$key,
 } from "../../relay/__generated__/OperatorWorkflowItemFragment.graphql";
 import type { OperatorWorkflowRouteQuery as OperatorWorkflowRouteOperation } from "../../relay/__generated__/OperatorWorkflowRouteQuery.graphql";
+import { relayGlobalId, relayInternalId } from "../../relay/relayIds";
 import {
   OperatorPacketReadinessFragment,
   OperatorPacketReadinessQuery,
@@ -130,9 +131,15 @@ export function useOperatorRunState(
   fetchKey?: number,
   activityAfter: string | null = null,
 ) {
+  const projectionId = relayInternalId("work_run", runId);
   const data = useLazyLoadQuery<OperatorRunStateOperation>(
     OperatorRunStateQuery,
-    { id: runId, activityFirst: 5, activityAfter },
+    {
+      projectionId,
+      runId: relayGlobalId("work_run", projectionId),
+      activityFirst: 5,
+      activityAfter,
+    },
     { fetchKey, fetchPolicy: "network-only" },
   );
 
@@ -140,9 +147,16 @@ export function useOperatorRunState(
 }
 
 export function useOperatorRunConversation(runId: string, graphItemId: string, fetchKey?: number) {
+  const internalRunId = relayInternalId("work_run", runId);
+  const internalGraphItemId = relayInternalId("graph_item", graphItemId);
   const data = useLazyLoadQuery<OperatorRunConversationOperation>(
     OperatorRunConversationQuery,
-    { runId, graphItemId },
+    {
+      runId: internalRunId,
+      graphItemId: internalGraphItemId,
+      runRelayId: relayGlobalId("work_run", internalRunId),
+      graphItemRelayId: relayGlobalId("graph_item", internalGraphItemId),
+    },
     { fetchKey, fetchPolicy: "network-only" },
   );
 
