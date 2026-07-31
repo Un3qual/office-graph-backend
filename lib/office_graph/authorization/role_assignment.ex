@@ -1,3 +1,49 @@
+defmodule OfficeGraph.Authorization.Actions.ReconcileLocalDevelopmentRoleAssignments do
+  @moduledoc false
+
+  use Ash.Resource.Actions.Implementation
+
+  alias OfficeGraph.Authorization.RoleAssignment
+
+  require Ash.Query
+
+  @impl true
+  def run(input, _opts, _context) do
+    principal_id = input.arguments.principal_id
+    expected_assignment_id = input.arguments.expected_assignment_id
+
+    with :ok <- revoke_unexpected_assignments(principal_id, expected_assignment_id),
+         :ok <- validate_exact_assignment(principal_id, expected_assignment_id) do
+      {:ok, :ok}
+    end
+  end
+
+  defp revoke_unexpected_assignments(principal_id, expected_assignment_id) do
+    RoleAssignment
+    |> Ash.Query.filter(principal_id == ^principal_id and id != ^expected_assignment_id)
+    |> Ash.bulk_destroy(:revoke, %{},
+      authorize?: false,
+      return_errors?: true,
+      strategy: [:atomic]
+    )
+    |> case do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+    end
+  end
+
+  defp validate_exact_assignment(principal_id, expected_assignment_id) do
+    RoleAssignment
+    |> Ash.Query.filter(principal_id == ^principal_id)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, [%RoleAssignment{id: ^expected_assignment_id}]} -> :ok
+      {:ok, _unexpected_assignments} -> {:error, "local development role assignment drift"}
+      {:error, error} -> {:error, error}
+    end
+  end
+end
+
 defmodule OfficeGraph.Authorization.RoleAssignment do
   @moduledoc false
 
@@ -90,6 +136,16 @@ defmodule OfficeGraph.Authorization.RoleAssignment do
 
     destroy :revoke do
       public? false
+    end
+
+    action :reconcile_local_development_assignments, :atom do
+      public? false
+      transaction? true
+
+      argument :principal_id, :uuid, allow_nil?: false
+      argument :expected_assignment_id, :uuid, allow_nil?: false
+
+      run OfficeGraph.Authorization.Actions.ReconcileLocalDevelopmentRoleAssignments
     end
   end
 

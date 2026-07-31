@@ -87,6 +87,7 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       valid_input_schema?(manifest.input_schema, manifest, kind) and
       valid_output_schema?(manifest.output_schema, manifest.output_classifications, kind) and
       valid_nonempty_string_list?(manifest.capability_keys) and
+      valid_approval_capabilities?(manifest) and
       valid_credential_kind_list?(manifest.credential_kinds) and
       manifest.sensitivity in @sensitivities and manifest.external_write == false and
       is_integer(manifest.timeout_ms) and manifest.timeout_ms in 1_000..120_000 and
@@ -95,6 +96,12 @@ defmodule OfficeGraph.AgentRuntime.AdapterContract do
       valid_classifications?(manifest.output_classifications, kind) and
       valid_budget?(manifest, kind)
   end
+
+  defp valid_approval_capabilities?(%{approval_required: true, capability_keys: [_capability]}),
+    do: true
+
+  defp valid_approval_capabilities?(%{approval_required: false}), do: true
+  defp valid_approval_capabilities?(_manifest), do: false
 
   defp validate_input(manifest, input, kind, opts \\ []) do
     checks =

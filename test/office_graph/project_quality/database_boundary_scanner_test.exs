@@ -168,6 +168,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
             def load(query, connection) do
               Ecto.Adapters.SQL.query(OfficeGraph.Repo, "SELECT 1", [])
+              Ecto.Adapters.SQL.query_many(OfficeGraph.Repo, "SELECT 1; SELECT 2", [])
+              Ecto.Adapters.SQL.query_many!(OfficeGraph.Repo, "SELECT 3; SELECT 4", [])
+              Ecto.Adapters.SQL.stream(OfficeGraph.Repo, "SELECT 5", [])
               Postgrex.query(connection, "SELECT 2", [])
               where(query, [row], fragment("lower(?)", row.name) == "name")
               {:unsafe_fragment, "(organization_id) WHERE workspace_id IS NULL"}
@@ -180,10 +183,74 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
              MapSet.new([
                {:raw_sql, "Ecto.Adapters.SQL.query"},
+               {:raw_sql, "Ecto.Adapters.SQL.query_many"},
+               {:raw_sql, "Ecto.Adapters.SQL.query_many!"},
+               {:raw_sql, "Ecto.Adapters.SQL.stream"},
                {:raw_sql, "Postgrex.query"},
                {:raw_sql, "fragment"},
                {:raw_sql, "unsafe_fragment"}
              ])
+  end
+
+  test "classifies fully qualified and aliased Ecto query fragments as raw SQL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Query.API, as: QueryAPI
+
+            def load do
+              Ecto.Query.API.fragment("lower(?)", "NAME")
+              QueryAPI.unsafe_fragment("(organization_id)")
+              Example.Fragment.fragment("not sql")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "Ecto.Query.API.fragment", 5},
+             {:raw_sql, "Ecto.Query.API.unsafe_fragment", 6}
+           ]
+  end
+
+  test "classifies every Postgrex SQL preparation and execution spelling" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Postgrex, as: Pg
+            import Postgrex, only: [prepare_execute: 5]
+
+            def run(connection, query) do
+              Postgrex.prepare(connection, "one", "SELECT 1")
+              Pg.prepare!(connection, "two", "SELECT 2")
+              prepare_execute(connection, "three", "SELECT 3", [], [])
+              Postgrex.prepare_execute!(connection, "four", "SELECT 4", [])
+              Pg.execute(connection, query, [])
+              Postgrex.execute!(connection, query, [])
+              Pg.stream(connection, "SELECT 5", [])
+              Example.Postgrex.prepare(connection, "not-sql", "ignored")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line}) == [
+             {"Postgrex.prepare", 6},
+             {"Postgrex.prepare!", 7},
+             {"Postgrex.prepare_execute", 8},
+             {"Postgrex.prepare_execute!", 9},
+             {"Postgrex.execute", 10},
+             {"Postgrex.execute!", 11},
+             {"Postgrex.stream", 12}
+           ]
   end
 
   test "classifies direct Ecto operations separately from raw SQL" do
@@ -210,6 +277,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Repo.insert_all"},
                {:direct_ecto, "Ecto.Multi.insert"}
              ])
+  end
+
+  test "classifies Ecto.Multi reads without matching unrelated receivers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Multi, as: DatabaseMulti
+
+            def load(multi, query) do
+              Ecto.Multi.all(multi, :all, query)
+              DatabaseMulti.one(multi, :one, query)
+              DatabaseMulti.exists?(multi, :exists, query)
+              OfficeGraph.Cache.all(multi, :all, query)
+              OfficeGraph.Cache.one(multi, :one, query)
+              OfficeGraph.Cache.exists?(multi, :exists, query)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Ecto.Multi.all", 5},
+             {:direct_ecto, "Ecto.Multi.one", 6},
+             {:direct_ecto, "Ecto.Multi.exists?", 7}
+           ]
   end
 
   test "classifies repository relationship and record reload reads" do
@@ -241,6 +337,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Repo.reload!"},
                {:direct_ecto, "Repo.all_by"}
              ])
+  end
+
+  test "classifies repository connection control without matching unrelated receivers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo
+            alias OfficeGraph.Repo, as: Database
+
+            def run(fun) do
+              Repo.checkout(fun)
+              Database.checkout(fun, timeout: 1_000)
+              OfficeGraph.Repo.rollback(:cancelled)
+              Database.rollback(:cancelled)
+              OfficeGraph.Cache.checkout(fun)
+              OfficeGraph.Cache.rollback(:cancelled)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Repo.checkout", 6},
+             {:direct_ecto, "Repo.checkout", 7},
+             {:direct_ecto, "Repo.rollback", 8},
+             {:direct_ecto, "Repo.rollback", 9}
+           ]
   end
 
   test "ignores non-database receivers rooted at the current module" do

@@ -49,7 +49,8 @@ defmodule OfficeGraph.EnterpriseIdentity do
     |> Ash.ActionInput.for_action(:apply_event, %{
       directory_id: directory_id,
       event: event,
-      operation_id: operation_id
+      operation_id: operation_id,
+      provider_received_at: event.provider_occurred_at
     })
     |> Ash.run_action(authorize?: false)
     |> ActionSupport.normalize_action_result()
@@ -145,6 +146,8 @@ defmodule OfficeGraph.EnterpriseIdentity do
   def create_connection(_session_context, _operation, _attrs), do: {:error, :forbidden}
 
   def bind_directory(session_context, operation, attrs) when is_map(attrs) do
+    binding_attrs = Map.take(attrs, [:provider_directory_id, :status, :provider_updated_at])
+
     with :ok <- validate_management_operation(session_context, operation),
          {:ok, connection} <-
            management_connection(session_context, attrs[:connection_id]),
@@ -153,20 +156,16 @@ defmodule OfficeGraph.EnterpriseIdentity do
            Directory
            |> Ash.Changeset.for_create(
              :bind,
-             attrs
-             |> Map.take([:provider_directory_id, :status, :provider_updated_at])
-             |> Map.merge(%{
+             Map.merge(binding_attrs, %{
                connection_id: connection.id,
                operation_id: operation.id
              })
            )
            |> Ash.create(authorize?: false),
-         true <-
-           directory.connection_id == connection.id and
-             directory.operation_id == operation.id do
+         :ok <- validate_directory_binding(directory, connection, operation, binding_attrs) do
       {:ok, directory}
     else
-      false -> {:error, :forbidden}
+      {:error, {:command_idempotency_conflict, _operation_id}} = error -> error
       {:error, _reason} = error -> normalize_management_error(error)
     end
   end
@@ -259,6 +258,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
        }}
     else
       {:error, :enterprise_connection_unavailable} = error -> error
+      {:error, :enterprise_identity_storage_unavailable} = error -> error
       {:error, :invalid_scope} = error -> error
       {:error, _provider_or_configuration_error} -> {:error, :provider_unavailable}
     end
@@ -296,6 +296,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
        }}
     else
       {:error, :enterprise_connection_unavailable} = error -> error
+      {:error, :enterprise_identity_storage_unavailable} = error -> error
       {:error, :invalid_scope} = error -> error
       {:error, _provider_or_configuration_error} -> {:error, :provider_unavailable}
     end
@@ -308,6 +309,16 @@ defmodule OfficeGraph.EnterpriseIdentity do
         _selected_workspace_id
       ),
       do: {:error, :provider_unavailable}
+
+  @doc false
+  def classify_active_connection_result({:ok, %EnterpriseConnection{} = connection}),
+    do: {:ok, connection}
+
+  def classify_active_connection_result({:ok, nil}),
+    do: {:error, :enterprise_connection_unavailable}
+
+  def classify_active_connection_result({:error, _storage_error}),
+    do: {:error, :enterprise_identity_storage_unavailable}
 
   def validate_workos_provisioning(
         %{
@@ -455,11 +466,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
     |> Ash.Query.filter(id == ^connection_id and provider == "workos" and status == "active")
     |> Ash.Query.load(directories: active_directory_query)
     |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %EnterpriseConnection{} = connection} -> {:ok, connection}
-      {:ok, nil} -> {:error, :enterprise_connection_unavailable}
-      {:error, _storage_error} -> {:error, :enterprise_connection_unavailable}
-    end
+    |> classify_active_connection_result()
   end
 
   defp validate_management_operation(session_context, operation) do
@@ -507,6 +514,26 @@ defmodule OfficeGraph.EnterpriseIdentity do
   end
 
   defp management_connection(_session_context, _connection_id), do: {:error, :forbidden}
+
+  defp validate_directory_binding(directory, connection, operation, requested) do
+    cond do
+      directory.connection_id != connection.id or directory.operation_id != operation.id ->
+        {:error, :forbidden}
+
+      directory.provider_directory_id == requested[:provider_directory_id] and
+        directory.status == requested[:status] and
+          same_time?(directory.provider_updated_at, requested[:provider_updated_at]) ->
+        :ok
+
+      true ->
+        {:error, {:command_idempotency_conflict, operation.id}}
+    end
+  end
+
+  defp same_time?(%DateTime{} = left, %DateTime{} = right),
+    do: DateTime.compare(left, right) == :eq
+
+  defp same_time?(_left, _right), do: false
 
   defp validate_mapping_targets(session_context, attrs, workspace_id) do
     group_query =

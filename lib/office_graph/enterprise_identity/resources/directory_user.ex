@@ -35,6 +35,8 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryUser do
     attribute :review_reason, :string, public?: true
     attribute :principal_origin, :string, public?: true
     attribute :provider_updated_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :provider_received_at, :utc_datetime_usec, public?: true
+    attribute :provider_event_id, :string, public?: true
 
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
@@ -81,7 +83,9 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryUser do
         :status,
         :review_reason,
         :principal_origin,
-        :provider_updated_at
+        :provider_updated_at,
+        :provider_received_at,
+        :provider_event_id
       ]
 
       validate one_of(:status, ~w(active suspended deleted review_required))
@@ -101,7 +105,9 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryUser do
         :status,
         :review_reason,
         :principal_origin,
-        :provider_updated_at
+        :provider_updated_at,
+        :provider_received_at,
+        :provider_event_id
       ]
 
       validate one_of(:status, ~w(active suspended deleted review_required)),

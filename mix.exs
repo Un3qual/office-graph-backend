@@ -69,6 +69,7 @@ defmodule OfficeGraph.MixProject do
       {:absinthe_relay, "~> 1.6"},
       {:absinthe_plug, "~> 1.5"},
       {:oidcc, "~> 3.7"},
+      {:req, "~> 0.7.2"},
       {:oban, "~> 2.20"},
       {:boundary, "~> 0.10.4", runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

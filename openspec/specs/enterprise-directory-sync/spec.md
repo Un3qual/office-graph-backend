@@ -50,6 +50,20 @@ connection.
 - **THEN** the owning Ash action MUST create one directory binding linked to
   that connection and operation
 
+#### Scenario: Exact directory binding is replayed
+
+- **WHEN** the same operation repeats the same provider directory, connection,
+  lifecycle status, and provider update time
+- **THEN** Office Graph MUST return the existing binding without changing it or
+  creating a duplicate
+
+#### Scenario: Directory binding replay changes material input
+
+- **WHEN** the same operation and provider directory are replayed with a
+  different lifecycle status or provider update time
+- **THEN** Office Graph MUST return a deterministic command-idempotency conflict
+  and MUST preserve the existing binding unchanged
+
 #### Scenario: Concurrent or cross-scope directory binding is attempted
 
 - **WHEN** concurrent commands target the same provider directory or a caller
@@ -104,7 +118,8 @@ a present field whose type, length, or normalized value is invalid.
 ### Requirement: Directory deliveries are replay-safe and ordered
 
 Office Graph SHALL process one logical WorkOS directory event once and SHALL
-not allow stale provider state to overwrite a newer accepted state.
+not allow stale or earlier accepted provider state to overwrite a newer
+accepted state.
 
 #### Scenario: Identical event is delivered twice
 
@@ -125,6 +140,14 @@ not allow stale provider state to overwrite a newer accepted state.
   than the current accepted record
 - **THEN** Office Graph MUST preserve the newer state and complete the older
   event with a bounded stale result
+
+#### Scenario: Distinct events have equal provider timestamps
+
+- **WHEN** distinct user, group, or membership events have the same provider
+  update time
+- **THEN** Office Graph MUST use durable receipt order and provider event
+  identity as a deterministic tie-breaker so the later accepted state wins
+  regardless of worker execution order
 
 #### Scenario: Worker fails after receipt
 
@@ -163,14 +186,37 @@ provisioning policy.
   identity basis remains for that principal and provider tenant
 - **AND** existing affected sessions MUST fail on their next validation
 
-#### Scenario: Exact directory user is restored
+#### Scenario: Last shared directory basis is deprovisioned
 
-- **WHEN** a newer active WorkOS event names the same retained provider tenant,
-  directory subject, provider identity, normalized verified email, and principal
-- **THEN** Office Graph MUST reactivate that directory link and its eligible
-  directory-created principal in place without creating a replacement identity
-- **AND** any incompatible subject, email, tenant, or principal state MUST remain
-  review-required without reactivating the retained principal or link
+- **WHEN** a directory-created principal is shared by additional directory
+  users and the last accepted active directory identity basis is disabled or
+  deleted
+- **THEN** Office Graph MUST determine principal provenance from retained
+  directory history rather than the last user's per-link origin and MUST disable
+  the principal and matching SSO access
+
+### Requirement: Exact directory identities recover after reprovisioning
+
+Office Graph SHALL restore a retained directory identity after a newer active
+event only when the provider tenant, provider subject, provider identity,
+verified email, linked principal, and lifecycle state still identify the same
+accepted basis.
+
+#### Scenario: Exact directory-created identity is reprovisioned
+
+- **WHEN** an active directory identity is deprovisioned and a newer active event
+  repeats the same trusted provider and identity basis without conflicts
+- **THEN** Office Graph MUST reactivate the retained directory link and its
+  eligible directory-created human principal in place rather than creating a
+  replacement or requiring review
+
+#### Scenario: Reprovisioned identity basis conflicts
+
+- **WHEN** a newer active event changes the provider tenant, provider subject,
+  provider identity, verified email, retained principal, or conflicts with
+  another email-linked identity
+- **THEN** Office Graph MUST retain deterministic review-required behavior and
+  MUST NOT reactivate the retained principal or disabled link
 
 ### Requirement: External groups grant only explicitly mapped roles
 

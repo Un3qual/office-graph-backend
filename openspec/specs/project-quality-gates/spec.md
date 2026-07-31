@@ -62,6 +62,13 @@ reject every unmatched occurrence or stale approved exception.
 - **THEN** verification fails until the stale approval is removed or the exact
   changed occurrence receives user approval through an accepted OpenSpec change
 
+#### Scenario: SQL adapter execution spelling changes
+
+- **WHEN** tracked code calls a public Postgrex or Ecto SQL-adapter API that
+  queries, prepares, executes, or streams SQL through a fully qualified,
+  aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as repository-authored raw SQL
+
 #### Scenario: Verification examines project scope
 
 - **WHEN** the database-boundary scan runs
@@ -301,3 +308,64 @@ filters.
   a same-named local call appears in an unrelated sibling scope
 - **THEN** the scanner MUST classify only the call whose lexical import resolves
   to the database operation
+
+### Requirement: Database boundary scanning classifies Ecto query fragments
+
+The project-local database-boundary scanner SHALL classify repository-authored Ecto query fragments as raw SQL regardless of whether the fragment macro is called locally, fully qualified, or through an explicit alias.
+
+#### Scenario: Ecto query fragment is fully qualified
+
+- **WHEN** tracked Elixir source calls `Ecto.Query.API.fragment`, `Ecto.Query.API.unsafe_fragment`, or the same operation through an explicit alias
+- **THEN** the canonical Credo boundary check MUST report a raw-SQL occurrence requiring the same exact approval as a locally imported fragment
+
+#### Scenario: Unrelated module defines a fragment function
+
+- **WHEN** tracked source calls `fragment` on a receiver that does not resolve to the Ecto query API
+- **THEN** the scanner MUST NOT classify the call solely from the operation name
+
+### Requirement: Database boundary scanning classifies repository connection ownership
+
+The project-local database-boundary scanner SHALL classify explicit connection
+and transaction control through the Office Graph repository as direct Ecto
+access.
+
+#### Scenario: Repository connection is checked out
+
+- **WHEN** tracked Elixir source calls `OfficeGraph.Repo.checkout` directly or
+  through an explicit repository alias
+- **THEN** the canonical Credo boundary check MUST report the call as direct
+  Ecto access requiring an inventory entry or removal
+
+#### Scenario: Repository transaction is rolled back
+
+- **WHEN** tracked Elixir source calls `OfficeGraph.Repo.rollback` directly or
+  through an explicit repository alias
+- **THEN** the canonical Credo boundary check MUST report the call as direct
+  Ecto access requiring an inventory entry or removal
+
+#### Scenario: Unrelated connection-control function is called
+
+- **WHEN** tracked Elixir source calls `checkout` or `rollback` on a receiver
+  that does not resolve to `OfficeGraph.Repo`
+- **THEN** the database-boundary scanner MUST NOT classify the call solely from
+  its function name
+
+### Requirement: Database boundary scanning classifies Ecto.Multi database operations
+
+The project-local database-boundary scanner SHALL classify database-reading and
+database-changing operations composed through `Ecto.Multi` as direct Ecto
+access while resolving the operation receiver before classification.
+
+#### Scenario: Ecto.Multi composes database reads
+
+- **WHEN** tracked Elixir source calls `Ecto.Multi.all`, `Ecto.Multi.one`, or
+  `Ecto.Multi.exists?` through a fully qualified or explicitly aliased receiver
+- **THEN** the canonical Credo boundary check MUST report each call as direct
+  Ecto access requiring an inventory entry or removal
+
+#### Scenario: Unrelated multi-like receiver reads data
+
+- **WHEN** tracked Elixir source calls `all`, `one`, or `exists?` on a receiver
+  that does not resolve to `Ecto.Multi`
+- **THEN** the database-boundary scanner MUST NOT classify the call solely from
+  its function name

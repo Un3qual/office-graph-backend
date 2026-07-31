@@ -83,6 +83,23 @@ defmodule OfficeGraph.Authorization do
   def ensure_local_development_role(_principal, _tenant, _fixture),
     do: {:error, :forbidden}
 
+  def reconcile_local_development_role_assignments(principal, expected_assignment)
+      when is_binary(principal.id) and is_binary(expected_assignment.id) do
+    RoleAssignment
+    |> Ash.ActionInput.for_action(:reconcile_local_development_assignments, %{
+      principal_id: principal.id,
+      expected_assignment_id: expected_assignment.id
+    })
+    |> Ash.run_action(authorize?: false)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _storage_error} -> {:error, :integration_storage_unavailable}
+    end
+  end
+
+  def reconcile_local_development_role_assignments(_principal, _expected_assignment),
+    do: {:error, :forbidden}
+
   def resolve_local_development_login_scope(principal_id, fixture)
       when is_binary(principal_id) and is_map(fixture) do
     with {:ok, role_key, expected_capability_keys} <-

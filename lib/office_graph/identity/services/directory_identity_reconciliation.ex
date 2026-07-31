@@ -504,7 +504,7 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
   end
 
   defp maybe_disable_created_principal(
-         %{principal_id: principal_id, principal_origin: "created"},
+         %{principal_id: principal_id, principal_created_by_directory: true},
          %Principal{} = principal
        )
        when is_binary(principal_id) do

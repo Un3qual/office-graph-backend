@@ -11,6 +11,18 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryMembership do
 
     identity_index_names active_membership:
                            "enterprise_directory_memberships_active_membership_index"
+
+    custom_indexes do
+      index [
+              :directory_user_id,
+              :directory_group_id,
+              :provider_updated_at,
+              :provider_received_at,
+              :provider_event_id,
+              :id
+            ],
+            name: "enterprise_directory_memberships_order_index"
+    end
   end
 
   attributes do
@@ -24,6 +36,8 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryMembership do
     attribute :status, :string, allow_nil?: false, public?: true
     attribute :active_identity_slot, :string, public?: false, writable?: false
     attribute :provider_updated_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :provider_received_at, :utc_datetime_usec, public?: true
+    attribute :provider_event_id, :string, public?: true
     attribute :removed_at, :utc_datetime_usec, public?: true
 
     create_timestamp :inserted_at, public?: true
@@ -57,6 +71,8 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryMembership do
         :directory_group_id,
         :status,
         :provider_updated_at,
+        :provider_received_at,
+        :provider_event_id,
         :removed_at
       ]
 
@@ -71,7 +87,14 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryMembership do
 
     update :set_lifecycle do
       public? false
-      accept [:status, :provider_updated_at, :removed_at]
+
+      accept [
+        :status,
+        :provider_updated_at,
+        :provider_received_at,
+        :provider_event_id,
+        :removed_at
+      ]
 
       change set_attribute(:active_identity_slot, nil)
 

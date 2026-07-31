@@ -74,6 +74,64 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert DateTime.compare(stale_preserved.provider_updated_at, newer_time) == :eq
   end
 
+  test "users and groups accept distinct later receipts at the same provider time" do
+    context = enterprise_context("equal-time-resources")
+    provider_time = ~U[2026-07-29 20:00:00Z]
+
+    assert {:ok, %{status: :applied, resource: %DirectoryUser{}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(provider_time),
+               context.operation.id
+             )
+
+    later_user =
+      user_event(provider_time, %{first_name: "Ada"})
+      |> Map.put(:provider_event_id, "event-user-later")
+      |> Map.put(:provider_occurred_at, DateTime.add(provider_time, 1, :microsecond))
+
+    assert {:ok, %{status: :applied, resource: updated_user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               later_user,
+               context.operation.id
+             )
+
+    assert updated_user.first_name == "Ada"
+    assert updated_user.provider_event_id == "event-user-later"
+
+    assert {:ok, %{status: :applied, resource: %DirectoryGroup{}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               group_event(provider_time),
+               context.operation.id
+             )
+
+    later_group =
+      group_event(provider_time, %{name: "Platform"})
+      |> Map.put(:provider_event_id, "event-group-later")
+      |> Map.put(:provider_occurred_at, DateTime.add(provider_time, 1, :microsecond))
+
+    assert {:ok, %{status: :applied, resource: updated_group}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               later_group,
+               context.operation.id
+             )
+
+    assert updated_group.name == "Platform"
+    assert updated_group.provider_event_id == "event-group-later"
+
+    assert {:ok, %{status: :stale, resource: replayed_group}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               later_group,
+               context.operation.id
+             )
+
+    assert replayed_group.name == "Platform"
+  end
+
   test "group membership removal and restore retain history with one active fact" do
     context = enterprise_context("membership-lifecycle")
     initial_time = ~U[2026-07-29 20:00:00Z]
@@ -136,6 +194,118 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
 
     assert Enum.map(memberships, & &1.status) == ["removed", "active"]
     assert Enum.count(memberships, &(&1.active_identity_slot == "active")) == 1
+  end
+
+  test "distinct equal-time membership events follow durable receipt order" do
+    context = enterprise_context("equal-time-membership")
+    dependency_time = ~U[2026-07-29 19:00:00Z]
+    provider_time = ~U[2026-07-29 20:00:00Z]
+
+    for event <- [
+          user_event(dependency_time),
+          group_event(dependency_time),
+          membership_event(dependency_time, "active")
+        ] do
+      assert {:ok, %{status: :applied}} =
+               EnterpriseIdentity.apply_directory_event(
+                 context.directory.id,
+                 event,
+                 context.operation.id
+               )
+    end
+
+    added =
+      membership_event(provider_time, "active")
+      |> Map.put(:provider_event_id, "event-equal-add")
+      |> Map.put(:provider_occurred_at, DateTime.add(provider_time, 1, :microsecond))
+
+    removed =
+      membership_event(provider_time, "removed")
+      |> Map.put(:provider_event_id, "event-equal-remove")
+      |> Map.put(:provider_occurred_at, DateTime.add(provider_time, 2, :microsecond))
+
+    assert {:ok, %{status: :applied, resource: active}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               added,
+               context.operation.id
+             )
+
+    assert active.status == "active"
+
+    assert {:ok, %{status: :applied, resource: removed_membership}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               removed,
+               context.operation.id
+             )
+
+    assert removed_membership.status == "removed"
+    assert Map.fetch!(removed_membership, :provider_event_id) == "event-equal-remove"
+
+    assert DateTime.compare(
+             Map.fetch!(removed_membership, :provider_received_at),
+             removed.provider_occurred_at
+           ) == :eq
+
+    assert {:ok, %{status: :stale, resource: replayed}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               removed,
+               context.operation.id
+             )
+
+    assert replayed.id == removed_membership.id
+    assert replayed.status == "removed"
+  end
+
+  test "earlier equal-time membership cannot overwrite a later receipt processed first" do
+    context = enterprise_context("reverse-equal-time-membership")
+    dependency_time = ~U[2026-07-29 19:00:00Z]
+    provider_time = ~U[2026-07-29 20:00:00Z]
+
+    for event <- [
+          user_event(dependency_time),
+          group_event(dependency_time),
+          membership_event(dependency_time, "active")
+        ] do
+      assert {:ok, %{status: :applied}} =
+               EnterpriseIdentity.apply_directory_event(
+                 context.directory.id,
+                 event,
+                 context.operation.id
+               )
+    end
+
+    earlier =
+      membership_event(provider_time, "active")
+      |> Map.put(:provider_event_id, "event-received-first")
+      |> Map.put(:provider_occurred_at, DateTime.add(provider_time, 1, :microsecond))
+
+    later =
+      membership_event(provider_time, "removed")
+      |> Map.put(:provider_event_id, "event-received-second")
+      |> Map.put(:provider_occurred_at, DateTime.add(provider_time, 2, :microsecond))
+
+    assert {:ok, %{status: :applied, resource: removed}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               later,
+               context.operation.id
+             )
+
+    assert removed.status == "removed"
+
+    assert {:ok, %{status: :stale, resource: preserved}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               earlier,
+               context.operation.id
+             )
+
+    assert preserved.id == removed.id
+    assert preserved.status == "removed"
+    assert Map.fetch!(preserved, :provider_event_id) == "event-received-second"
   end
 
   test "membership removal applies after its user and group were deleted" do
@@ -378,7 +548,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              "disabled"
   end
 
-  test "directory deprovisioning preserves SSO while another directory basis remains active" do
+  test "directory deprovisioning preserves SSO until the last shared directory basis ends" do
     context = enterprise_context("multi-directory-deprovision")
     active_time = ~U[2026-07-29 20:00:00Z]
 
@@ -412,6 +582,8 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
 
     assert second_user.principal_id == first_user.principal_id
     assert second_user.external_identity_link_id != first_user.external_identity_link_id
+    assert first_user.principal_origin == "created"
+    assert second_user.principal_origin == "reused"
 
     sso_link =
       Ash.create!(
@@ -452,6 +624,19 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              )
 
     assert linked.principal.id == first_user.principal_id
+
+    assert {:ok, %{status: :applied}} =
+             EnterpriseIdentity.apply_directory_event(
+               second_directory.id,
+               user_event(DateTime.add(active_time, 120, :second), %{
+                 provider_user_id: "directory_user_02",
+                 status: "deleted"
+               }),
+               context.operation.id
+             )
+
+    assert Ash.get!(ExternalIdentityLink, sso_link.id, authorize?: false).status == "disabled"
+    assert Ash.get!(Principal, first_user.principal_id, authorize?: false).status == "disabled"
   end
 
   test "an IdP subject change enters review and disables the authentication basis" do
@@ -841,6 +1026,28 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              })
 
     assert replayed_directory.id == directory.id
+
+    assert {:error, {:command_idempotency_conflict, operation_id}} =
+             EnterpriseIdentity.bind_directory(bootstrap.session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: provider_directory_id,
+               status: "disabled",
+               provider_updated_at: ~U[2026-07-29 19:00:00Z]
+             })
+
+    assert operation_id == operation.id
+
+    assert {:error, {:command_idempotency_conflict, ^operation_id}} =
+             EnterpriseIdentity.bind_directory(bootstrap.session, operation, %{
+               connection_id: connection.id,
+               provider_directory_id: provider_directory_id,
+               status: "active",
+               provider_updated_at: ~U[2026-07-29 19:00:01Z]
+             })
+
+    unchanged_directory = Ash.get!(Directory, directory.id, authorize?: false)
+    assert unchanged_directory.status == "active"
+    assert unchanged_directory.provider_updated_at == ~U[2026-07-29 19:00:00.000000Z]
 
     group =
       Ash.create!(

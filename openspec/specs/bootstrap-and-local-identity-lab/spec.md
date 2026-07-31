@@ -84,8 +84,8 @@ explicit provider configuration.
 ### Requirement: Local development identity fixtures are deterministic
 
 Office Graph SHALL provide an explicit idempotent development setup that
-creates the fixed identity, external-link, role, assignment, and lifecycle
-facts used by the local authentication chooser.
+creates and reconciles the fixed identity, external-link, role, assignment,
+and lifecycle facts used by the local authentication chooser.
 
 #### Scenario: Developer seeds local identities
 
@@ -104,6 +104,15 @@ facts used by the local authentication chooser.
   or active sessions
 - **AND** it MUST preserve the intentionally disabled lifecycle of the
   deprovisioned fixture
+
+#### Scenario: Fixture role assignments drift outside the manifest
+
+- **WHEN** a manifest-owned local fixture principal has acquired a role
+  assignment other than its one expected assignment and the developer reruns
+  `mix demo.seed`
+- **THEN** the explicit seed action MUST remove the unexpected assignment
+  through Ash and restore the exact manifest-owned assignment set for that
+  fixture
 
 #### Scenario: Browser reaches login before seeding
 
