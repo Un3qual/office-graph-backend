@@ -99,14 +99,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
 
   @direct_multi_operations [
+    :all,
     :append,
     :delete,
     :delete_all,
     :error,
+    :exists?,
     :insert,
     :insert_all,
     :insert_or_update,
     :merge,
+    :one,
     :prepend,
     :put,
     :run,

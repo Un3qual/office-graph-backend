@@ -279,6 +279,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies Ecto.Multi reads without matching unrelated receivers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Multi, as: DatabaseMulti
+
+            def load(multi, query) do
+              Ecto.Multi.all(multi, :all, query)
+              DatabaseMulti.one(multi, :one, query)
+              DatabaseMulti.exists?(multi, :exists, query)
+              OfficeGraph.Cache.all(multi, :all, query)
+              OfficeGraph.Cache.one(multi, :one, query)
+              OfficeGraph.Cache.exists?(multi, :exists, query)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Ecto.Multi.all", 5},
+             {:direct_ecto, "Ecto.Multi.one", 6},
+             {:direct_ecto, "Ecto.Multi.exists?", 7}
+           ]
+  end
+
   test "classifies repository relationship and record reload reads" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
