@@ -22,9 +22,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     approved_exceptions =
       Enum.map(approved_exceptions, &normalize_entry(&1, :approved_exceptions))
 
-    inventory_errors(approved_exceptions) ++
-      current_diagnostics(current, approved_exceptions) ++
-      stale_diagnostics(current, approved_exceptions)
+    case inventory_errors(approved_exceptions) do
+      [] ->
+        current_diagnostics(current, approved_exceptions) ++
+          stale_diagnostics(current, approved_exceptions)
+
+      errors ->
+        errors
+    end
   end
 
   @spec check_repository(Path.t()) :: [map()]
@@ -100,26 +105,56 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       ["class", "construct", "fingerprint", "ordinal", "path"] ++
         @approved_metadata_fields
 
+    metadata_errors =
+      approved_exceptions
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {entry, index} ->
+        missing_fields =
+          required_fields
+          |> Enum.filter(&blank?(Map.get(entry, &1)))
+          |> Enum.sort()
+
+        if missing_fields == [] do
+          []
+        else
+          [
+            %{
+              kind: :invalid_inventory,
+              inventory: :approved_exceptions,
+              entry: index,
+              missing_fields: missing_fields
+            }
+          ]
+        end
+      end)
+
+    metadata_errors ++ duplicate_locator_errors(approved_exceptions)
+  end
+
+  defp duplicate_locator_errors(approved_exceptions) do
     approved_exceptions
     |> Enum.with_index(1)
-    |> Enum.flat_map(fn {entry, index} ->
-      missing_fields =
-        required_fields
-        |> Enum.filter(&blank?(Map.get(entry, &1)))
-        |> Enum.sort()
+    |> Enum.group_by(fn {entry, _index} ->
+      Enum.map(@locator_fields, &Map.get(entry, &1))
+    end)
+    |> Map.values()
+    |> Enum.filter(&(length(&1) > 1))
+    |> Enum.sort_by(fn entries -> entries |> hd() |> elem(1) end)
+    |> Enum.map(fn entries ->
+      {entry, _index} = hd(entries)
 
-      if missing_fields == [] do
-        []
-      else
-        [
-          %{
-            kind: :invalid_inventory,
-            inventory: :approved_exceptions,
-            entry: index,
-            missing_fields: missing_fields
-          }
-        ]
-      end
+      %{
+        kind: :invalid_inventory,
+        inventory: :approved_exceptions,
+        entries: Enum.map(entries, &elem(&1, 1)),
+        duplicate_locator: %{
+          path: entry["path"],
+          class: entry["class"],
+          construct: entry["construct"],
+          function: entry["function"],
+          ordinal: entry["ordinal"]
+        }
+      }
     end)
   end
 

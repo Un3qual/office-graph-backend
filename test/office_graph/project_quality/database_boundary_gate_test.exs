@@ -66,6 +66,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
            ]
   end
 
+  test "rejects duplicate approved locators before matching fingerprints" do
+    approved = [approved_entry("sha256:recorded"), approved_entry("sha256:current")]
+
+    [diagnostic] =
+      DatabaseBoundaryGate.compare(
+        [occurrence("sha256:current")],
+        approved
+      )
+
+    assert diagnostic.kind == :invalid_inventory
+    assert diagnostic.inventory == :approved_exceptions
+    assert diagnostic.entries == [1, 2]
+
+    assert diagnostic.duplicate_locator == %{
+             class: "direct_ecto",
+             construct: "Repo.transaction",
+             function: "persist/1",
+             ordinal: 1,
+             path: "lib/example.ex"
+           }
+  end
+
   test "current repository matches the reviewed database exceptions" do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
   end

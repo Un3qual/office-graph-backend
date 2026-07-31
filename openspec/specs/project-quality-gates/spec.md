@@ -46,27 +46,31 @@ implementation tasks, and accepted project decisions.
 
 ### Requirement: Non-growing database-boundary debt
 Canonical verification SHALL compare current tracked project sources with the
-exact explicitly approved raw-SQL exception inventory and SHALL reject every
-unmatched occurrence or stale approved exception.
+exact explicitly approved raw-SQL and direct-Ecto exception inventory and SHALL
+reject every unmatched occurrence or stale approved exception.
 
 #### Scenario: New repository-authored SQL is added
+
 - **WHEN** verification detects a raw-SQL or direct-Ecto occurrence that does
   not exactly match an explicitly approved exception
 - **THEN** verification fails with the occurrence path and construct class
 
 #### Scenario: Approved occurrence is removed or changed
+
 - **WHEN** implementation removes, moves, rewrites, or broadens an approved
   occurrence
 - **THEN** verification fails until the stale approval is removed or the exact
   changed occurrence receives user approval through an accepted OpenSpec change
 
 #### Scenario: Verification examines project scope
+
 - **WHEN** the database-boundary scan runs
 - **THEN** it MUST include tracked runtime code, tests, test support, seeds,
   migrations, and SQL files while excluding dependency source and untracked
   build artifacts
 
 #### Scenario: Verification runs from a clean checkout
+
 - **WHEN** the planning and database-boundary checks complete
 - **THEN** they MUST NOT rewrite an inventory, source file, or OpenSpec artifact
 
@@ -82,6 +86,13 @@ binary literals or documentation text.
   `insert into`, `md5(`, or another SQL phrase
 - **THEN** the scanner MUST NOT report an occurrence unless that literal is an
   argument or option value of a classified executable SQL-bearing construct
+
+#### Scenario: SQL-bearing migration option uses a module attribute
+
+- **WHEN** a classified migration `check` or `where` option references a module
+  attribute containing SQL
+- **THEN** the scanner MUST resolve that attribute for both classification and
+  occurrence fingerprinting so changing the SQL invalidates the exact approval
 
 ### Requirement: Duplicate static-analysis configuration is prohibited
 
@@ -100,6 +111,13 @@ Architecture and conformance tests SHALL inspect parsed syntax, configured Ash
 resources, generated schemas, or consumer-visible behavior rather than count
 source-text spellings or duplicate inventories already derivable from those
 artifacts.
+
+#### Scenario: Migration table ownership is derived
+
+- **WHEN** conformance derives tables created by ordered forward migrations
+- **THEN** it MUST parse executable `create table` and `drop table` calls from
+  quoted AST, including multiline calls, while ignoring comments, strings, and
+  rollback-only functions
 
 #### Scenario: Relay resource conformance is checked
 

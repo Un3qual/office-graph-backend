@@ -58,6 +58,24 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(
+         %{kind: :invalid_inventory, duplicate_locator: locator} = diagnostic,
+         root,
+         params
+       ) do
+    path = inventory_path(diagnostic.inventory)
+
+    format_boundary_issue(
+      root,
+      path,
+      params,
+      "invalid_inventory #{inventory_name(diagnostic.inventory)} entries " <>
+        "#{Enum.join(diagnostic.entries, ", ")} duplicate locator " <>
+        "#{locator.path} #{locator.function || "<module>"} #{locator.construct} " <>
+        "(#{locator.class}) ordinal #{locator.ordinal}"
+    )
+  end
+
   defp issue_for(%{kind: :invalid_inventory} = diagnostic, root, params) do
     path = inventory_path(diagnostic.inventory)
 

@@ -6,8 +6,9 @@ The first table preserves the rationale recorded for direct database paths that
 have since been retired. It is historical context, not permission to restore,
 move, rewrite, or broaden an occurrence. The machine-readable
 `openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json` file is
-the only repository inventory of exact user-approved raw-SQL occurrences; the
-quality gate compares current source directly with that inventory.
+the only repository inventory of exact user-approved raw-SQL and direct-Ecto
+occurrences; the quality gate compares current source directly with that
+inventory.
 
 | File | Owner | Recorded operations | Operation type | Historical source spec | Removal rationale | Retirement condition |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -123,6 +123,32 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
+  test "reports duplicate approved locators at the inventory that owns them" do
+    with_repository(fn root ->
+      source = """
+      defmodule Example do
+        def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+      end
+      """
+
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+
+      write_tracked!(root, "lib/example.ex", source)
+
+      write_approved!(root, [
+        approved_entry(occurrence, "sha256:recorded"),
+        approved_entry(occurrence, occurrence.fingerprint)
+      ])
+
+      issue = root |> run_check() |> issue_with("invalid_inventory", @approved_path)
+
+      assert issue.message =~ "entries 1, 2"
+      assert issue.message =~ "duplicate locator"
+      assert issue.message =~ "lib/example.ex load/0 Repo.query!"
+    end)
+  end
+
   test "reports a parallel planning file at the prohibited path" do
     with_repository(fn root ->
       path = "docs/superpowers/plans/feature.md"

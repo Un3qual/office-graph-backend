@@ -100,6 +100,13 @@ SHALL remain exact and fingerprinted.
 - **THEN** every detected occurrence MUST match an exact explicitly approved
   exception or fail without consulting or rewriting a temporary debt inventory
 
+#### Scenario: Approved inventory repeats one locator
+
+- **WHEN** two approved entries share the same path, class, construct, function,
+  and ordinal even when their fingerprints differ
+- **THEN** canonical verification MUST reject the approved inventory before
+  matching current fingerprints or suppressing stale entries
+
 #### Scenario: Framework capability is insufficient
 
 - **WHEN** implementation cannot safely express one exact occurrence through

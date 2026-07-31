@@ -8,23 +8,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.reduce(MapSet.new(), fn path, tables ->
       path
       |> File.read!()
-      |> migration_forward_source()
-      |> String.split("\n")
-      |> Enum.reduce(tables, fn line, current_tables ->
-        case {
-          Regex.run(~r/create\s+table\(:([a-zA-Z0-9_]+)\b/, line),
-          Regex.run(~r/drop\s+table\(:([a-zA-Z0-9_]+)\b/, line)
-        } do
-          {[_, table], _drop} ->
-            MapSet.put(current_tables, table)
-
-          {_create, [_, table]} ->
-            MapSet.delete(current_tables, table)
-
-          _no_table_operation ->
-            current_tables
-        end
-      end)
+      |> migration_forward_ast()
+      |> migration_table_operations()
+      |> Enum.reduce(tables, &apply_table_operation/2)
     end)
     |> MapSet.to_list()
     |> Enum.sort()
@@ -114,6 +100,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     Enum.reverse(operations)
   end
 
+  defp migration_table_operations(ast) do
+    {_ast, operations} =
+      Macro.prewalk(ast, [], fn
+        {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _options]} = node,
+        operations
+        when operation in [:create, :drop] and is_atom(table) ->
+          {node, [{operation, Atom.to_string(table)} | operations]}
+
+        node, operations ->
+          {node, operations}
+      end)
+
+    Enum.reverse(operations)
+  end
+
+  defp apply_table_operation({:create, table}, tables), do: MapSet.put(tables, table)
+  defp apply_table_operation({:drop, table}, tables), do: MapSet.delete(tables, table)
+
   defp table_foreign_key_operations(table, block) do
     table = Atom.to_string(table)
 
@@ -163,17 +167,5 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_key} ->
       source_table == table
     end)
-  end
-
-  defp migration_forward_source(source) do
-    case String.split(source, ~r/^\s*def up do\s*$/m, parts: 2) do
-      [_before_up, up_and_after] ->
-        up_and_after
-        |> String.split(~r/^\s*def down do\s*$/m, parts: 2)
-        |> hd()
-
-      [_change_migration] ->
-        source
-    end
   end
 end

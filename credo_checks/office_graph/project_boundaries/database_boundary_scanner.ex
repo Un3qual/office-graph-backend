@@ -130,9 +130,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       body ->
         child_context = %{context | function: nil}
+        child_environment = %{environment | attributes: %{}}
 
         {_child_environment, occurrences} =
-          scan_node(body, environment, child_context, occurrences)
+          scan_node(body, child_environment, child_context, occurrences)
 
         {environment, occurrences}
     end
@@ -155,6 +156,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {environment, occurrences}
   end
 
+  defp scan_node(
+         {:@, _metadata, [{name, _name_metadata, [value]}]},
+         environment,
+         context,
+         occurrences
+       )
+       when is_atom(name) do
+    {_child_environment, occurrences} =
+      scan_node(value, environment, context, occurrences)
+
+    resolved_value = resolve_attributes(value, environment)
+
+    {%{environment | attributes: Map.put(environment.attributes, name, resolved_value)},
+     occurrences}
+  end
+
   defp scan_node({:alias, metadata, arguments}, environment, _context, occurrences) do
     {put_aliases(environment, metadata, arguments), occurrences}
   end
@@ -164,8 +181,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node(node, environment, context, occurrences) do
+    resolved_node = resolve_attributes(node, environment)
+
     occurrences =
-      case classify_node(node, context.migration?, environment) do
+      case classify_node(resolved_node, context.migration?, environment) do
         nil ->
           occurrences
 
@@ -177,7 +196,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
               context.function,
               class,
               construct,
-              node
+              resolved_node
             )
             | occurrences
           ]
@@ -282,7 +301,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp empty_environment, do: %{aliases: %{}, imports: []}
+  defp empty_environment, do: %{aliases: %{}, attributes: %{}, imports: []}
+
+  defp resolve_attributes(node, environment) do
+    Macro.prewalk(node, fn
+      {:@, _metadata, [{name, _name_metadata, nil}]} = reference when is_atom(name) ->
+        Map.get(environment.attributes, name, reference)
+
+      child ->
+        child
+    end)
+  end
 
   defp block_body([_head, body_options]) when is_list(body_options),
     do: Keyword.get(body_options, :do)

@@ -170,7 +170,7 @@ provisioning policy.
 - **THEN** Office Graph MUST reactivate that directory link and its eligible
   directory-created principal in place without creating a replacement identity
 - **AND** any incompatible subject, email, tenant, or principal state MUST remain
-  review-required
+  review-required without reactivating the retained principal or link
 
 ### Requirement: External groups grant only explicitly mapped roles
 

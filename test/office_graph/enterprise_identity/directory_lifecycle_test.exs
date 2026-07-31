@@ -316,6 +316,68 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
     assert restored_sso.external_identity_link.status == "active"
   end
 
+  test "incompatible retained links do not reactivate a deprovisioned principal" do
+    context = enterprise_context("restore-incompatible-link")
+    active_time = ~U[2026-07-29 20:00:00Z]
+
+    assert {:ok, %{resource: %DirectoryUser{} = user}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(active_time),
+               context.operation.id
+             )
+
+    assert {:ok, %{resource: %DirectoryUser{status: "deleted"}}} =
+             EnterpriseIdentity.apply_directory_event(
+               context.directory.id,
+               user_event(DateTime.add(active_time, 60, :second), %{status: "deleted"}),
+               context.operation.id
+             )
+
+    incompatible_principal =
+      Ash.create!(
+        Principal,
+        %{
+          email: "#{unique("restore-incompatible-principal")}@example.test",
+          kind: "human",
+          status: "active"
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      ExternalIdentityLink,
+      %{
+        principal_id: incompatible_principal.id,
+        provider: "oidc",
+        provider_tenant: "https://identity.example.test",
+        subject: unique("restore-incompatible-subject"),
+        verified_email: user.email,
+        status: "active",
+        linking_state: "linked",
+        first_linked_at: active_time
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    assert {:review, "provider_subject_conflict"} =
+             Identity.reconcile_directory_identity(%{
+               provider_tenant: context.connection.provider_organization_id,
+               subject: user.provider_user_id,
+               provider_identity_id: user.idp_id,
+               verified_email: user.email,
+               current_principal_id: user.principal_id,
+               current_principal_origin: user.principal_origin
+             })
+
+    assert Ash.get!(Principal, user.principal_id, authorize?: false).status == "disabled"
+
+    assert Ash.get!(ExternalIdentityLink, user.external_identity_link_id, authorize?: false).status ==
+             "disabled"
+  end
+
   test "directory deprovisioning preserves SSO while another directory basis remains active" do
     context = enterprise_context("multi-directory-deprovision")
     active_time = ~U[2026-07-29 20:00:00Z]

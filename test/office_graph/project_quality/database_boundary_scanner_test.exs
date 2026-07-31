@@ -291,6 +291,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies module attribute values used by SQL-bearing migration constructs" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            @predicate "md5(name) IS NOT NULL"
+
+            def change do
+              create index(:examples, [:name], where: @predicate)
+              create constraint(:examples, :valid_name, check: @predicate)
+            end
+          end
+          """
+        }
+      ])
+
+    assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
+             MapSet.new([
+               {:raw_sql, "migration.where"},
+               {:raw_sql, "migration.check"}
+             ])
+
+    changed_occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            @predicate "length(name) > 0"
+
+            def change do
+              create index(:examples, [:name], where: @predicate)
+              create constraint(:examples, :valid_name, check: @predicate)
+            end
+          end
+          """
+        }
+      ])
+
+    assert MapSet.new(changed_occurrences, &{&1.class, &1.construct}) ==
+             MapSet.new([
+               {:raw_sql, "migration.where"},
+               {:raw_sql, "migration.check"}
+             ])
+
+    refute Map.new(occurrences, &{&1.construct, &1.fingerprint}) ==
+             Map.new(changed_occurrences, &{&1.construct, &1.fingerprint})
+  end
+
   test "classifies nonliteral migration execute calls conservatively" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
