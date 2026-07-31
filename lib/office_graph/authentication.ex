@@ -77,30 +77,36 @@ defmodule OfficeGraph.Authentication do
 
   def begin_workos_login(connection_id, redirect_uri, opts)
       when is_binary(connection_id) and is_binary(redirect_uri) and is_list(opts) do
-    transaction = %{
-      provider: :workos,
-      enterprise_connection_id: connection_id,
-      state: random_value(),
-      redirect_uri: redirect_uri,
-      return_to: Keyword.get(opts, :return_to, @default_return_to),
-      issued_at_unix: System.system_time(:second)
-    }
+    state = random_value()
+    issued_at_unix = System.system_time(:second)
 
     result =
       with {:ok, prepared} <-
              EnterpriseIdentity.prepare_workos_login(
                connection_id,
                redirect_uri,
-               transaction.state
+               state,
+               Keyword.get(opts, :workspace_id)
              ),
            {:ok, transaction_id} <-
              Identity.store_oidc_login_transaction(
-               transaction.issued_at_unix + @login_transaction_ttl_seconds
+               issued_at_unix + @login_transaction_ttl_seconds
              ) do
+        transaction = %{
+          id: transaction_id,
+          provider: :workos,
+          enterprise_connection_id: connection_id,
+          workspace_id: prepared.workspace_id,
+          state: state,
+          redirect_uri: redirect_uri,
+          return_to: Keyword.get(opts, :return_to, @default_return_to),
+          issued_at_unix: issued_at_unix
+        }
+
         {:ok,
          %{
            authorization_uri: prepared.authorization_uri,
-           transaction: Map.put(transaction, :id, transaction_id)
+           transaction: transaction
          }}
       end
 
@@ -194,7 +200,8 @@ defmodule OfficeGraph.Authentication do
            EnterpriseIdentity.exchange_workos_code(
              transaction.enterprise_connection_id,
              code,
-             transaction.redirect_uri
+             transaction.redirect_uri,
+             transaction.workspace_id
            ),
          {:ok, linked} <-
            reconcile_workos_identity(
@@ -425,13 +432,15 @@ defmodule OfficeGraph.Authentication do
            id: id,
            provider: :workos,
            enterprise_connection_id: connection_id,
+           workspace_id: workspace_id,
            state: state,
            redirect_uri: redirect_uri,
            issued_at_unix: issued_at_unix
          },
          callback_state
        )
-       when is_binary(id) and is_binary(connection_id) and is_binary(state) and
+       when is_binary(id) and is_binary(connection_id) and is_binary(workspace_id) and
+              is_binary(state) and
               is_binary(redirect_uri) and is_integer(issued_at_unix) and
               is_binary(callback_state) do
     age = System.system_time(:second) - issued_at_unix

@@ -238,9 +238,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        do: {:raw_sql, to_string(construct)}
 
   defp classify_node({:execute, _metadata, arguments}, true, _environment)
-       when is_list(arguments) do
-    if Enum.any?(arguments, &sql_literal?/1), do: {:raw_sql, "migration.execute"}
-  end
+       when is_list(arguments),
+       do: {:raw_sql, "migration.execute"}
 
   defp classify_node({:insert, _metadata, arguments}, true, _environment)
        when is_list(arguments),
@@ -455,10 +454,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp repo_receiver?(receiver), do: receiver in ["Repo", "OfficeGraph.Repo"]
-
-  defp sql_literal?(value) when is_binary(value), do: true
-  defp sql_literal?(values) when is_list(values), do: Enum.any?(values, &sql_literal?/1)
-  defp sql_literal?(_value), do: false
 
   defp node_line({{:., _dot_metadata, _receiver_and_operation}, metadata, _arguments}),
     do: Keyword.get(metadata, :line, 1)

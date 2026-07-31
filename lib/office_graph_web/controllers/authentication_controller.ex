@@ -55,6 +55,7 @@ defmodule OfficeGraphWeb.AuthenticationController do
 
     case Authentication.begin_workos_login(connection_id, workos_callback_uri(),
            return_to: return_to,
+           workspace_id: params["workspace_id"],
            trace_id: trace_id(conn),
            source_surface: "web"
          ) do

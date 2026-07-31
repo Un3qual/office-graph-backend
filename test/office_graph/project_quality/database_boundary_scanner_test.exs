@@ -291,6 +291,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies nonliteral migration execute calls conservatively" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            @statement "ALTER TABLE examples ADD COLUMN code text"
+
+            def change do
+              execute(@statement)
+              execute("ALTER TABLE " <> "examples ADD COLUMN label text")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.count(occurrences, &(&1.construct == "migration.execute")) == 2
+    assert Enum.all?(occurrences, &(&1.class == :raw_sql))
+  end
+
   test "classifies migration data insertion and MD5-derived identifiers" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

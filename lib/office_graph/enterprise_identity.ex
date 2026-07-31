@@ -28,7 +28,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
 
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
   alias OfficeGraph.EnterpriseIdentity.WebhookReceipt
-  alias OfficeGraph.{Authorization, Identity, Operations}
+  alias OfficeGraph.{Authorization, Identity, Operations, Tenancy}
 
   require Ash.Query
 
@@ -240,9 +240,10 @@ defmodule OfficeGraph.EnterpriseIdentity do
       ),
       do: {:error, :forbidden}
 
-  def prepare_workos_login(connection_id, redirect_uri, state)
+  def prepare_workos_login(connection_id, redirect_uri, state, requested_workspace_id)
       when is_binary(connection_id) and is_binary(redirect_uri) and is_binary(state) do
     with {:ok, connection} <- active_connection(connection_id),
+         {:ok, workspace_id} <- login_workspace(connection, requested_workspace_id),
          {:ok, config} <- workos_configuration(connection),
          {:ok, authorization_uri} <-
            workos_sso_client().authorization_uri(%{
@@ -253,20 +254,28 @@ defmodule OfficeGraph.EnterpriseIdentity do
       {:ok,
        %{
          authorization_uri: authorization_uri,
-         connection_id: connection.id
+         connection_id: connection.id,
+         workspace_id: workspace_id
        }}
     else
       {:error, :enterprise_connection_unavailable} = error -> error
+      {:error, :invalid_scope} = error -> error
       {:error, _provider_or_configuration_error} -> {:error, :provider_unavailable}
     end
   end
 
-  def prepare_workos_login(_connection_id, _redirect_uri, _state),
-    do: {:error, :enterprise_connection_unavailable}
+  def prepare_workos_login(
+        _connection_id,
+        _redirect_uri,
+        _state,
+        _requested_workspace_id
+      ),
+      do: {:error, :enterprise_connection_unavailable}
 
-  def exchange_workos_code(connection_id, code, redirect_uri)
+  def exchange_workos_code(connection_id, code, redirect_uri, selected_workspace_id)
       when is_binary(connection_id) and is_binary(code) and is_binary(redirect_uri) do
     with {:ok, connection} <- active_connection(connection_id),
+         {:ok, workspace_id} <- login_workspace(connection, selected_workspace_id),
          {:ok, config} <- workos_configuration(connection),
          {:ok, profile} <-
            workos_sso_client().exchange(%{
@@ -279,7 +288,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
        %{
          connection_id: connection.id,
          organization_id: connection.organization_id,
-         workspace_id: connection.workspace_id,
+         workspace_id: workspace_id,
          provider_organization_id: connection.provider_organization_id,
          directory_requirement: connection.directory_requirement,
          session_ttl_seconds: config.session_ttl_seconds,
@@ -287,12 +296,18 @@ defmodule OfficeGraph.EnterpriseIdentity do
        }}
     else
       {:error, :enterprise_connection_unavailable} = error -> error
+      {:error, :invalid_scope} = error -> error
       {:error, _provider_or_configuration_error} -> {:error, :provider_unavailable}
     end
   end
 
-  def exchange_workos_code(_connection_id, _code, _redirect_uri),
-    do: {:error, :provider_unavailable}
+  def exchange_workos_code(
+        _connection_id,
+        _code,
+        _redirect_uri,
+        _selected_workspace_id
+      ),
+      do: {:error, :provider_unavailable}
 
   def validate_workos_provisioning(
         %{
@@ -431,8 +446,14 @@ defmodule OfficeGraph.EnterpriseIdentity do
        do: {:error, :enterprise_connection_unavailable}
 
   defp active_connection(connection_id) do
+    active_directory_query =
+      Directory
+      |> Ash.Query.filter(status == "active")
+      |> Ash.Query.limit(1)
+
     EnterpriseConnection
     |> Ash.Query.filter(id == ^connection_id and provider == "workos" and status == "active")
+    |> Ash.Query.load(directories: active_directory_query)
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, %EnterpriseConnection{} = connection} -> {:ok, connection}
@@ -582,8 +603,16 @@ defmodule OfficeGraph.EnterpriseIdentity do
     client_id = config[:client_id]
     session_ttl_seconds = session_ttl_seconds(config[:session_ttl_seconds])
 
-    if present?(api_base_url) and present?(api_key_reference) and present?(client_id) and
-         is_integer(session_ttl_seconds) do
+    with true <- present?(api_base_url),
+         true <- present?(api_key_reference),
+         true <- present?(client_id),
+         true <- is_integer(session_ttl_seconds),
+         true <- configured_adapter?(:workos_sso_client, authorization_uri: 1, exchange: 1),
+         true <- configured_adapter?(:workos_http_client, request: 4),
+         true <- configured_adapter?(:workos_secret_store, resolve: 1),
+         {:ok, directory_sync_required?} <- directory_sync_required?(connection),
+         true <-
+           not directory_sync_required? or present?(config[:webhook_secret_reference]) do
       {:ok,
        %{
          api_base_url: api_base_url,
@@ -593,7 +622,47 @@ defmodule OfficeGraph.EnterpriseIdentity do
          session_ttl_seconds: session_ttl_seconds
        }}
     else
-      {:error, :workos_unavailable}
+      _missing_or_invalid -> {:error, :workos_unavailable}
+    end
+  end
+
+  defp login_workspace(
+         %EnterpriseConnection{organization_id: organization_id, workspace_id: nil},
+         requested_workspace_id
+       )
+       when is_binary(requested_workspace_id) do
+    case Tenancy.validate_workspace_scope(organization_id, requested_workspace_id) do
+      :ok -> {:ok, requested_workspace_id}
+      {:error, _invalid_or_unavailable} -> {:error, :invalid_scope}
+    end
+  end
+
+  defp login_workspace(
+         %EnterpriseConnection{workspace_id: workspace_id},
+         requested_workspace_id
+       )
+       when is_binary(workspace_id) and requested_workspace_id in [nil, workspace_id],
+       do: {:ok, workspace_id}
+
+  defp login_workspace(_connection, _requested_workspace_id), do: {:error, :invalid_scope}
+
+  defp directory_sync_required?(%EnterpriseConnection{directory_requirement: "required"}),
+    do: {:ok, true}
+
+  defp directory_sync_required?(%EnterpriseConnection{directories: directories})
+       when is_list(directories),
+       do: {:ok, directories != []}
+
+  defp directory_sync_required?(_connection), do: {:error, :workos_unavailable}
+
+  defp configured_adapter?(key, callbacks) do
+    case Application.fetch_env(:office_graph, key) do
+      {:ok, module} when is_atom(module) ->
+        Code.ensure_loaded?(module) and
+          Enum.all?(callbacks, fn {name, arity} -> function_exported?(module, name, arity) end)
+
+      _missing_or_invalid ->
+        false
     end
   end
 

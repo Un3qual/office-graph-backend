@@ -63,6 +63,8 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
   setup do
     original_config = Application.get_env(:office_graph, :workos_enterprise)
     original_client = Application.get_env(:office_graph, :workos_sso_client)
+    original_http_client = Application.get_env(:office_graph, :workos_http_client)
+    original_secret_store = Application.get_env(:office_graph, :workos_secret_store)
     original_human_oidc = Application.get_env(:office_graph, :human_oidc)
     original_human_oidc_client = Application.get_env(:office_graph, :human_oidc_client)
 
@@ -70,6 +72,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
       api_base_url: "https://api.workos.test",
       api_key_reference: "test-secret://workos/api-key",
       client_id: "client_01",
+      webhook_secret_reference: "test-secret://workos/webhook",
       session_ttl_seconds: 3_600
     )
 
@@ -92,6 +95,8 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     on_exit(fn ->
       restore_env(:workos_enterprise, original_config)
       restore_env(:workos_sso_client, original_client)
+      restore_env(:workos_http_client, original_http_client)
+      restore_env(:workos_secret_store, original_secret_store)
       restore_env(:human_oidc, original_human_oidc)
       restore_env(:human_oidc_client, original_human_oidc_client)
     end)
@@ -267,6 +272,130 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     assert redirected_to(callback_conn) == "/runs"
     assert is_binary(get_session(callback_conn, :human_session_id))
     refute get_session(callback_conn, :oidc_login_transaction)
+  end
+
+  test "organization-scoped browser login captures an existing same-organization workspace", %{
+    conn: conn
+  } do
+    context =
+      enterprise_context("organization-connection", "optional",
+        organization_scoped?: true,
+        bind_directory?: false
+      )
+
+    missing_workspace_conn =
+      get(
+        conn,
+        "/auth/workos/#{context.connection.id}/login"
+      )
+
+    assert response(missing_workspace_conn, 503) == "Authentication unavailable"
+
+    {:ok, other_scope} =
+      Foundation.bootstrap_local_owner(
+        organization_slug: unique("other-organization"),
+        workspace_slug: unique("other-workspace"),
+        initiative_slug: unique("other-initiative"),
+        owner_email: "#{unique("other-owner")}@example.test"
+      )
+
+    wrong_organization_conn =
+      get(
+        build_conn(),
+        "/auth/workos/#{context.connection.id}/login",
+        %{"workspace_id" => other_scope.workspace.id}
+      )
+
+    assert response(wrong_organization_conn, 503) == "Authentication unavailable"
+
+    login_conn =
+      get(
+        build_conn(),
+        "/auth/workos/#{context.connection.id}/login",
+        %{
+          "return_to" => "/runs",
+          "workspace_id" => context.bootstrap.workspace.id
+        }
+      )
+
+    assert redirected_to(login_conn) == "https://api.workos.test/sso/authorize"
+
+    transaction = get_session(login_conn, :oidc_login_transaction)
+    assert transaction.workspace_id == context.bootstrap.workspace.id
+
+    Process.put(
+      {SsoClient, :exchange},
+      {:ok,
+       %{
+         subject: "connection_01:idp_organization_connection",
+         idp_id: "idp_organization_connection",
+         verified_email: context.bootstrap.principal.email,
+         first_name: "Ada",
+         last_name: "Lovelace",
+         provider_organization_id: context.connection.provider_organization_id,
+         provider_connection_id: "connection_01"
+       }}
+    )
+
+    callback_conn =
+      build_conn()
+      |> Plug.Test.init_test_session(%{oidc_login_transaction: transaction})
+      |> get("/auth/workos/callback", %{
+        "code" => "authorization-code",
+        "state" => transaction.state
+      })
+
+    assert redirected_to(callback_conn) == "/runs"
+
+    session_id = get_session(callback_conn, :human_session_id)
+
+    assert Ash.get!(Session, session_id, authorize?: false).workspace_id ==
+             context.bootstrap.workspace.id
+  end
+
+  test "directory-backed WorkOS login requires webhook configuration while SSO-only login does not" do
+    config = Application.fetch_env!(:office_graph, :workos_enterprise)
+
+    Application.put_env(
+      :office_graph,
+      :workos_enterprise,
+      Keyword.delete(config, :webhook_secret_reference)
+    )
+
+    directory_context = enterprise_context("missing-directory-webhook", "optional")
+
+    assert {:error, :provider_unavailable} =
+             Authentication.begin_workos_login(
+               directory_context.connection.id,
+               @redirect_uri,
+               []
+             )
+
+    sso_only_context =
+      enterprise_context("sso-only", "optional", bind_directory?: false)
+
+    assert {:ok, _login} =
+             Authentication.begin_workos_login(
+               sso_only_context.connection.id,
+               @redirect_uri,
+               []
+             )
+  end
+
+  test "incomplete WorkOS adapter configuration fails closed" do
+    context = enterprise_context("missing-adapter", "required")
+
+    for key <- [:workos_sso_client, :workos_http_client, :workos_secret_store] do
+      configured_adapter = Application.fetch_env!(:office_graph, key)
+      Application.delete_env(:office_graph, key)
+
+      try do
+        assert {:error, :provider_unavailable} =
+                 Authentication.begin_workos_login(context.connection.id, @redirect_uri, [])
+      after
+        Application.put_env(:office_graph, key, configured_adapter)
+      end
+    end
   end
 
   test "required directory provisioning refuses an otherwise valid SSO identity" do
@@ -556,7 +685,7 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     assert {:error, :invalid_session} = Authentication.resolve_session(completed.session.id)
   end
 
-  defp enterprise_context(label, directory_requirement) do
+  defp enterprise_context(label, directory_requirement, opts \\ []) do
     {:ok, bootstrap} =
       Foundation.bootstrap_local_owner(
         organization_slug: unique("#{label}-organization"),
@@ -600,7 +729,11 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
         EnterpriseConnection,
         %{
           organization_id: bootstrap.organization.id,
-          workspace_id: bootstrap.workspace.id,
+          workspace_id:
+            if(Keyword.get(opts, :organization_scoped?, false),
+              do: nil,
+              else: bootstrap.workspace.id
+            ),
           webhook_principal_id: webhook_principal.id,
           operation_id: operation.id,
           provider: "workos",
@@ -613,18 +746,20 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
       )
 
     directory =
-      Ash.create!(
-        Directory,
-        %{
-          connection_id: connection.id,
-          operation_id: operation.id,
-          provider_directory_id: unique("workos-directory"),
-          status: "active",
-          provider_updated_at: ~U[2026-07-29 19:00:00Z]
-        },
-        action: :create,
-        authorize?: false
-      )
+      if Keyword.get(opts, :bind_directory?, true) do
+        Ash.create!(
+          Directory,
+          %{
+            connection_id: connection.id,
+            operation_id: operation.id,
+            provider_directory_id: unique("workos-directory"),
+            status: "active",
+            provider_updated_at: ~U[2026-07-29 19:00:00Z]
+          },
+          action: :create,
+          authorize?: false
+        )
+      end
 
     %{
       bootstrap: bootstrap,
