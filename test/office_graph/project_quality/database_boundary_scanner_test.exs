@@ -291,7 +291,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
-  test "classifies module attribute values used by SQL-bearing migration constructs" do
+  test "classifies module attribute expressions used by SQL-bearing migration constructs" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{
@@ -300,7 +300,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           defmodule ExampleMigration do
             use Ecto.Migration
 
-            @predicate "md5(name) IS NOT NULL"
+            @predicate "md5(name) " <> "IS NOT NULL"
 
             def change do
               create index(:examples, [:name], where: @predicate)
@@ -325,7 +325,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           defmodule ExampleMigration do
             use Ecto.Migration
 
-            @predicate "length(name) > 0"
+            @predicate "length(name) " <> "> 0"
 
             def change do
               create index(:examples, [:name], where: @predicate)

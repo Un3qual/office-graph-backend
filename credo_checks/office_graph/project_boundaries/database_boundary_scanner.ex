@@ -271,8 +271,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> classify_database_operation(operation)
   end
 
-  defp classify_node({key, value}, true, _environment)
-       when key in [:check, :where] and is_binary(value),
+  defp classify_node({key, _value}, true, _environment)
+       when key in [:check, :where],
        do: {:raw_sql, "migration.#{key}"}
 
   defp classify_node({:unsafe_fragment, sql}, _migration?, _environment) when is_binary(sql),
