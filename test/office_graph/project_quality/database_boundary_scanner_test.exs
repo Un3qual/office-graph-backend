@@ -273,8 +273,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
             def change do
               execute("ALTER TABLE examples ADD COLUMN code text")
-              create index(:examples, [:code], where: "deleted_at IS NULL")
+              create index(:examples, [:code],
+                options: "fillfactor = 70",
+                where: "deleted_at IS NULL"
+              )
+
               create constraint(:examples, :positive_score, check: "score > 0")
+
+              create constraint(:examples, :non_overlapping_score,
+                exclude: "gist (int4range(min_score, max_score, '[]') WITH &&)"
+              )
+
               alter table(:examples), do: add(:id, :uuid, default: fragment("uuidv7()"))
             end
           end
@@ -285,8 +294,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
              MapSet.new([
                {:raw_sql, "migration.execute"},
+               {:raw_sql, "migration.options"},
                {:raw_sql, "migration.where"},
                {:raw_sql, "migration.check"},
+               {:raw_sql, "migration.exclude"},
                {:raw_sql, "fragment"}
              ])
   end

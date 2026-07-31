@@ -342,10 +342,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_sql_options(_node, _context, occurrences), do: occurrences
 
-  defp migration_sql_option_keys(:constraint), do: [:check]
+  defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
 
   defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
-    do: [:where]
+    do: [:options, :where]
 
   defp empty_environment, do: %{aliases: %{}, attributes: %{}, imports: []}
 
