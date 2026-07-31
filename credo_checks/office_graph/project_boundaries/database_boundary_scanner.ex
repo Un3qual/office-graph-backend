@@ -332,7 +332,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                   context.function,
                   :raw_sql,
                   "migration.#{key}",
-                  {key, value}
+                  migration_sql_option_fingerprint_input(
+                    operation,
+                    construct,
+                    arguments,
+                    option_keys,
+                    key,
+                    value
+                  )
                 )
                 | occurrences
               ]
@@ -355,6 +362,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
     do: [:options, :where]
+
+  defp migration_sql_option_fingerprint_input(
+         operation,
+         construct,
+         arguments,
+         option_keys,
+         key,
+         value
+       ) do
+    target_options =
+      arguments
+      |> List.last()
+      |> Enum.reject(fn
+        {option_key, _value} -> option_key in option_keys
+        _option -> false
+      end)
+
+    target =
+      arguments
+      |> List.replace_at(-1, target_options)
+      |> then(&{construct, [], &1})
+      |> Macro.to_string()
+
+    Enum.join(
+      [
+        "operation: #{operation}",
+        "target: #{target}",
+        "option: #{key}",
+        "value: #{Macro.to_string(value)}"
+      ],
+      "\n"
+    )
+  end
 
   defp empty_environment, do: %{aliases: %{}, attributes: %{}, imports: []}
 

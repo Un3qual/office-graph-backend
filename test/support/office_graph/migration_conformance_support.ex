@@ -105,8 +105,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       Macro.prewalk(ast, [], fn
         {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _options]} = node,
         operations
-        when operation in [:create, :drop] and is_atom(table) ->
-          {node, [{operation, Atom.to_string(table)} | operations]}
+        when operation in [:create, :create_if_not_exists, :drop, :drop_if_exists] and
+               is_atom(table) ->
+          lifecycle_operation =
+            if operation in [:create, :create_if_not_exists], do: :create, else: :drop
+
+          {node, [{lifecycle_operation, Atom.to_string(table)} | operations]}
 
         node, operations ->
           {node, operations}

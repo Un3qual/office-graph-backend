@@ -357,6 +357,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              Map.new(changed_occurrences, &{&1.construct, &1.fingerprint})
   end
 
+  test "binds migration option fingerprints to the enclosing DDL identity" do
+    fingerprints =
+      [
+        "create index(:examples, [:code], options: \"fillfactor = 70\")",
+        "create index(:examples, [:name], options: \"fillfactor = 70\")",
+        "create_if_not_exists index(:examples, [:code], options: \"fillfactor = 70\")"
+      ]
+      |> Enum.map(fn migration_statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "priv/repo/migrations/20260728000000_example.exs",
+              source: """
+              defmodule ExampleMigration do
+                use Ecto.Migration
+
+                def change do
+                  #{migration_statement}
+                end
+              end
+              """
+            }
+          ])
+
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
   test "does not reclassify executable module attribute expressions at references" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([

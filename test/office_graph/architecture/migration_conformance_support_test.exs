@@ -63,4 +63,49 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       assert MigrationConformanceSupport.migration_tables() == ["surviving_examples"]
     end)
   end
+
+  test "includes conditional create and drop operations in the table lifecycle" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_conditional_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create_if_not_exists table(:conditionally_created_examples)
+          create table(:conditionally_dropped_examples)
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000001_drop_examples.exs"),
+      """
+      defmodule DropExamples do
+        use Ecto.Migration
+
+        def change do
+          drop_if_exists table(:conditionally_dropped_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "conditionally_created_examples"
+             ]
+    end)
+  end
 end
