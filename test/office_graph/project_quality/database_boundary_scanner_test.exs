@@ -484,6 +484,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              Map.new(changed_occurrences, &{&1.construct, &1.fingerprint})
   end
 
+  test "classifies SQL-bearing migration options stored in a local binding" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              options = [where: "deleted_at IS NULL"]
+              create index(:examples, [:email], options)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "migration.where"
+    assert occurrence.function == "change/0"
+  end
+
   test "binds migration option fingerprints to the enclosing DDL identity" do
     fingerprints =
       [

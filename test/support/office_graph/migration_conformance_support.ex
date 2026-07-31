@@ -62,22 +62,115 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp migration_forward_ast(source) do
     ast = Code.string_to_quoted!(source)
+    functions = migration_functions(ast)
 
+    case Map.get(functions, {:up, 0}) || Map.get(functions, {:change, 0}) do
+      %{body: body, key: key} -> expand_local_calls(body, functions, [key])
+      nil -> {:__block__, [], []}
+    end
+  end
+
+  defp migration_functions(ast) do
     {_ast, functions} =
-      Macro.prewalk(ast, [], fn
-        {:def, _meta, [{name, _name_meta, _arguments}, [do: body]]} = node, functions
-        when name in [:up, :change] ->
-          {node, [{name, body} | functions]}
+      Macro.prewalk(ast, %{}, fn
+        {kind, _meta, [head, body_options]} = node, functions
+        when kind in [:def, :defp] and is_list(body_options) ->
+          case {local_function_head(head), Keyword.fetch(body_options, :do)} do
+            {{key, parameters}, {:ok, body}} ->
+              definition = %{body: body, key: key, parameters: parameters}
+              {node, Map.put(functions, key, definition)}
+
+            _not_a_function_definition ->
+              {node, functions}
+          end
 
         node, functions ->
           {node, functions}
       end)
 
-    case Enum.find(functions, &(elem(&1, 0) == :up)) ||
-           Enum.find(functions, &(elem(&1, 0) == :change)) do
-      {_name, body} -> body
-      nil -> {:__block__, [], []}
+    functions
+  end
+
+  defp local_function_head({:when, _meta, [head | _guards]}), do: local_function_head(head)
+
+  defp local_function_head({name, _meta, parameters})
+       when is_atom(name) and (is_list(parameters) or is_nil(parameters)) do
+    parameters = parameters || []
+    {{name, length(parameters)}, parameters}
+  end
+
+  defp local_function_head(_head), do: nil
+
+  defp expand_local_calls({name, metadata, arguments}, functions, call_stack)
+       when is_atom(name) and is_list(arguments) do
+    key = {name, length(arguments)}
+
+    case Map.get(functions, key) do
+      %{body: body, parameters: parameters} ->
+        if key in call_stack do
+          {name, metadata, expand_local_calls(arguments, functions, call_stack)}
+        else
+          body
+          |> substitute_parameters(parameters, arguments)
+          |> expand_local_calls(functions, [key | call_stack])
+        end
+
+      _not_a_reachable_helper ->
+        {name, metadata, expand_local_calls(arguments, functions, call_stack)}
     end
+  end
+
+  defp expand_local_calls({name, _metadata, nil} = node, functions, call_stack)
+       when is_atom(name) do
+    key = {name, 0}
+
+    case Map.get(functions, key) do
+      %{body: body} ->
+        if key in call_stack do
+          node
+        else
+          expand_local_calls(body, functions, [key | call_stack])
+        end
+
+      _variable_or_recursive_call ->
+        node
+    end
+  end
+
+  defp expand_local_calls(nodes, functions, call_stack) when is_list(nodes) do
+    Enum.map(nodes, &expand_local_calls(&1, functions, call_stack))
+  end
+
+  defp expand_local_calls(node, functions, call_stack) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> expand_local_calls(functions, call_stack)
+    |> List.to_tuple()
+  end
+
+  defp expand_local_calls(node, _functions, _call_stack), do: node
+
+  defp substitute_parameters(body, parameters, arguments) do
+    bindings =
+      parameters
+      |> Enum.zip(arguments)
+      |> Enum.reduce(%{}, fn
+        {{name, _metadata, binding_context}, argument}, bindings
+        when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) ->
+          Map.put(bindings, name, argument)
+
+        _unsupported_pattern, bindings ->
+          bindings
+      end)
+
+    Macro.prewalk(body, fn
+      {name, _metadata, binding_context} = node
+      when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) ->
+        Map.get(bindings, name, node)
+
+      node ->
+        node
+    end)
   end
 
   defp migration_foreign_key_operations(ast) do

@@ -163,9 +163,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({kind, _metadata, [head, body_options]}, environment, context, occurrences)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
     child_context = %{context | function: function_signature(head)}
+    child_environment = %{environment | bindings: %{}}
 
     {_child_environment, occurrences} =
-      scan_children(body_options, environment, child_context, occurrences)
+      scan_children(body_options, child_environment, child_context, occurrences)
 
     {environment, occurrences}
   end
@@ -210,9 +211,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {put_import(environment, metadata, arguments), occurrences}
   end
 
+  defp scan_node(
+         {:=, _metadata, [{name, _name_metadata, binding_context}, value]},
+         environment,
+         context,
+         occurrences
+       )
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+    {environment, occurrences} = scan_node(value, environment, context, occurrences)
+    resolved_value = resolve_attributes(value, environment)
+
+    {%{environment | bindings: Map.put(environment.bindings, name, resolved_value)}, occurrences}
+  end
+
   defp scan_node(node, environment, context, occurrences) do
     resolved_node = resolve_attributes(node, environment)
-    occurrences = classify_migration_sql_options(resolved_node, context, occurrences)
+
+    occurrences =
+      resolved_node
+      |> resolve_migration_option_bindings(environment)
+      |> classify_migration_sql_options(context, occurrences)
 
     occurrences =
       case classify_node(resolved_node, context.migration?, environment) do
@@ -382,6 +400,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_sql_options(_node, _context, occurrences), do: occurrences
 
+  defp resolve_migration_option_bindings(
+         {operation, metadata, [{construct, construct_metadata, arguments}]},
+         environment
+       )
+       when operation in @migration_create_operations and
+              construct in @migration_sql_option_constructs and is_list(arguments) do
+    resolved_options =
+      arguments
+      |> List.last()
+      |> resolve_binding(environment)
+
+    {operation, metadata,
+     [{construct, construct_metadata, List.replace_at(arguments, -1, resolved_options)}]}
+  end
+
+  defp resolve_migration_option_bindings(node, _environment), do: node
+
   defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
 
   defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
@@ -420,7 +455,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     )
   end
 
-  defp empty_environment, do: %{aliases: %{}, attributes: %{}, imports: []}
+  defp empty_environment, do: %{aliases: %{}, attributes: %{}, bindings: %{}, imports: []}
 
   defp resolve_attributes(node, environment) do
     Macro.prewalk(node, fn
@@ -431,6 +466,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         child
     end)
   end
+
+  defp resolve_binding({name, _metadata, binding_context} = reference, environment)
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
+       do: Map.get(environment.bindings, name, reference)
+
+  defp resolve_binding(node, _environment), do: node
 
   defp block_body([_head, body_options]) when is_list(body_options),
     do: Keyword.get(body_options, :do)

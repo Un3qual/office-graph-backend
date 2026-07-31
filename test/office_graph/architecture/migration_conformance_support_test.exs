@@ -108,4 +108,57 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ]
     end)
   end
+
+  test "includes DDL from reachable local migration helpers" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_helper_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          create_examples(:helper_created_examples)
+        end
+
+        defp create_examples(table_name) do
+          create_parent()
+
+          create table(table_name) do
+            add :parent_id, references(:helper_parent_examples)
+          end
+        end
+
+        defp create_parent do
+          create table(:helper_parent_examples)
+        end
+
+        defp unreachable_helper do
+          create table(:unreachable_examples)
+        end
+
+        def down do
+          drop table(:helper_created_examples)
+          drop table(:helper_parent_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "helper_created_examples",
+               "helper_parent_examples"
+             ]
+    end)
+  end
 end
