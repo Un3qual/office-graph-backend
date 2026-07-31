@@ -5,6 +5,42 @@ config :office_graph, local_development_auth_routes: true
 config :office_graph, :github_secret_store, OfficeGraph.GitHubIntegration.SecretStore.TestAdapter
 config :office_graph, :github_adapter, OfficeGraph.GitHubIntegration.Adapter.TestAdapter
 
+config :office_graph,
+       :authorization_persistence,
+       OfficeGraph.Authorization.PersistenceTestAdapter
+
+config :office_graph,
+       :human_session_persistence,
+       OfficeGraph.Identity.HumanSessionPersistenceTestAdapter
+
+config :office_graph,
+       :operation_persistence,
+       OfficeGraph.Operations.PersistenceTestAdapter
+
+config :office_graph,
+       :manual_intake_persistence,
+       OfficeGraph.Integrations.ManualIntakePersistenceTestAdapter
+
+config :office_graph,
+       :proposed_change_persistence,
+       OfficeGraph.ProposedChanges.PersistenceTestAdapter
+
+config :office_graph,
+       :integration_signal_persistence,
+       OfficeGraph.WorkGraph.IntegrationSignalPersistenceTestAdapter
+
+config :office_graph,
+       :github_outbound_persistence,
+       OfficeGraph.GitHubIntegration.OutboundPersistenceTestAdapter
+
+config :office_graph,
+       :github_reconciliation_persistence,
+       OfficeGraph.GitHubIntegration.ReconciliationPersistenceTestAdapter
+
+config :office_graph,
+       :github_webhook_receipt_persistence,
+       OfficeGraph.GitHubIntegration.WebhookReceiptPersistenceTestAdapter
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

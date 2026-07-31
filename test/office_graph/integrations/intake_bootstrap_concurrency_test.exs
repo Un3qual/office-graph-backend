@@ -56,7 +56,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
   end
@@ -145,7 +145,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(
+        ConcurrencyCleanup.cleanup_committed_scope!(
           organization_id,
           [principal_id, other_principal_id],
           source_identity
@@ -207,7 +207,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
   end
@@ -296,7 +296,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       assert replay.normalized_event.id == first.normalized_event.id
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
   end
@@ -348,7 +348,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
       assert length(source_ids) == 1
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
   end
@@ -447,7 +447,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
              end) == 1
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, source_identity)
       end)
     end
   end
@@ -482,11 +482,11 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
 
       assert {1, 1, 1, 1} =
                with_unboxed_connection(fn ->
-                 tenancy_scope_counts(organization_slug, workspace_slug, initiative_slug)
+                 ConcurrencyCleanup.tenancy_scope_counts(organization_slug, workspace_slug, initiative_slug)
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_tenancy_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_tenancy_scope!(organization_slug)
       end)
     end
   end
@@ -526,7 +526,7 @@ defmodule OfficeGraph.Integrations.IntakeBootstrapConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
       end)
     end
   end

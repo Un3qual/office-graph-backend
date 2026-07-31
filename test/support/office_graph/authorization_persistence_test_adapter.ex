@@ -3,37 +3,11 @@ defmodule OfficeGraph.Authorization.PersistenceTestAdapter do
 
   @behaviour OfficeGraph.Authorization.Persistence
 
-  @adapter_key :authorization_persistence
-  @responses_key :authorization_persistence_test_responses
+  alias OfficeGraphTest.PersistenceFailureResponses
 
-  def configure!(responses) when is_list(responses) do
-    configured_adapter = Application.fetch_env(:office_graph, @adapter_key)
-    configured_responses = Application.fetch_env(:office_graph, @responses_key)
-
-    Application.put_env(:office_graph, @adapter_key, __MODULE__)
-    Application.put_env(:office_graph, @responses_key, Map.new(responses))
-
-    ExUnit.Callbacks.on_exit(fn ->
-      restore(@adapter_key, configured_adapter)
-      restore(@responses_key, configured_responses)
-    end)
-
-    :ok
-  end
-
-  def clear! do
-    Application.put_env(:office_graph, @responses_key, %{})
-    :ok
-  end
+  def configure!(responses), do: PersistenceFailureResponses.configure!(:authorization, responses)
+  def clear!, do: PersistenceFailureResponses.clear!(:authorization)
 
   @impl true
-  def before_read(stage) do
-    case Application.fetch_env!(:office_graph, @responses_key) do
-      %{^stage => response} -> response
-      _responses -> :ok
-    end
-  end
-
-  defp restore(key, {:ok, value}), do: Application.put_env(:office_graph, key, value)
-  defp restore(key, :error), do: Application.delete_env(:office_graph, key)
+  def before_read(stage), do: PersistenceFailureResponses.fetch(:authorization, stage)
 end

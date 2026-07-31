@@ -35,6 +35,7 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
       alias Ecto.Adapters.SQL.Sandbox
       alias OfficeGraph.Identity.SessionContext
       alias OfficeGraph.ProposedChanges
+      alias OfficeGraph.TestSupport.ConcurrencyCleanup
 
       alias OfficeGraph.{
         Foundation,
@@ -585,51 +586,6 @@ defmodule OfficeGraph.TestSupport.ConcurrencySupport do
   def content_hash(body) do
     :crypto.hash(:sha256, body)
     |> Base.encode16(case: :lower)
-  end
-
-  def conversation_count(run_id, graph_item_id),
-    do: OfficeGraph.TestSupport.ConcurrencyCleanup.conversation_count(run_id, graph_item_id)
-
-  def cleanup_conversation_scope!(organization_slug),
-    do: OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_conversation_scope!(organization_slug)
-
-  def cleanup_owner_principal!(owner_email),
-    do: OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_owner_principal!(owner_email)
-
-  def cleanup_committed_scope!(organization_id, principal_ids, source_identities),
-    do:
-      OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_committed_scope!(
-        organization_id,
-        principal_ids,
-        source_identities
-      )
-
-  def cleanup_work_run_verification_scope!(organization_slug),
-    do:
-      OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_work_run_verification_scope!(
-        organization_slug
-      )
-
-  def cleanup_work_run_verification_scope_by_id!(organization_id),
-    do:
-      OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_work_run_verification_scope_by_id!(
-        organization_id
-      )
-
-  def tenancy_scope_counts(organization_slug, workspace_slug, initiative_slug),
-    do:
-      OfficeGraph.TestSupport.ConcurrencyCleanup.tenancy_scope_counts(
-        organization_slug,
-        workspace_slug,
-        initiative_slug
-      )
-
-  def cleanup_tenancy_scope!(organization_slug),
-    do: OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_tenancy_scope!(organization_slug)
-
-  def cleanup_bootstrap_scope!(organization_slug, owner_email) do
-    cleanup_tenancy_scope!(organization_slug)
-    cleanup_owner_principal!(owner_email)
   end
 
   defp create!(resource, attrs) do

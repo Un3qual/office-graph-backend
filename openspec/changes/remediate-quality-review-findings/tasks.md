@@ -8,9 +8,9 @@
 
 ## 2. Test Persistence Simplification
 
-- [ ] 2.1 Add cleanup behavior coverage against canonical resources, then replace the 54-resource shadow Ash schema with one test-only canonical hard-delete seam and the narrow Oban cleanup resource
-- [ ] 2.2 Convert retained persistence failure adapters to one process-scoped test response store, remove per-test Application mutation and unnecessary serialization, and delete checkpoints without consumer-visible failure coverage
-- [ ] 2.3 Remove the redundant concurrency-support cleanup delegates and update callers to use the owning cleanup module directly
+- [x] 2.1 Add cleanup behavior coverage against canonical resources, then replace the 54-resource shadow Ash schema with one test-only canonical hard-delete seam and the narrow Oban cleanup resource
+- [x] 2.2 Convert retained persistence failure adapters to one process-scoped test response store, remove per-test Application mutation and unnecessary serialization, and delete checkpoints without consumer-visible failure coverage
+- [x] 2.3 Remove the redundant concurrency-support cleanup delegates and update callers to use the owning cleanup module directly
 
 ## 3. Quality Gate Simplification
 

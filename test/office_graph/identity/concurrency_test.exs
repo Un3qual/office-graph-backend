@@ -229,7 +229,7 @@ defmodule OfficeGraph.Identity.ConcurrencyTest do
 
   defp cleanup(attrs) do
     with_unboxed_connection(fn ->
-      cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
+      ConcurrencyCleanup.cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
     end)
   end
 end

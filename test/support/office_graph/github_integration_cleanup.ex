@@ -330,7 +330,7 @@ defmodule OfficeGraph.TestSupport.GitHubIntegrationCleanup do
     destroy_for_organization!(OutboundAction, organization_id)
     destroy_for_installations!(SyncOutcome, installation_ids)
 
-    OfficeGraph.TestSupport.ConcurrencySupport.cleanup_work_run_verification_scope_by_id!(
+    OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_work_run_verification_scope_by_id!(
       organization_id
     )
 

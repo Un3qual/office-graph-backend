@@ -417,7 +417,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
 
   defp cleanup(attrs) do
     with_unboxed_connection(fn ->
-      cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
+      ConcurrencyCleanup.cleanup_bootstrap_scope!(attrs[:organization_slug], attrs[:owner_email])
 
       if webhook_email = attrs[:webhook_email] do
         OfficeGraph.TestSupport.ConcurrencyCleanup.cleanup_owner_principal!(webhook_email)
