@@ -578,6 +578,69 @@ defmodule OfficeGraph.AuthenticationTest do
                )
     end
 
+    test "explicit seed replay removes role assignments outside every fixture manifest" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      prefix = "local-role-assignment-repair"
+
+      attrs = [
+        organization_name: "Local Development #{prefix}",
+        organization_slug: unique("#{prefix}-org"),
+        workspace_name: "Development",
+        workspace_slug: unique("#{prefix}-workspace"),
+        initiative_name: "Local Authentication",
+        initiative_slug: unique("#{prefix}-initiative")
+      ]
+
+      assert {:ok, seeded} = Foundation.seed_local_development_fixtures(attrs)
+      admin_role_id = seeded.fixtures["workspace_admin"].role_assignment.role_id
+      member_role_id = seeded.fixtures["member"].role_assignment.role_id
+
+      Enum.each(seeded.fixtures, fn {_key, fixture} ->
+        unexpected_role_id =
+          if fixture.role_assignment.role_id == admin_role_id,
+            do: member_role_id,
+            else: admin_role_id
+
+        Ash.create!(
+          RoleAssignment,
+          %{
+            principal_id: fixture.identity.principal.id,
+            role_id: unexpected_role_id,
+            organization_id: seeded.bootstrap.organization.id,
+            workspace_id: seeded.bootstrap.workspace.id
+          },
+          action: :create,
+          authorize?: false
+        )
+      end)
+
+      assert {:ok, replayed} = Foundation.seed_local_development_fixtures(attrs)
+
+      Enum.each(replayed.fixtures, fn {key, fixture} ->
+        assignments =
+          RoleAssignment
+          |> Ash.Query.filter(principal_id == ^fixture.identity.principal.id)
+          |> Ash.read!(authorize?: false)
+
+        assert Enum.map(assignments, & &1.id) == [fixture.role_assignment.id],
+               "expected exact role assignment repair for #{key}"
+      end)
+
+      for key <- ~w(owner workspace_admin member) do
+        assert {:ok, _completed} =
+                 Authentication.complete_local_development_login(key,
+                   trace_id: "#{prefix}-#{key}",
+                   source_surface: "web"
+                 )
+      end
+
+      assert {:error, :identity_disabled} =
+               Authentication.complete_local_development_login("deprovisioned_member",
+                 trace_id: "#{prefix}-deprovisioned",
+                 source_surface: "web"
+               )
+    end
+
     test "rejects a fixture whose role capability profile has drifted" do
       Application.put_env(:office_graph, :local_development_authentication, enabled: true)
       seeded = local_development_seed("local-role-capability-drift")

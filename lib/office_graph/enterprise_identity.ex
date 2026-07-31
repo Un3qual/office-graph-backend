@@ -260,6 +260,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
        }}
     else
       {:error, :enterprise_connection_unavailable} = error -> error
+      {:error, :enterprise_identity_storage_unavailable} = error -> error
       {:error, :invalid_scope} = error -> error
       {:error, _provider_or_configuration_error} -> {:error, :provider_unavailable}
     end
@@ -297,6 +298,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
        }}
     else
       {:error, :enterprise_connection_unavailable} = error -> error
+      {:error, :enterprise_identity_storage_unavailable} = error -> error
       {:error, :invalid_scope} = error -> error
       {:error, _provider_or_configuration_error} -> {:error, :provider_unavailable}
     end
@@ -309,6 +311,16 @@ defmodule OfficeGraph.EnterpriseIdentity do
         _selected_workspace_id
       ),
       do: {:error, :provider_unavailable}
+
+  @doc false
+  def classify_active_connection_result({:ok, %EnterpriseConnection{} = connection}),
+    do: {:ok, connection}
+
+  def classify_active_connection_result({:ok, nil}),
+    do: {:error, :enterprise_connection_unavailable}
+
+  def classify_active_connection_result({:error, _storage_error}),
+    do: {:error, :enterprise_identity_storage_unavailable}
 
   def validate_workos_provisioning(
         %{
@@ -456,11 +468,7 @@ defmodule OfficeGraph.EnterpriseIdentity do
     |> Ash.Query.filter(id == ^connection_id and provider == "workos" and status == "active")
     |> Ash.Query.load(directories: active_directory_query)
     |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %EnterpriseConnection{} = connection} -> {:ok, connection}
-      {:ok, nil} -> {:error, :enterprise_connection_unavailable}
-      {:error, _storage_error} -> {:error, :enterprise_connection_unavailable}
-    end
+    |> classify_active_connection_result()
   end
 
   defp validate_management_operation(session_context, operation) do

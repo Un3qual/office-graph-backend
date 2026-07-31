@@ -69,7 +69,12 @@ defmodule OfficeGraph.Foundation do
     LocalDevelopmentFixtures.all()
     |> Enum.reduce_while({:ok, %{}}, fn fixture, {:ok, fixtures} ->
       with {:ok, identity} <- Identity.ensure_local_development_identity(fixture),
-           {:ok, role_assignment} <- ensure_fixture_role(bootstrap, fixture, identity) do
+           {:ok, role_assignment} <- ensure_fixture_role(bootstrap, fixture, identity),
+           :ok <-
+             Authorization.reconcile_local_development_role_assignments(
+               identity.principal,
+               role_assignment
+             ) do
         seeded_fixture = %{
           definition: fixture,
           identity: identity,

@@ -310,6 +310,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies repository checkout without matching unrelated receivers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo
+            alias OfficeGraph.Repo, as: Database
+
+            def run(fun) do
+              Repo.checkout(fun)
+              Database.checkout(fun, timeout: 1_000)
+              OfficeGraph.Cache.checkout(fun)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Repo.checkout", 6},
+             {:direct_ecto, "Repo.checkout", 7}
+           ]
+  end
+
   test "ignores non-database receivers rooted at the current module" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([

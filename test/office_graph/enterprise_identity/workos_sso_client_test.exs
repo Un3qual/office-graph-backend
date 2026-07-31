@@ -1,7 +1,7 @@
 defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
   use ExUnit.Case, async: false
 
-  alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.Httpc, as: WorkOSHttpc
+  alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.HTTPClient.ReqClient, as: WorkOSHTTP
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.SsoClient
 
   @base_url "https://api.workos.test"
@@ -204,68 +204,71 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
              })
   end
 
-  test "production HTTP requests verify TLS and receive successful bodies through a controlled stream" do
-    assert {:module, :httpc} = :code.ensure_loaded(:httpc)
-    parent = self()
-    tracer = spawn(fn -> forward_trace_messages(parent) end)
-    :erlang.trace(self(), true, [:call, {:tracer, tracer}])
-    :erlang.trace_pattern({:httpc, :request, 4}, true, [])
+  test "production HTTP transport returns the exact bounded response contract" do
+    {listener, port, server} =
+      serve_response([
+        "HTTP/1.1 200 OK\r\n",
+        "content-length: 5\r\n",
+        "x-workos-request-id: request-1\r\n",
+        "connection: close\r\n\r\n",
+        "abcde"
+      ])
 
-    on_exit(fn ->
-      :erlang.trace_pattern({:httpc, :request, 4}, false, [])
-      :erlang.trace(self(), false, [:call])
-      Process.exit(tracer, :normal)
-    end)
-
-    assert {:error, :network_error} =
-             WorkOSHttpc.request(:get, "https://127.0.0.1:1/workos", %{}, nil)
-
-    assert_receive {:captured_trace,
-                    {:trace, _pid, :call,
-                     {:httpc, :request, [_method, _request, http_options, response_options]}}}
-
-    ssl_options = Keyword.fetch!(http_options, :ssl)
-
-    assert ssl_options[:verify] == :verify_peer
-    assert [_first_ca | _rest] = ssl_options[:cacerts]
-
-    assert is_function(
-             get_in(ssl_options, [:customize_hostname_check, :match_fun]),
-             2
-           )
-
-    assert response_options[:sync] == false
-    assert response_options[:stream] == {:self, :once}
-    assert response_options[:receiver] == self()
-  end
-
-  test "production HTTP stream rejects declared and accumulated bodies over the limit" do
-    assert {:error, :network_error} =
-             receive_http_stream(
-               [{~c"content-length", ~c"6"}],
-               [],
-               maximum_bytes: 5
-             )
-
-    assert {:error, :network_error} =
-             receive_http_stream(
-               [{~c"transfer-encoding", ~c"chunked"}],
-               ["abc", "def"],
-               maximum_bytes: 5
-             )
+    on_exit(fn -> :gen_tcp.close(listener) end)
 
     assert {:ok, %{status: 200, headers: headers, body: "abcde"}} =
-             receive_http_stream(
-               [
-                 {~c"content-length", ~c"5"},
-                 {~c"x-workos-request-id", ~c"request-1"}
-               ],
-               ["abc", "de"],
-               maximum_bytes: 5
-             )
+             WorkOSHTTP.request(:get, "http://127.0.0.1:#{port}", %{}, nil)
 
     assert headers["content-length"] == "5"
     assert headers["x-workos-request-id"] == "request-1"
+    Task.await(server)
+  end
+
+  test "production HTTP transport stops oversized non-success responses while receiving them" do
+    maximum_bytes = 1_000_000
+    first_body_part = :binary.copy("a", maximum_bytes + 1)
+    remaining_body = :binary.copy("b", maximum_bytes - 1)
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    parent = self()
+
+    server =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener)
+        :ok = receive_request_headers(socket, "")
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 500 Internal Server Error\r\n",
+            "connection: close\r\n\r\n",
+            first_body_part
+          ])
+
+        closed_before_remainder? =
+          case :gen_tcp.recv(socket, 0, 1_000) do
+            {:error, :closed} -> true
+            {:error, :timeout} -> false
+          end
+
+        send(parent, {:closed_before_remainder, closed_before_remainder?})
+
+        unless closed_before_remainder? do
+          :ok = :gen_tcp.send(socket, remaining_body)
+        end
+
+        :gen_tcp.close(socket)
+      end)
+
+    on_exit(fn -> :gen_tcp.close(listener) end)
+
+    assert {:error, :network_error} =
+             WorkOSHTTP.request(:get, "http://127.0.0.1:#{port}", %{}, nil)
+
+    assert_receive {:closed_before_remainder, true}
+    Task.await(server)
   end
 
   defp configuration do
@@ -280,47 +283,31 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSSsoClientTest do
   defp restore_env(key, nil), do: Application.delete_env(:office_graph, key)
   defp restore_env(key, value), do: Application.put_env(:office_graph, key, value)
 
-  defp receive_http_stream(start_headers, chunks, opts) do
-    request_id = make_ref()
-    parent = self()
+  defp serve_response(response) do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
 
-    task =
+    {:ok, {_address, port}} = :inet.sockname(listener)
+
+    server =
       Task.async(fn ->
-        send(parent, {:stream_receiver, self()})
-
-        WorkOSHttpc.receive_stream(
-          request_id,
-          Keyword.fetch!(opts, :maximum_bytes),
-          1_000
-        )
+        {:ok, socket} = :gen_tcp.accept(listener)
+        :ok = receive_request_headers(socket, "")
+        :ok = :gen_tcp.send(socket, response)
+        :gen_tcp.close(socket)
       end)
 
-    assert_receive {:stream_receiver, receiver}
-    handler = spawn(fn -> discard_stream_control_messages() end)
-    send(receiver, {:http, {request_id, :stream_start, start_headers, handler}})
-
-    Enum.each(chunks, fn chunk ->
-      send(receiver, {:http, {request_id, :stream, chunk}})
-    end)
-
-    send(receiver, {:http, {request_id, :stream_end, []}})
-    result = Task.await(task)
-    send(handler, :stop)
-    result
+    {listener, port, server}
   end
 
-  defp discard_stream_control_messages do
-    receive do
-      :stop -> :ok
-      _message -> discard_stream_control_messages()
-    end
-  end
-
-  defp forward_trace_messages(parent) do
-    receive do
-      message ->
-        send(parent, {:captured_trace, message})
-        forward_trace_messages(parent)
+  defp receive_request_headers(socket, received) do
+    if String.contains?(received, "\r\n\r\n") do
+      :ok
+    else
+      case :gen_tcp.recv(socket, 0, 1_000) do
+        {:ok, chunk} -> receive_request_headers(socket, received <> chunk)
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 end

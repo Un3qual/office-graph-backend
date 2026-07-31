@@ -69,6 +69,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :aggregate,
     :all,
     :all_by,
+    :checkout,
     :delete,
     :delete!,
     :delete_all,
