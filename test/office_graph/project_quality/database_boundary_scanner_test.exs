@@ -507,6 +507,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.function == "change/0"
   end
 
+  test "binds migration option fingerprints to recursively resolved local SQL values" do
+    fingerprints =
+      ["deleted_at IS NULL", "archived_at IS NULL"]
+      |> Enum.map(fn predicate ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "priv/repo/migrations/20260728000000_example.exs",
+              source: """
+              defmodule ExampleMigration do
+                use Ecto.Migration
+
+                def change do
+                  predicate = #{inspect(predicate)}
+                  options = [where: predicate]
+                  create index(:examples, [:email], options)
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "migration.where"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
   test "binds migration option fingerprints to the enclosing DDL identity" do
     fingerprints =
       [

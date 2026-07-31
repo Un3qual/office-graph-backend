@@ -161,4 +161,89 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ]
     end)
   end
+
+  test "includes DDL from every reachable clause of a local migration helper" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_clause_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          create_examples(:primary)
+        end
+
+        defp create_examples(:primary) do
+          create table(:primary_clause_examples)
+        end
+
+        defp create_examples(_kind) do
+          create table(:fallback_clause_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "fallback_clause_examples",
+               "primary_clause_examples"
+             ]
+    end)
+  end
+
+  test "parameter substitution does not re-enter replacement expressions" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_substitution_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          name = :ignored
+          create_examples(prefixed(name))
+        end
+
+        defp create_examples(name) do
+          create table(name)
+        end
+
+        defp prefixed(_name), do: :replacement_expression_examples
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      task = Task.async(&MigrationConformanceSupport.migration_tables/0)
+
+      case Task.yield(task, 2_000) do
+        {:ok, tables} ->
+          assert tables == ["replacement_expression_examples"]
+
+        nil ->
+          Task.shutdown(task, :brutal_kill)
+          flunk("migration table extraction did not terminate")
+      end
+    end)
+  end
 end

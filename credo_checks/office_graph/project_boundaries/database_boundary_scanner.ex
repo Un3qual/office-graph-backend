@@ -409,7 +409,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     resolved_options =
       arguments
       |> List.last()
-      |> resolve_binding(environment)
+      |> resolve_bindings(environment)
 
     {operation, metadata,
      [{construct, construct_metadata, List.replace_at(arguments, -1, resolved_options)}]}
@@ -467,11 +467,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end)
   end
 
-  defp resolve_binding({name, _metadata, binding_context} = reference, environment)
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
-       do: Map.get(environment.bindings, name, reference)
+  defp resolve_bindings(node, environment),
+    do: resolve_bindings(node, environment, MapSet.new())
 
-  defp resolve_binding(node, _environment), do: node
+  defp resolve_bindings(
+         {name, _metadata, binding_context} = reference,
+         environment,
+         resolving
+       )
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+    if MapSet.member?(resolving, name) do
+      reference
+    else
+      case Map.fetch(environment.bindings, name) do
+        {:ok, value} -> resolve_bindings(value, environment, MapSet.put(resolving, name))
+        :error -> reference
+      end
+    end
+  end
+
+  defp resolve_bindings(node, environment, resolving) when is_list(node) do
+    Enum.map(node, &resolve_bindings(&1, environment, resolving))
+  end
+
+  defp resolve_bindings(node, environment, resolving) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> resolve_bindings(environment, resolving)
+    |> List.to_tuple()
+  end
+
+  defp resolve_bindings(node, _environment, _resolving), do: node
 
   defp block_body([_head, body_options]) when is_list(body_options),
     do: Keyword.get(body_options, :do)

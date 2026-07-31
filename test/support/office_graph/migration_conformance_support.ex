@@ -65,8 +65,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     functions = migration_functions(ast)
 
     case Map.get(functions, {:up, 0}) || Map.get(functions, {:change, 0}) do
-      %{body: body, key: key} -> expand_local_calls(body, functions, [key])
-      nil -> {:__block__, [], []}
+      definitions when is_list(definitions) ->
+        definitions
+        |> Enum.map(fn %{body: body, key: key} ->
+          expand_local_calls(body, functions, [key])
+        end)
+        |> block()
+
+      nil ->
+        {:__block__, [], []}
     end
   end
 
@@ -78,7 +85,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           case {local_function_head(head), Keyword.fetch(body_options, :do)} do
             {{key, parameters}, {:ok, body}} ->
               definition = %{body: body, key: key, parameters: parameters}
-              {node, Map.put(functions, key, definition)}
+
+              functions =
+                Map.update(functions, key, [definition], fn definitions ->
+                  [definition | definitions]
+                end)
+
+              {node, functions}
 
             _not_a_function_definition ->
               {node, functions}
@@ -88,7 +101,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           {node, functions}
       end)
 
-    functions
+    Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
   end
 
   defp local_function_head({:when, _meta, [head | _guards]}), do: local_function_head(head)
@@ -106,13 +119,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     key = {name, length(arguments)}
 
     case Map.get(functions, key) do
-      %{body: body, parameters: parameters} ->
+      definitions when is_list(definitions) ->
         if key in call_stack do
           {name, metadata, expand_local_calls(arguments, functions, call_stack)}
         else
-          body
-          |> substitute_parameters(parameters, arguments)
-          |> expand_local_calls(functions, [key | call_stack])
+          definitions
+          |> Enum.map(fn %{body: body, parameters: parameters} ->
+            body
+            |> substitute_parameters(parameters, arguments)
+            |> expand_local_calls(functions, [key | call_stack])
+          end)
+          |> block()
         end
 
       _not_a_reachable_helper ->
@@ -125,11 +142,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     key = {name, 0}
 
     case Map.get(functions, key) do
-      %{body: body} ->
+      definitions when is_list(definitions) ->
         if key in call_stack do
           node
         else
-          expand_local_calls(body, functions, [key | call_stack])
+          definitions
+          |> Enum.map(fn %{body: body} ->
+            expand_local_calls(body, functions, [key | call_stack])
+          end)
+          |> block()
         end
 
       _variable_or_recursive_call ->
@@ -150,6 +171,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp expand_local_calls(node, _functions, _call_stack), do: node
 
+  defp block([body]), do: body
+  defp block(bodies), do: {:__block__, [], bodies}
+
   defp substitute_parameters(body, parameters, arguments) do
     bindings =
       parameters
@@ -163,7 +187,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           bindings
       end)
 
-    Macro.prewalk(body, fn
+    Macro.postwalk(body, fn
       {name, _metadata, binding_context} = node
       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) ->
         Map.get(bindings, name, node)
