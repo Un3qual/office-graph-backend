@@ -13,6 +13,11 @@ defmodule OfficeGraph.WorkGraph.EvidenceItem do
 
     identity_index_names unique_acceptance_operation:
                            "evidence_items_acceptance_operation_id_unique_index"
+
+    custom_indexes do
+      index [:work_run_id, :inserted_at, :id],
+        name: "evidence_items_work_run_inserted_at_id_index"
+    end
   end
 
   attributes do

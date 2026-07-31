@@ -155,6 +155,11 @@ defmodule OfficeGraph.WorkGraph.VerificationResult do
   postgres do
     table "verification_results"
     repo OfficeGraph.Repo
+
+    custom_indexes do
+      index [:work_run_id, :inserted_at, :id],
+        name: "verification_results_work_run_inserted_at_id_index"
+    end
   end
 
   attributes do

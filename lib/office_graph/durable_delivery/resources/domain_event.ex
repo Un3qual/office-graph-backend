@@ -10,6 +10,10 @@ defmodule OfficeGraph.DurableDelivery.DomainEvent do
     repo OfficeGraph.Repo
 
     identity_index_names event_key: "domain_events_event_key_index"
+
+    custom_indexes do
+      index [:operation_id], name: "domain_events_operation_id_index"
+    end
   end
 
   attributes do

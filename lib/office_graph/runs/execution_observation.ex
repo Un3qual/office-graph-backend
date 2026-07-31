@@ -14,6 +14,11 @@ defmodule OfficeGraph.Runs.ExecutionObservation do
     identity_index_names unique_operation: "execution_observations_operation_id_unique_index",
                          unique_source_idempotency_key:
                            "execution_observations_idempotency_key_index"
+
+    custom_indexes do
+      index [:work_run_id, :inserted_at, :id],
+        name: "execution_observations_work_run_inserted_at_id_index"
+    end
   end
 
   attributes do

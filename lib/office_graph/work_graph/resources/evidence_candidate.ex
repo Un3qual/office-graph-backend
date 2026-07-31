@@ -268,6 +268,11 @@ defmodule OfficeGraph.WorkGraph.EvidenceCandidate do
       unique_agent_step: "evidence_candidates_agent_step_index",
       unique_operation: "evidence_candidates_operation_id_unique_index"
     )
+
+    custom_indexes do
+      index [:work_run_id, :inserted_at, :id],
+        name: "evidence_candidates_work_run_inserted_at_id_index"
+    end
   end
 
   attributes do

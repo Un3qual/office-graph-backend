@@ -10,6 +10,10 @@ defmodule OfficeGraph.WorkGraph.GraphItem do
   postgres do
     table "graph_items"
     repo OfficeGraph.Repo
+
+    custom_indexes do
+      index [:organization_id, :workspace_id, :id], name: "graph_items_scope_id_index"
+    end
   end
 
   attributes do
