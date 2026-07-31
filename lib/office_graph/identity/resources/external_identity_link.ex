@@ -384,6 +384,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
     attribute :provider, :string, allow_nil?: false, public?: true
     attribute :provider_tenant, :string, allow_nil?: false, public?: true
     attribute :subject, :string, allow_nil?: false, public?: true
+    attribute :provider_identity_id, :string, public?: true
     attribute :verified_email, :string, allow_nil?: false, public?: true
     attribute :status, :string, allow_nil?: false, public?: true
     attribute :linking_state, :string, allow_nil?: false, public?: true
@@ -424,6 +425,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
         :provider,
         :provider_tenant,
         :subject,
+        :provider_identity_id,
         :verified_email,
         :status,
         :linking_state,
@@ -470,7 +472,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
     end
 
     update :record_authentication do
-      accept [:last_authenticated_at]
+      accept [:provider_identity_id, :last_authenticated_at]
     end
 
     update :set_lifecycle do
@@ -527,6 +529,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
       argument :provider_tenant, :string, allow_nil?: false
       argument :subject, :string, allow_nil?: false
+      argument :provider_identity_id, :string
       argument :verified_email, :string, allow_nil?: false
       argument :current_principal_id, :uuid
       argument :current_principal_origin, :string
@@ -541,6 +544,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
       touches_resources [OfficeGraph.Identity.Principal]
 
       argument :provider_tenant, :string, allow_nil?: false
+      argument :provider_identity_id, :string
       argument :principal_id, :uuid
       argument :external_identity_link_id, :uuid
       argument :principal_origin, :string
@@ -557,6 +561,7 @@ defmodule OfficeGraph.Identity.ExternalIdentityLink do
 
       argument :provider_tenant, :string, allow_nil?: false
       argument :subject, :string, allow_nil?: false
+      argument :provider_identity_id, :string, allow_nil?: false
       argument :verified_email, :string, allow_nil?: false
 
       run Module.concat([OfficeGraph, Identity, Actions, ReconcileWorkOSSsoIdentity])

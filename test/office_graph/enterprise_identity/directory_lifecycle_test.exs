@@ -288,6 +288,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
           provider: "workos_sso",
           provider_tenant: context.connection.provider_organization_id,
           subject: "connection_01:idp_user_01",
+          provider_identity_id: "idp_user_01",
           verified_email: first_user.email,
           status: "active",
           linking_state: "linked",
@@ -311,6 +312,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              Identity.reconcile_workos_sso_identity(
                %{
                  subject: sso_link.subject,
+                 idp_id: "idp_user_01",
                  verified_email: first_user.email
                },
                context.connection.provider_organization_id
@@ -403,6 +405,7 @@ defmodule OfficeGraph.EnterpriseIdentity.DirectoryLifecycleTest do
              Identity.reconcile_workos_sso_identity(
                %{
                  subject: "connection_01:idp_user_rebound",
+                 idp_id: "idp_user_rebound",
                  verified_email: user.email
                },
                context.connection.provider_organization_id

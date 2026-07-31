@@ -131,6 +131,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
       case Identity.reconcile_directory_identity(%{
              provider_tenant: directory.connection.provider_organization_id,
              subject: data.provider_user_id,
+             provider_identity_id: data.idp_id,
              verified_email: data.email,
              current_principal_id: current && current.principal_id,
              current_principal_origin: current && current.principal_origin
@@ -362,6 +363,7 @@ defmodule OfficeGraph.EnterpriseIdentity.Actions.ApplyDirectoryEvent do
       principal_id: user.principal_id,
       principal_origin: user.principal_origin,
       provider_tenant: directory.connection.provider_organization_id,
+      provider_identity_id: user.idp_id,
       disabled_at: disabled_at
     })
   end

@@ -374,6 +374,7 @@ defmodule OfficeGraph.WorkGraph.RelationshipCommands do
       |> rollback_on_error!()
 
       request = relationship_request(locked, %{valid_from: valid_from})
+      RelationshipRequest.validate(request) |> rollback_on_error!()
 
       endpoints =
         session_context

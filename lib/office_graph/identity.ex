@@ -268,26 +268,62 @@ defmodule OfficeGraph.Identity do
 
   def reconcile_workos_sso_identity(profile, provider_tenant)
       when is_map(profile) and is_binary(provider_tenant) do
-    attrs = %{
-      provider_tenant: provider_tenant,
-      subject: profile[:subject],
-      verified_email: profile[:verified_email]
-    }
+    with subject when is_binary(subject) and subject != "" <- profile[:subject],
+         provider_identity_id when is_binary(provider_identity_id) and provider_identity_id != "" <-
+           profile[:idp_id],
+         verified_email when is_binary(verified_email) and verified_email != "" <-
+           profile[:verified_email] do
+      ExternalIdentityLink
+      |> Ash.ActionInput.for_action(:reconcile_workos_sso_identity, %{
+        provider_tenant: provider_tenant,
+        subject: subject,
+        provider_identity_id: provider_identity_id,
+        verified_email: verified_email
+      })
+      |> Ash.run_action(authorize?: false)
+      |> case do
+        {:ok, %DirectoryIdentityResult{} = result} ->
+          DirectoryIdentityResult.to_reconciliation_result(result)
 
+        {:error, _storage_error} ->
+          {:error, :identity_storage_unavailable}
+      end
+    else
+      _invalid_profile -> {:error, :invalid_identity_claims}
+    end
+  end
+
+  def reconcile_workos_sso_identity(_profile, _provider_tenant),
+    do: {:error, :invalid_identity_claims}
+
+  def workos_sso_session_identity(external_identity_link_id, principal_id, provider_tenant)
+      when is_binary(external_identity_link_id) and is_binary(principal_id) and
+             is_binary(provider_tenant) do
     ExternalIdentityLink
-    |> Ash.ActionInput.for_action(:reconcile_workos_sso_identity, attrs)
-    |> Ash.run_action(authorize?: false)
+    |> Ash.Query.filter(
+      id == ^external_identity_link_id and principal_id == ^principal_id and
+        provider == "workos_sso" and provider_tenant == ^provider_tenant and
+        status == "active" and linking_state == "linked"
+    )
+    |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, %DirectoryIdentityResult{} = result} ->
-        DirectoryIdentityResult.to_reconciliation_result(result)
+      {:ok, %ExternalIdentityLink{} = link} ->
+        {:ok,
+         %{
+           provider_identity_id: link.provider_identity_id,
+           verified_email: link.verified_email
+         }}
+
+      {:ok, nil} ->
+        {:error, :identity_unavailable}
 
       {:error, _storage_error} ->
         {:error, :identity_storage_unavailable}
     end
   end
 
-  def reconcile_workos_sso_identity(_profile, _provider_tenant),
-    do: {:error, :invalid_identity_claims}
+  def workos_sso_session_identity(_external_identity_link_id, _principal_id, _provider_tenant),
+    do: {:error, :identity_unavailable}
 
   defdelegate issue_human_session(principal, link, scope, opts),
     to: HumanSessions,

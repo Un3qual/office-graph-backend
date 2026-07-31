@@ -217,6 +217,9 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
         with {:ok, claim_result} <- claim(context, operation, step_key, fixture_id) do
           run_claim_result(claim_result, operation, job)
         else
+          {:error, :integration_storage_unavailable} ->
+            {:snooze, @retry_delay_seconds}
+
           {:error, :context_expansion_not_authorized} ->
             fail_claim(
               context.execution.id,
@@ -486,26 +489,28 @@ defmodule OfficeGraph.AgentRuntime.ExecutionWorker do
   defp claim(context, operation, step_key, fixture_id) do
     lease_token = Ecto.UUID.generate()
 
-    AgentExecution
-    |> Ash.ActionInput.for_action(:claim_worker_step, %{
-      operation_id: operation.id,
-      execution_id: context.execution.id,
-      step_key: step_key,
-      fixture_id: fixture_id,
-      lease_token: lease_token,
-      snapshot: context.snapshot,
-      context_package: context.context_package,
-      manifest: context.manifest,
-      credential_kinds: context.credential_kinds,
-      approval_request_id: context.approval_request_id,
-      context_expansion_request_id: context.context_expansion_request_id
-    })
-    |> Ash.run_action(authorize?: false)
-    |> ActionSupport.normalize_action_result()
-    |> case do
-      {:ok, result} -> {:ok, claim_result(result, context)}
-      {:error, reason} -> {:error, reason}
-    end
+    StorageResult.run(fn ->
+      AgentExecution
+      |> Ash.ActionInput.for_action(:claim_worker_step, %{
+        operation_id: operation.id,
+        execution_id: context.execution.id,
+        step_key: step_key,
+        fixture_id: fixture_id,
+        lease_token: lease_token,
+        snapshot: context.snapshot,
+        context_package: context.context_package,
+        manifest: context.manifest,
+        credential_kinds: context.credential_kinds,
+        approval_request_id: context.approval_request_id,
+        context_expansion_request_id: context.context_expansion_request_id
+      })
+      |> Ash.run_action(authorize?: false)
+      |> ActionSupport.normalize_action_result()
+      |> case do
+        {:ok, result} -> {:ok, claim_result(result, context)}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   defp claim_records(

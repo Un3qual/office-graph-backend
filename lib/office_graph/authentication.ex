@@ -600,6 +600,7 @@ defmodule OfficeGraph.Authentication do
     case EnterpriseIdentity.validate_workos_session_basis(%{
            connection_id: connection_id,
            principal_id: session_context.principal_id,
+           external_identity_link_id: session_context.external_identity_link_id,
            organization_id: organization_id,
            workspace_id: workspace_id
          }) do

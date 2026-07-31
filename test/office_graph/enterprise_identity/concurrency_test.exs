@@ -26,6 +26,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
             Identity.reconcile_directory_identity(%{
               provider_tenant: provider_tenant,
               subject: "directory_user_01",
+              provider_identity_id: "idp_user_01",
               verified_email: bootstrap.principal.email,
               current_principal_id: bootstrap.principal.id,
               current_principal_origin: "reused"
@@ -35,6 +36,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
             Identity.reconcile_workos_sso_identity(
               %{
                 subject: "connection_01:idp_user_01",
+                idp_id: "idp_user_01",
                 verified_email: bootstrap.principal.email
               },
               provider_tenant
@@ -94,6 +96,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
               Identity.reconcile_directory_identity(%{
                 provider_tenant: provider_tenant,
                 subject: "directory_user_late_principal",
+                provider_identity_id: "idp_user_late_principal",
                 verified_email: email,
                 current_principal_id: nil,
                 current_principal_origin: nil
@@ -214,6 +217,7 @@ defmodule OfficeGraph.EnterpriseIdentity.ConcurrencyTest do
             Identity.reconcile_workos_sso_identity(
               %{
                 subject: "connection_race:idp_user_race",
+                idp_id: "idp_user_race",
                 verified_email: created_user_email
               },
               context.connection.provider_organization_id

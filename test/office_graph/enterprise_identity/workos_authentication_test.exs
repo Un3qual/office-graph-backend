@@ -13,13 +13,14 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
   alias OfficeGraph.EnterpriseIdentity.{
     Directory,
     DirectoryGroup,
+    DirectoryUser,
     EnterpriseConnection,
     ExternalGroupRoleMapping
   }
 
   alias OfficeGraph.Authorization.Role
   alias OfficeGraph.EnterpriseIdentity.Adapters.WorkOS.DirectoryEvent
-  alias OfficeGraph.Identity.Session
+  alias OfficeGraph.Identity.{ExternalIdentityLink, Session}
 
   require Ash.Query
 
@@ -344,6 +345,23 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     assert directory_user.principal_origin == "reused"
   end
 
+  test "optional provisioning rejects a directory identity that conflicts with the SSO IdP identity" do
+    context = enterprise_context("optional-idp-conflict", "optional")
+    completed = complete_workos_login!(context, "idp_sso_subject")
+
+    assert {:ok, %{status: :review_required, resource: directory_user}} =
+             provision_directory_user(
+               context,
+               context.bootstrap.principal.email,
+               "idp_directory_subject"
+             )
+
+    assert directory_user.review_reason == "provider_subject_conflict"
+    assert is_nil(directory_user.principal_id)
+    refute directory_user.external_identity_link_id
+    assert completed.principal.id == context.bootstrap.principal.id
+  end
+
   test "disabled connections and cross-provider transactions fail closed" do
     context = enterprise_context("disabled", "required")
 
@@ -437,6 +455,74 @@ defmodule OfficeGraph.EnterpriseIdentity.WorkOSAuthenticationTest do
     assert {:error, :invalid_session} =
              Authentication.resolve_session(completed.session.id,
                trace_id: "required-workos-session"
+             )
+
+    assert %DateTime{} =
+             Ash.get!(Session, completed.session.id, authorize?: false).revoked_at
+  end
+
+  test "required sessions remain bound to the issuing IdP identity" do
+    context = enterprise_context("session-idp-basis", "required")
+
+    assert {:ok, %{status: :applied, resource: issuing_user}} =
+             provision_directory_user(
+               context,
+               context.bootstrap.principal.email,
+               "idp_user_01"
+             )
+
+    completed = complete_workos_login!(context, "idp_user_01")
+
+    alternate_link =
+      Ash.create!(
+        ExternalIdentityLink,
+        %{
+          principal_id: completed.principal.id,
+          provider: "workos_directory",
+          provider_tenant: context.connection.provider_organization_id,
+          subject: "directory_user_02",
+          verified_email: context.bootstrap.principal.email,
+          status: "active",
+          linking_state: "linked",
+          first_linked_at: ~U[2026-07-29 20:01:00Z]
+        },
+        action: :create,
+        authorize?: false
+      )
+
+    Ash.create!(
+      DirectoryUser,
+      %{
+        directory_id: context.directory.id,
+        principal_id: completed.principal.id,
+        external_identity_link_id: alternate_link.id,
+        provider_user_id: "directory_user_02",
+        idp_id: "idp_user_02",
+        email: context.bootstrap.principal.email,
+        status: "active",
+        principal_origin: "reused",
+        provider_updated_at: ~U[2026-07-29 20:01:00Z]
+      },
+      action: :create,
+      authorize?: false
+    )
+
+    issuing_user
+    |> Ash.Changeset.for_update(:synchronize, %{
+      status: "deleted",
+      provider_updated_at: ~U[2026-07-29 20:02:00Z]
+    })
+    |> Ash.update!(authorize?: false)
+
+    assert Ash.get!(
+             ExternalIdentityLink,
+             completed.session.external_identity_link_id,
+             authorize?: false
+           ).status == "active"
+
+    assert {:error, :invalid_session} =
+             Authentication.resolve_session(completed.session.id,
+               trace_id: "mismatched-idp-session"
              )
 
     assert %DateTime{} =

@@ -58,7 +58,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
 
   @impl true
   def run(input, _opts, _context) do
-    attrs = input.arguments
+    attrs = Map.put_new(input.arguments, :provider_identity_id, nil)
 
     with {:ok, principals} <- locked_principals_for_email(attrs.verified_email),
          {:ok, subject_link} <-
@@ -83,14 +83,24 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
     with true <- verified_email == attrs.verified_email,
          %Principal{kind: "human", status: "active"} = principal <-
            Enum.find(principals, &(&1.id == principal_id)),
-         false <- incompatible_link?(email_links, principal.id) do
+         nil <-
+           link_conflict_reason(
+             email_links,
+             principal.id,
+             attrs.provider_tenant,
+             attrs.provider_identity_id
+           ) do
       DirectoryIdentityResult.linked(
         principal,
         link,
         principal_origin(attrs, principal.id, "reused")
       )
     else
-      _conflict -> DirectoryIdentityResult.review_required("verified_identifier_conflict")
+      "provider_subject_conflict" ->
+        DirectoryIdentityResult.review_required("provider_subject_conflict")
+
+      _conflict ->
+        DirectoryIdentityResult.review_required("verified_identifier_conflict")
     end
   end
 
@@ -123,16 +133,23 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
          email_links,
          attrs
        ) do
-    if incompatible_link?(email_links, principal.id) do
-      DirectoryIdentityResult.review_required("verified_identifier_conflict")
-    else
-      with {:ok, link} <- create_directory_link(principal, attrs) do
-        DirectoryIdentityResult.linked(
-          principal,
-          link,
-          principal_origin(attrs, principal.id, "reused")
-        )
-      end
+    case link_conflict_reason(
+           email_links,
+           principal.id,
+           attrs.provider_tenant,
+           attrs.provider_identity_id
+         ) do
+      nil ->
+        with {:ok, link} <- create_directory_link(principal, attrs) do
+          DirectoryIdentityResult.linked(
+            principal,
+            link,
+            principal_origin(attrs, principal.id, "reused")
+          )
+        end
+
+      reason ->
+        DirectoryIdentityResult.review_required(reason)
     end
   end
 
@@ -152,12 +169,39 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
 
   defp principal_origin(_attrs, _principal_id, fallback), do: fallback
 
-  defp incompatible_link?(links, principal_id) do
-    Enum.any?(links, fn link ->
-      is_nil(link.principal_id) or link.principal_id != principal_id or
-        link.status != "active" or link.linking_state != "linked"
-    end)
+  defp link_conflict_reason(links, principal_id, provider_tenant, provider_identity_id) do
+    cond do
+      Enum.any?(
+        links,
+        &provider_identity_conflict?(&1, provider_tenant, provider_identity_id)
+      ) ->
+        "provider_subject_conflict"
+
+      Enum.any?(links, fn link ->
+        is_nil(link.principal_id) or link.principal_id != principal_id or
+          link.status != "active" or link.linking_state != "linked"
+      end) ->
+        "verified_identifier_conflict"
+
+      true ->
+        nil
+    end
   end
+
+  defp provider_identity_conflict?(
+         %ExternalIdentityLink{
+           provider: provider,
+           provider_tenant: provider_tenant,
+           provider_identity_id: existing_identity_id
+         },
+         provider_tenant,
+         provider_identity_id
+       )
+       when provider in ["workos_directory", "workos_sso"],
+       do: existing_identity_id != provider_identity_id
+
+  defp provider_identity_conflict?(_link, _provider_tenant, _provider_identity_id),
+    do: false
 
   defp ensure_principal(email) do
     Principal
@@ -177,6 +221,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
       provider: "workos_directory",
       provider_tenant: attrs.provider_tenant,
       subject: attrs.subject,
+      provider_identity_id: attrs.provider_identity_id,
       verified_email: attrs.verified_email,
       status: "active",
       linking_state: "linked",
@@ -249,6 +294,7 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
            maybe_disable_sso_links(
              attrs.principal_id,
              attrs.provider_tenant,
+             attrs.provider_identity_id,
              attrs.disabled_at
            ),
          :ok <- maybe_disable_created_principal(attrs, principal) do
@@ -280,12 +326,25 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
     end
   end
 
-  defp disable_sso_links(principal_id, provider_tenant, disabled_at) do
-    ExternalIdentityLink
-    |> Ash.Query.filter(
-      principal_id == ^principal_id and provider == "workos_sso" and
-        provider_tenant == ^provider_tenant and status != "disabled"
-    )
+  defp disable_sso_links(principal_id, provider_tenant, provider_identity_id, disabled_at) do
+    query =
+      ExternalIdentityLink
+      |> Ash.Query.filter(
+        principal_id == ^principal_id and provider == "workos_sso" and
+          provider_tenant == ^provider_tenant and status != "disabled"
+      )
+      |> then(fn query ->
+        if is_binary(provider_identity_id) do
+          Ash.Query.filter(
+            query,
+            provider_identity_id == ^provider_identity_id or is_nil(provider_identity_id)
+          )
+        else
+          query
+        end
+      end)
+
+    query
     |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)
     |> case do
@@ -302,24 +361,51 @@ defmodule OfficeGraph.Identity.Actions.DeprovisionDirectoryIdentity do
     end
   end
 
-  defp maybe_disable_sso_links(nil, _provider_tenant, _disabled_at), do: :ok
+  defp maybe_disable_sso_links(
+         nil,
+         _provider_tenant,
+         _provider_identity_id,
+         _disabled_at
+       ),
+       do: :ok
 
-  defp maybe_disable_sso_links(principal_id, provider_tenant, disabled_at) do
+  defp maybe_disable_sso_links(
+         principal_id,
+         provider_tenant,
+         provider_identity_id,
+         disabled_at
+       ) do
     with {:ok, active_basis?} <-
-           active_directory_basis?(principal_id, provider_tenant) do
+           active_directory_basis?(principal_id, provider_tenant, provider_identity_id) do
       if active_basis?,
         do: :ok,
-        else: disable_sso_links(principal_id, provider_tenant, disabled_at)
+        else:
+          disable_sso_links(
+            principal_id,
+            provider_tenant,
+            provider_identity_id,
+            disabled_at
+          )
     end
   end
 
-  defp active_directory_basis?(principal_id, provider_tenant) do
-    ExternalIdentityLink
-    |> Ash.Query.filter(
-      principal_id == ^principal_id and provider == "workos_directory" and
-        provider_tenant == ^provider_tenant and status == "active" and
-        linking_state == "linked"
-    )
+  defp active_directory_basis?(principal_id, provider_tenant, provider_identity_id) do
+    query =
+      ExternalIdentityLink
+      |> Ash.Query.filter(
+        principal_id == ^principal_id and provider == "workos_directory" and
+          provider_tenant == ^provider_tenant and status == "active" and
+          linking_state == "linked"
+      )
+      |> then(fn query ->
+        if is_binary(provider_identity_id) do
+          Ash.Query.filter(query, provider_identity_id == ^provider_identity_id)
+        else
+          query
+        end
+      end)
+
+    query
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.lock(:for_update)
     |> Ash.read(authorize?: false)
@@ -413,12 +499,14 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
        )
        when is_binary(principal_id) do
     with true <- verified_email == attrs.verified_email,
+         true <- link.provider_identity_id == attrs.provider_identity_id,
          %Principal{kind: "human", status: "active"} = principal <-
            Enum.find(principals, &(&1.id == principal_id)),
-         true <- compatible_links?(email_links, principal.id) do
+         true <- compatible_links?(email_links, principal.id, attrs) do
       with {:ok, authenticated_link} <-
              link
              |> Ash.Changeset.for_update(:record_authentication, %{
+               provider_identity_id: attrs.provider_identity_id,
                last_authenticated_at: DateTime.utc_now()
              })
              |> Ash.update(authorize?: false) do
@@ -438,7 +526,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
          email_links,
          attrs
        ) do
-    if compatible_new_subject_links?(email_links, principal.id) do
+    if compatible_new_subject_links?(email_links, principal.id, attrs) do
       with {:ok, link} <- create_sso_link(principal, attrs) do
         DirectoryIdentityResult.linked(principal, link, "reused")
       end
@@ -453,19 +541,39 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
   defp reconcile(nil, _ambiguous_or_missing, _email_links, _attrs),
     do: DirectoryIdentityResult.review_required("ambiguous_verified_identifier")
 
-  defp compatible_links?(links, principal_id) do
+  defp compatible_links?(links, principal_id, attrs) do
     Enum.all?(links, fn link ->
       link.principal_id == principal_id and link.status in ["active", "disabled"] and
-        link.linking_state == "linked"
+        link.linking_state == "linked" and provider_identity_compatible?(link, attrs)
     end)
   end
 
-  defp compatible_new_subject_links?(links, principal_id) do
+  defp compatible_new_subject_links?(links, principal_id, attrs) do
     Enum.all?(links, fn link ->
       link.principal_id == principal_id and link.status == "active" and
-        link.linking_state == "linked"
+        link.linking_state == "linked" and provider_identity_compatible?(link, attrs)
     end)
   end
+
+  defp provider_identity_compatible?(
+         %ExternalIdentityLink{
+           provider: provider,
+           provider_tenant: provider_tenant,
+           provider_identity_id: provider_identity_id
+         },
+         %{provider_tenant: provider_tenant, provider_identity_id: provider_identity_id}
+       )
+       when provider in ["workos_directory", "workos_sso"],
+       do: true
+
+  defp provider_identity_compatible?(
+         %ExternalIdentityLink{provider: provider, provider_tenant: provider_tenant},
+         %{provider_tenant: provider_tenant}
+       )
+       when provider in ["workos_directory", "workos_sso"],
+       do: false
+
+  defp provider_identity_compatible?(_link, _attrs), do: true
 
   defp create_sso_link(principal, attrs) do
     now = DateTime.utc_now()
@@ -476,6 +584,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
       provider: "workos_sso",
       provider_tenant: attrs.provider_tenant,
       subject: attrs.subject,
+      provider_identity_id: attrs.provider_identity_id,
       verified_email: attrs.verified_email,
       status: "active",
       linking_state: "linked",

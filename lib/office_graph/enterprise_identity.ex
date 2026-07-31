@@ -334,22 +334,86 @@ defmodule OfficeGraph.EnterpriseIdentity do
   def validate_workos_session_basis(%{
         connection_id: connection_id,
         principal_id: principal_id,
+        external_identity_link_id: external_identity_link_id,
         organization_id: organization_id,
         workspace_id: workspace_id
       })
       when is_binary(connection_id) and is_binary(principal_id) and
+             is_binary(external_identity_link_id) and
              is_binary(organization_id) and is_binary(workspace_id) do
+    with {:ok, connection} <-
+           session_connection(connection_id, organization_id, workspace_id),
+         {:ok, identity_link} <-
+           session_identity_link(
+             external_identity_link_id,
+             principal_id,
+             connection.provider_organization_id
+           ),
+         :ok <- validate_session_directory_basis(connection, principal_id, identity_link) do
+      :ok
+    end
+  end
+
+  def validate_workos_session_basis(_session_basis),
+    do: {:error, :enterprise_connection_unavailable}
+
+  defp session_connection(connection_id, organization_id, workspace_id) do
     EnterpriseConnection
     |> Ash.Query.filter(
       id == ^connection_id and provider == "workos" and status == "active" and
         organization_id == ^organization_id and
-        (is_nil(workspace_id) or workspace_id == ^workspace_id) and
-        (directory_requirement == "optional" or
-           exists(
-             directories.users,
-             principal_id == ^principal_id and status == "active" and
-               directory.status == "active"
-           ))
+        (is_nil(workspace_id) or workspace_id == ^workspace_id)
+    )
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %EnterpriseConnection{} = connection} -> {:ok, connection}
+      {:ok, nil} -> {:error, :enterprise_connection_unavailable}
+      {:error, _storage_error} -> {:error, :enterprise_identity_storage_unavailable}
+    end
+  end
+
+  defp session_identity_link(
+         external_identity_link_id,
+         principal_id,
+         provider_organization_id
+       ) do
+    case Identity.workos_sso_session_identity(
+           external_identity_link_id,
+           principal_id,
+           provider_organization_id
+         ) do
+      {:ok, identity} ->
+        {:ok, identity}
+
+      {:error, :identity_unavailable} ->
+        {:error, :enterprise_connection_unavailable}
+
+      {:error, :identity_storage_unavailable} ->
+        {:error, :enterprise_identity_storage_unavailable}
+    end
+  end
+
+  defp validate_session_directory_basis(
+         %EnterpriseConnection{directory_requirement: "optional"},
+         _principal_id,
+         _identity_link
+       ),
+       do: :ok
+
+  defp validate_session_directory_basis(
+         %EnterpriseConnection{id: connection_id, directory_requirement: "required"},
+         principal_id,
+         %{
+           provider_identity_id: provider_identity_id,
+           verified_email: verified_email
+         }
+       )
+       when is_binary(provider_identity_id) and is_binary(verified_email) do
+    DirectoryUser
+    |> Ash.Query.filter(
+      principal_id == ^principal_id and status == "active" and
+        idp_id == ^provider_identity_id and email == ^verified_email and
+        directory.status == "active" and directory.connection_id == ^connection_id
     )
     |> Ash.exists(authorize?: false)
     |> case do
@@ -359,8 +423,12 @@ defmodule OfficeGraph.EnterpriseIdentity do
     end
   end
 
-  def validate_workos_session_basis(_session_basis),
-    do: {:error, :enterprise_connection_unavailable}
+  defp validate_session_directory_basis(
+         %EnterpriseConnection{directory_requirement: "required"},
+         _principal_id,
+         _identity_link
+       ),
+       do: {:error, :enterprise_connection_unavailable}
 
   defp active_connection(connection_id) do
     EnterpriseConnection
