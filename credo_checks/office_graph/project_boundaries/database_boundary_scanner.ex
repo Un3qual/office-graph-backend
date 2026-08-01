@@ -219,7 +219,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
     {environment, occurrences} = scan_node(value, environment, context, occurrences)
-    resolved_value = resolve_attributes(value, environment)
+
+    resolved_value =
+      value
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
 
     {%{environment | bindings: Map.put(environment.bindings, name, resolved_value)}, occurrences}
   end

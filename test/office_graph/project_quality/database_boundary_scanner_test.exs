@@ -536,6 +536,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.uniq(fingerprints) == fingerprints
   end
 
+  test "captures local SQL values when a migration option binding is assigned" do
+    fingerprints =
+      ["archived_at IS NULL", "status = 'active'"]
+      |> Enum.map(fn later_predicate ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "priv/repo/migrations/20260728000000_example.exs",
+              source: """
+              defmodule ExampleMigration do
+                use Ecto.Migration
+
+                def change do
+                  predicate = "deleted_at IS NULL"
+                  options = [where: predicate]
+                  predicate = #{inspect(later_predicate)}
+                  create index(:examples, [:email], options)
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "migration.where"
+        occurrence.fingerprint
+      end)
+
+    assert length(Enum.uniq(fingerprints)) == 1
+  end
+
   test "binds migration option fingerprints to locally bound DDL targets" do
     fingerprints =
       [
