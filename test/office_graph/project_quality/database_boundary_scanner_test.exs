@@ -783,6 +783,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "binds statically matched with generators into SQL fingerprints" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn generated_statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load do
+                  statement = "SELECT outer"
+
+                  with {:ok, statement} <- {:ok, #{inspect(generated_statement)}} do
+                    OfficeGraph.Repo.query!(statement, [])
+                  end
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
   test "expression-headed clauses retain outer SQL bindings" do
     [
       """

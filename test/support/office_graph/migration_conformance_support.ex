@@ -76,6 +76,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           expand_local_calls(body, functions, [key])
         end)
         |> block()
+        |> resolve_local_bindings()
 
       nil ->
         {:__block__, [], []}
@@ -86,12 +87,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {_ast, functions} =
       Macro.prewalk(ast, %{}, fn
         {kind, _meta, [head, body_options]} = node, functions
-        when kind in [:def, :defp] and is_list(body_options) ->
+        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
           case {local_function_head(head), Keyword.fetch(body_options, :do)} do
             {{key, parameters, guards}, {:ok, body}} ->
               functions =
                 key
-                |> local_function_definitions(parameters, guards, body)
+                |> local_function_definitions(kind, parameters, guards, body)
                 |> Enum.reduce(functions, fn definition, functions ->
                   Map.update(functions, definition.key, [definition], fn definitions ->
                     [definition | definitions]
@@ -126,9 +127,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp local_function_head(_head), do: nil
 
-  defp local_function_definitions({name, _arity} = key, parameters, guards, body) do
+  defp local_function_definitions({name, _arity} = key, kind, parameters, guards, body) do
     {parameters, defaults} = normalize_default_parameters(parameters)
-    definition = %{body: body, guards: guards, key: key, parameters: parameters}
+
+    definition = %{
+      body: body,
+      guards: guards,
+      key: key,
+      kind: definition_kind(kind),
+      parameters: parameters
+    }
+
     defaults_by_index = Map.new(defaults)
 
     wrappers =
@@ -159,6 +168,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           body: {name, [], call_arguments},
           guards: [],
           key: {name, length(wrapper_parameters)},
+          kind: :function,
           parameters: wrapper_parameters
         }
       end)
@@ -192,11 +202,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         else
           definitions
           |> matching_definitions(arguments)
-          |> Enum.map(fn %{bindings: bindings, body: body} ->
-            body
-            |> substitute_bindings(bindings)
-            |> expand_local_calls(functions, [key | call_stack])
-          end)
+          |> Enum.map(&expand_definition(&1, functions, [key | call_stack]))
           |> block()
         end
 
@@ -216,11 +222,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         else
           definitions
           |> matching_definitions([])
-          |> Enum.map(fn %{bindings: bindings, body: body} ->
-            body
-            |> substitute_bindings(bindings)
-            |> expand_local_calls(functions, [key | call_stack])
-          end)
+          |> Enum.map(&expand_definition(&1, functions, [key | call_stack]))
           |> block()
         end
 
@@ -241,6 +243,40 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp expand_local_calls(node, _functions, _call_stack), do: node
+
+  defp expand_definition(
+         %{bindings: bindings, body: body, kind: :function},
+         functions,
+         call_stack
+       ) do
+    body
+    |> substitute_bindings(bindings)
+    |> resolve_local_bindings()
+    |> expand_local_calls(functions, call_stack)
+  end
+
+  defp expand_definition(%{bindings: bindings, body: body, kind: :macro}, functions, call_stack) do
+    body
+    |> expand_macro_body(bindings)
+    |> expand_local_calls(functions, call_stack)
+  end
+
+  defp expand_macro_body({:quote, _metadata, arguments}, bindings) when is_list(arguments) do
+    arguments
+    |> quoted_body()
+    |> Macro.postwalk(fn
+      {:unquote, _metadata, [expression]} -> substitute_bindings(expression, bindings)
+      node -> node
+    end)
+  end
+
+  defp expand_macro_body(body, bindings), do: substitute_bindings(body, bindings)
+
+  defp quoted_body([options]) when is_list(options), do: Keyword.get(options, :do)
+  defp quoted_body(options), do: Keyword.get(options, :do)
+
+  defp definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
+  defp definition_kind(kind) when kind in [:def, :defp], do: :function
 
   defp matching_definitions(definitions, arguments) do
     definitions
@@ -275,8 +311,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp match_parameter_pattern({name, _metadata, binding_context}, argument, bindings)
        when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
-    bindings = if name == :_, do: bindings, else: Map.put(bindings, name, argument)
-    {:match, bindings}
+    cond do
+      name == :_ ->
+        {:match, bindings}
+
+      Map.has_key?(bindings, name) ->
+        {repeated_binding_status(Map.fetch!(bindings, name), argument), bindings}
+
+      true ->
+        {:match, Map.put(bindings, name, argument)}
+    end
   end
 
   defp match_parameter_pattern(
@@ -339,6 +383,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp combine_match_status(_status, :unknown), do: :unknown
   defp combine_match_status(:match, :match), do: :match
 
+  defp repeated_binding_status(existing, argument) do
+    if Macro.to_string(existing) == Macro.to_string(argument) do
+      :match
+    else
+      with {:known, existing} <- static_guard_value(existing),
+           {:known, argument} <- static_guard_value(argument) do
+        if existing === argument, do: :match, else: :no_match
+      end
+    end
+  end
+
   defp block([body]), do: body
   defp block(bodies), do: {:__block__, [], bodies}
 
@@ -352,6 +407,56 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         node
     end)
   end
+
+  defp resolve_local_bindings(ast) do
+    {ast, _bindings} = resolve_local_bindings(ast, %{})
+    ast
+  end
+
+  defp resolve_local_bindings({:__block__, metadata, expressions}, bindings) do
+    {expressions, bindings} =
+      Enum.map_reduce(expressions, bindings, &resolve_local_bindings/2)
+
+    {{:__block__, metadata, expressions}, bindings}
+  end
+
+  defp resolve_local_bindings({:=, _metadata, [pattern, value]}, bindings) do
+    resolved_value = substitute_bindings(value, bindings)
+
+    bindings =
+      case match_parameter_pattern(pattern, resolved_value, %{}) do
+        {:no_match, _new_bindings} -> bindings
+        {_status, new_bindings} -> Map.merge(bindings, new_bindings)
+      end
+
+    {resolved_value, bindings}
+  end
+
+  defp resolve_local_bindings(nodes, bindings) when is_list(nodes) do
+    nodes =
+      Enum.map(nodes, fn node ->
+        {node, _child_bindings} = resolve_local_bindings(node, bindings)
+        node
+      end)
+
+    {nodes, bindings}
+  end
+
+  defp resolve_local_bindings(node, bindings) when is_tuple(node) do
+    node =
+      node
+      |> Tuple.to_list()
+      |> Enum.map(fn child ->
+        {child, _child_bindings} = resolve_local_bindings(child, bindings)
+        child
+      end)
+      |> List.to_tuple()
+      |> substitute_bindings(bindings)
+
+    {node, bindings}
+  end
+
+  defp resolve_local_bindings(node, bindings), do: {node, bindings}
 
   defp guards_match([], _bindings), do: :match
 

@@ -216,7 +216,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {qualifiers, options} = split_qualifiers_and_options(arguments)
 
     {child_environment, occurrences} =
-      scan_generator_qualifiers(qualifiers, environment, context, occurrences)
+      scan_generator_qualifiers(qualifiers, environment, context, occurrences, :enumerate)
 
     {_options_environment, occurrences} =
       options
@@ -235,7 +235,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {qualifiers, options} = split_qualifiers_and_options(arguments)
 
     {child_environment, occurrences} =
-      scan_generator_qualifiers(qualifiers, environment, context, occurrences)
+      scan_generator_qualifiers(qualifiers, environment, context, occurrences, :match)
 
     {_body_environment, occurrences} =
       scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
@@ -415,12 +415,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_generator_qualifiers(qualifiers, environment, context, occurrences) do
+  defp scan_generator_qualifiers(
+         qualifiers,
+         environment,
+         context,
+         occurrences,
+         binding_mode
+       ) do
     Enum.reduce(qualifiers, {environment, occurrences}, fn
       {:<-, _metadata, [pattern, source]}, {environment, occurrences} ->
         {environment, occurrences} = scan_node(source, environment, context, occurrences)
         {patterns, guards} = clause_patterns_and_guards([pattern])
-        child_environment = remove_pattern_bindings(environment, patterns)
+
+        resolved_source =
+          source
+          |> resolve_attributes(environment)
+          |> resolve_bindings(environment)
+          |> resolve_struct_aliases(environment)
+
+        child_environment =
+          environment
+          |> remove_pattern_bindings(patterns)
+          |> bind_generator_patterns(patterns, resolved_source, binding_mode)
 
         {_guard_environment, occurrences} =
           scan_isolated_children(guards, child_environment, context, occurrences)
@@ -431,6 +447,44 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         scan_node(qualifier, environment, context, occurrences)
     end)
   end
+
+  defp bind_generator_patterns(environment, patterns, source, :match) do
+    if static_binding_source?(source) do
+      bindings =
+        Enum.reduce(patterns, environment.bindings, fn pattern, bindings ->
+          pattern
+          |> resolve_struct_aliases(environment)
+          |> bind_pattern(source, bindings)
+        end)
+
+      %{environment | bindings: bindings}
+    else
+      environment
+    end
+  end
+
+  defp bind_generator_patterns(environment, _patterns, _source, :enumerate), do: environment
+
+  defp static_binding_source?(value)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: true
+
+  defp static_binding_source?(values) when is_list(values),
+    do: Enum.all?(values, &static_binding_source?/1)
+
+  defp static_binding_source?({:{}, _metadata, values}),
+    do: Enum.all?(values, &static_binding_source?/1)
+
+  defp static_binding_source?({:%{}, _metadata, fields}),
+    do: Enum.all?(fields, &static_binding_source?/1)
+
+  defp static_binding_source?({:%, _metadata, [module, fields]}),
+    do: match?({:__aliases__, _, _}, module) and static_binding_source?(fields)
+
+  defp static_binding_source?({left, right}),
+    do: static_binding_source?(left) and static_binding_source?(right)
+
+  defp static_binding_source?(_value), do: false
 
   defp remove_pattern_bindings(environment, patterns) do
     Enum.reduce(patterns, environment, fn pattern, environment ->
