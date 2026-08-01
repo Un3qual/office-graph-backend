@@ -172,8 +172,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node({:fn, _metadata, clauses}, environment, context, occurrences) do
-    {_child_environment, occurrences} =
-      scan_children(clauses, environment, context, occurrences)
+    occurrences =
+      Enum.reduce(clauses, occurrences, fn clause, occurrences ->
+        scan_anonymous_function_clause(clause, environment, context, occurrences)
+      end)
 
     {environment, occurrences}
   end
@@ -252,6 +254,66 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     scan_children(node, environment, context, occurrences)
   end
+
+  defp scan_anonymous_function_clause(
+         {:->, _metadata, [parameters, body]},
+         environment,
+         context,
+         occurrences
+       )
+       when is_list(parameters) do
+    {patterns, guards} = anonymous_function_patterns_and_guards(parameters)
+
+    child_environment =
+      Enum.reduce(patterns, environment, fn pattern, environment ->
+        bindings =
+          Enum.reduce(pattern_binding_names(pattern), environment.bindings, &Map.delete(&2, &1))
+
+        %{environment | bindings: bindings}
+      end)
+
+    {_guard_environment, occurrences} =
+      scan_isolated_children(guards, child_environment, context, occurrences)
+
+    {_body_environment, occurrences} =
+      scan_node(body, child_environment, context, occurrences)
+
+    occurrences
+  end
+
+  defp scan_anonymous_function_clause(clause, environment, context, occurrences) do
+    {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
+    occurrences
+  end
+
+  defp anonymous_function_patterns_and_guards([
+         {:when, _metadata, guarded_patterns_and_guard}
+       ])
+       when length(guarded_patterns_and_guard) >= 2 do
+    {Enum.drop(guarded_patterns_and_guard, -1), [List.last(guarded_patterns_and_guard)]}
+  end
+
+  defp anonymous_function_patterns_and_guards(patterns), do: {patterns, []}
+
+  defp pattern_binding_names({:^, _metadata, [_pattern]}), do: []
+
+  defp pattern_binding_names({name, _metadata, binding_context})
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
+       do: if(name == :_, do: [], else: [name])
+
+  defp pattern_binding_names({_form, _metadata, arguments}) when is_list(arguments) do
+    Enum.flat_map(arguments, &pattern_binding_names/1)
+  end
+
+  defp pattern_binding_names({left_pattern, right_pattern}) do
+    pattern_binding_names(left_pattern) ++ pattern_binding_names(right_pattern)
+  end
+
+  defp pattern_binding_names(patterns) when is_list(patterns) do
+    Enum.flat_map(patterns, &pattern_binding_names/1)
+  end
+
+  defp pattern_binding_names(_pattern), do: []
 
   defp scan_sequence(expressions, environment, context, occurrences) do
     Enum.reduce(expressions, {environment, occurrences}, fn expression,

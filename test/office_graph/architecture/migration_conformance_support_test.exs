@@ -211,6 +211,106 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "selects statically matching guarded migration helper clauses" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_guarded_clause_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          guarded_ddl(:add)
+          reverse_guarded_ddl(:add)
+        end
+
+        defp guarded_ddl(mode) when mode == :add do
+          create table(:guarded_clause_examples)
+        end
+
+        defp guarded_ddl(_mode) do
+          drop table(:guarded_clause_examples)
+        end
+
+        defp reverse_guarded_ddl(mode) when mode == :remove do
+          drop table(:reverse_guarded_clause_examples)
+        end
+
+        defp reverse_guarded_ddl(_mode) do
+          create table(:reverse_guarded_clause_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "guarded_clause_examples",
+               "reverse_guarded_clause_examples"
+             ]
+    end)
+  end
+
+  test "substitutes bindings from destructured migration helper parameters" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_destructured_helper_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          create_pair({:destructured_children, :destructured_parents})
+        end
+
+        defp create_pair({child, parent}) do
+          create table(parent)
+
+          create table(child) do
+            add :parent_id, references(parent)
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "destructured_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "destructured_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "destructured_children",
+               "destructured_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "destructured_children.parent_id references destructured_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "parameter substitution does not re-enter replacement expressions" do
     root =
       Path.join(

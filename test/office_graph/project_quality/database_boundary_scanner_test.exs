@@ -658,6 +658,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.uniq(fingerprints) == fingerprints
   end
 
+  test "anonymous-function parameter patterns shadow outer SQL bindings" do
+    [
+      {"statement", "OfficeGraph.Repo.query!(statement, [])"},
+      {"{statement, params}", "OfficeGraph.Repo.query!(statement, params)"},
+      {"%{statement: statement}", "OfficeGraph.Repo.query!(statement, [])"}
+    ]
+    |> Enum.each(fn {parameters, call} ->
+      fingerprints =
+        ["SELECT 1", "SELECT 2"]
+        |> Enum.map(fn outer_statement ->
+          [occurrence] =
+            DatabaseBoundaryScanner.scan_sources([
+              %{
+                path: "lib/example.ex",
+                source: """
+                defmodule Example do
+                  def load do
+                    statement = #{inspect(outer_statement)}
+                    params = []
+
+                    fn #{parameters} ->
+                      #{call}
+                    end
+                  end
+                end
+                """
+              }
+            ])
+
+          assert occurrence.construct == "Repo.query!"
+          occurrence.fingerprint
+        end)
+
+      assert length(Enum.uniq(fingerprints)) == 1
+    end)
+  end
+
   test "binds migration option fingerprints to the enclosing DDL identity" do
     fingerprints =
       [

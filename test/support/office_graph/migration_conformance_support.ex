@@ -135,9 +135,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         else
           definitions
           |> matching_definitions(arguments)
-          |> Enum.map(fn %{body: body, parameters: parameters} ->
+          |> Enum.map(fn %{bindings: bindings, body: body} ->
             body
-            |> substitute_parameters(parameters, arguments)
+            |> substitute_bindings(bindings)
             |> expand_local_calls(functions, [key | call_stack])
           end)
           |> block()
@@ -159,8 +159,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         else
           definitions
           |> matching_definitions([])
-          |> Enum.map(fn %{body: body} ->
-            expand_local_calls(body, functions, [key | call_stack])
+          |> Enum.map(fn %{bindings: bindings, body: body} ->
+            body
+            |> substitute_bindings(bindings)
+            |> expand_local_calls(functions, [key | call_stack])
           end)
           |> block()
         end
@@ -186,63 +188,93 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp matching_definitions(definitions, arguments) do
     definitions
     |> Enum.reduce_while([], fn definition, matches ->
-      case {patterns_match(definition.parameters, arguments), definition.guards} do
-        {:no_match, _guards} ->
+      {pattern_status, bindings} = match_parameters(definition.parameters, arguments)
+      guard_status = guards_match(definition.guards, bindings)
+      definition = Map.put(definition, :bindings, bindings)
+
+      case {pattern_status, guard_status} do
+        {:no_match, _guard_status} ->
           {:cont, matches}
 
-        {:match, []} ->
+        {_pattern_status, :no_match} ->
+          {:cont, matches}
+
+        {:match, :match} ->
           {:halt, [definition | matches]}
 
-        {_possible_match, _guards} ->
+        {_possible_pattern, _possible_guard} ->
           {:cont, [definition | matches]}
       end
     end)
     |> Enum.reverse()
   end
 
-  defp patterns_match(patterns, arguments) do
+  defp match_parameters(patterns, arguments) do
+    match_parameter_elements(patterns, arguments, %{})
+  end
+
+  defp match_parameter_pattern({:^, _metadata, [_pattern]}, _argument, bindings),
+    do: {:unknown, bindings}
+
+  defp match_parameter_pattern({name, _metadata, binding_context}, argument, bindings)
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+    bindings = if name == :_, do: bindings, else: Map.put(bindings, name, argument)
+    {:match, bindings}
+  end
+
+  defp match_parameter_pattern(
+         {:{}, _pattern_metadata, patterns},
+         {:{}, _argument_metadata, arguments},
+         bindings
+       ) do
+    if length(patterns) == length(arguments),
+      do: match_parameter_elements(patterns, arguments, bindings),
+      else: {:no_match, bindings}
+  end
+
+  defp match_parameter_pattern(
+         {left_pattern, right_pattern},
+         {left_argument, right_argument},
+         bindings
+       ) do
+    {left_status, bindings} =
+      match_parameter_pattern(left_pattern, left_argument, bindings)
+
+    {right_status, bindings} =
+      match_parameter_pattern(right_pattern, right_argument, bindings)
+
+    {combine_match_status(left_status, right_status), bindings}
+  end
+
+  defp match_parameter_pattern(patterns, arguments, bindings)
+       when is_list(patterns) and is_list(arguments) do
+    if length(patterns) == length(arguments),
+      do: match_parameter_elements(patterns, arguments, bindings),
+      else: {:no_match, bindings}
+  end
+
+  defp match_parameter_pattern(pattern, argument, bindings)
+       when is_atom(pattern) or is_binary(pattern) or is_number(pattern) do
+    status =
+      cond do
+        pattern == argument -> :match
+        is_atom(argument) or is_binary(argument) or is_number(argument) -> :no_match
+        true -> :unknown
+      end
+
+    {status, bindings}
+  end
+
+  defp match_parameter_pattern(_pattern, _argument, bindings), do: {:unknown, bindings}
+
+  defp match_parameter_elements(patterns, arguments, bindings) do
     patterns
     |> Enum.zip(arguments)
-    |> Enum.reduce(:match, fn {pattern, argument}, status ->
-      combine_match_status(status, pattern_match(pattern, argument))
+    |> Enum.reduce({:match, bindings}, fn {pattern, argument}, {status, bindings} ->
+      {next_status, bindings} = match_parameter_pattern(pattern, argument, bindings)
+      {combine_match_status(status, next_status), bindings}
     end)
   end
-
-  defp pattern_match({:^, _metadata, [_pattern]}, _argument), do: :unknown
-
-  defp pattern_match({name, _metadata, binding_context}, _argument)
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
-       do: :match
-
-  defp pattern_match({:{}, _pattern_metadata, patterns}, {:{}, _argument_metadata, arguments}) do
-    if length(patterns) == length(arguments),
-      do: patterns_match(patterns, arguments),
-      else: :no_match
-  end
-
-  defp pattern_match({left_pattern, right_pattern}, {left_argument, right_argument}) do
-    combine_match_status(
-      pattern_match(left_pattern, left_argument),
-      pattern_match(right_pattern, right_argument)
-    )
-  end
-
-  defp pattern_match(patterns, arguments) when is_list(patterns) and is_list(arguments) do
-    if length(patterns) == length(arguments),
-      do: patterns_match(patterns, arguments),
-      else: :no_match
-  end
-
-  defp pattern_match(pattern, argument)
-       when is_atom(pattern) or is_binary(pattern) or is_number(pattern) do
-    cond do
-      pattern == argument -> :match
-      is_atom(argument) or is_binary(argument) or is_number(argument) -> :no_match
-      true -> :unknown
-    end
-  end
-
-  defp pattern_match(_pattern, _argument), do: :unknown
 
   defp combine_match_status(:no_match, _status), do: :no_match
   defp combine_match_status(_status, :no_match), do: :no_match
@@ -253,19 +285,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp block([body]), do: body
   defp block(bodies), do: {:__block__, [], bodies}
 
-  defp substitute_parameters(body, parameters, arguments) do
-    bindings =
-      parameters
-      |> Enum.zip(arguments)
-      |> Enum.reduce(%{}, fn
-        {{name, _metadata, binding_context}, argument}, bindings
-        when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) ->
-          Map.put(bindings, name, argument)
-
-        _unsupported_pattern, bindings ->
-          bindings
-      end)
-
+  defp substitute_bindings(body, bindings) do
     Macro.postwalk(body, fn
       {name, _metadata, binding_context} = node
       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) ->
@@ -275,6 +295,75 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         node
     end)
   end
+
+  defp guards_match([], _bindings), do: :match
+
+  defp guards_match(guards, bindings) do
+    Enum.reduce(guards, :match, fn guard, status ->
+      guard_status = guard |> substitute_bindings(bindings) |> static_guard_result()
+      combine_guard_and(status, guard_status)
+    end)
+  end
+
+  defp static_guard_result(true), do: :match
+  defp static_guard_result(false), do: :no_match
+  defp static_guard_result(nil), do: :no_match
+
+  defp static_guard_result({operation, _metadata, [left, right]})
+       when operation in [:==, :===, :!=, :!==] do
+    with {:known, left} <- static_guard_value(left),
+         {:known, right} <- static_guard_value(right) do
+      result =
+        case operation do
+          :== -> left == right
+          :=== -> left === right
+          :!= -> left != right
+          :!== -> left !== right
+        end
+
+      if result, do: :match, else: :no_match
+    end
+  end
+
+  defp static_guard_result(_guard), do: :unknown
+
+  defp static_guard_value(value)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: {:known, value}
+
+  defp static_guard_value(values) when is_list(values) do
+    static_guard_values(values, [])
+  end
+
+  defp static_guard_value({:{}, _metadata, values}) do
+    case static_guard_values(values, []) do
+      {:known, values} -> {:known, List.to_tuple(values)}
+      :unknown -> :unknown
+    end
+  end
+
+  defp static_guard_value({left, right}) do
+    with {:known, left} <- static_guard_value(left),
+         {:known, right} <- static_guard_value(right),
+         do: {:known, {left, right}}
+  end
+
+  defp static_guard_value(_value), do: :unknown
+
+  defp static_guard_values([], values), do: {:known, Enum.reverse(values)}
+
+  defp static_guard_values([value | remaining], values) do
+    case static_guard_value(value) do
+      {:known, value} -> static_guard_values(remaining, [value | values])
+      :unknown -> :unknown
+    end
+  end
+
+  defp combine_guard_and(:no_match, _status), do: :no_match
+  defp combine_guard_and(_status, :no_match), do: :no_match
+  defp combine_guard_and(:unknown, _status), do: :unknown
+  defp combine_guard_and(_status, :unknown), do: :unknown
+  defp combine_guard_and(:match, :match), do: :match
 
   defp migration_foreign_key_operations(ast) do
     {_ast, operations} =
