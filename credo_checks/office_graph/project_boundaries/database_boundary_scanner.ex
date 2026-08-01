@@ -758,6 +758,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp bind_pattern({:^, _metadata, [_pattern]}, _value, bindings), do: bindings
 
+  defp bind_pattern({:=, _metadata, [left_pattern, right_pattern]}, value, bindings) do
+    bindings = bind_pattern(left_pattern, value, bindings)
+    bind_pattern(right_pattern, value, bindings)
+  end
+
   defp bind_pattern({name, _metadata, binding_context}, value, bindings)
        when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
     if name == :_, do: bindings, else: Map.put(bindings, name, value)

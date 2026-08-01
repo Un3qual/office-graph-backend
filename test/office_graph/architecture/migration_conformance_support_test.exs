@@ -109,6 +109,67 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "applies table renames to terminal table and foreign-key identities" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_rename_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:old_parents)
+
+          create table(:old_children) do
+            add :parent_id, references(:old_parents)
+          end
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000001_rename_examples.exs"),
+      """
+      defmodule RenameExamples do
+        use Ecto.Migration
+
+        def change do
+          rename table(:old_parents), to: table(:new_parents)
+          rename table(:old_children), to: table(:new_children)
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "new_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "new_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "new_children",
+               "new_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "new_children.parent_id references new_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "includes DDL from reachable local migration helpers" do
     root =
       Path.join(
@@ -310,6 +371,100 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ) == [
                "macro_children.parent_id references macro_parents.id without a matching belongs_to"
              ]
+    end)
+  end
+
+  test "includes DDL expanded from bind_quoted migration macros" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_bind_quoted_macro_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        defmacrop create_pair(child_table, parent_table) do
+          quote bind_quoted: [child_table: child_table, parent_table: parent_table] do
+            create table(parent_table)
+
+            create table(child_table) do
+              add :parent_id, references(parent_table)
+            end
+          end
+        end
+
+        def change do
+          create_pair(:quoted_children, :quoted_parents)
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "quoted_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "quoted_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "quoted_children",
+               "quoted_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "quoted_children.parent_id references quoted_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "ignores DDL owned by auxiliary modules in a migration file" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_module_scope_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule BeforeMigrationHelper do
+        def change, do: create(table(:before_helper_examples))
+      end
+
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:owned_examples)
+        end
+
+        defmodule NestedHelper do
+          def change, do: create(table(:nested_helper_examples))
+        end
+      end
+
+      defmodule AfterMigrationHelper do
+        def change, do: create(table(:after_helper_examples))
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == ["owned_examples"]
     end)
   end
 

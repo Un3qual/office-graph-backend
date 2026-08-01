@@ -683,6 +683,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.uniq(fingerprints) == fingerprints
   end
 
+  test "binds both sides of nested match patterns into SQL fingerprints" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load do
+                  ({:ok, statement} = result) = {:ok, #{inspect(statement)}}
+                  OfficeGraph.Repo.query!(statement, [])
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
   test "anonymous-function parameter patterns shadow outer SQL bindings" do
     [
       {"statement", "OfficeGraph.Repo.query!(statement, [])"},

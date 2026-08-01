@@ -84,33 +84,59 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_functions(ast) do
-    {_ast, functions} =
-      Macro.prewalk(ast, %{}, fn
-        {kind, _meta, [head, body_options]} = node, functions
+    functions =
+      ast
+      |> migration_module_body()
+      |> module_expressions()
+      |> Enum.reduce(%{}, fn
+        {kind, _meta, [head, body_options]}, functions
         when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
           case {local_function_head(head), Keyword.fetch(body_options, :do)} do
             {{key, parameters, guards}, {:ok, body}} ->
-              functions =
-                key
-                |> local_function_definitions(kind, parameters, guards, body)
-                |> Enum.reduce(functions, fn definition, functions ->
-                  Map.update(functions, definition.key, [definition], fn definitions ->
-                    [definition | definitions]
-                  end)
+              key
+              |> local_function_definitions(kind, parameters, guards, body)
+              |> Enum.reduce(functions, fn definition, functions ->
+                Map.update(functions, definition.key, [definition], fn definitions ->
+                  [definition | definitions]
                 end)
-
-              {node, functions}
+              end)
 
             _not_a_function_definition ->
-              {node, functions}
+              functions
           end
 
-        node, functions ->
-          {node, functions}
+        _module_expression, functions ->
+          functions
       end)
 
     Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
   end
+
+  defp migration_module_body({:__block__, _metadata, expressions}) do
+    Enum.find_value(expressions, &migration_module_body/1)
+  end
+
+  defp migration_module_body({:defmodule, _metadata, [_module, [do: body]]}) do
+    if uses_ecto_migration?(body), do: body
+  end
+
+  defp migration_module_body(_ast), do: nil
+
+  defp uses_ecto_migration?(body) do
+    body
+    |> module_expressions()
+    |> Enum.any?(fn
+      {:use, _metadata, [{:__aliases__, _alias_metadata, [:Ecto, :Migration]} | _options]} ->
+        true
+
+      _module_expression ->
+        false
+    end)
+  end
+
+  defp module_expressions({:__block__, _metadata, expressions}), do: expressions
+  defp module_expressions(nil), do: []
+  defp module_expressions(expression), do: [expression]
 
   defp local_function_head({:when, _meta, [head | guards]}) do
     case local_function_head(head) do
@@ -262,18 +288,53 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp expand_macro_body({:quote, _metadata, arguments}, bindings) when is_list(arguments) do
-    arguments
-    |> quoted_body()
-    |> Macro.postwalk(fn
-      {:unquote, _metadata, [expression]} -> substitute_bindings(expression, bindings)
-      node -> node
-    end)
+    options = quote_options(arguments)
+
+    body =
+      if quote_unquotes?(options) do
+        options
+        |> Keyword.get(:do)
+        |> Macro.postwalk(fn
+          {:unquote, _metadata, [expression]} -> substitute_bindings(expression, bindings)
+          node -> node
+        end)
+      else
+        Keyword.get(options, :do)
+      end
+
+    {body, _macro_bindings} =
+      resolve_local_bindings(body, bind_quoted_bindings(options, bindings))
+
+    body
   end
 
   defp expand_macro_body(body, bindings), do: substitute_bindings(body, bindings)
 
-  defp quoted_body([options]) when is_list(options), do: Keyword.get(options, :do)
-  defp quoted_body(options), do: Keyword.get(options, :do)
+  defp quote_options(arguments) do
+    Enum.flat_map(arguments, fn
+      options when is_list(options) ->
+        if Keyword.keyword?(options), do: options, else: []
+
+      _argument ->
+        []
+    end)
+  end
+
+  defp quote_unquotes?(options) do
+    Keyword.get(options, :unquote, not Keyword.has_key?(options, :bind_quoted))
+  end
+
+  defp bind_quoted_bindings(options, call_bindings) do
+    options
+    |> Keyword.get(:bind_quoted, [])
+    |> Enum.reduce(%{}, fn
+      {name, expression}, bindings when is_atom(name) ->
+        Map.put(bindings, name, substitute_bindings(expression, call_bindings))
+
+      _binding, bindings ->
+        bindings
+    end)
+  end
 
   defp definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
   defp definition_kind(kind) when kind in [:def, :defp], do: :function
@@ -542,6 +603,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp migration_foreign_key_operations(ast) do
     {_ast, operations} =
       Macro.prewalk(ast, [], fn
+        {:rename, _metadata,
+         [
+           {:table, _old_table_metadata, [old_table | _old_table_options]},
+           [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
+         ]} = node,
+        operations
+        when is_atom(old_table) and is_atom(new_table) ->
+          operation = {:rename_table, Atom.to_string(old_table), Atom.to_string(new_table)}
+          {node, [operation | operations]}
+
         {operation, _meta, [{:table, _table_meta, [table | _table_options]}, [do: block]]} = node,
         operations
         when operation in @table_definition_operations and is_atom(table) ->
@@ -564,6 +635,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp migration_table_operations(ast) do
     {_ast, operations} =
       Macro.prewalk(ast, [], fn
+        {:rename, _metadata,
+         [
+           {:table, _old_table_metadata, [old_table | _old_table_options]},
+           [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
+         ]} = node,
+        operations
+        when is_atom(old_table) and is_atom(new_table) ->
+          operation = {:rename, Atom.to_string(old_table), Atom.to_string(new_table)}
+          {node, [operation | operations]}
+
         {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _options]} = node,
         operations
         when operation in @table_lifecycle_operations and is_atom(table) ->
@@ -581,6 +662,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp apply_table_operation({:create, table}, tables), do: MapSet.put(tables, table)
   defp apply_table_operation({:drop, table}, tables), do: MapSet.delete(tables, table)
+
+  defp apply_table_operation({:rename, old_table, new_table}, tables) do
+    tables
+    |> MapSet.delete(old_table)
+    |> MapSet.put(new_table)
+  end
 
   defp table_foreign_key_operations(table, block) do
     table = Atom.to_string(table)
@@ -630,6 +717,18 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp apply_foreign_key_operation({:drop_table, table}, foreign_keys) do
     Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_key} ->
       source_table == table
+    end)
+  end
+
+  defp apply_foreign_key_operation({:rename_table, old_table, new_table}, foreign_keys) do
+    Map.new(foreign_keys, fn
+      {{source_table, column}, {source_table, column, destination_table, destination_column}} ->
+        source_table = if source_table == old_table, do: new_table, else: source_table
+
+        destination_table =
+          if destination_table == old_table, do: new_table, else: destination_table
+
+        {{source_table, column}, {source_table, column, destination_table, destination_column}}
     end)
   end
 end
