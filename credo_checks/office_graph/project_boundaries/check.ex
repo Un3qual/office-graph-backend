@@ -76,6 +76,22 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(
+         %{kind: :invalid_inventory, invalid_fields: fields} = diagnostic,
+         root,
+         params
+       ) do
+    path = inventory_path(diagnostic.inventory)
+
+    format_boundary_issue(
+      root,
+      path,
+      params,
+      "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: " <>
+        "invalid #{Enum.join(fields, ", ")}"
+    )
+  end
+
   defp issue_for(%{kind: :invalid_inventory} = diagnostic, root, params) do
     path = inventory_path(diagnostic.inventory)
 

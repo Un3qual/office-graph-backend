@@ -211,8 +211,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           table_operations = table_foreign_key_operations(table, block)
           {node, Enum.reverse(table_operations, operations)}
 
-        {:drop, _meta, [{:table, _table_meta, [table | _table_options]}]} = node, operations
-        when is_atom(table) ->
+        {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _drop_options]} =
+            node,
+        operations
+        when operation in @table_drop_operations and is_atom(table) ->
           {node, [{:drop_table, Atom.to_string(table)} | operations]}
 
         node, operations ->

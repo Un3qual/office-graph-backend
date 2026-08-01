@@ -12,6 +12,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "retirement_condition",
     "verification"
   ]
+  @required_string_fields ["class", "construct", "fingerprint", "path"] ++
+                            @approved_metadata_fields
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
 
@@ -105,7 +107,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       ["class", "construct", "fingerprint", "ordinal", "path"] ++
         @approved_metadata_fields
 
-    metadata_errors =
+    missing_field_errors =
       approved_exceptions
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {entry, index} ->
@@ -128,12 +130,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         end
       end)
 
-    metadata_errors ++ duplicate_locator_errors(approved_exceptions)
+    invalid_field_errors =
+      approved_exceptions
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {entry, index} ->
+        case invalid_fields(entry) do
+          [] ->
+            []
+
+          fields ->
+            [
+              %{
+                kind: :invalid_inventory,
+                inventory: :approved_exceptions,
+                entry: index,
+                invalid_fields: fields
+              }
+            ]
+        end
+      end)
+
+    missing_field_errors ++
+      invalid_field_errors ++
+      duplicate_locator_errors(approved_exceptions)
   end
 
   defp duplicate_locator_errors(approved_exceptions) do
     approved_exceptions
     |> Enum.with_index(1)
+    |> Enum.filter(fn {entry, _index} -> valid_locator?(entry) end)
     |> Enum.group_by(fn {entry, _index} ->
       Enum.map(@locator_fields, &Map.get(entry, &1))
     end)
@@ -161,7 +186,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   defp normalize_entry(entry) do
     entry
     |> Map.new(fn {key, value} -> {to_string(key), value} end)
-    |> Map.update("class", nil, &to_string/1)
+    |> Map.update("class", nil, &normalize_class/1)
   end
 
   defp normalize_entry(entry, inventory) do
@@ -173,6 +198,46 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   defp same_locator?(left, right) do
     Enum.all?(@locator_fields, &(Map.get(left, &1) == Map.get(right, &1)))
   end
+
+  defp invalid_fields(entry) do
+    invalid_strings =
+      Enum.filter(@required_string_fields, fn field ->
+        value = Map.get(entry, field)
+        not blank?(value) and not is_binary(value)
+      end)
+
+    invalid_function =
+      case Map.get(entry, "function") do
+        nil -> []
+        value when is_binary(value) and value != "" -> []
+        _value -> ["function"]
+      end
+
+    invalid_ordinal =
+      entry
+      |> Map.get("ordinal")
+      |> case do
+        value when is_integer(value) and value > 0 -> []
+        value -> if blank?(value), do: [], else: ["ordinal"]
+      end
+
+    (invalid_strings ++ invalid_function ++ invalid_ordinal)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp valid_locator?(entry) do
+    is_binary(entry["path"]) and entry["path"] != "" and
+      is_binary(entry["class"]) and entry["class"] != "" and
+      is_binary(entry["construct"]) and entry["construct"] != "" and
+      (is_nil(entry["function"]) or
+         (is_binary(entry["function"]) and entry["function"] != "")) and
+      is_integer(entry["ordinal"]) and entry["ordinal"] > 0
+  end
+
+  defp normalize_class(nil), do: nil
+  defp normalize_class(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_class(value), do: value
 
   defp diagnostic(occurrence, kind) do
     %{

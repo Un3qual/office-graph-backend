@@ -149,6 +149,33 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
+  test "reports invalid locator types before formatting duplicate diagnostics" do
+    with_repository(fn root ->
+      source = """
+      defmodule Example do
+        def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+      end
+      """
+
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+
+      malformed_path = %{"unexpected" => "object"}
+
+      write_approved!(root, [
+        approved_entry(occurrence, "sha256:first") |> Map.put("path", malformed_path),
+        approved_entry(occurrence, "sha256:second") |> Map.put("path", malformed_path)
+      ])
+
+      issues = run_check(root)
+
+      assert Enum.map(issues, & &1.message) |> Enum.sort() == [
+               "invalid_inventory approved_database_exceptions entry 1: invalid path",
+               "invalid_inventory approved_database_exceptions entry 2: invalid path"
+             ]
+    end)
+  end
+
   test "reports a parallel planning file at the prohibited path" do
     with_repository(fn root ->
       path = "docs/superpowers/plans/feature.md"

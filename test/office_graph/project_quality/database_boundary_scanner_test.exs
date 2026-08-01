@@ -569,6 +569,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.uniq(fingerprints) == fingerprints
   end
 
+  test "binds direct SQL fingerprints to recursively resolved local values" do
+    [
+      {"lib/example.ex", "OfficeGraph.Repo.query!(statement, [])", "Repo.query!"},
+      {"priv/repo/migrations/20260728000000_example.exs", "execute(statement)",
+       "migration.execute"}
+    ]
+    |> Enum.each(fn {path, call, construct} ->
+      fingerprints =
+        ["SELECT 1", "SELECT 2"]
+        |> Enum.map(fn statement ->
+          [occurrence] =
+            DatabaseBoundaryScanner.scan_sources([
+              %{
+                path: path,
+                source: """
+                defmodule Example do
+                  def load do
+                    statement = #{inspect(statement)}
+                    #{call}
+                  end
+                end
+                """
+              }
+            ])
+
+          assert occurrence.construct == construct
+          occurrence.fingerprint
+        end)
+
+      assert Enum.uniq(fingerprints) == fingerprints
+    end)
+  end
+
   test "binds migration option fingerprints to the enclosing DDL identity" do
     fingerprints =
       [
