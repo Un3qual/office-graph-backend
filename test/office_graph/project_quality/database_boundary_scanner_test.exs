@@ -454,6 +454,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "classifies qualified migration fragments" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+            alias Ecto.Migration, as: Migration
+
+            def change do
+              Ecto.Migration.fragment("uuidv7()")
+              Migration.fragment("now()")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "fragment", 6},
+             {:raw_sql, "fragment", 7}
+           ]
+  end
+
   test "classifies module attribute expressions used by SQL-bearing migration constructs" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -836,6 +861,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       end)
 
     assert Enum.uniq(fingerprints) == fingerprints
+  end
+
+  test "binds module aliases from static with generators" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              with repo <- OfficeGraph.Repo do
+                repo.query!("SELECT 1", [])
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 4
   end
 
   test "expression-headed clauses retain outer SQL bindings" do

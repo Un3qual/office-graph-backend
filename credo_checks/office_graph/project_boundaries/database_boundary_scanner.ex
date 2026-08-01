@@ -481,6 +481,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp static_binding_source?({:%, _metadata, [module, fields]}),
     do: match?({:__aliases__, _, _}, module) and static_binding_source?(fields)
 
+  defp static_binding_source?({:__aliases__, _metadata, parts}),
+    do: Enum.all?(parts, &is_atom/1)
+
   defp static_binding_source?({left, right}),
     do: static_binding_source?(left) and static_binding_source?(right)
 
@@ -536,6 +539,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        ) do
     receiver =
       receiver
+      |> resolve_bindings(environment)
       |> receiver_name()
       |> resolve_receiver(environment)
 
@@ -572,6 +576,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_operation("Ecto.Migration", :insert, true),
     do: {:direct_ecto, "migration.insert"}
+
+  defp classify_migration_operation("Ecto.Migration", :fragment, true),
+    do: {:raw_sql, "fragment"}
 
   defp classify_migration_operation(_receiver, _operation, _migration?), do: nil
 

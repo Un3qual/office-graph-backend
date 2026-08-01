@@ -62,6 +62,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
     end)
     |> Map.values()
+    |> Enum.flat_map(&MapSet.to_list/1)
+    |> Enum.map(fn {source_table, source_attribute, destination_table, destination_attribute,
+                    _constraint_name} ->
+      {source_table, source_attribute, destination_table, destination_attribute}
+    end)
+    |> Enum.uniq()
     |> Enum.sort()
   end
 
@@ -601,50 +607,155 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp combine_guard_or(:no_match, :no_match), do: :no_match
 
   defp migration_foreign_key_operations(ast) do
-    {_ast, operations} =
-      Macro.prewalk(ast, [], fn
-        {:rename, _metadata,
-         [
-           {:table, _old_table_metadata, [old_table | _old_table_options]},
-           [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
-         ]} = node,
-        operations
-        when is_atom(old_table) and is_atom(new_table) ->
-          operation = {:rename_table, Atom.to_string(old_table), Atom.to_string(new_table)}
-          {node, [operation | operations]}
+    collect_foreign_key_operations(ast, nil, :definite)
+  end
 
-        {:rename, _metadata,
-         [
-           {:table, _table_metadata, [table | _table_options]},
-           old_column,
-           [to: new_column]
-         ]} = node,
-        operations
-        when is_atom(table) and is_atom(old_column) and is_atom(new_column) ->
-          operation =
-            {:rename_column, Atom.to_string(table), Atom.to_string(old_column),
-             Atom.to_string(new_column)}
+  defp collect_foreign_key_operations(
+         {operator, _metadata, [condition, options]},
+         table,
+         certainty
+       )
+       when operator in [:if, :unless] and is_list(options) do
+    condition_operations = collect_foreign_key_operations(condition, table, certainty)
+    do_branch = Keyword.get(options, :do)
+    else_branch = Keyword.get(options, :else)
 
-          {node, [operation | operations]}
+    branch_operations =
+      case selected_static_branch(operator, condition) do
+        :do ->
+          collect_foreign_key_operations(do_branch, table, certainty)
 
-        {operation, _metadata, [{:table, _table_metadata, [table | _table_options]}, [do: block]]} =
-            node,
-        operations
-        when operation in @table_definition_operations and is_atom(table) ->
-          table_operations = table_foreign_key_operations(table, block)
-          {node, Enum.reverse(table_operations, operations)}
+        :else ->
+          collect_foreign_key_operations(else_branch, table, certainty)
 
-        {operation, _metadata,
-         [{:table, _table_metadata, [table | _table_options]} | _drop_options]} = node,
-        operations
-        when operation in @table_drop_operations and is_atom(table) ->
-          {node, [{:drop_table, Atom.to_string(table)} | operations]}
+        :unknown ->
+          possible_certainty = possible_certainty(certainty)
 
-        node, operations ->
-          {node, operations}
-      end)
+          [do_branch, else_branch]
+          |> Enum.flat_map(&collect_foreign_key_operations(&1, table, possible_certainty))
+      end
 
-    Enum.reverse(operations)
+    condition_operations ++ branch_operations
+  end
+
+  defp collect_foreign_key_operations(
+         {:rename, _metadata,
+          [
+            {:table, _old_table_metadata, [old_table | _old_table_options]},
+            [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
+          ]},
+         _table,
+         certainty
+       )
+       when is_atom(old_table) and is_atom(new_table) do
+    operation = {:rename_table, Atom.to_string(old_table), Atom.to_string(new_table)}
+    [with_certainty(operation, certainty)]
+  end
+
+  defp collect_foreign_key_operations(
+         {:rename, _metadata,
+          [
+            {:table, _table_metadata, [table | _table_options]},
+            old_column,
+            [to: new_column]
+          ]},
+         _table,
+         certainty
+       )
+       when is_atom(table) and is_atom(old_column) and is_atom(new_column) do
+    operation =
+      {:rename_column, Atom.to_string(table), Atom.to_string(old_column),
+       Atom.to_string(new_column)}
+
+    [with_certainty(operation, certainty)]
+  end
+
+  defp collect_foreign_key_operations(
+         {operation, _metadata,
+          [{:table, _table_metadata, [table | _table_options]}, [do: block]]},
+         _current_table,
+         certainty
+       )
+       when operation in @table_definition_operations and is_atom(table) do
+    collect_foreign_key_operations(block, Atom.to_string(table), certainty)
+  end
+
+  defp collect_foreign_key_operations(
+         {operation, _metadata,
+          [{:constraint, _constraint_metadata, [table, name | _constraint_options]}]},
+         _current_table,
+         certainty
+       )
+       when operation in @table_drop_operations and
+              (is_atom(table) or is_binary(table)) and
+              (is_atom(name) or is_binary(name)) do
+    operation = {:drop_constraint, to_string(table), to_string(name)}
+    [with_certainty(operation, certainty)]
+  end
+
+  defp collect_foreign_key_operations(
+         {operation, _metadata,
+          [{:table, _table_metadata, [table | _table_options]} | _drop_options]},
+         _current_table,
+         certainty
+       )
+       when operation in @table_drop_operations and is_atom(table) do
+    operation = {:drop_table, Atom.to_string(table)}
+    [with_certainty(operation, certainty)]
+  end
+
+  defp collect_foreign_key_operations(
+         {operation, _metadata,
+          [
+            column,
+            {:references, _references_metadata, [destination | reference_options]}
+            | _column_options
+          ]},
+         table,
+         certainty
+       )
+       when operation in [:add, :modify] and is_binary(table) and is_atom(column) and
+              is_atom(destination) do
+    reference_options = List.flatten(reference_options)
+
+    foreign_key = {
+      table,
+      Atom.to_string(column),
+      Atom.to_string(destination),
+      reference_options |> Keyword.get(:column, :id) |> Atom.to_string(),
+      foreign_key_constraint_name(table, column, reference_options)
+    }
+
+    [with_certainty({:put, foreign_key}, certainty)]
+  end
+
+  defp collect_foreign_key_operations(
+         {:remove, _metadata, [column | _options]},
+         table,
+         certainty
+       )
+       when is_binary(table) and is_atom(column) do
+    operation = {:remove, table, Atom.to_string(column)}
+    [with_certainty(operation, certainty)]
+  end
+
+  defp collect_foreign_key_operations(nodes, table, certainty) when is_list(nodes) do
+    Enum.flat_map(nodes, &collect_foreign_key_operations(&1, table, certainty))
+  end
+
+  defp collect_foreign_key_operations(node, table, certainty) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> Enum.flat_map(&collect_foreign_key_operations(&1, table, certainty))
+  end
+
+  defp collect_foreign_key_operations(_node, _table, _certainty), do: []
+
+  defp foreign_key_constraint_name(table, column, reference_options) do
+    case Keyword.get(reference_options, :name) do
+      nil -> "#{table}_#{column}_fkey"
+      name when is_atom(name) or is_binary(name) -> to_string(name)
+    end
   end
 
   defp migration_table_operations(ast) do
@@ -775,88 +886,151 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.put(new_table)
   end
 
-  defp table_foreign_key_operations(table, block) do
-    table = Atom.to_string(table)
-
-    {_block, operations} =
-      Macro.prewalk(block, [], fn
-        {operation, _metadata,
-         [
-           column,
-           {:references, _references_metadata, [destination | reference_options]}
-           | _column_options
-         ]} = node,
-        operations
-        when operation in [:add, :modify] and is_atom(column) and is_atom(destination) ->
-          destination_attribute =
-            reference_options
-            |> List.flatten()
-            |> Keyword.get(:column, :id)
-
-          foreign_key = {
-            table,
-            Atom.to_string(column),
-            Atom.to_string(destination),
-            Atom.to_string(destination_attribute)
-          }
-
-          {node, [{:put, foreign_key} | operations]}
-
-        {:remove, _metadata, [column | _options]} = node, operations when is_atom(column) ->
-          {node, [{:remove, table, Atom.to_string(column)} | operations]}
-
-        node, operations ->
-          {node, operations}
-      end)
-
-    Enum.reverse(operations)
+  defp apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do
+    Map.put(foreign_keys, foreign_key_identity(foreign_key), MapSet.new([foreign_key]))
   end
 
-  defp apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do
-    {table, column, _destination_table, _destination_column} = foreign_key
-    Map.put(foreign_keys, {table, column}, foreign_key)
+  defp apply_foreign_key_operation({:possible, {:put, foreign_key}}, foreign_keys) do
+    Map.update(
+      foreign_keys,
+      foreign_key_identity(foreign_key),
+      MapSet.new([foreign_key]),
+      &MapSet.put(&1, foreign_key)
+    )
   end
 
   defp apply_foreign_key_operation({:remove, table, column}, foreign_keys),
     do: Map.delete(foreign_keys, {table, column})
 
+  defp apply_foreign_key_operation({:possible, {:remove, _table, _column}}, foreign_keys),
+    do: foreign_keys
+
   defp apply_foreign_key_operation({:drop_table, table}, foreign_keys) do
-    Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_key} ->
+    Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_keys} ->
       source_table == table
     end)
   end
 
-  defp apply_foreign_key_operation({:rename_table, old_table, new_table}, foreign_keys) do
-    Map.new(foreign_keys, fn
-      {{source_table, column}, {source_table, column, destination_table, destination_column}} ->
-        source_table = if source_table == old_table, do: new_table, else: source_table
+  defp apply_foreign_key_operation({:possible, {:drop_table, _table}}, foreign_keys),
+    do: foreign_keys
 
-        destination_table =
-          if destination_table == old_table, do: new_table, else: destination_table
-
-        {{source_table, column}, {source_table, column, destination_table, destination_column}}
+  defp apply_foreign_key_operation({:drop_constraint, table, name}, foreign_keys) do
+    reject_foreign_keys(foreign_keys, fn
+      {source_table, _source_column, _destination_table, _destination_column, constraint_name} ->
+        source_table == table and constraint_name == name
     end)
+  end
+
+  defp apply_foreign_key_operation(
+         {:possible, {:drop_constraint, _table, _name}},
+         foreign_keys
+       ),
+       do: foreign_keys
+
+  defp apply_foreign_key_operation({:rename_table, old_table, new_table}, foreign_keys) do
+    remap_foreign_keys(foreign_keys, &rename_foreign_key_table(&1, old_table, new_table))
+  end
+
+  defp apply_foreign_key_operation(
+         {:possible, {:rename_table, old_table, new_table}},
+         foreign_keys
+       ) do
+    add_possible_foreign_key_variants(
+      foreign_keys,
+      &rename_foreign_key_table(&1, old_table, new_table)
+    )
   end
 
   defp apply_foreign_key_operation(
          {:rename_column, table, old_column, new_column},
          foreign_keys
        ) do
-    Map.new(foreign_keys, fn
-      {{source_table, source_column},
-       {source_table, source_column, destination_table, destination_column}} ->
-        source_column =
-          if source_table == table and source_column == old_column,
-            do: new_column,
-            else: source_column
+    remap_foreign_keys(
+      foreign_keys,
+      &rename_foreign_key_column(&1, table, old_column, new_column)
+    )
+  end
 
-        destination_column =
-          if destination_table == table and destination_column == old_column,
-            do: new_column,
-            else: destination_column
+  defp apply_foreign_key_operation(
+         {:possible, {:rename_column, table, old_column, new_column}},
+         foreign_keys
+       ) do
+    add_possible_foreign_key_variants(
+      foreign_keys,
+      &rename_foreign_key_column(&1, table, old_column, new_column)
+    )
+  end
 
-        {{source_table, source_column},
-         {source_table, source_column, destination_table, destination_column}}
+  defp foreign_key_identity({table, column, _destination_table, _destination_column, _name}),
+    do: {table, column}
+
+  defp rename_foreign_key_table(
+         {source_table, source_column, destination_table, destination_column, constraint_name},
+         old_table,
+         new_table
+       ) do
+    source_table = if source_table == old_table, do: new_table, else: source_table
+    destination_table = if destination_table == old_table, do: new_table, else: destination_table
+
+    {source_table, source_column, destination_table, destination_column, constraint_name}
+  end
+
+  defp rename_foreign_key_column(
+         {source_table, source_column, destination_table, destination_column, constraint_name},
+         table,
+         old_column,
+         new_column
+       ) do
+    source_column =
+      if source_table == table and source_column == old_column,
+        do: new_column,
+        else: source_column
+
+    destination_column =
+      if destination_table == table and destination_column == old_column,
+        do: new_column,
+        else: destination_column
+
+    {source_table, source_column, destination_table, destination_column, constraint_name}
+  end
+
+  defp remap_foreign_keys(foreign_keys, mapper) do
+    Enum.reduce(foreign_keys, %{}, fn {_identity, candidates}, remapped ->
+      Enum.reduce(candidates, remapped, fn foreign_key, remapped ->
+        foreign_key = mapper.(foreign_key)
+
+        Map.update(
+          remapped,
+          foreign_key_identity(foreign_key),
+          MapSet.new([foreign_key]),
+          &MapSet.put(&1, foreign_key)
+        )
+      end)
+    end)
+  end
+
+  defp add_possible_foreign_key_variants(foreign_keys, mapper) do
+    Enum.reduce(foreign_keys, foreign_keys, fn {_identity, candidates}, expanded ->
+      Enum.reduce(candidates, expanded, fn foreign_key, expanded ->
+        possible_foreign_key = mapper.(foreign_key)
+
+        Map.update(
+          expanded,
+          foreign_key_identity(possible_foreign_key),
+          MapSet.new([possible_foreign_key]),
+          &MapSet.put(&1, possible_foreign_key)
+        )
+      end)
+    end)
+  end
+
+  defp reject_foreign_keys(foreign_keys, reject?) do
+    Enum.reduce(foreign_keys, %{}, fn {identity, candidates}, remaining ->
+      candidates = MapSet.reject(candidates, reject?)
+
+      if MapSet.size(candidates) == 0,
+        do: remaining,
+        else: Map.put(remaining, identity, candidates)
     end)
   end
 end

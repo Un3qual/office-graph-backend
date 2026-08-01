@@ -212,6 +212,52 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "executes only statically selected foreign-key branches" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_static_foreign_key_branch_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents)
+
+          create table(:children) do
+            if true do
+              add :parent_id, references(:parents)
+            else
+              remove :parent_id
+            end
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, OfficeGraph.Tenancy.Organization},
+      "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "keeps tables that may exist after an unknown migration branch" do
     root =
       Path.join(
@@ -242,6 +288,52 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
     File.cd!(root, fn ->
       assert MigrationConformanceSupport.migration_tables() == ["possible_examples"]
+    end)
+  end
+
+  test "keeps foreign keys that may exist after an unknown migration branch" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_unknown_foreign_key_branch_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents)
+
+          create table(:children) do
+            if System.get_env("CREATE_PARENT_REFERENCE") do
+              add :parent_id, references(:parents)
+            else
+              remove :parent_id
+            end
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, OfficeGraph.Tenancy.Organization},
+      "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
     end)
   end
 
@@ -300,6 +392,63 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ) == [
                "children.owner_id references parents.external_id without a matching belongs_to"
              ]
+    end)
+  end
+
+  test "removes foreign keys when their constraints are dropped" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_constraint_drop_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents)
+
+          create table(:children) do
+            add :parent_id, references(:parents)
+
+            add :alternate_parent_id,
+                references(:parents, name: "children_alternate_parent_fkey")
+          end
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000001_drop_constraints.exs"),
+      """
+      defmodule DropConstraints do
+        use Ecto.Migration
+
+        def change do
+          drop constraint(:children, "children_parent_id_fkey")
+          drop_if_exists constraint(:children, "children_alternate_parent_fkey")
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, OfficeGraph.Tenancy.Organization},
+      "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == []
     end)
   end
 
