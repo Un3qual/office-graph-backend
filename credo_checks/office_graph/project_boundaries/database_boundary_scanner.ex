@@ -229,7 +229,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     occurrences =
       resolved_node
-      |> resolve_migration_option_bindings(environment)
+      |> resolve_migration_bindings(environment)
       |> classify_migration_sql_options(context, occurrences)
 
     occurrences =
@@ -400,22 +400,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_sql_options(_node, _context, occurrences), do: occurrences
 
-  defp resolve_migration_option_bindings(
+  defp resolve_migration_bindings(
          {operation, metadata, [{construct, construct_metadata, arguments}]},
          environment
        )
        when operation in @migration_create_operations and
               construct in @migration_sql_option_constructs and is_list(arguments) do
-    resolved_options =
-      arguments
-      |> List.last()
-      |> resolve_bindings(environment)
-
     {operation, metadata,
-     [{construct, construct_metadata, List.replace_at(arguments, -1, resolved_options)}]}
+     [{construct, construct_metadata, resolve_bindings(arguments, environment)}]}
   end
 
-  defp resolve_migration_option_bindings(node, _environment), do: node
+  defp resolve_migration_bindings(node, _environment), do: node
 
   defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
 

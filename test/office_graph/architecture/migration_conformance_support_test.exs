@@ -246,4 +246,44 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       end
     end)
   end
+
+  test "reports foreign keys declared by conditional table creates" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_conditional_foreign_key_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create_if_not_exists table(:conditional_children) do
+            add :parent_id, references(:conditional_parents)
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "conditional_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "conditional_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "conditional_children.parent_id references conditional_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
 end

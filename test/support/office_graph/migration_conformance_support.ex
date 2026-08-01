@@ -1,6 +1,11 @@
 defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @moduledoc false
 
+  @table_create_operations [:create, :create_if_not_exists]
+  @table_drop_operations [:drop, :drop_if_exists]
+  @table_definition_operations [:alter | @table_create_operations]
+  @table_lifecycle_operations @table_create_operations ++ @table_drop_operations
+
   def migration_tables do
     "priv/repo/migrations/*.exs"
     |> Path.wildcard()
@@ -202,7 +207,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       Macro.prewalk(ast, [], fn
         {operation, _meta, [{:table, _table_meta, [table | _table_options]}, [do: block]]} = node,
         operations
-        when operation in [:create, :alter] and is_atom(table) ->
+        when operation in @table_definition_operations and is_atom(table) ->
           table_operations = table_foreign_key_operations(table, block)
           {node, Enum.reverse(table_operations, operations)}
 
@@ -222,10 +227,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       Macro.prewalk(ast, [], fn
         {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _options]} = node,
         operations
-        when operation in [:create, :create_if_not_exists, :drop, :drop_if_exists] and
-               is_atom(table) ->
+        when operation in @table_lifecycle_operations and is_atom(table) ->
           lifecycle_operation =
-            if operation in [:create, :create_if_not_exists], do: :create, else: :drop
+            if operation in @table_create_operations, do: :create, else: :drop
 
           {node, [{lifecycle_operation, Atom.to_string(table)} | operations]}
 
