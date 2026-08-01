@@ -1172,4 +1172,107 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ) == []
     end)
   end
+
+  test "resolves migration module attributes at each definition site" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_module_attribute_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        @table :attribute_parents
+        defp create_parent do
+          create table(@table)
+        end
+
+        @table :attribute_children
+        @parent_table :attribute_parents
+
+        def change do
+          create_parent()
+
+          create table(@table) do
+            add :parent_id, references(@parent_table)
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "attribute_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "attribute_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "attribute_children",
+               "attribute_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "attribute_children.parent_id references attribute_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "resolves aliases when selecting the owning migration module" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_aliased_migration_module_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        alias Ecto.Migration, as: Migration
+        use Migration
+
+        def change do
+          create table(:aliased_parents)
+
+          create table(:aliased_children) do
+            add :parent_id, references(:aliased_parents)
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "aliased_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "aliased_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "aliased_children",
+               "aliased_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "aliased_children.parent_id references aliased_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
 end

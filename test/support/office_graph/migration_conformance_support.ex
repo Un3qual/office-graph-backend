@@ -90,29 +90,44 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_functions(ast) do
-    functions =
+    {functions, _attributes} =
       ast
       |> migration_module_body()
       |> module_expressions()
-      |> Enum.reduce(%{}, fn
-        {kind, _meta, [head, body_options]}, functions
+      |> Enum.reduce({%{}, %{}}, fn
+        {:@, _metadata, [{name, _name_metadata, [value]}]}, {functions, attributes}
+        when is_atom(name) ->
+          attributes = Map.put(attributes, name, resolve_module_attributes(value, attributes))
+          {functions, attributes}
+
+        {kind, _meta, [head, body_options]}, {functions, attributes}
         when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
+          head = resolve_module_attributes(head, attributes)
+
           case {local_function_head(head), Keyword.fetch(body_options, :do)} do
             {{key, parameters, guards}, {:ok, body}} ->
-              key
-              |> local_function_definitions(kind, parameters, guards, body)
-              |> Enum.reduce(functions, fn definition, functions ->
-                Map.update(functions, definition.key, [definition], fn definitions ->
-                  [definition | definitions]
+              functions =
+                key
+                |> local_function_definitions(
+                  kind,
+                  parameters,
+                  guards,
+                  resolve_module_attributes(body, attributes)
+                )
+                |> Enum.reduce(functions, fn definition, functions ->
+                  Map.update(functions, definition.key, [definition], fn definitions ->
+                    [definition | definitions]
+                  end)
                 end)
-              end)
+
+              {functions, attributes}
 
             _not_a_function_definition ->
-              functions
+              {functions, attributes}
           end
 
-        _module_expression, functions ->
-          functions
+        _module_expression, accumulator ->
+          accumulator
       end)
 
     Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
@@ -131,18 +146,128 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp uses_ecto_migration?(body) do
     body
     |> module_expressions()
-    |> Enum.any?(fn
-      {:use, _metadata, [{:__aliases__, _alias_metadata, [:Ecto, :Migration]} | _options]} ->
-        true
+    |> Enum.reduce_while(%{}, fn
+      {:alias, _metadata, arguments}, aliases ->
+        {:cont, put_module_aliases(aliases, arguments)}
 
-      _module_expression ->
-        false
+      {:use, _metadata, [target | _options]}, aliases ->
+        if resolve_module_name(target, aliases) == "Ecto.Migration",
+          do: {:halt, true},
+          else: {:cont, aliases}
+
+      _module_expression, aliases ->
+        {:cont, aliases}
     end)
+    |> Kernel.==(true)
   end
 
   defp module_expressions({:__block__, _metadata, expressions}), do: expressions
   defp module_expressions(nil), do: []
   defp module_expressions(expression), do: [expression]
+
+  defp put_module_aliases(aliases, [target]),
+    do: apply_module_aliases(aliases, target, [])
+
+  defp put_module_aliases(aliases, [target, options]) when is_list(options),
+    do: apply_module_aliases(aliases, target, options)
+
+  defp put_module_aliases(aliases, _arguments), do: aliases
+
+  defp apply_module_aliases(aliases, target, options) do
+    target
+    |> module_alias_target_names()
+    |> Enum.reduce(aliases, fn target_name, aliases ->
+      resolved_target = resolve_module_name(target_name, aliases)
+
+      alias_name =
+        case Keyword.get(options, :as) do
+          nil -> target_name |> String.split(".") |> List.last()
+          explicit_alias -> module_name(explicit_alias)
+        end
+
+      if is_binary(alias_name) and is_binary(resolved_target),
+        do: Map.put(aliases, alias_name, resolved_target),
+        else: aliases
+    end)
+  end
+
+  defp module_alias_target_names({{:., _dot_metadata, [prefix, :{}]}, _metadata, suffixes})
+       when is_list(suffixes) do
+    case module_name(prefix) do
+      nil ->
+        []
+
+      prefix_name ->
+        Enum.flat_map(suffixes, fn suffix ->
+          case module_name(suffix) do
+            nil -> []
+            suffix_name -> ["#{prefix_name}.#{suffix_name}"]
+          end
+        end)
+    end
+  end
+
+  defp module_alias_target_names(target) do
+    case module_name(target) do
+      nil -> []
+      target_name -> [target_name]
+    end
+  end
+
+  defp resolve_module_name(target, aliases) when is_binary(target) do
+    case String.split(target, ".", parts: 2) do
+      [alias_name] -> Map.get(aliases, alias_name, target)
+      [alias_name, rest] -> "#{Map.get(aliases, alias_name, alias_name)}.#{rest}"
+    end
+  end
+
+  defp resolve_module_name(target, aliases) do
+    case module_name(target) do
+      nil -> nil
+      target_name -> resolve_module_name(target_name, aliases)
+    end
+  end
+
+  defp module_name({:__aliases__, _metadata, parts}) do
+    if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
+  end
+
+  defp module_name(_target), do: nil
+
+  defp resolve_module_attributes(node, attributes),
+    do: resolve_module_attributes(node, attributes, [])
+
+  defp resolve_module_attributes(
+         {:@, _metadata, [{name, _name_metadata, nil}]} = reference,
+         attributes,
+         resolving
+       )
+       when is_atom(name) do
+    if name in resolving do
+      reference
+    else
+      case Map.fetch(attributes, name) do
+        {:ok, value} ->
+          resolve_module_attributes(value, attributes, [name | resolving])
+
+        :error ->
+          reference
+      end
+    end
+  end
+
+  defp resolve_module_attributes(nodes, attributes, resolving) when is_list(nodes) do
+    Enum.map(nodes, &resolve_module_attributes(&1, attributes, resolving))
+  end
+
+  defp resolve_module_attributes(node, attributes, resolving) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> Enum.map(&resolve_module_attributes(&1, attributes, resolving))
+    |> List.to_tuple()
+  end
+
+  defp resolve_module_attributes(node, _attributes, _resolving), do: node
 
   defp local_function_head({:when, _meta, [head | guards]}) do
     case local_function_head(head) do
