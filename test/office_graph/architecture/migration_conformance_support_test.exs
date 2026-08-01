@@ -162,6 +162,43 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "includes DDL from migration helpers called through default arguments" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_default_helper_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create_examples()
+          create_examples(:explicit_default_helper_examples)
+        end
+
+        defp create_examples(table_name \\\\ :default_helper_examples) do
+          create table(table_name)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "default_helper_examples",
+               "explicit_default_helper_examples"
+             ]
+    end)
+  end
+
   test "includes DDL only from the matching local migration helper clause" do
     root =
       Path.join(

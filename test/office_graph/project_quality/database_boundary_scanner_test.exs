@@ -429,6 +429,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies qualified migration execution calls" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+            alias Ecto.Migration, as: Migration
+
+            def change do
+              Ecto.Migration.execute("INSERT INTO examples (id) VALUES (1)")
+              Migration.execute("INSERT INTO examples (id) VALUES (2)")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line}) == [
+             {"migration.execute", 6},
+             {"migration.execute", 7}
+           ]
+  end
+
   test "classifies module attribute expressions used by SQL-bearing migration constructs" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -724,6 +749,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert length(Enum.uniq(fingerprints)) == 1
   end
 
+  test "generator patterns shadow outer SQL bindings" do
+    [
+      "for statement <- statements, do: OfficeGraph.Repo.query!(statement, [])",
+      "with {:ok, statement} <- lookup(), do: OfficeGraph.Repo.query!(statement, [])"
+    ]
+    |> Enum.each(fn generator_source ->
+      fingerprints =
+        ["SELECT 1", "SELECT 2"]
+        |> Enum.map(fn outer_statement ->
+          [occurrence] =
+            DatabaseBoundaryScanner.scan_sources([
+              %{
+                path: "lib/example.ex",
+                source: """
+                defmodule Example do
+                  def load(statements) do
+                    statement = #{inspect(outer_statement)}
+                    #{generator_source}
+                  end
+
+                  defp lookup, do: {:ok, "SELECT 3"}
+                end
+                """
+              }
+            ])
+
+          assert occurrence.construct == "Repo.query!"
+          occurrence.fingerprint
+        end)
+
+      assert length(Enum.uniq(fingerprints)) == 1
+    end)
+  end
+
   test "expression-headed clauses retain outer SQL bindings" do
     [
       """
@@ -801,6 +860,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
       assert Enum.uniq(fingerprints) == fingerprints
     end)
+  end
+
+  test "resolves struct aliases before binding destructured SQL values" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                alias Example.Query, as: Query
+
+                def load do
+                  %Query{statement: statement} =
+                    %Example.Query{statement: #{inspect(statement)}}
+
+                  OfficeGraph.Repo.query!(statement, [])
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
   end
 
   test "binds migration option fingerprints to the enclosing DDL identity" do

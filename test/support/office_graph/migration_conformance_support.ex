@@ -89,11 +89,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         when kind in [:def, :defp] and is_list(body_options) ->
           case {local_function_head(head), Keyword.fetch(body_options, :do)} do
             {{key, parameters, guards}, {:ok, body}} ->
-              definition = %{body: body, guards: guards, key: key, parameters: parameters}
-
               functions =
-                Map.update(functions, key, [definition], fn definitions ->
-                  [definition | definitions]
+                key
+                |> local_function_definitions(parameters, guards, body)
+                |> Enum.reduce(functions, fn definition, functions ->
+                  Map.update(functions, definition.key, [definition], fn definitions ->
+                    [definition | definitions]
+                  end)
                 end)
 
               {node, functions}
@@ -123,6 +125,61 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp local_function_head(_head), do: nil
+
+  defp local_function_definitions({name, _arity} = key, parameters, guards, body) do
+    {parameters, defaults} = normalize_default_parameters(parameters)
+    definition = %{body: body, guards: guards, key: key, parameters: parameters}
+    defaults_by_index = Map.new(defaults)
+
+    wrappers =
+      defaults
+      |> Enum.with_index(1)
+      |> Enum.map(fn {_default, omitted_count} ->
+        omitted_indexes =
+          defaults
+          |> Enum.take(-omitted_count)
+          |> MapSet.new(fn {index, _default} -> index end)
+
+        wrapper_parameters =
+          parameters
+          |> Enum.with_index()
+          |> Enum.reject(fn {_parameter, index} -> MapSet.member?(omitted_indexes, index) end)
+          |> Enum.map(&elem(&1, 0))
+
+        call_arguments =
+          parameters
+          |> Enum.with_index()
+          |> Enum.map(fn {parameter, index} ->
+            if MapSet.member?(omitted_indexes, index),
+              do: Map.fetch!(defaults_by_index, index),
+              else: parameter
+          end)
+
+        %{
+          body: {name, [], call_arguments},
+          guards: [],
+          key: {name, length(wrapper_parameters)},
+          parameters: wrapper_parameters
+        }
+      end)
+
+    [definition | wrappers]
+  end
+
+  defp normalize_default_parameters(parameters) do
+    parameters
+    |> Stream.with_index()
+    |> Enum.reduce({[], []}, fn
+      {{:\\, _metadata, [parameter, default]}, index}, {parameters, defaults} ->
+        {[parameter | parameters], [{index, default} | defaults]}
+
+      {parameter, _index}, {parameters, defaults} ->
+        {[parameter | parameters], defaults}
+    end)
+    |> then(fn {parameters, defaults} ->
+      {Enum.reverse(parameters), Enum.reverse(defaults)}
+    end)
+  end
 
   defp expand_local_calls({name, metadata, arguments}, functions, call_stack)
        when is_atom(name) and is_list(arguments) do

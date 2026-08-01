@@ -211,6 +211,45 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {environment, occurrences}
   end
 
+  defp scan_node({:for, _metadata, arguments}, environment, context, occurrences)
+       when is_list(arguments) do
+    {qualifiers, options} = split_qualifiers_and_options(arguments)
+
+    {child_environment, occurrences} =
+      scan_generator_qualifiers(qualifiers, environment, context, occurrences)
+
+    {_options_environment, occurrences} =
+      options
+      |> Keyword.delete(:do)
+      |> Keyword.values()
+      |> scan_isolated_children(environment, context, occurrences)
+
+    {_body_environment, occurrences} =
+      scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:with, _metadata, arguments}, environment, context, occurrences)
+       when is_list(arguments) do
+    {qualifiers, options} = split_qualifiers_and_options(arguments)
+
+    {child_environment, occurrences} =
+      scan_generator_qualifiers(qualifiers, environment, context, occurrences)
+
+    {_body_environment, occurrences} =
+      scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
+
+    occurrences =
+      options
+      |> Keyword.get(:else, [])
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_pattern_clause(clause, environment, context, occurrences)
+      end)
+
+    {environment, occurrences}
+  end
+
   defp scan_node({:->, _metadata, [patterns, _body]} = clause, environment, context, occurrences)
        when is_list(patterns) do
     {environment, scan_pattern_clause(clause, environment, context, occurrences)}
@@ -252,12 +291,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:=, _metadata, [pattern, value]}, environment, context, occurrences) do
     {environment, occurrences} = scan_node(value, environment, context, occurrences)
 
+    resolved_pattern = resolve_struct_aliases(pattern, environment)
+
     resolved_value =
       value
       |> resolve_attributes(environment)
       |> resolve_bindings(environment)
+      |> resolve_struct_aliases(environment)
 
-    bindings = bind_pattern(pattern, resolved_value, environment.bindings)
+    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
 
     {%{environment | bindings: bindings}, occurrences}
   end
@@ -300,13 +342,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_list(parameters) do
     {patterns, guards} = clause_patterns_and_guards(parameters)
 
-    child_environment =
-      Enum.reduce(patterns, environment, fn pattern, environment ->
-        bindings =
-          Enum.reduce(pattern_binding_names(pattern), environment.bindings, &Map.delete(&2, &1))
-
-        %{environment | bindings: bindings}
-      end)
+    child_environment = remove_pattern_bindings(environment, patterns)
 
     {_guard_environment, occurrences} =
       scan_isolated_children(guards, child_environment, context, occurrences)
@@ -372,6 +408,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp pattern_binding_names(_pattern), do: []
 
+  defp split_qualifiers_and_options(arguments) do
+    case Enum.split(arguments, -1) do
+      {qualifiers, [options]} when is_list(options) -> {qualifiers, options}
+      {qualifiers, options} -> {qualifiers ++ options, []}
+    end
+  end
+
+  defp scan_generator_qualifiers(qualifiers, environment, context, occurrences) do
+    Enum.reduce(qualifiers, {environment, occurrences}, fn
+      {:<-, _metadata, [pattern, source]}, {environment, occurrences} ->
+        {environment, occurrences} = scan_node(source, environment, context, occurrences)
+        {patterns, guards} = clause_patterns_and_guards([pattern])
+        child_environment = remove_pattern_bindings(environment, patterns)
+
+        {_guard_environment, occurrences} =
+          scan_isolated_children(guards, child_environment, context, occurrences)
+
+        {child_environment, occurrences}
+
+      qualifier, {environment, occurrences} ->
+        scan_node(qualifier, environment, context, occurrences)
+    end)
+  end
+
+  defp remove_pattern_bindings(environment, patterns) do
+    Enum.reduce(patterns, environment, fn pattern, environment ->
+      bindings =
+        Enum.reduce(pattern_binding_names(pattern), environment.bindings, &Map.delete(&2, &1))
+
+      %{environment | bindings: bindings}
+    end)
+  end
+
   defp scan_sequence(expressions, environment, context, occurrences) do
     Enum.reduce(expressions, {environment, occurrences}, fn expression,
                                                             {environment, occurrences} ->
@@ -408,7 +477,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_node(
          {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments},
-         _migration?,
+         migration?,
          environment
        ) do
     receiver =
@@ -416,7 +485,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> receiver_name()
       |> resolve_receiver(environment)
 
-    classify_database_operation(receiver, operation)
+    classify_migration_operation(receiver, operation, migration?) ||
+      classify_database_operation(receiver, operation)
   end
 
   defp classify_node({construct, _metadata, arguments}, _migration?, _environment)
@@ -442,6 +512,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: {:raw_sql, "unsafe_fragment"}
 
   defp classify_node(_node, _migration?, _environment), do: nil
+
+  defp classify_migration_operation("Ecto.Migration", :execute, true),
+    do: {:raw_sql, "migration.execute"}
+
+  defp classify_migration_operation("Ecto.Migration", :insert, true),
+    do: {:direct_ecto, "migration.insert"}
+
+  defp classify_migration_operation(_receiver, _operation, _migration?), do: nil
 
   defp classify_database_operation(nil, _operation), do: nil
 
@@ -599,6 +677,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resolve_bindings(node, _environment, _resolving), do: node
+
+  defp resolve_struct_aliases(node, environment) do
+    Macro.prewalk(node, fn
+      {:%, metadata, [module, fields]} ->
+        {:%, metadata, [resolve_module_alias(module, environment), fields]}
+
+      child ->
+        child
+    end)
+  end
+
+  defp resolve_module_alias(module, environment) do
+    case receiver_name(module) do
+      nil ->
+        module
+
+      module_name ->
+        module_name
+        |> resolve_receiver(environment)
+        |> String.split(".")
+        |> Enum.map(&String.to_existing_atom/1)
+        |> then(&{:__aliases__, [], &1})
+    end
+  end
 
   defp bind_pattern({:^, _metadata, [_pattern]}, _value, bindings), do: bindings
 
