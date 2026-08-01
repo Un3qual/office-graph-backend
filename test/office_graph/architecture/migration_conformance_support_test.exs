@@ -162,7 +162,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
-  test "includes DDL from every reachable clause of a local migration helper" do
+  test "includes DDL only from the matching local migration helper clause" do
     root =
       Path.join(
         System.tmp_dir!(),
@@ -180,15 +180,24 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         use Ecto.Migration
 
         def up do
-          create_examples(:primary)
+          ddl(:add)
+          reverse_ddl(:add)
         end
 
-        defp create_examples(:primary) do
-          create table(:primary_clause_examples)
+        defp ddl(:add) do
+          create table(:matching_clause_examples)
         end
 
-        defp create_examples(_kind) do
-          create table(:fallback_clause_examples)
+        defp ddl(:remove) do
+          drop table(:matching_clause_examples)
+        end
+
+        defp reverse_ddl(:remove) do
+          drop table(:reverse_matching_clause_examples)
+        end
+
+        defp reverse_ddl(:add) do
+          create table(:reverse_matching_clause_examples)
         end
       end
       """
@@ -196,8 +205,8 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
     File.cd!(root, fn ->
       assert MigrationConformanceSupport.migration_tables() == [
-               "fallback_clause_examples",
-               "primary_clause_examples"
+               "matching_clause_examples",
+               "reverse_matching_clause_examples"
              ]
     end)
   end

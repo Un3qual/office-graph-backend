@@ -211,13 +211,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {put_import(environment, metadata, arguments), occurrences}
   end
 
-  defp scan_node(
-         {:=, _metadata, [{name, _name_metadata, binding_context}, value]},
-         environment,
-         context,
-         occurrences
-       )
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+  defp scan_node({:=, _metadata, [pattern, value]}, environment, context, occurrences) do
     {environment, occurrences} = scan_node(value, environment, context, occurrences)
 
     resolved_value =
@@ -225,7 +219,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> resolve_attributes(environment)
       |> resolve_bindings(environment)
 
-    {%{environment | bindings: Map.put(environment.bindings, name, resolved_value)}, occurrences}
+    bindings = bind_pattern(pattern, resolved_value, environment.bindings)
+
+    {%{environment | bindings: bindings}, occurrences}
   end
 
   defp scan_node(node, environment, context, occurrences) do
@@ -484,6 +480,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resolve_bindings(node, _environment, _resolving), do: node
+
+  defp bind_pattern({:^, _metadata, [_pattern]}, _value, bindings), do: bindings
+
+  defp bind_pattern({name, _metadata, binding_context}, value, bindings)
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+    if name == :_, do: bindings, else: Map.put(bindings, name, value)
+  end
+
+  defp bind_pattern({:{}, _pattern_metadata, patterns}, {:{}, _value_metadata, values}, bindings)
+       when length(patterns) == length(values) do
+    bind_pattern_elements(patterns, values, bindings)
+  end
+
+  defp bind_pattern({left_pattern, right_pattern}, {left_value, right_value}, bindings) do
+    bindings = bind_pattern(left_pattern, left_value, bindings)
+    bind_pattern(right_pattern, right_value, bindings)
+  end
+
+  defp bind_pattern(patterns, values, bindings)
+       when is_list(patterns) and is_list(values) and length(patterns) == length(values) do
+    bind_pattern_elements(patterns, values, bindings)
+  end
+
+  defp bind_pattern(_pattern, _value, bindings), do: bindings
+
+  defp bind_pattern_elements(patterns, values, bindings) do
+    patterns
+    |> Enum.zip(values)
+    |> Enum.reduce(bindings, fn {pattern, value}, bindings ->
+      bind_pattern(pattern, value, bindings)
+    end)
+  end
 
   defp block_body([_head, body_options]) when is_list(body_options),
     do: Keyword.get(body_options, :do)

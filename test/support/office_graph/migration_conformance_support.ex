@@ -88,8 +88,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         {kind, _meta, [head, body_options]} = node, functions
         when kind in [:def, :defp] and is_list(body_options) ->
           case {local_function_head(head), Keyword.fetch(body_options, :do)} do
-            {{key, parameters}, {:ok, body}} ->
-              definition = %{body: body, key: key, parameters: parameters}
+            {{key, parameters, guards}, {:ok, body}} ->
+              definition = %{body: body, guards: guards, key: key, parameters: parameters}
 
               functions =
                 Map.update(functions, key, [definition], fn definitions ->
@@ -109,12 +109,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
   end
 
-  defp local_function_head({:when, _meta, [head | _guards]}), do: local_function_head(head)
+  defp local_function_head({:when, _meta, [head | guards]}) do
+    case local_function_head(head) do
+      {key, parameters, []} -> {key, parameters, guards}
+      nil -> nil
+    end
+  end
 
   defp local_function_head({name, _meta, parameters})
        when is_atom(name) and (is_list(parameters) or is_nil(parameters)) do
     parameters = parameters || []
-    {{name, length(parameters)}, parameters}
+    {{name, length(parameters)}, parameters, []}
   end
 
   defp local_function_head(_head), do: nil
@@ -129,6 +134,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           {name, metadata, expand_local_calls(arguments, functions, call_stack)}
         else
           definitions
+          |> matching_definitions(arguments)
           |> Enum.map(fn %{body: body, parameters: parameters} ->
             body
             |> substitute_parameters(parameters, arguments)
@@ -152,6 +158,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           node
         else
           definitions
+          |> matching_definitions([])
           |> Enum.map(fn %{body: body} ->
             expand_local_calls(body, functions, [key | call_stack])
           end)
@@ -175,6 +182,73 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp expand_local_calls(node, _functions, _call_stack), do: node
+
+  defp matching_definitions(definitions, arguments) do
+    definitions
+    |> Enum.reduce_while([], fn definition, matches ->
+      case {patterns_match(definition.parameters, arguments), definition.guards} do
+        {:no_match, _guards} ->
+          {:cont, matches}
+
+        {:match, []} ->
+          {:halt, [definition | matches]}
+
+        {_possible_match, _guards} ->
+          {:cont, [definition | matches]}
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp patterns_match(patterns, arguments) do
+    patterns
+    |> Enum.zip(arguments)
+    |> Enum.reduce(:match, fn {pattern, argument}, status ->
+      combine_match_status(status, pattern_match(pattern, argument))
+    end)
+  end
+
+  defp pattern_match({:^, _metadata, [_pattern]}, _argument), do: :unknown
+
+  defp pattern_match({name, _metadata, binding_context}, _argument)
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
+       do: :match
+
+  defp pattern_match({:{}, _pattern_metadata, patterns}, {:{}, _argument_metadata, arguments}) do
+    if length(patterns) == length(arguments),
+      do: patterns_match(patterns, arguments),
+      else: :no_match
+  end
+
+  defp pattern_match({left_pattern, right_pattern}, {left_argument, right_argument}) do
+    combine_match_status(
+      pattern_match(left_pattern, left_argument),
+      pattern_match(right_pattern, right_argument)
+    )
+  end
+
+  defp pattern_match(patterns, arguments) when is_list(patterns) and is_list(arguments) do
+    if length(patterns) == length(arguments),
+      do: patterns_match(patterns, arguments),
+      else: :no_match
+  end
+
+  defp pattern_match(pattern, argument)
+       when is_atom(pattern) or is_binary(pattern) or is_number(pattern) do
+    cond do
+      pattern == argument -> :match
+      is_atom(argument) or is_binary(argument) or is_number(argument) -> :no_match
+      true -> :unknown
+    end
+  end
+
+  defp pattern_match(_pattern, _argument), do: :unknown
+
+  defp combine_match_status(:no_match, _status), do: :no_match
+  defp combine_match_status(_status, :no_match), do: :no_match
+  defp combine_match_status(:unknown, _status), do: :unknown
+  defp combine_match_status(_status, :unknown), do: :unknown
+  defp combine_match_status(:match, :match), do: :match
 
   defp block([body]), do: body
   defp block(bodies), do: {:__block__, [], bodies}
