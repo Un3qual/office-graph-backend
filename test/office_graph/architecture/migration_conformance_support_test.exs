@@ -260,6 +260,55 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "selects statically matching migration helper clauses with chained guards" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_chained_guard_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          guarded_ddl(:add)
+          reverse_guarded_ddl(:add)
+        end
+
+        defp guarded_ddl(mode) when mode != :remove when mode == :add do
+          create table(:chained_guard_clause_examples)
+        end
+
+        defp guarded_ddl(_mode) do
+          drop table(:chained_guard_clause_examples)
+        end
+
+        defp reverse_guarded_ddl(mode) when mode == :remove when mode != :add do
+          drop table(:reverse_chained_guard_clause_examples)
+        end
+
+        defp reverse_guarded_ddl(_mode) do
+          create table(:reverse_chained_guard_clause_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "chained_guard_clause_examples",
+               "reverse_chained_guard_clause_examples"
+             ]
+    end)
+  end
+
   test "substitutes bindings from destructured migration helper parameters" do
     root =
       Path.join(

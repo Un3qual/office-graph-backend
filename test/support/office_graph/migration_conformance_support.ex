@@ -309,6 +309,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp static_guard_result(false), do: :no_match
   defp static_guard_result(nil), do: :no_match
 
+  defp static_guard_result({:when, _metadata, guards}) when is_list(guards) do
+    Enum.reduce(guards, :no_match, fn guard, status ->
+      combine_guard_or(status, static_guard_result(guard))
+    end)
+  end
+
   defp static_guard_result({operation, _metadata, [left, right]})
        when operation in [:==, :===, :!=, :!==] do
     with {:known, left} <- static_guard_value(left),
@@ -364,6 +370,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp combine_guard_and(:unknown, _status), do: :unknown
   defp combine_guard_and(_status, :unknown), do: :unknown
   defp combine_guard_and(:match, :match), do: :match
+
+  defp combine_guard_or(:match, _status), do: :match
+  defp combine_guard_or(_status, :match), do: :match
+  defp combine_guard_or(:unknown, _status), do: :unknown
+  defp combine_guard_or(_status, :unknown), do: :unknown
+  defp combine_guard_or(:no_match, :no_match), do: :no_match
 
   defp migration_foreign_key_operations(ast) do
     {_ast, operations} =

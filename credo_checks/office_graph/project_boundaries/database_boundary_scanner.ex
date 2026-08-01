@@ -174,10 +174,46 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:fn, _metadata, clauses}, environment, context, occurrences) do
     occurrences =
       Enum.reduce(clauses, occurrences, fn clause, occurrences ->
-        scan_anonymous_function_clause(clause, environment, context, occurrences)
+        scan_pattern_clause(clause, environment, context, occurrences)
       end)
 
     {environment, occurrences}
+  end
+
+  defp scan_node({:cond, _metadata, [options]}, environment, context, occurrences)
+       when is_list(options) do
+    occurrences =
+      options
+      |> Keyword.get(:do, [])
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_condition_clause(clause, environment, context, occurrences)
+      end)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:receive, _metadata, [options]}, environment, context, occurrences)
+       when is_list(options) do
+    occurrences =
+      options
+      |> Keyword.get(:do, [])
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_pattern_clause(clause, environment, context, occurrences)
+      end)
+
+    occurrences =
+      options
+      |> Keyword.get(:after, [])
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_condition_clause(clause, environment, context, occurrences)
+      end)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:->, _metadata, [patterns, _body]} = clause, environment, context, occurrences)
+       when is_list(patterns) do
+    {environment, scan_pattern_clause(clause, environment, context, occurrences)}
   end
 
   defp scan_node(
@@ -255,14 +291,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_children(node, environment, context, occurrences)
   end
 
-  defp scan_anonymous_function_clause(
+  defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
          environment,
          context,
          occurrences
        )
        when is_list(parameters) do
-    {patterns, guards} = anonymous_function_patterns_and_guards(parameters)
+    {patterns, guards} = clause_patterns_and_guards(parameters)
 
     child_environment =
       Enum.reduce(patterns, environment, fn pattern, environment ->
@@ -281,19 +317,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrences
   end
 
-  defp scan_anonymous_function_clause(clause, environment, context, occurrences) do
+  defp scan_pattern_clause(clause, environment, context, occurrences) do
     {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
     occurrences
   end
 
-  defp anonymous_function_patterns_and_guards([
+  defp scan_condition_clause(
+         {:->, _metadata, [conditions, body]},
+         environment,
+         context,
+         occurrences
+       )
+       when is_list(conditions) do
+    {child_environment, occurrences} =
+      scan_sequence(conditions, environment, context, occurrences)
+
+    {_body_environment, occurrences} =
+      scan_node(body, child_environment, context, occurrences)
+
+    occurrences
+  end
+
+  defp scan_condition_clause(clause, environment, context, occurrences) do
+    {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
+    occurrences
+  end
+
+  defp clause_patterns_and_guards([
          {:when, _metadata, guarded_patterns_and_guard}
        ])
        when length(guarded_patterns_and_guard) >= 2 do
     {Enum.drop(guarded_patterns_and_guard, -1), [List.last(guarded_patterns_and_guard)]}
   end
 
-  defp anonymous_function_patterns_and_guards(patterns), do: {patterns, []}
+  defp clause_patterns_and_guards(patterns), do: {patterns, []}
 
   defp pattern_binding_names({:^, _metadata, [_pattern]}), do: []
 
@@ -550,6 +607,41 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if name == :_, do: bindings, else: Map.put(bindings, name, value)
   end
 
+  defp bind_pattern(
+         {:%, _pattern_metadata, [pattern_struct, pattern_map]},
+         {:%, _value_metadata, [value_struct, value_map]},
+         bindings
+       ) do
+    if same_static_ast?(pattern_struct, value_struct),
+      do: bind_pattern(pattern_map, value_map, bindings),
+      else: bindings
+  end
+
+  defp bind_pattern(
+         {:%{}, _pattern_metadata, _pattern_fields} = pattern,
+         {:%, _, [_, value]},
+         bindings
+       ) do
+    bind_pattern(pattern, value, bindings)
+  end
+
+  defp bind_pattern(
+         {:%{}, _pattern_metadata, pattern_fields},
+         {:%{}, _value_metadata, value_fields},
+         bindings
+       ) do
+    Enum.reduce(pattern_fields, bindings, fn
+      {key, pattern}, bindings ->
+        case fetch_static_field(value_fields, key) do
+          {:ok, value} -> bind_pattern(pattern, value, bindings)
+          :error -> bindings
+        end
+
+      _field, bindings ->
+        bindings
+    end)
+  end
+
   defp bind_pattern({:{}, _pattern_metadata, patterns}, {:{}, _value_metadata, values}, bindings)
        when length(patterns) == length(values) do
     bind_pattern_elements(patterns, values, bindings)
@@ -560,9 +652,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     bind_pattern(right_pattern, right_value, bindings)
   end
 
+  defp bind_pattern(
+         [{:|, _pattern_metadata, [head_pattern, tail_pattern]}],
+         [{:|, _value_metadata, [head_value, tail_value]}],
+         bindings
+       ) do
+    bindings = bind_pattern(head_pattern, head_value, bindings)
+    bind_pattern(tail_pattern, tail_value, bindings)
+  end
+
   defp bind_pattern(patterns, values, bindings)
-       when is_list(patterns) and is_list(values) and length(patterns) == length(values) do
-    bind_pattern_elements(patterns, values, bindings)
+       when is_list(patterns) and is_list(values) do
+    case List.last(patterns) do
+      {:|, _metadata, [_head_pattern, _tail_pattern]} ->
+        bind_cons_pattern(patterns, values, bindings)
+
+      _not_a_cons_pattern when length(patterns) == length(values) ->
+        bind_pattern_elements(patterns, values, bindings)
+
+      _length_mismatch ->
+        bindings
+    end
   end
 
   defp bind_pattern(_pattern, _value, bindings), do: bindings
@@ -574,6 +684,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       bind_pattern(pattern, value, bindings)
     end)
   end
+
+  defp bind_cons_pattern(
+         [{:|, _metadata, [head_pattern, tail_pattern]}],
+         [head_value | tail_value],
+         bindings
+       ) do
+    bindings = bind_pattern(head_pattern, head_value, bindings)
+    bind_pattern(tail_pattern, tail_value, bindings)
+  end
+
+  defp bind_cons_pattern([pattern | patterns], [value | values], bindings) do
+    bindings = bind_pattern(pattern, value, bindings)
+    bind_cons_pattern(patterns, values, bindings)
+  end
+
+  defp bind_cons_pattern(_patterns, _values, bindings), do: bindings
+
+  defp fetch_static_field(fields, key) do
+    Enum.find_value(fields, :error, fn
+      {candidate_key, value} ->
+        if same_static_ast?(candidate_key, key), do: {:ok, value}, else: false
+
+      _field ->
+        false
+    end)
+  end
+
+  defp same_static_ast?(left, right), do: Macro.to_string(left) == Macro.to_string(right)
 
   defp block_body([_head, body_options]) when is_list(body_options),
     do: Keyword.get(body_options, :do)

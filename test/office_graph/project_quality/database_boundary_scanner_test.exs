@@ -695,6 +695,114 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "case-clause patterns shadow outer SQL bindings" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn outer_statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load(input) do
+                  statement = #{inspect(outer_statement)}
+
+                  case input do
+                    statement -> OfficeGraph.Repo.query!(statement, [])
+                  end
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert length(Enum.uniq(fingerprints)) == 1
+  end
+
+  test "expression-headed clauses retain outer SQL bindings" do
+    [
+      """
+      cond do
+        is_binary(statement) -> OfficeGraph.Repo.query!(statement, [])
+      end
+      """,
+      """
+      receive do
+        :done -> :ok
+      after
+        statement -> OfficeGraph.Repo.query!(statement, [])
+      end
+      """
+    ]
+    |> Enum.each(fn clause_source ->
+      fingerprints =
+        ["SELECT 1", "SELECT 2"]
+        |> Enum.map(fn statement ->
+          [occurrence] =
+            DatabaseBoundaryScanner.scan_sources([
+              %{
+                path: "lib/example.ex",
+                source: """
+                defmodule Example do
+                  def load do
+                    statement = #{inspect(statement)}
+                    #{clause_source}
+                  end
+                end
+                """
+              }
+            ])
+
+          occurrence.fingerprint
+        end)
+
+      assert Enum.uniq(fingerprints) == fingerprints
+    end)
+  end
+
+  test "binds map, struct, and cons SQL values into migration option fingerprints" do
+    [
+      "%{statement: statement} = %{statement: __STATEMENT__}",
+      "%Example.Query{statement: statement} = %Example.Query{statement: __STATEMENT__}",
+      "[statement | _rest] = [__STATEMENT__, :ignored]",
+      "[:query, statement | _rest] = [:query, __STATEMENT__, :ignored]"
+    ]
+    |> Enum.each(fn binding_source ->
+      fingerprints =
+        ["deleted_at IS NULL", "archived_at IS NULL"]
+        |> Enum.map(fn statement ->
+          source = String.replace(binding_source, "__STATEMENT__", inspect(statement))
+
+          [occurrence] =
+            DatabaseBoundaryScanner.scan_sources([
+              %{
+                path: "priv/repo/migrations/20260728000000_example.exs",
+                source: """
+                defmodule ExampleMigration do
+                  use Ecto.Migration
+
+                  def change do
+                    #{source}
+                    create index(:examples, [:code], where: statement)
+                  end
+                end
+                """
+              }
+            ])
+
+          assert occurrence.construct == "migration.where"
+          occurrence.fingerprint
+        end)
+
+      assert Enum.uniq(fingerprints) == fingerprints
+    end)
+  end
+
   test "binds migration option fingerprints to the enclosing DDL identity" do
     fingerprints =
       [
