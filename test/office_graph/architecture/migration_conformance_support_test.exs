@@ -452,6 +452,61 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "removes foreign keys when their columns are conditionally removed" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_conditional_column_remove_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents)
+
+          create table(:children) do
+            add :parent_id, references(:parents)
+          end
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000001_remove_parent.exs"),
+      """
+      defmodule RemoveParent do
+        use Ecto.Migration
+
+        def change do
+          alter table(:children) do
+            remove_if_exists :parent_id, references(:parents)
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, OfficeGraph.Tenancy.Organization},
+      "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == []
+    end)
+  end
+
   test "includes DDL from reachable local migration helpers" do
     root =
       Path.join(
@@ -1019,6 +1074,39 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
     File.cd!(root, fn ->
       assert MigrationConformanceSupport.migration_tables() == ["fallback_table"]
+    end)
+  end
+
+  test "selects only public migration entrypoints" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_public_entrypoint_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:public_change_examples)
+        end
+
+        defp up do
+          create table(:private_helper_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == ["public_change_examples"]
     end)
   end
 

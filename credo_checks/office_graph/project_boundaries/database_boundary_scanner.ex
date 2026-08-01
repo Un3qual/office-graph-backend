@@ -165,8 +165,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     child_context = %{context | function: function_signature(head)}
     child_environment = %{environment | bindings: %{}}
 
+    {child_environment, occurrences} =
+      scan_function_parameters(head, child_environment, child_context, occurrences)
+
     {_child_environment, occurrences} =
       scan_children(body_options, child_environment, child_context, occurrences)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:case, _metadata, [value, options]}, environment, context, occurrences)
+       when is_list(options) do
+    {value_environment, occurrences} = scan_node(value, environment, context, occurrences)
+
+    resolved_value =
+      value
+      |> resolve_attributes(value_environment)
+      |> resolve_bindings(value_environment)
+      |> resolve_struct_aliases(value_environment)
+
+    occurrences =
+      options
+      |> Keyword.get(:do, [])
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_pattern_clause(
+          clause,
+          value_environment,
+          context,
+          occurrences,
+          resolved_value
+        )
+      end)
 
     {environment, occurrences}
   end
@@ -333,6 +362,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_children(node, environment, context, occurrences)
   end
 
+  defp scan_function_parameters(head, environment, context, occurrences) do
+    head
+    |> function_parameters()
+    |> Enum.reduce({environment, occurrences}, fn
+      {:\\, _metadata, [pattern, default]}, {environment, occurrences} ->
+        {environment, occurrences} =
+          scan_node(default, environment, context, occurrences)
+
+        resolved_pattern = resolve_struct_aliases(pattern, environment)
+
+        resolved_default =
+          default
+          |> resolve_attributes(environment)
+          |> resolve_bindings(environment)
+          |> resolve_struct_aliases(environment)
+
+        bindings = bind_pattern(resolved_pattern, resolved_default, environment.bindings)
+        {%{environment | bindings: bindings}, occurrences}
+
+      _parameter, accumulator ->
+        accumulator
+    end)
+  end
+
+  defp function_parameters({:when, _metadata, [head | _guards]}),
+    do: function_parameters(head)
+
+  defp function_parameters({_name, _metadata, parameters}) when is_list(parameters),
+    do: parameters
+
+  defp function_parameters(_head), do: []
+
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
          environment,
@@ -357,6 +418,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
     occurrences
   end
+
+  defp scan_pattern_clause(
+         {:->, _metadata, [parameters, body]},
+         environment,
+         context,
+         occurrences,
+         matched_value
+       )
+       when is_list(parameters) do
+    {patterns, guards} = clause_patterns_and_guards(parameters)
+
+    child_environment =
+      environment
+      |> remove_pattern_bindings(patterns)
+      |> bind_static_clause_patterns(patterns, matched_value)
+
+    {_guard_environment, occurrences} =
+      scan_isolated_children(guards, child_environment, context, occurrences)
+
+    {_body_environment, occurrences} =
+      scan_node(body, child_environment, context, occurrences)
+
+    occurrences
+  end
+
+  defp scan_pattern_clause(clause, environment, context, occurrences, _matched_value),
+    do: scan_pattern_clause(clause, environment, context, occurrences)
 
   defp scan_condition_clause(
          {:->, _metadata, [conditions, body]},
@@ -388,7 +476,85 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp clause_patterns_and_guards(patterns), do: {patterns, []}
 
+  defp bind_static_clause_patterns(environment, [pattern], matched_value) do
+    pattern = resolve_struct_aliases(pattern, environment)
+
+    if static_binding_source?(matched_value) and static_pattern_match?(pattern, matched_value) do
+      %{environment | bindings: bind_pattern(pattern, matched_value, environment.bindings)}
+    else
+      environment
+    end
+  end
+
+  defp bind_static_clause_patterns(environment, _patterns, _matched_value), do: environment
+
+  defp static_pattern_match?({:^, _metadata, [_pattern]}, _value), do: false
+
+  defp static_pattern_match?({:=, _metadata, [left_pattern, right_pattern]}, value),
+    do: static_pattern_match?(left_pattern, value) and static_pattern_match?(right_pattern, value)
+
+  defp static_pattern_match?({name, _metadata, binding_context}, _value)
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
+       do: true
+
+  defp static_pattern_match?(
+         {:%, _pattern_metadata, [pattern_struct, pattern_map]},
+         {:%, _value_metadata, [value_struct, value_map]}
+       ),
+       do:
+         same_static_ast?(pattern_struct, value_struct) and
+           static_pattern_match?(pattern_map, value_map)
+
+  defp static_pattern_match?(
+         {:%{}, _pattern_metadata, pattern_fields},
+         {:%{}, _value_metadata, value_fields}
+       ) do
+    Enum.all?(pattern_fields, fn
+      {key, pattern} ->
+        case fetch_static_field(value_fields, key) do
+          {:ok, value} -> static_pattern_match?(pattern, value)
+          :error -> false
+        end
+
+      _field ->
+        false
+    end)
+  end
+
+  defp static_pattern_match?(
+         {:{}, _pattern_metadata, patterns},
+         {:{}, _value_metadata, values}
+       )
+       when length(patterns) == length(values),
+       do:
+         Enum.zip(patterns, values)
+         |> Enum.all?(fn {pattern, value} ->
+           static_pattern_match?(pattern, value)
+         end)
+
+  defp static_pattern_match?({left_pattern, right_pattern}, {left_value, right_value}),
+    do:
+      static_pattern_match?(left_pattern, left_value) and
+        static_pattern_match?(right_pattern, right_value)
+
+  defp static_pattern_match?(patterns, values)
+       when is_list(patterns) and is_list(values) and length(patterns) == length(values),
+       do:
+         Enum.zip(patterns, values)
+         |> Enum.all?(fn {pattern, value} ->
+           static_pattern_match?(pattern, value)
+         end)
+
+  defp static_pattern_match?(pattern, value)
+       when is_atom(pattern) or is_binary(pattern) or is_number(pattern),
+       do: pattern === value
+
+  defp static_pattern_match?(_pattern, _value), do: false
+
   defp pattern_binding_names({:^, _metadata, [_pattern]}), do: []
+
+  defp pattern_binding_names({:<<>>, _metadata, segments}) when is_list(segments),
+    do: Enum.flat_map(segments, &bitstring_pattern_binding_names/1)
 
   defp pattern_binding_names({name, _metadata, binding_context})
        when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
@@ -407,6 +573,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp pattern_binding_names(_pattern), do: []
+
+  defp bitstring_pattern_binding_names({:"::", _metadata, [value_pattern, _spec]}),
+    do: pattern_binding_names(value_pattern)
+
+  defp bitstring_pattern_binding_names(pattern), do: pattern_binding_names(pattern)
 
   defp split_qualifiers_and_options(arguments) do
     case Enum.split(arguments, -1) do
@@ -450,20 +621,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp bind_generator_patterns(environment, patterns, source, :match) do
     if static_binding_source?(source) do
-      bindings =
-        Enum.reduce(patterns, environment.bindings, fn pattern, bindings ->
-          pattern
-          |> resolve_struct_aliases(environment)
-          |> bind_pattern(source, bindings)
-        end)
+      bind_generator_value(environment, patterns, source)
+    else
+      environment
+    end
+  end
 
-      %{environment | bindings: bindings}
+  defp bind_generator_patterns(environment, patterns, [value], :enumerate) do
+    if static_binding_source?(value) do
+      bind_generator_value(environment, patterns, value)
     else
       environment
     end
   end
 
   defp bind_generator_patterns(environment, _patterns, _source, :enumerate), do: environment
+
+  defp bind_generator_value(environment, patterns, value) do
+    bindings =
+      Enum.reduce(patterns, environment.bindings, fn pattern, bindings ->
+        pattern
+        |> resolve_struct_aliases(environment)
+        |> bind_pattern(value, bindings)
+      end)
+
+    %{environment | bindings: bindings}
+  end
 
   defp static_binding_source?(value)
        when is_atom(value) or is_binary(value) or is_number(value),

@@ -834,6 +834,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "classifies repository calls through singleton static for generators" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              for repo <- [OfficeGraph.Repo], do: repo.query!("SELECT 1", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+  end
+
   test "binds statically matched with generators into SQL fingerprints" do
     fingerprints =
       ["SELECT 1", "SELECT 2"]
@@ -849,6 +870,87 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
                   with {:ok, statement} <- {:ok, #{inspect(generated_statement)}} do
                     OfficeGraph.Repo.query!(statement, [])
+                  end
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
+  test "binds static case discriminants into clause SQL fingerprints" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load do
+                  case {:ok, #{inspect(statement)}} do
+                    {:ok, statement} -> OfficeGraph.Repo.query!(statement, [])
+                  end
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
+  test "binds default parameter SQL into direct-call fingerprints" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load(statement \\\\ #{inspect(statement)}) do
+                  OfficeGraph.Repo.query!(statement, [])
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
+  test "does not treat bitstring modifiers as clause-bound variables" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load(input) do
+                  binary = #{inspect(statement)}
+
+                  case input do
+                    <<_value::binary>> -> OfficeGraph.Repo.query!(binary, [])
                   end
                 end
               end

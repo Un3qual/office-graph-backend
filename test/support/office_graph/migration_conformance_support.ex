@@ -75,7 +75,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     ast = Code.string_to_quoted!(source)
     functions = migration_functions(ast)
 
-    case Map.get(functions, {:up, 0}) || Map.get(functions, {:change, 0}) do
+    case migration_entrypoint(functions, {:up, 0}) ||
+           migration_entrypoint(functions, {:change, 0}) do
       definitions when is_list(definitions) ->
         definitions
         |> Enum.map(fn %{body: body, key: key} ->
@@ -86,6 +87,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       nil ->
         {:__block__, [], []}
+    end
+  end
+
+  defp migration_entrypoint(functions, key) do
+    case functions
+         |> Map.get(key, [])
+         |> Enum.filter(&(&1.kind == :function and &1.visibility == :public)) do
+      [] -> nil
+      definitions -> definitions
     end
   end
 
@@ -292,7 +302,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       guards: guards,
       key: key,
       kind: definition_kind(kind),
-      parameters: parameters
+      parameters: parameters,
+      visibility: definition_visibility(kind)
     }
 
     defaults_by_index = Map.new(defaults)
@@ -326,7 +337,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           guards: [],
           key: {name, length(wrapper_parameters)},
           kind: :function,
-          parameters: wrapper_parameters
+          parameters: wrapper_parameters,
+          visibility: definition.visibility
         }
       end)
 
@@ -469,6 +481,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
   defp definition_kind(kind) when kind in [:def, :defp], do: :function
+
+  defp definition_visibility(kind) when kind in [:def, :defmacro], do: :public
+  defp definition_visibility(kind) when kind in [:defp, :defmacrop], do: :private
 
   defp matching_definitions(definitions, arguments) do
     definitions
@@ -855,11 +870,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp collect_foreign_key_operations(
-         {:remove, _metadata, [column | _options]},
+         {operation, _metadata, [column | _options]},
          table,
          certainty
        )
-       when is_binary(table) and is_atom(column) do
+       when operation in [:remove, :remove_if_exists] and is_binary(table) and is_atom(column) do
     operation = {:remove, table, Atom.to_string(column)}
     [with_certainty(operation, certainty)]
   end
