@@ -613,14 +613,29 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           operation = {:rename_table, Atom.to_string(old_table), Atom.to_string(new_table)}
           {node, [operation | operations]}
 
-        {operation, _meta, [{:table, _table_meta, [table | _table_options]}, [do: block]]} = node,
+        {:rename, _metadata,
+         [
+           {:table, _table_metadata, [table | _table_options]},
+           old_column,
+           [to: new_column]
+         ]} = node,
+        operations
+        when is_atom(table) and is_atom(old_column) and is_atom(new_column) ->
+          operation =
+            {:rename_column, Atom.to_string(table), Atom.to_string(old_column),
+             Atom.to_string(new_column)}
+
+          {node, [operation | operations]}
+
+        {operation, _metadata, [{:table, _table_metadata, [table | _table_options]}, [do: block]]} =
+            node,
         operations
         when operation in @table_definition_operations and is_atom(table) ->
           table_operations = table_foreign_key_operations(table, block)
           {node, Enum.reverse(table_operations, operations)}
 
-        {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _drop_options]} =
-            node,
+        {operation, _metadata,
+         [{:table, _table_metadata, [table | _table_options]} | _drop_options]} = node,
         operations
         when operation in @table_drop_operations and is_atom(table) ->
           {node, [{:drop_table, Atom.to_string(table)} | operations]}
@@ -633,35 +648,126 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_table_operations(ast) do
-    {_ast, operations} =
-      Macro.prewalk(ast, [], fn
-        {:rename, _metadata,
-         [
-           {:table, _old_table_metadata, [old_table | _old_table_options]},
-           [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
-         ]} = node,
-        operations
-        when is_atom(old_table) and is_atom(new_table) ->
-          operation = {:rename, Atom.to_string(old_table), Atom.to_string(new_table)}
-          {node, [operation | operations]}
-
-        {operation, _meta, [{:table, _table_meta, [table | _table_options]} | _options]} = node,
-        operations
-        when operation in @table_lifecycle_operations and is_atom(table) ->
-          lifecycle_operation =
-            if operation in @table_create_operations, do: :create, else: :drop
-
-          {node, [{lifecycle_operation, Atom.to_string(table)} | operations]}
-
-        node, operations ->
-          {node, operations}
-      end)
-
-    Enum.reverse(operations)
+    collect_table_operations(ast, :definite)
   end
+
+  defp collect_table_operations(
+         {operator, _metadata, [condition, options]},
+         certainty
+       )
+       when operator in [:if, :unless] and is_list(options) do
+    condition_operations = collect_table_operations(condition, certainty)
+
+    do_branch = Keyword.get(options, :do)
+    else_branch = Keyword.get(options, :else)
+
+    branch_operations =
+      case selected_static_branch(operator, condition) do
+        :do ->
+          collect_table_operations(do_branch, certainty)
+
+        :else ->
+          collect_table_operations(else_branch, certainty)
+
+        :unknown ->
+          possible_certainty = possible_certainty(certainty)
+
+          [do_branch, else_branch]
+          |> Enum.flat_map(&collect_table_operations(&1, possible_certainty))
+      end
+
+    condition_operations ++ branch_operations
+  end
+
+  defp collect_table_operations(nodes, certainty) when is_list(nodes) do
+    Enum.flat_map(nodes, &collect_table_operations(&1, certainty))
+  end
+
+  defp collect_table_operations(node, certainty) when is_tuple(node) do
+    operation =
+      case table_operation(node) do
+        nil -> []
+        operation -> [with_certainty(operation, certainty)]
+      end
+
+    children =
+      node
+      |> Tuple.to_list()
+      |> Enum.flat_map(&collect_table_operations(&1, certainty))
+
+    operation ++ children
+  end
+
+  defp collect_table_operations(_node, _certainty), do: []
+
+  defp selected_static_branch(:if, condition) do
+    case static_truthiness(condition) do
+      :truthy -> :do
+      :falsy -> :else
+      :unknown -> :unknown
+    end
+  end
+
+  defp selected_static_branch(:unless, condition) do
+    case static_truthiness(condition) do
+      :truthy -> :else
+      :falsy -> :do
+      :unknown -> :unknown
+    end
+  end
+
+  defp static_truthiness(condition) do
+    case static_guard_result(condition) do
+      :match ->
+        :truthy
+
+      :no_match ->
+        :falsy
+
+      :unknown ->
+        case static_guard_value(condition) do
+          {:known, value} when value in [false, nil] -> :falsy
+          {:known, _value} -> :truthy
+          :unknown -> :unknown
+        end
+    end
+  end
+
+  defp possible_certainty(_certainty), do: :possible
+  defp with_certainty(operation, :definite), do: operation
+  defp with_certainty(operation, :possible), do: {:possible, operation}
+
+  defp table_operation(
+         {:rename, _metadata,
+          [
+            {:table, _old_table_metadata, [old_table | _old_table_options]},
+            [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
+          ]}
+       )
+       when is_atom(old_table) and is_atom(new_table) do
+    {:rename, Atom.to_string(old_table), Atom.to_string(new_table)}
+  end
+
+  defp table_operation(
+         {operation, _metadata, [{:table, _table_metadata, [table | _table_options]} | _options]}
+       )
+       when operation in @table_lifecycle_operations and is_atom(table) do
+    lifecycle_operation = if operation in @table_create_operations, do: :create, else: :drop
+    {lifecycle_operation, Atom.to_string(table)}
+  end
+
+  defp table_operation(_node), do: nil
 
   defp apply_table_operation({:create, table}, tables), do: MapSet.put(tables, table)
   defp apply_table_operation({:drop, table}, tables), do: MapSet.delete(tables, table)
+
+  defp apply_table_operation({:possible, {:create, table}}, tables),
+    do: MapSet.put(tables, table)
+
+  defp apply_table_operation({:possible, {:drop, _table}}, tables), do: tables
+
+  defp apply_table_operation({:possible, {:rename, _old_table, new_table}}, tables),
+    do: MapSet.put(tables, new_table)
 
   defp apply_table_operation({:rename, old_table, new_table}, tables) do
     tables
@@ -674,10 +780,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     {_block, operations} =
       Macro.prewalk(block, [], fn
-        {operation, _meta,
+        {operation, _metadata,
          [
            column,
-           {:references, _references_meta, [destination | reference_options]}
+           {:references, _references_metadata, [destination | reference_options]}
            | _column_options
          ]} = node,
         operations
@@ -696,7 +802,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
           {node, [{:put, foreign_key} | operations]}
 
-        {:remove, _meta, [column | _options]} = node, operations when is_atom(column) ->
+        {:remove, _metadata, [column | _options]} = node, operations when is_atom(column) ->
           {node, [{:remove, table, Atom.to_string(column)} | operations]}
 
         node, operations ->
@@ -729,6 +835,28 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           if destination_table == old_table, do: new_table, else: destination_table
 
         {{source_table, column}, {source_table, column, destination_table, destination_column}}
+    end)
+  end
+
+  defp apply_foreign_key_operation(
+         {:rename_column, table, old_column, new_column},
+         foreign_keys
+       ) do
+    Map.new(foreign_keys, fn
+      {{source_table, source_column},
+       {source_table, source_column, destination_table, destination_column}} ->
+        source_column =
+          if source_table == table and source_column == old_column,
+            do: new_column,
+            else: source_column
+
+        destination_column =
+          if destination_table == table and destination_column == old_column,
+            do: new_column,
+            else: destination_column
+
+        {{source_table, source_column},
+         {source_table, source_column, destination_table, destination_column}}
     end)
   end
 end

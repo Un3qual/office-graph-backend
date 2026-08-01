@@ -170,6 +170,139 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "executes only statically selected migration branches" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_static_branch_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          if true do
+            create table(:selected_true_examples)
+          else
+            drop table(:selected_true_examples)
+          end
+
+          if false do
+            create table(:unreachable_false_examples)
+          else
+            create table(:selected_false_examples)
+          end
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "selected_false_examples",
+               "selected_true_examples"
+             ]
+    end)
+  end
+
+  test "keeps tables that may exist after an unknown migration branch" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_unknown_branch_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          if System.get_env("CREATE_OPTIONAL_EXAMPLES") do
+            create table(:possible_examples)
+          else
+            drop table(:possible_examples)
+          end
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == ["possible_examples"]
+    end)
+  end
+
+  test "applies source and destination column renames to foreign-key identities" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_column_rename_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents, primary_key: false) do
+            add :legacy_id, :uuid, primary_key: true
+          end
+
+          create table(:children) do
+            add :parent_id, references(:parents, column: :legacy_id)
+          end
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000001_rename_examples.exs"),
+      """
+      defmodule RenameExamples do
+        use Ecto.Migration
+
+        def change do
+          rename table(:children), :parent_id, to: :owner_id
+          rename table(:parents), :legacy_id, to: :external_id
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, OfficeGraph.Tenancy.Organization},
+      "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.owner_id references parents.external_id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "includes DDL from reachable local migration helpers" do
     root =
       Path.join(
