@@ -1,8 +1,19 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import type { GraphQLResponse } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRelayEnvironment } from "../../../../app/relay/environment";
-import * as support from "./routeTestSupport";
+import {
+  clearRelayTestEnvironment,
+  createNetworkMock,
+  createRelayTestEnvironment,
+  lastVariablesFor,
+  renderWithRelay,
+  renderWithRelayEnvironment,
+  runDetailActivityErrorResponse,
+  runDetailResponse,
+  runPath,
+  runSummary,
+  runsConnectionResponse,
+} from "./routeTestSupport";
 
 const rawErrorSentinel = "RAW_RUN_DETAIL_ERROR_SENTINEL_7f91c6";
 
@@ -16,23 +27,23 @@ describe("all-runs route recovery", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     let listAttempts = 0;
     let detailAttempts = 0;
-    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request) => {
       if (request.name === "RunsRouteQuery") {
         listAttempts += 1;
         if (listAttempts === 1) throw new Error(rawErrorSentinel);
-        return support.runsConnectionResponse([support.runSummary()]);
+        return runsConnectionResponse([runSummary()]);
       }
 
       if (request.name === "RunDetailQuery") {
         detailAttempts += 1;
         if (detailAttempts === 1) throw new Error(rawErrorSentinel);
-        return support.runDetailResponse();
+        return runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, support.runPath("run_new"));
+    renderWithRelay(network, runPath("run_new"));
 
     expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
     expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
@@ -56,9 +67,9 @@ describe("all-runs route recovery", () => {
   it("retains the current list page and selection when page continuation fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     let continuationAttempts = 0;
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request, variables) => {
       if (request.name === "RunsRouteQuery" && variables.after === null) {
-        return support.runsConnectionResponse([support.runSummary()], {
+        return runsConnectionResponse([runSummary()], {
           endCursor: "run_page_cursor",
           hasNextPage: true,
         });
@@ -67,8 +78,8 @@ describe("all-runs route recovery", () => {
       if (request.name === "RunsRouteQuery") {
         continuationAttempts += 1;
         if (continuationAttempts === 1) throw new Error(rawErrorSentinel);
-        return support.runsConnectionResponse([
-          support.runSummary({
+        return runsConnectionResponse([
+          runSummary({
             id: "run_next_page",
             objective: "Recovered next-page run",
           }),
@@ -76,13 +87,13 @@ describe("all-runs route recovery", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return support.runDetailResponse();
+        return runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, support.runPath("run_new"));
+    renderWithRelay(network, runPath("run_new"));
 
     expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -93,7 +104,7 @@ describe("all-runs route recovery", () => {
       screen.getByRole("button", { name: /Review the newest authorized run/i }),
     ).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
-    expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_new"));
+    expect(screen.getByTestId("route-location")).toHaveTextContent(runPath("run_new"));
 
     fireEvent.click(screen.getByRole("button", { name: "Retry run page" }));
 
@@ -101,17 +112,17 @@ describe("all-runs route recovery", () => {
       await screen.findByRole("button", { name: /Recovered next-page run/i }),
     ).toBeInTheDocument();
     expect(continuationAttempts).toBe(2);
-    expect(screen.getByTestId("route-location")).toHaveTextContent(support.runPath("run_new"));
+    expect(screen.getByTestId("route-location")).toHaveTextContent(runPath("run_new"));
   });
 
   it("returns to the previous run page when a committed list page fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     let firstPageAttempts = 0;
     let secondPageAttempts = 0;
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request, variables) => {
       if (request.name === "RunsRouteQuery" && variables.after === null) {
         firstPageAttempts += 1;
-        return support.runsConnectionResponse([support.runSummary()], {
+        return runsConnectionResponse([runSummary()], {
           endCursor: "run_page_cursor",
           hasNextPage: true,
         });
@@ -124,8 +135,8 @@ describe("all-runs route recovery", () => {
           throw new Error(rawErrorSentinel);
         }
 
-        return support.runsConnectionResponse([
-          support.runSummary({
+        return runsConnectionResponse([
+          runSummary({
             id: "run_second_page",
             objective: "Second page run",
           }),
@@ -133,20 +144,20 @@ describe("all-runs route recovery", () => {
       }
 
       if (request.name === "RunDetailQuery") {
-        return support.runDetailResponse();
+        return runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
-    const environment = support.createRelayTestEnvironment(network);
+    const environment = createRelayTestEnvironment(network);
 
-    support.renderWithRelayEnvironment(environment, "/runs?runId=run_new");
+    renderWithRelayEnvironment(environment, "/runs?runId=run_new");
 
     expect(await screen.findByRole("heading", { name: "Newest packet" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByRole("button", { name: /Second page run/i })).toBeInTheDocument();
 
-    support.clearRelayTestEnvironment(environment);
+    clearRelayTestEnvironment(environment);
 
     expect(await screen.findByText("Unable to load runs.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
@@ -178,9 +189,9 @@ describe("all-runs route recovery", () => {
     "retains a present %s URL selection and uses the same non-enumerating detail state",
     async (kind, runId) => {
       vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+      const network = createNetworkMock((request) => {
         if (request.name === "RunsRouteQuery") {
-          return support.runsConnectionResponse([support.runSummary()]);
+          return runsConnectionResponse([runSummary()]);
         }
 
         if (request.name === "RunDetailQuery") {
@@ -192,7 +203,7 @@ describe("all-runs route recovery", () => {
       });
 
       const encodedSelection = runId ? `runId=${runId}` : "runId=";
-      support.renderWithRelay(network, `/runs?${encodedSelection}`);
+      renderWithRelay(network, `/runs?${encodedSelection}`);
 
       expect(
         await screen.findByRole("button", { name: /Review the newest authorized run/i }),
@@ -200,7 +211,7 @@ describe("all-runs route recovery", () => {
       expect(await screen.findByText("Selected run details are unavailable.")).toBeInTheDocument();
       expect(document.body).not.toHaveTextContent(rawErrorSentinel);
       expect(screen.getByTestId("route-location")).toHaveTextContent(`/runs?${encodedSelection}`);
-      expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({ id: runId });
+      expect(lastVariablesFor(network, "RunDetailQuery")).toMatchObject({ id: runId });
     },
   );
 
@@ -208,33 +219,36 @@ describe("all-runs route recovery", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as {
-          query: string;
-          variables: Record<string, unknown>;
-        };
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
+          Promise.resolve().then(() => {
+            const body = JSON.parse(String(init?.body)) as {
+              query: string;
+              variables: Record<string, unknown>;
+            };
 
-        if (body.query.includes("RunsRouteQuery")) {
-          return Response.json(support.runsConnectionResponse([support.runSummary()]));
-        }
+            if (body.query.includes("RunsRouteQuery")) {
+              return Response.json(runsConnectionResponse([runSummary()]));
+            }
 
-        expect(body.query).toContain("RunDetailQuery");
-        expect(body.variables.id).toBe("run_stale");
+            expect(body.query).toContain("RunDetailQuery");
+            expect(body.variables.id).toBe("run_stale");
 
-        return Response.json({
-          data: { operatorRunState: null, run: null },
-          errors: [
-            {
-              message: rawErrorSentinel,
-              path: ["operatorRunState"],
-              extensions: { code: "stale_run_state" },
-            },
-          ],
-        });
-      }),
+            return Response.json({
+              data: { operatorRunState: null, run: null },
+              errors: [
+                {
+                  message: rawErrorSentinel,
+                  path: ["operatorRunState"],
+                  extensions: { code: "stale_run_state" },
+                },
+              ],
+            });
+          }),
+      ),
     );
 
-    support.renderWithRelayEnvironment(createRelayEnvironment(), "/runs?runId=run_stale");
+    renderWithRelayEnvironment(createRelayEnvironment(), "/runs?runId=run_stale");
 
     expect(
       await screen.findByRole("button", { name: /Review the newest authorized run/i }),
@@ -247,19 +261,19 @@ describe("all-runs route recovery", () => {
 
   it("treats an initial activity field error as a detail read failure", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request) => {
       if (request.name === "RunsRouteQuery") {
-        return support.runsConnectionResponse([support.runSummary()]);
+        return runsConnectionResponse([runSummary()]);
       }
 
       if (request.name === "RunDetailQuery") {
-        return support.runDetailActivityErrorResponse(rawErrorSentinel);
+        return runDetailActivityErrorResponse(rawErrorSentinel);
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    renderWithRelay(network, "/runs?runId=run_new");
 
     expect(
       await screen.findByRole("button", { name: /Review the newest authorized run/i }),

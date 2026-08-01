@@ -17,6 +17,24 @@ import { relayGlobalId, relayInternalId } from "../../../../app/relay/relayIds";
 import RunsRoute from "../../../../app/routes/runs/route";
 import type { RunDetailState } from "../../../../app/routes/runs/types";
 
+type NetworkResolver = (
+  request: Parameters<FetchFunction>[0],
+  variables: Parameters<FetchFunction>[1],
+) => GraphQLResponse | Promise<GraphQLResponse>;
+
+export function createNetworkMock(resolver: NetworkResolver) {
+  return vi.fn(
+    (request, variables): Promise<GraphQLResponse> =>
+      new Promise((resolve, reject) => {
+        try {
+          resolve(resolver(request, variables));
+        } catch (error) {
+          reject(error);
+        }
+      }),
+  );
+}
+
 export function renderWithRelay(network: FetchFunction, initialEntry = "/runs") {
   return renderWithRelayEnvironment(createRelayTestEnvironment(network), initialEntry);
 }
@@ -58,7 +76,7 @@ export function createRunsNetwork({
   rows?: RunSummaryPayload[];
   states?: Record<string, RunStatePayload>;
 } = {}) {
-  return vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+  return createNetworkMock((request, variables) => {
     if (request.name === "RunsRouteQuery") {
       return runsConnectionResponse(rows);
     }

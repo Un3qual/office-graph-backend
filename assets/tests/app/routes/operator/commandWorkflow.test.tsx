@@ -148,7 +148,7 @@ describe("operator command workflow", () => {
     );
   });
 
-  it("encodes projection IDs before submitting a Relay-translated command", async () => {
+  it("encodes projection IDs before submitting a Relay-translated command", () => {
     const request = deferredRequest();
     const environment = relayEnvironment(request.fetch);
     const { result } = renderHook(() => useApplyProposedChangesCommand(), {
