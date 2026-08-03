@@ -69,6 +69,13 @@ reject every unmatched occurrence or stale approved exception.
   aliased, or imported receiver
 - **THEN** the database-boundary scanner MUST classify the call as repository-authored raw SQL
 
+#### Scenario: Ecto SQL adapter explains a generated query
+
+- **WHEN** tracked code calls `Ecto.Adapters.SQL.explain` through a fully
+  qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as direct Ecto
+  access without treating its generated query as repository-authored raw SQL
+
 #### Scenario: Verification examines project scope
 
 - **WHEN** the database-boundary scan runs
@@ -108,6 +115,14 @@ binary literals or documentation text.
 - **THEN** the scanner MUST retain the exact interpolation AST in its
   fingerprint and allow exact approval while continuing to reject payloads
   that interpolate runtime values
+
+#### Scenario: External migration helper invokes an explicit SQL API
+
+- **WHEN** tracked code outside `priv/repo/migrations` invokes
+  `Ecto.Migration.execute` or `Ecto.Migration.fragment` through a fully
+  qualified, aliased, or imported receiver
+- **THEN** the scanner MUST classify that explicit SQL-bearing call exactly as
+  it would inside a migration file
 
 ### Requirement: Duplicate static-analysis configuration is prohibited
 

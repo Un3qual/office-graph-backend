@@ -119,6 +119,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   @database_alias_targets [
     "Ecto.Adapters.SQL",
+    "Ecto.Migration",
     "Ecto.Multi",
     "Ecto.Query",
     "Ecto.Query.API",
@@ -126,11 +127,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Postgrex"
   ]
 
-  @ecto_fragment_import_targets ["Ecto.Query", "Ecto.Query.API"]
+  @ecto_fragment_import_targets ["Ecto.Migration", "Ecto.Query", "Ecto.Query.API"]
 
   @migration_repo_receiver "Ecto.Migration.repo()"
   @migration_create_operations [:create, :create_if_not_exists]
   @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
+  @ecto_sql_direct_operations [:explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
   @postgrex_raw_sql_operations [
@@ -901,7 +903,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> resolve_bindings(environment)
       |> database_receiver_name(migration?, environment)
 
-    classify_migration_operation(receiver, operation, migration?) ||
+    classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation)
   end
 
@@ -921,9 +923,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_node({operation, _metadata, arguments}, _migration?, environment)
        when is_atom(operation) and is_list(arguments) do
-    environment
-    |> imported_receiver(operation, length(arguments))
-    |> classify_database_operation(operation)
+    receiver = imported_receiver(environment, operation, length(arguments))
+
+    classify_migration_operation(receiver, operation) ||
+      classify_database_operation(receiver, operation)
   end
 
   defp classify_node({:unsafe_fragment, sql}, _migration?, _environment) when is_binary(sql),
@@ -931,16 +934,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_node(_node, _migration?, _environment), do: nil
 
-  defp classify_migration_operation("Ecto.Migration", :execute, true),
+  defp classify_migration_operation("Ecto.Migration", :execute),
     do: {:raw_sql, "migration.execute"}
 
-  defp classify_migration_operation("Ecto.Migration", :insert, true),
+  defp classify_migration_operation("Ecto.Migration", :insert),
     do: {:direct_ecto, "migration.insert"}
 
-  defp classify_migration_operation("Ecto.Migration", :fragment, true),
+  defp classify_migration_operation("Ecto.Migration", :fragment),
     do: {:raw_sql, "fragment"}
 
-  defp classify_migration_operation(_receiver, _operation, _migration?), do: nil
+  defp classify_migration_operation(_receiver, _operation), do: nil
 
   defp classify_database_operation(nil, _operation), do: nil
 
@@ -948,6 +951,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     cond do
       receiver == "Ecto.Query.API" and operation in [:fragment, :unsafe_fragment] ->
         {:raw_sql, "#{receiver}.#{operation}"}
+
+      receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_direct_operations ->
+        {:direct_ecto, "#{receiver}.#{operation}"}
 
       operation in [:query, :query!] and repo_receiver?(receiver) ->
         {:raw_sql, "Repo.#{operation}"}

@@ -281,6 +281,70 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies generated Ecto SQL explain calls as direct database access" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Adapters.SQL, as: SQL
+            import Ecto.Adapters.SQL, only: [explain: 4]
+
+            def inspect_query(query) do
+              Ecto.Adapters.SQL.explain(OfficeGraph.Repo, :all, query)
+              SQL.explain(OfficeGraph.Repo, :all, query, analyze: true)
+              explain(OfficeGraph.Repo, :all, query, analyze: true)
+              Example.SQL.explain(OfficeGraph.Repo, :all, query)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Ecto.Adapters.SQL.explain", 6},
+             {:direct_ecto, "Ecto.Adapters.SQL.explain", 7},
+             {:direct_ecto, "Ecto.Adapters.SQL.explain", 8}
+           ]
+  end
+
+  test "classifies explicit Ecto migration SQL APIs in external helpers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example_migration_helper.ex",
+          source: """
+          defmodule ExampleMigrationHelper do
+            alias Ecto.Migration, as: Migration
+            import Ecto.Migration, only: [execute: 1, fragment: 1]
+
+            def run do
+              Ecto.Migration.execute("SELECT 1")
+              Migration.execute("SELECT 2")
+              execute("SELECT 3")
+              Ecto.Migration.fragment("now()")
+              Migration.fragment("clock_timestamp()")
+              fragment("gen_random_uuid()")
+              Example.Migration.execute("SELECT 4")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "migration.execute", 6},
+             {:raw_sql, "migration.execute", 7},
+             {:raw_sql, "migration.execute", 8},
+             {:raw_sql, "fragment", 9},
+             {:raw_sql, "fragment", 10},
+             {:raw_sql, "fragment", 11}
+           ]
+
+    assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
+  end
+
   test "does not classify unqualified local fragment functions without an Ecto import" do
     assert [] ==
              DatabaseBoundaryScanner.scan_sources([

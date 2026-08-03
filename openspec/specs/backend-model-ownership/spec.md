@@ -106,6 +106,13 @@ diverge.
 - **THEN** canonical model-ownership verification MUST preserve the schema in
   the table identity and compare it with the AshPostgres resource schema
 
+#### Scenario: Ownership DDL separates keywords with SQL comments
+
+- **WHEN** approved migration execution SQL contains table lifecycle or
+  foreign-key DDL whose keywords are separated by line or block comments
+- **THEN** canonical model-ownership verification MUST treat those comments as
+  SQL whitespace and reject the unmodeled ownership change
+
 ### Requirement: Exception Ledger Is A Burn-Down Contract
 
 Office Graph SHALL distinguish unapproved database-access removal debt from

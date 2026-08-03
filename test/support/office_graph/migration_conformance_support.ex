@@ -189,10 +189,114 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp static_interpolation_string(_value), do: :error
 
   defp schema_ownership_sql?(sql) do
+    sql = sql_code_without_comments_or_literals(sql)
+
     Regex.match?(
       ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)TABLE\b/i,
       sql
     )
+  end
+
+  defp sql_code_without_comments_or_literals(sql) do
+    sql
+    |> do_sql_code_without_comments_or_literals([])
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+  end
+
+  defp do_sql_code_without_comments_or_literals(<<>>, code), do: code
+
+  defp do_sql_code_without_comments_or_literals(<<"--", rest::binary>>, code),
+    do: skip_sql_line_comment(rest, [" " | code])
+
+  defp do_sql_code_without_comments_or_literals(<<"/*", rest::binary>>, code),
+    do: skip_sql_block_comment(rest, 1, [" " | code])
+
+  defp do_sql_code_without_comments_or_literals(<<"'", rest::binary>>, code),
+    do: skip_sql_single_quoted(rest, [" " | code])
+
+  defp do_sql_code_without_comments_or_literals(<<"\"", rest::binary>>, code),
+    do: skip_sql_double_quoted(rest, [" " | code])
+
+  defp do_sql_code_without_comments_or_literals(<<"$", _rest::binary>> = sql, code) do
+    case sql_dollar_quote_delimiter(sql) do
+      nil -> consume_sql_codepoint(sql, code)
+      delimiter -> skip_sql_dollar_quoted(sql, delimiter, [" " | code])
+    end
+  end
+
+  defp do_sql_code_without_comments_or_literals(sql, code),
+    do: consume_sql_codepoint(sql, code)
+
+  defp consume_sql_codepoint(<<codepoint::utf8, rest::binary>>, code),
+    do: do_sql_code_without_comments_or_literals(rest, [<<codepoint::utf8>> | code])
+
+  defp skip_sql_line_comment(<<>>, code), do: code
+
+  defp skip_sql_line_comment(<<line_break, rest::binary>>, code)
+       when line_break in [?\n, ?\r],
+       do: do_sql_code_without_comments_or_literals(rest, [" " | code])
+
+  defp skip_sql_line_comment(<<_codepoint::utf8, rest::binary>>, code),
+    do: skip_sql_line_comment(rest, code)
+
+  defp skip_sql_block_comment(<<>>, _depth, code), do: code
+
+  defp skip_sql_block_comment(<<"/*", rest::binary>>, depth, code),
+    do: skip_sql_block_comment(rest, depth + 1, code)
+
+  defp skip_sql_block_comment(<<"*/", rest::binary>>, 1, code),
+    do: do_sql_code_without_comments_or_literals(rest, code)
+
+  defp skip_sql_block_comment(<<"*/", rest::binary>>, depth, code),
+    do: skip_sql_block_comment(rest, depth - 1, code)
+
+  defp skip_sql_block_comment(<<_codepoint::utf8, rest::binary>>, depth, code),
+    do: skip_sql_block_comment(rest, depth, code)
+
+  defp skip_sql_single_quoted(<<>>, code), do: code
+
+  defp skip_sql_single_quoted(<<"''", rest::binary>>, code),
+    do: skip_sql_single_quoted(rest, code)
+
+  defp skip_sql_single_quoted(<<"'", rest::binary>>, code),
+    do: do_sql_code_without_comments_or_literals(rest, code)
+
+  defp skip_sql_single_quoted(<<_codepoint::utf8, rest::binary>>, code),
+    do: skip_sql_single_quoted(rest, code)
+
+  defp skip_sql_double_quoted(<<>>, code), do: code
+
+  defp skip_sql_double_quoted(<<"\"\"", rest::binary>>, code),
+    do: skip_sql_double_quoted(rest, code)
+
+  defp skip_sql_double_quoted(<<"\"", rest::binary>>, code),
+    do: do_sql_code_without_comments_or_literals(rest, code)
+
+  defp skip_sql_double_quoted(<<_codepoint::utf8, rest::binary>>, code),
+    do: skip_sql_double_quoted(rest, code)
+
+  defp sql_dollar_quote_delimiter(sql) do
+    case Regex.run(~r/\A\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/, sql) do
+      [delimiter] -> delimiter
+      nil -> nil
+    end
+  end
+
+  defp skip_sql_dollar_quoted(sql, delimiter, code) do
+    delimiter_size = byte_size(delimiter)
+    rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
+
+    case :binary.match(rest, delimiter) do
+      {closing_offset, ^delimiter_size} ->
+        trailing_offset = closing_offset + delimiter_size
+        trailing_size = byte_size(rest) - trailing_offset
+        trailing = binary_part(rest, trailing_offset, trailing_size)
+        do_sql_code_without_comments_or_literals(trailing, code)
+
+      :nomatch ->
+        code
+    end
   end
 
   defp migration_entrypoint(functions, key) do

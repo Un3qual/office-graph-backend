@@ -1251,6 +1251,46 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "treats SQL comments as whitespace when rejecting ownership DDL" do
+    Enum.each(
+      [
+        "CREATE/* partitioned */TABLE sql_owned_examples (id uuid PRIMARY KEY)",
+        "ALTER/* reason */TABLE examples ADD COLUMN label text",
+        "DROP-- reason\nTABLE sql_owned_examples"
+      ],
+      fn sql ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_commented_sql_ddl_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        File.mkdir_p!(migrations)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(migrations, "20260731000000_sql_ddl.exs"),
+          """
+          defmodule SqlDdl do
+            use Ecto.Migration
+
+            def change do
+              execute(#{inspect(sql)})
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
   test "rejects statically interpolated migration execute SQL that changes ownership" do
     root =
       Path.join(
