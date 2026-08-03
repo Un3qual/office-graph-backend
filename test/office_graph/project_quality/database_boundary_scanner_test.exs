@@ -29,6 +29,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     refute Map.has_key?(occurrence, :approval)
   end
 
+  test "classifies statically targeted apply calls through supported apply entrypoints" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(connection) do
+              apply(OfficeGraph.Repo, :query!, ["SELECT 1", []])
+              Kernel.apply(Ecto.Adapters.SQL, :query, [OfficeGraph.Repo, "SELECT 2", []])
+              :erlang.apply(Postgrex, :query, [connection, "SELECT 3", []])
+              Example.apply(OfficeGraph.Repo, :query!, ["SELECT 4", []])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/1", 3},
+             {"Ecto.Adapters.SQL.query", "load/1", 4},
+             {"Postgrex.query", "load/1", 5}
+           ]
+
+    assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
+  end
+
   test "marks unresolved raw SQL parameters as unapprovable" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -535,6 +562,72 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              Enum.find(occurrences, &(&1.construct == "migration.where")),
              :approval
            )
+  end
+
+  test "classifies SQL options only from the statically reachable guarded helper clause" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              create guarded_index(:active)
+              create guarded_index(:archived)
+            end
+
+            defp guarded_index(mode) when mode == :archived,
+              do: index(:items, [:status], where: "archived_at IS NULL")
+
+            defp guarded_index(_mode), do: index(:items, [:status])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"migration.where", "change/0", 6}
+           ]
+  end
+
+  test "classifies SQL options expanded from reachable local migration macros" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              create active_index("deleted_at IS NULL")
+              create archived_index("archived_at IS NULL")
+            end
+
+            defmacrop active_index(predicate) do
+              quote do
+                index(:items, [:status], where: unquote(predicate))
+              end
+            end
+
+            defmacrop archived_index(predicate) do
+              quote bind_quoted: [predicate: predicate] do
+                index(:items, [:archived_at], where: predicate)
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"migration.where", "change/0", 5},
+             {"migration.where", "change/0", 6}
+           ]
+
+    assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
   end
 
   test "classifies qualified migration execution calls" do

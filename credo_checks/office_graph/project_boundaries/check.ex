@@ -104,6 +104,19 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(%{kind: :invalid_approval_provenance} = diagnostic, root, params) do
+    path = inventory_path(diagnostic.inventory)
+
+    format_boundary_issue(
+      root,
+      path,
+      params,
+      "invalid_approval_provenance #{inventory_name(diagnostic.inventory)} " <>
+        "entry #{diagnostic.entry}: change #{diagnostic.approving_change} does not record " <>
+        "fingerprint #{diagnostic.fingerprint} (#{diagnostic.reason})"
+    )
+  end
+
   defp issue_for(%{kind: :stale} = diagnostic, root, params) do
     path = inventory_path(diagnostic.inventory)
 

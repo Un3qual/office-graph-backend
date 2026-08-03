@@ -76,19 +76,75 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     ast = Code.string_to_quoted!(source)
     functions = migration_functions(ast)
 
-    case migration_entrypoint(functions, {:up, 0}) ||
-           migration_entrypoint(functions, {:change, 0}) do
-      definitions when is_list(definitions) ->
-        definitions
-        |> Enum.map(fn %{body: body, key: key} ->
-          expand_local_calls(body, functions, [key])
-        end)
-        |> block()
-        |> resolve_local_bindings()
+    forward_ast =
+      case migration_entrypoint(functions, {:up, 0}) ||
+             migration_entrypoint(functions, {:change, 0}) do
+        definitions when is_list(definitions) ->
+          definitions
+          |> Enum.map(fn %{body: body, key: key} ->
+            expand_local_calls(body, functions, [key])
+          end)
+          |> block()
+          |> resolve_local_bindings()
 
-      nil ->
-        {:__block__, [], []}
-    end
+        nil ->
+          {:__block__, [], []}
+      end
+
+    reject_schema_ownership_sql!(forward_ast)
+  end
+
+  defp reject_schema_ownership_sql!(ast) do
+    Macro.prewalk(ast, fn node ->
+      with {:ok, arguments} <- migration_execute_arguments(node),
+           {:ok, sql} <- arguments |> List.first() |> static_migration_sql(),
+           true <- schema_ownership_sql?(sql) do
+        raise ArgumentError,
+              "migration execute SQL changes table or foreign-key ownership; " <>
+                "use declarative Ecto migration constructs so conformance can inventory it"
+      end
+
+      node
+    end)
+  end
+
+  defp migration_execute_arguments({:execute, _metadata, arguments}) when is_list(arguments),
+    do: {:ok, arguments}
+
+  defp migration_execute_arguments(
+         {{:., _dot_metadata, [_receiver, :execute]}, _metadata, arguments}
+       )
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_arguments({:apply, _metadata, [_receiver, :execute, arguments]})
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_arguments(
+         {{:., _dot_metadata, [_apply_receiver, :apply]}, _metadata,
+          [_receiver, :execute, arguments]}
+       )
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_arguments(_node), do: :error
+
+  defp static_migration_sql(sql) when is_binary(sql), do: {:ok, sql}
+
+  defp static_migration_sql({:<>, _metadata, [left, right]}) do
+    with {:ok, left} <- static_migration_sql(left),
+         {:ok, right} <- static_migration_sql(right),
+         do: {:ok, left <> right}
+  end
+
+  defp static_migration_sql(_sql), do: :error
+
+  defp schema_ownership_sql?(sql) do
+    Regex.match?(
+      ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)TABLE\b/i,
+      sql
+    )
   end
 
   defp migration_entrypoint(functions, key) do
@@ -490,6 +546,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     definitions
     |> Enum.reduce_while([], fn definition, matches ->
       {pattern_status, bindings} = match_parameters(definition.parameters, arguments)
+      bindings = Map.merge(Map.get(definition, :captured_bindings, %{}), bindings)
       guard_status = guards_match(definition.guards, bindings)
       definition = Map.put(definition, :bindings, bindings)
 
@@ -629,7 +686,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp resolve_local_bindings({:=, _metadata, [pattern, value]}, bindings) do
-    resolved_value = substitute_bindings(value, bindings)
+    resolved_value = resolve_assignment_value(value, bindings)
 
     bindings =
       case match_parameter_pattern(pattern, resolved_value, %{}) do
@@ -637,7 +694,34 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         {_status, new_bindings} -> Map.merge(bindings, new_bindings)
       end
 
-    {resolved_value, bindings}
+    emitted_value =
+      if static_migration_closure?(resolved_value),
+        do: {:__block__, [], []},
+        else: resolved_value
+
+    {emitted_value, bindings}
+  end
+
+  defp resolve_local_bindings(
+         {{:., _dot_metadata, [callee]}, _metadata, arguments} = node,
+         bindings
+       )
+       when is_list(arguments) do
+    callee = substitute_bindings(callee, bindings)
+
+    arguments =
+      Enum.map(arguments, fn argument ->
+        {argument, _argument_bindings} = resolve_local_bindings(argument, bindings)
+        substitute_bindings(argument, bindings)
+      end)
+
+    case normalize_migration_closure(callee, bindings) do
+      {:ok, clauses, captured_bindings} ->
+        {expand_migration_closure(clauses, arguments, captured_bindings), bindings}
+
+      :error ->
+        resolve_local_binding_tuple(node, bindings)
+    end
   end
 
   defp resolve_local_bindings({:case, _metadata, [value, options]} = node, bindings)
@@ -694,6 +778,67 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp resolve_local_bindings(node, bindings), do: {node, bindings}
+
+  defp resolve_assignment_value({:fn, metadata, clauses}, bindings) when is_list(clauses),
+    do: {:__migration_closure__, metadata, [clauses, bindings]}
+
+  defp resolve_assignment_value(value, bindings), do: substitute_bindings(value, bindings)
+
+  defp static_migration_closure?({:__migration_closure__, _metadata, [_clauses, _bindings]}),
+    do: true
+
+  defp static_migration_closure?(_value), do: false
+
+  defp normalize_migration_closure(
+         {:__migration_closure__, _metadata, [clauses, captured_bindings]},
+         _bindings
+       )
+       when is_list(clauses) and is_map(captured_bindings),
+       do: {:ok, clauses, captured_bindings}
+
+  defp normalize_migration_closure({:fn, _metadata, clauses}, bindings) when is_list(clauses),
+    do: {:ok, clauses, bindings}
+
+  defp normalize_migration_closure(_callee, _bindings), do: :error
+
+  defp expand_migration_closure(clauses, arguments, captured_bindings) do
+    clauses
+    |> Enum.flat_map(&migration_closure_definition(&1, captured_bindings))
+    |> matching_definitions(arguments)
+    |> Enum.map(fn %{bindings: bindings, body: body} ->
+      body
+      |> substitute_bindings(bindings)
+      |> resolve_local_bindings()
+    end)
+    |> block()
+  end
+
+  defp migration_closure_definition(
+         {:->, _metadata, [heads, body]},
+         captured_bindings
+       )
+       when is_list(heads) do
+    {parameters, guards} = migration_closure_head(heads)
+
+    [
+      %{
+        body: body,
+        captured_bindings: captured_bindings,
+        guards: guards,
+        parameters: parameters
+      }
+    ]
+  end
+
+  defp migration_closure_definition(_clause, _captured_bindings), do: []
+
+  defp migration_closure_head([
+         {:when, _metadata, [_parameter, _guard | _remaining] = guarded_parameters}
+       ]) do
+    {Enum.drop(guarded_parameters, -1), [List.last(guarded_parameters)]}
+  end
+
+  defp migration_closure_head(parameters), do: {parameters, []}
 
   defp resolve_local_binding_tuple(node, bindings) do
     node =

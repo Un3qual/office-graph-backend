@@ -14,6 +14,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   ]
   @required_string_fields ["class", "construct", "fingerprint", "path"] ++
                             @approved_metadata_fields
+  @approval_evidence_fields @locator_fields ++ ["fingerprint"] ++ @approved_metadata_fields
+  @approval_evidence_file "database-exception-approvals.json"
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
 
@@ -24,6 +26,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     approved_exceptions =
       Enum.map(approved_exceptions, &normalize_entry(&1, :approved_exceptions))
 
+    compare_normalized(current, approved_exceptions)
+  end
+
+  defp compare_normalized(current, approved_exceptions) do
     case inventory_errors(approved_exceptions) do
       [] ->
         current_diagnostics(current, approved_exceptions) ++
@@ -42,10 +48,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
       )
 
-    compare(
-      DatabaseBoundaryScanner.scan_repository(root),
-      load_approved_inventory!(approved_path)
-    )
+    current = DatabaseBoundaryScanner.scan_repository(root) |> Enum.map(&normalize_entry/1)
+
+    approved_exceptions =
+      approved_path
+      |> load_approved_inventory!()
+      |> Enum.map(&normalize_entry(&1, :approved_exceptions))
+
+    case inventory_errors(approved_exceptions) do
+      [] ->
+        case approval_provenance_errors(root, approved_exceptions) do
+          [] -> compare_normalized(current, approved_exceptions)
+          errors -> errors
+        end
+
+      errors ->
+        errors
+    end
   end
 
   @spec load_approved_inventory!(Path.t()) :: [map()]
@@ -163,6 +182,83 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       duplicate_locator_errors(approved_exceptions)
   end
 
+  defp approval_provenance_errors(root, approved_exceptions) do
+    approved_exceptions
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {entry, index} ->
+      change = entry["approving_change"]
+
+      root
+      |> approval_change_directories(change)
+      |> approval_provenance_error(entry, index, change)
+    end)
+  end
+
+  defp approval_change_directories(root, change) do
+    root
+    |> Path.join("openspec/changes/archive/*-#{change}")
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?/1)
+    |> Enum.sort()
+  end
+
+  defp approval_provenance_error([], entry, index, change) do
+    [approval_provenance_diagnostic(entry, index, change, :missing_change)]
+  end
+
+  defp approval_provenance_error([change_root], entry, index, change) do
+    evidence_path = Path.join(change_root, @approval_evidence_file)
+
+    case load_approval_evidence(evidence_path) do
+      {:ok, approvals} ->
+        if Enum.any?(approvals, &same_approval_evidence?(&1, entry)) do
+          []
+        else
+          [approval_provenance_diagnostic(entry, index, change, :unrecorded_exception)]
+        end
+
+      {:error, reason} ->
+        [approval_provenance_diagnostic(entry, index, change, reason)]
+    end
+  end
+
+  defp approval_provenance_error(change_roots, entry, index, change) do
+    [
+      entry
+      |> approval_provenance_diagnostic(index, change, :ambiguous_change)
+      |> Map.put(:change_paths, change_roots)
+    ]
+  end
+
+  defp load_approval_evidence(path) do
+    with {:ok, body} <- File.read(path),
+         {:ok, %{"version" => 1, "approvals" => approvals}} when is_list(approvals) <-
+           Jason.decode(body) do
+      {:ok, approvals}
+    else
+      {:error, :enoent} -> {:error, :missing_approval_evidence}
+      {:error, _reason} -> {:error, :invalid_approval_evidence}
+      _invalid_schema -> {:error, :invalid_approval_evidence}
+    end
+  end
+
+  defp same_approval_evidence?(evidence, entry) when is_map(evidence) do
+    Enum.all?(@approval_evidence_fields, &(Map.get(evidence, &1) == Map.get(entry, &1)))
+  end
+
+  defp same_approval_evidence?(_evidence, _entry), do: false
+
+  defp approval_provenance_diagnostic(entry, index, change, reason) do
+    %{
+      kind: :invalid_approval_provenance,
+      inventory: :approved_exceptions,
+      entry: index,
+      approving_change: change,
+      fingerprint: entry["fingerprint"],
+      reason: reason
+    }
+  end
+
   defp duplicate_locator_errors(approved_exceptions) do
     approved_exceptions
     |> Enum.with_index(1)
@@ -231,7 +327,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         value -> if blank?(value), do: [], else: ["ordinal"]
       end
 
-    (invalid_strings ++ invalid_function ++ invalid_ordinal)
+    invalid_approving_change =
+      case Map.get(entry, "approving_change") do
+        value when is_binary(value) and value != "" ->
+          if Regex.match?(~r/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/, value),
+            do: [],
+            else: ["approving_change"]
+
+        _value ->
+          []
+      end
+
+    (invalid_strings ++ invalid_function ++ invalid_ordinal ++ invalid_approving_change)
     |> Enum.uniq()
     |> Enum.sort()
   end

@@ -126,6 +126,58 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
   end
 
+  test "rejects approved exceptions without exact evidence in their accepted OpenSpec change" do
+    Enum.each([:missing_change, :unrelated_record], fn scenario ->
+      with_boundary_repository(fn root, source, occurrence ->
+        approved =
+          occurrence
+          |> stringify_keys()
+          |> Map.drop(["line", "approval"])
+          |> Map.merge(%{
+            "approving_change" => "approved-change",
+            "owner" => "OfficeGraph.Example",
+            "reason" => "Required by the approved test contract.",
+            "retirement_condition" => "Remove when the approved mechanism is retired.",
+            "verification" => "Covered by the strict boundary gate."
+          })
+
+        inventory_path =
+          Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+
+        File.mkdir_p!(Path.dirname(inventory_path))
+        File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
+
+        if scenario == :unrelated_record do
+          change_root =
+            Path.join(root, "openspec/changes/archive/20260801000000-approved-change")
+
+          File.mkdir_p!(change_root)
+
+          File.write!(
+            Path.join(change_root, "database-exception-approvals.json"),
+            Jason.encode!(%{
+              "version" => 1,
+              "approvals" => [Map.put(approved, "fingerprint", "sha256:unrelated")]
+            })
+          )
+        end
+
+        source_path = Path.join(root, occurrence.path)
+        File.mkdir_p!(Path.dirname(source_path))
+        File.write!(source_path, source)
+        {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+        [diagnostic] = DatabaseBoundaryGate.check_repository(root)
+
+        assert diagnostic.kind == :invalid_approval_provenance
+        assert diagnostic.inventory == :approved_exceptions
+        assert diagnostic.entry == 1
+        assert diagnostic.approving_change == "approved-change"
+        assert diagnostic.fingerprint == occurrence.fingerprint
+      end)
+    end)
+  end
+
   test "completed production slices contain no direct database access" do
     sources =
       Enum.map(
@@ -189,5 +241,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       {:class, value} -> {"class", to_string(value)}
       {key, value} -> {to_string(key), value}
     end)
+  end
+
+  defp with_boundary_repository(test) do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_database_boundary_gate_#{System.unique_integer([:positive])}"
+      )
+
+    source = """
+    defmodule Example do
+      def persist(value), do: OfficeGraph.Repo.transaction(fn -> value end)
+    end
+    """
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    {_output, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
+
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+
+    test.(root, source, occurrence)
   end
 end

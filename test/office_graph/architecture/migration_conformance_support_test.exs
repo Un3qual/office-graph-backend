@@ -1159,6 +1159,98 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "expands invoked migration closures with their static arguments" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_closure_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create_table = fn name -> create table(name) end
+
+          create_child = fn child, parent ->
+            create table(child) do
+              add :parent_id, references(parent)
+            end
+          end
+
+          create_table.(:closure_parents)
+          create_child.(:closure_children, :closure_parents)
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "closure_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "closure_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "closure_children",
+               "closure_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "closure_children.parent_id references closure_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "rejects migration execute SQL that changes table or foreign-key ownership" do
+    Enum.each(
+      [
+        "CREATE TABLE sql_owned_examples (id uuid PRIMARY KEY)",
+        "ALTER TABLE examples ADD CONSTRAINT examples_parent_fkey FOREIGN KEY (parent_id) REFERENCES parents(id)",
+        "DROP TABLE IF EXISTS sql_owned_examples"
+      ],
+      fn sql ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_sql_ddl_conformance_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        File.mkdir_p!(migrations)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(migrations, "20260731000000_sql_ddl.exs"),
+          """
+          defmodule SqlDdl do
+            use Ecto.Migration
+
+            def change do
+              execute(#{inspect(sql)})
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
   test "substitutes bindings from destructured migration helper parameters" do
     root =
       Path.join(

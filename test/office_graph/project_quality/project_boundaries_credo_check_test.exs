@@ -123,6 +123,33 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
+  test "reports missing accepted-change approval evidence at the approved inventory" do
+    with_repository(fn root ->
+      source = """
+      defmodule Example do
+        def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+      end
+      """
+
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+
+      write_tracked!(root, "lib/example.ex", source)
+
+      write_json!(root, @approved_path, %{
+        "version" => 1,
+        "exceptions" => [approved_entry(occurrence, occurrence.fingerprint)]
+      })
+
+      issue = root |> run_check() |> issue_with("invalid_approval_provenance", @approved_path)
+
+      assert issue.message =~ "entry 1"
+      assert issue.message =~ "approved-change"
+      assert issue.message =~ occurrence.fingerprint
+      assert issue.message =~ "missing_change"
+    end)
+  end
+
   test "reports duplicate approved locators at the inventory that owns them" do
     with_repository(fn root ->
       source = """
@@ -258,6 +285,16 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
 
   defp write_approved!(root, entries) do
     write_json!(root, @approved_path, %{"version" => 1, "exceptions" => entries})
+
+    entries
+    |> Enum.group_by(& &1["approving_change"])
+    |> Enum.each(fn {change, approvals} ->
+      write_json!(
+        root,
+        "openspec/changes/archive/2026-08-01-#{change}/database-exception-approvals.json",
+        %{"version" => 1, "approvals" => approvals}
+      )
+    end)
   end
 
   defp write_json!(root, path, value) do

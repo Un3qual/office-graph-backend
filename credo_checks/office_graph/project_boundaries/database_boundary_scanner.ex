@@ -359,12 +359,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node(node, environment, context, occurrences) do
     resolved_node = resolve_attributes(node, environment)
     fingerprint_node = resolve_bindings(resolved_node, environment)
+    classification_node = normalize_static_apply(fingerprint_node, environment)
 
     occurrences =
       classify_migration_sql_options(fingerprint_node, environment, context, occurrences)
 
     occurrences =
-      case classify_node(resolved_node, context.migration?, environment) do
+      case classify_node(classification_node, context.migration?, environment) do
         nil ->
           occurrences
 
@@ -376,14 +377,47 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
               context.function,
               class,
               construct,
-              fingerprint_node
+              classification_node
             )
-            |> mark_sql_approval(class, construct, fingerprint_node)
+            |> mark_sql_approval(class, construct, classification_node)
             | occurrences
           ]
       end
 
     scan_children(node, environment, context, occurrences)
+  end
+
+  defp normalize_static_apply(
+         {:apply, metadata, [receiver, operation, arguments]} = node,
+         environment
+       ) do
+    if Map.has_key?(environment.local_functions, {:apply, 3}),
+      do: node,
+      else: static_applied_call(receiver, operation, arguments, metadata, node)
+  end
+
+  defp normalize_static_apply(
+         {{:., _dot_metadata, [apply_receiver, :apply]}, metadata,
+          [receiver, operation, arguments]} = node,
+         environment
+       ) do
+    if kernel_apply_receiver?(apply_receiver, environment),
+      do: static_applied_call(receiver, operation, arguments, metadata, node),
+      else: node
+  end
+
+  defp normalize_static_apply(node, _environment), do: node
+
+  defp static_applied_call(receiver, operation, arguments, metadata, _fallback)
+       when is_atom(operation) and is_list(arguments),
+       do: {{:., [], [receiver, operation]}, metadata, arguments}
+
+  defp static_applied_call(_receiver, _operation, _arguments, _metadata, fallback), do: fallback
+
+  defp kernel_apply_receiver?(:erlang, _environment), do: true
+
+  defp kernel_apply_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
   end
 
   defp scan_function_defaults(
@@ -421,6 +455,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp function_variants(head) do
+    {head, guards} = function_head_and_guards(head)
+
     case function_name_and_parameters(head) do
       {name, parameters} ->
         defaults =
@@ -441,6 +477,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
           %{
             arity: arity,
+            guards: guards,
             name: name,
             omitted_indexes: omitted_indexes,
             parameters: parameters,
@@ -452,6 +489,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         []
     end
   end
+
+  defp function_head_and_guards({:when, _metadata, [head | guards]}) do
+    {head, preceding_guards} = function_head_and_guards(head)
+    {head, preceding_guards ++ guards}
+  end
+
+  defp function_head_and_guards(head), do: {head, []}
 
   defp function_name_and_parameters({:when, _metadata, [head | _guards]}),
     do: function_name_and_parameters(head)
@@ -467,9 +511,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> module_expressions()
     |> Enum.reduce(%{}, fn
       {kind, _metadata, [head, body_options]}, functions
-      when kind in [:def, :defp] and is_list(body_options) ->
+      when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
         Enum.reduce(function_variants(head), functions, fn variant, functions ->
-          definition = Map.put(variant, :body, Keyword.get(body_options, :do))
+          definition =
+            variant
+            |> Map.put(:body, Keyword.get(body_options, :do))
+            |> Map.put(:kind, local_definition_kind(kind))
 
           Map.update(
             functions,
@@ -488,6 +535,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: expressions
 
   defp module_expressions(expression), do: [expression]
+
+  defp local_definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
+  defp local_definition_kind(kind) when kind in [:def, :defp], do: :function
 
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
@@ -1068,9 +1118,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> matching_local_definitions(arguments, environment)
       |> Enum.flat_map(fn definition ->
         child_environment = bind_local_function_arguments(definition, arguments, environment)
+        {body, child_environment} = expand_local_definition(definition, child_environment)
 
         resolve_migration_constructs(
-          definition.body,
+          body,
           child_environment,
           MapSet.put(resolving, key)
         )
@@ -1079,6 +1130,81 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp do_resolve_migration_constructs(_node, _environment, _resolving), do: []
+
+  defp expand_local_definition(%{body: body, kind: :function}, environment),
+    do: {body, environment}
+
+  defp expand_local_definition(%{body: body, kind: :macro}, environment) do
+    {expand_local_macro_body(body, environment), %{environment | bindings: %{}}}
+  end
+
+  defp expand_local_macro_body({:quote, _metadata, arguments}, environment)
+       when is_list(arguments) do
+    options = local_quote_options(arguments)
+
+    body =
+      if local_quote_unquotes?(options) do
+        options
+        |> Keyword.get(:do)
+        |> Macro.postwalk(fn
+          {:unquote, _metadata, [expression]} ->
+            expression
+            |> resolve_attributes(environment)
+            |> resolve_bindings(environment)
+
+          node ->
+            node
+        end)
+      else
+        Keyword.get(options, :do)
+      end
+
+    quoted_environment = %{
+      environment
+      | bindings: local_bind_quoted_bindings(options, environment)
+    }
+
+    body
+    |> resolve_attributes(quoted_environment)
+    |> resolve_bindings(quoted_environment)
+  end
+
+  defp expand_local_macro_body(body, environment) do
+    body
+    |> resolve_attributes(environment)
+    |> resolve_bindings(environment)
+  end
+
+  defp local_quote_options(arguments) do
+    Enum.flat_map(arguments, fn
+      options when is_list(options) ->
+        if Keyword.keyword?(options), do: options, else: []
+
+      _argument ->
+        []
+    end)
+  end
+
+  defp local_quote_unquotes?(options) do
+    Keyword.get(options, :unquote, not Keyword.has_key?(options, :bind_quoted))
+  end
+
+  defp local_bind_quoted_bindings(options, environment) do
+    options
+    |> Keyword.get(:bind_quoted, [])
+    |> Enum.reduce(%{}, fn
+      {name, expression}, bindings when is_atom(name) ->
+        expression =
+          expression
+          |> resolve_attributes(environment)
+          |> resolve_bindings(environment)
+
+        Map.put(bindings, name, expression)
+
+      _binding, bindings ->
+        bindings
+    end)
+  end
 
   defp resolve_migration_return_sequence([], _environment, _resolving), do: []
 
@@ -1117,22 +1243,223 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp migration_clause_bodies(_clause), do: []
 
   defp matching_local_definitions(definitions, arguments, environment) do
-    if Enum.all?(arguments, &static_binding_source?/1) do
-      Enum.filter(definitions, fn definition ->
+    definitions
+    |> Enum.reduce_while([], fn definition, matches ->
+      parameters =
         definition
         |> supplied_local_parameters()
-        |> Enum.zip(arguments)
-        |> Enum.all?(fn {parameter, argument} ->
+        |> Enum.map(fn parameter ->
           parameter
           |> local_parameter_pattern()
           |> resolve_struct_aliases(environment)
-          |> static_pattern_match?(argument)
         end)
-      end)
-    else
-      definitions
+
+      {pattern_status, _bindings} = match_local_parameters(parameters, arguments)
+
+      guard_status =
+        definition.guards
+        |> Enum.map(
+          &resolve_bindings(&1, bind_local_function_arguments(definition, arguments, environment))
+        )
+        |> local_guards_match()
+
+      case {pattern_status, guard_status} do
+        {:no_match, _guard_status} ->
+          {:cont, matches}
+
+        {_pattern_status, :no_match} ->
+          {:cont, matches}
+
+        {:match, :match} ->
+          {:halt, [definition | matches]}
+
+        {_possible_pattern, _possible_guard} ->
+          {:cont, [definition | matches]}
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp match_local_parameters(patterns, arguments) do
+    patterns
+    |> Enum.zip(arguments)
+    |> Enum.reduce({:match, %{}}, fn {pattern, argument}, {status, bindings} ->
+      {next_status, bindings} = match_local_parameter(pattern, argument, bindings)
+      {combine_local_match_status(status, next_status), bindings}
+    end)
+  end
+
+  defp match_local_parameter({:^, _metadata, [_pattern]}, _argument, bindings),
+    do: {:unknown, bindings}
+
+  defp match_local_parameter({name, _metadata, binding_context}, argument, bindings)
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+    cond do
+      name == :_ ->
+        {:match, bindings}
+
+      Map.has_key?(bindings, name) ->
+        {repeated_local_binding_status(Map.fetch!(bindings, name), argument), bindings}
+
+      true ->
+        {:match, Map.put(bindings, name, argument)}
     end
   end
+
+  defp match_local_parameter(
+         {:{}, _pattern_metadata, patterns},
+         {:{}, _argument_metadata, arguments},
+         bindings
+       ) do
+    if length(patterns) == length(arguments),
+      do: match_local_parameter_elements(patterns, arguments, bindings),
+      else: {:no_match, bindings}
+  end
+
+  defp match_local_parameter(
+         {left_pattern, right_pattern},
+         {left_argument, right_argument},
+         bindings
+       ) do
+    {left_status, bindings} = match_local_parameter(left_pattern, left_argument, bindings)
+    {right_status, bindings} = match_local_parameter(right_pattern, right_argument, bindings)
+    {combine_local_match_status(left_status, right_status), bindings}
+  end
+
+  defp match_local_parameter(patterns, arguments, bindings)
+       when is_list(patterns) and is_list(arguments) do
+    if length(patterns) == length(arguments),
+      do: match_local_parameter_elements(patterns, arguments, bindings),
+      else: {:no_match, bindings}
+  end
+
+  defp match_local_parameter(pattern, argument, bindings)
+       when is_atom(pattern) or is_binary(pattern) or is_number(pattern) do
+    status =
+      cond do
+        pattern === argument -> :match
+        static_binding_source?(argument) -> :no_match
+        true -> :unknown
+      end
+
+    {status, bindings}
+  end
+
+  defp match_local_parameter(_pattern, _argument, bindings), do: {:unknown, bindings}
+
+  defp match_local_parameter_elements(patterns, arguments, bindings) do
+    patterns
+    |> Enum.zip(arguments)
+    |> Enum.reduce({:match, bindings}, fn {pattern, argument}, {status, bindings} ->
+      {next_status, bindings} = match_local_parameter(pattern, argument, bindings)
+      {combine_local_match_status(status, next_status), bindings}
+    end)
+  end
+
+  defp combine_local_match_status(:no_match, _status), do: :no_match
+  defp combine_local_match_status(_status, :no_match), do: :no_match
+  defp combine_local_match_status(:unknown, _status), do: :unknown
+  defp combine_local_match_status(_status, :unknown), do: :unknown
+  defp combine_local_match_status(:match, :match), do: :match
+
+  defp repeated_local_binding_status(existing, argument) do
+    if Macro.to_string(existing) == Macro.to_string(argument) do
+      :match
+    else
+      with {:known, existing} <- static_local_guard_value(existing),
+           {:known, argument} <- static_local_guard_value(argument) do
+        if existing === argument, do: :match, else: :no_match
+      end
+    end
+  end
+
+  defp local_guards_match(guards) do
+    Enum.reduce(guards, :match, fn guard, status ->
+      combine_local_guard_and(status, static_local_guard_result(guard))
+    end)
+  end
+
+  defp static_local_guard_result(true), do: :match
+  defp static_local_guard_result(false), do: :no_match
+  defp static_local_guard_result(nil), do: :no_match
+
+  defp static_local_guard_result({:when, _metadata, guards}) when is_list(guards) do
+    Enum.reduce(guards, :no_match, fn guard, status ->
+      combine_local_guard_or(status, static_local_guard_result(guard))
+    end)
+  end
+
+  defp static_local_guard_result({operation, _metadata, [left, right]})
+       when operation in [:and, :or] do
+    left_status = static_local_guard_result(left)
+    right_status = static_local_guard_result(right)
+
+    case operation do
+      :and -> combine_local_guard_and(left_status, right_status)
+      :or -> combine_local_guard_or(left_status, right_status)
+    end
+  end
+
+  defp static_local_guard_result({operation, _metadata, [left, right]})
+       when operation in [:==, :===, :!=, :!==] do
+    with {:known, left} <- static_local_guard_value(left),
+         {:known, right} <- static_local_guard_value(right) do
+      matches? =
+        case operation do
+          :== -> left == right
+          :=== -> left === right
+          :!= -> left != right
+          :!== -> left !== right
+        end
+
+      if matches?, do: :match, else: :no_match
+    end
+  end
+
+  defp static_local_guard_result(_guard), do: :unknown
+
+  defp static_local_guard_value(value)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: {:known, value}
+
+  defp static_local_guard_value(values) when is_list(values),
+    do: static_local_guard_values(values, [])
+
+  defp static_local_guard_value({:{}, _metadata, values}) do
+    case static_local_guard_values(values, []) do
+      {:known, values} -> {:known, List.to_tuple(values)}
+      :unknown -> :unknown
+    end
+  end
+
+  defp static_local_guard_value({left, right}) do
+    with {:known, left} <- static_local_guard_value(left),
+         {:known, right} <- static_local_guard_value(right),
+         do: {:known, {left, right}}
+  end
+
+  defp static_local_guard_value(_value), do: :unknown
+
+  defp static_local_guard_values([], values), do: {:known, Enum.reverse(values)}
+
+  defp static_local_guard_values([value | remaining], values) do
+    case static_local_guard_value(value) do
+      {:known, value} -> static_local_guard_values(remaining, [value | values])
+      :unknown -> :unknown
+    end
+  end
+
+  defp combine_local_guard_and(:no_match, _status), do: :no_match
+  defp combine_local_guard_and(_status, :no_match), do: :no_match
+  defp combine_local_guard_and(:unknown, _status), do: :unknown
+  defp combine_local_guard_and(_status, :unknown), do: :unknown
+  defp combine_local_guard_and(:match, :match), do: :match
+
+  defp combine_local_guard_or(:match, _status), do: :match
+  defp combine_local_guard_or(_status, :match), do: :match
+  defp combine_local_guard_or(:unknown, _status), do: :unknown
+  defp combine_local_guard_or(_status, :unknown), do: :unknown
+  defp combine_local_guard_or(:no_match, :no_match), do: :no_match
 
   defp bind_local_function_arguments(definition, arguments, environment) do
     bindings =
