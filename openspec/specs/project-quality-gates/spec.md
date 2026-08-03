@@ -124,6 +124,14 @@ binary literals or documentation text.
 - **THEN** the scanner MUST classify that explicit SQL-bearing call exactly as
   it would inside a migration file
 
+#### Scenario: Block-form table creation carries SQL options
+
+- **WHEN** an unqualified, aliased, or fully qualified migration `create`
+  operation receives a table construct with raw `options` or `modifiers` and a
+  trailing `do` block
+- **THEN** the scanner MUST classify each SQL-bearing table option without
+  treating the trailing block as part of the construct identity or payload
+
 ### Requirement: Duplicate static-analysis configuration is prohibited
 
 Each static analyzer SHALL have one canonical invocation and one path/options

@@ -657,6 +657,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "classifies raw table options on block-form migration creation" do
+    [
+      """
+      create table(:events,
+               modifiers: "UNLOGGED",
+               options: "PARTITION BY RANGE (inserted_at)"
+             ) do
+        add :inserted_at, :utc_datetime_usec
+      end
+      """,
+      """
+      Ecto.Migration.create(
+        Ecto.Migration.table(:events,
+          modifiers: "UNLOGGED",
+          options: "PARTITION BY RANGE (inserted_at)"
+        )
+      ) do
+        Ecto.Migration.add :inserted_at, :utc_datetime_usec
+      end
+      """
+    ]
+    |> Enum.each(fn statement ->
+      occurrences =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "priv/repo/migrations/20260728000000_example.exs",
+            source: """
+            defmodule ExampleMigration do
+              use Ecto.Migration
+
+              def change do
+                #{statement}
+              end
+            end
+            """
+          }
+        ])
+
+      assert Enum.map(occurrences, &{&1.class, &1.construct}) == [
+               {:raw_sql, "migration.modifiers"},
+               {:raw_sql, "migration.options"}
+             ]
+    end)
+  end
+
   test "classifies SQL-bearing migration constructs returned from reachable local helpers" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

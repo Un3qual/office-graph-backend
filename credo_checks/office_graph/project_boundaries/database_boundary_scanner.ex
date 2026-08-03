@@ -976,7 +976,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_migration_sql_options(
-         {operation, metadata, [construct_or_helper]},
+         {operation, metadata, [construct_or_helper | _trailing_arguments]},
          environment,
          %{migration?: true} = context,
          occurrences
@@ -993,7 +993,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_migration_sql_options(
-         {{:., _dot_metadata, [receiver, operation]}, metadata, [construct_or_helper]},
+         {{:., _dot_metadata, [receiver, operation]}, metadata,
+          [construct_or_helper | _trailing_arguments]},
          environment,
          %{migration?: true} = context,
          occurrences
