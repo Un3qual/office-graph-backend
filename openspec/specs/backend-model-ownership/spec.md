@@ -92,6 +92,20 @@ diverge.
 - **WHEN** canonical project verification runs
 - **THEN** it MUST verify table inventory, Ash domain and resource registration, absence of duplicate table-backed Ecto schemas, planned resource coverage, and exact non-growth of database-access debt
 
+#### Scenario: Migration lifecycle uses qualified Ecto calls
+
+- **WHEN** a forward migration invokes table lifecycle operations through
+  `Ecto.Migration` or an explicit alias
+- **THEN** canonical model-ownership verification MUST inventory the same table
+  and foreign-key effects as the equivalent imported migration DSL calls
+
+#### Scenario: Migration creates a prefixed table
+
+- **WHEN** a forward migration creates, drops, alters, references, or renames a
+  table with a schema prefix
+- **THEN** canonical model-ownership verification MUST preserve the schema in
+  the table identity and compare it with the AshPostgres resource schema
+
 ### Requirement: Exception Ledger Is A Burn-Down Contract
 
 Office Graph SHALL distinguish unapproved database-access removal debt from

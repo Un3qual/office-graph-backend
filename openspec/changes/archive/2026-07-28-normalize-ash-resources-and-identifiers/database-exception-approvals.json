@@ -6,6 +6,7 @@
       "construct": "fragment",
       "fingerprint": "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b",
       "function": "up/0",
+      "line": 4892,
       "ordinal": 1,
       "owner": "OfficeGraph.Repo.Migrations",
       "path": "priv/repo/migrations/20260729233957_initial.exs",

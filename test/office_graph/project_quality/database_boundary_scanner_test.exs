@@ -95,6 +95,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "accepts literal SQL interpolation without accepting runtime interpolation" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: ~S'''
+          defmodule Example do
+            alias OfficeGraph.Repo
+
+            def static, do: Repo.query!("SELECT #{1}")
+            def dynamic(value), do: Repo.query!("SELECT #{value}")
+          end
+          '''
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.function, Map.get(&1, :approval)}) == [
+             {"static/0", nil},
+             {"dynamic/1", :unresolved_sql}
+           ]
+  end
+
   test "classifies repository operations through an explicit alias" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

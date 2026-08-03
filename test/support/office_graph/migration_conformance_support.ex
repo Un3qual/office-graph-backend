@@ -22,9 +22,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.sort()
   end
 
+  def resource_table_identities(expected_resources) do
+    expected_resources
+    |> Enum.map(fn {table, {_domain, resource}} -> resource_table_identity(table, resource) end)
+    |> Enum.sort()
+  end
+
   def migration_foreign_key_relationship_errors(expected_resources) do
     resources_by_table =
-      Map.new(expected_resources, fn {table, {_domain, resource}} -> {table, resource} end)
+      Map.new(expected_resources, fn {table, {_domain, resource}} ->
+        {resource_table_identity(table, resource), resource}
+      end)
 
     migration_foreign_keys()
     |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
@@ -138,7 +146,47 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          do: {:ok, left <> right}
   end
 
+  defp static_migration_sql({:<<>>, _metadata, segments}) when is_list(segments) do
+    segments
+    |> Enum.reduce_while({:ok, []}, fn segment, {:ok, values} ->
+      case static_migration_sql_segment(segment) do
+        {:ok, value} -> {:cont, {:ok, [value | values]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, values |> Enum.reverse() |> IO.iodata_to_binary()}
+      :error -> :error
+    end
+  end
+
   defp static_migration_sql(_sql), do: :error
+
+  defp static_migration_sql_segment(segment) when is_binary(segment), do: {:ok, segment}
+
+  defp static_migration_sql_segment(
+         {:"::", _metadata,
+          [
+            {{:., _dot_metadata, [Kernel, :to_string]}, interpolation_metadata, [value]},
+            {:binary, _binary_metadata, nil}
+          ]}
+       ) do
+    if Keyword.get(interpolation_metadata, :from_interpolation, false),
+      do: static_interpolation_string(value),
+      else: :error
+  end
+
+  defp static_migration_sql_segment(_segment), do: :error
+
+  defp static_interpolation_string(value)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: {:ok, to_string(value)}
+
+  defp static_interpolation_string(value) when is_list(value) do
+    if Enum.all?(value, &is_integer/1), do: {:ok, List.to_string(value)}, else: :error
+  end
+
+  defp static_interpolation_string(_value), do: :error
 
   defp schema_ownership_sql?(sql) do
     Regex.match?(
@@ -157,17 +205,20 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_functions(ast) do
-    {functions, _attributes} =
+    {functions, _attributes, _aliases} =
       ast
       |> migration_module_body()
       |> module_expressions()
-      |> Enum.reduce({%{}, %{}}, fn
-        {:@, _metadata, [{name, _name_metadata, [value]}]}, {functions, attributes}
+      |> Enum.reduce({%{}, %{}, %{}}, fn
+        {:alias, _metadata, arguments}, {functions, attributes, aliases} ->
+          {functions, attributes, put_module_aliases(aliases, arguments)}
+
+        {:@, _metadata, [{name, _name_metadata, [value]}]}, {functions, attributes, aliases}
         when is_atom(name) ->
           attributes = Map.put(attributes, name, resolve_module_attributes(value, attributes))
-          {functions, attributes}
+          {functions, attributes, aliases}
 
-        {kind, _meta, [head, body_options]}, {functions, attributes}
+        {kind, _meta, [head, body_options]}, {functions, attributes, aliases}
         when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
           head = resolve_module_attributes(head, attributes)
 
@@ -179,7 +230,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                   kind,
                   parameters,
                   guards,
-                  resolve_module_attributes(body, attributes)
+                  body
+                  |> resolve_module_attributes(attributes)
+                  |> normalize_migration_calls(aliases)
                 )
                 |> Enum.reduce(functions, fn definition, functions ->
                   Map.update(functions, definition.key, [definition], fn definitions ->
@@ -187,10 +240,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                   end)
                 end)
 
-              {functions, attributes}
+              {functions, attributes, aliases}
 
             _not_a_function_definition ->
-              {functions, attributes}
+              {functions, attributes, aliases}
           end
 
         _module_expression, accumulator ->
@@ -231,6 +284,47 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp module_expressions({:__block__, _metadata, expressions}), do: expressions
   defp module_expressions(nil), do: []
   defp module_expressions(expression), do: [expression]
+
+  defp normalize_migration_calls({:__block__, metadata, expressions}, aliases) do
+    {expressions, _aliases} =
+      Enum.map_reduce(expressions, aliases, fn expression, aliases ->
+        normalized = normalize_migration_calls(expression, aliases)
+
+        aliases =
+          case expression do
+            {:alias, _metadata, arguments} -> put_module_aliases(aliases, arguments)
+            _expression -> aliases
+          end
+
+        {normalized, aliases}
+      end)
+
+    {:__block__, metadata, expressions}
+  end
+
+  defp normalize_migration_calls(
+         {{:., _dot_metadata, [receiver, operation]}, metadata, arguments} = node,
+         aliases
+       )
+       when is_atom(operation) and is_list(arguments) do
+    arguments = Enum.map(arguments, &normalize_migration_calls(&1, aliases))
+
+    if resolve_module_name(receiver, aliases) == "Ecto.Migration",
+      do: {operation, metadata, arguments},
+      else: put_elem(node, 2, arguments)
+  end
+
+  defp normalize_migration_calls(nodes, aliases) when is_list(nodes),
+    do: Enum.map(nodes, &normalize_migration_calls(&1, aliases))
+
+  defp normalize_migration_calls(node, aliases) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> Enum.map(&normalize_migration_calls(&1, aliases))
+    |> List.to_tuple()
+  end
+
+  defp normalize_migration_calls(node, _aliases), do: node
 
   defp put_module_aliases(aliases, [target]),
     do: apply_module_aliases(aliases, target, [])
@@ -1157,21 +1251,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp collect_foreign_key_operations(
          {:rename, _metadata,
           [
-            {:table, _old_table_metadata, [old_table | _old_table_options]},
-            [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
+            {:table, _old_table_metadata, [old_table | old_table_options]},
+            [to: {:table, _new_table_metadata, [new_table | new_table_options]}]
           ]},
          _table,
          certainty
        )
        when is_atom(old_table) and is_atom(new_table) do
-    operation = {:rename_table, Atom.to_string(old_table), Atom.to_string(new_table)}
+    operation =
+      {:rename_table, table_identity(old_table, old_table_options),
+       table_identity(new_table, new_table_options)}
+
     [with_certainty(operation, certainty)]
   end
 
   defp collect_foreign_key_operations(
          {:rename, _metadata,
           [
-            {:table, _table_metadata, [table | _table_options]},
+            {:table, _table_metadata, [table | table_options]},
             old_column,
             [to: new_column]
           ]},
@@ -1180,7 +1277,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        )
        when is_atom(table) and is_atom(old_column) and is_atom(new_column) do
     operation =
-      {:rename_column, Atom.to_string(table), Atom.to_string(old_column),
+      {:rename_column, table_identity(table, table_options), Atom.to_string(old_column),
        Atom.to_string(new_column)}
 
     [with_certainty(operation, certainty)]
@@ -1188,35 +1285,37 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp collect_foreign_key_operations(
          {operation, _metadata,
-          [{:table, _table_metadata, [table | _table_options]}, [do: block]]},
+          [{:table, _table_metadata, [table | table_options]}, [do: block]]},
          _current_table,
          certainty
        )
        when operation in @table_definition_operations and is_atom(table) do
-    collect_foreign_key_operations(block, Atom.to_string(table), certainty)
+    collect_foreign_key_operations(block, table_identity(table, table_options), certainty)
   end
 
   defp collect_foreign_key_operations(
          {operation, _metadata,
-          [{:constraint, _constraint_metadata, [table, name | _constraint_options]}]},
+          [{:constraint, _constraint_metadata, [table, name | constraint_options]}]},
          _current_table,
          certainty
        )
        when operation in @table_drop_operations and
               (is_atom(table) or is_binary(table)) and
               (is_atom(name) or is_binary(name)) do
-    operation = {:drop_constraint, to_string(table), to_string(name)}
+    operation = {:drop_constraint, table_identity(table, constraint_options), to_string(name)}
     [with_certainty(operation, certainty)]
   end
 
   defp collect_foreign_key_operations(
          {operation, _metadata,
-          [{:table, _table_metadata, [table | _table_options]} | drop_options]},
+          [{:table, _table_metadata, [table | table_options]} | drop_options]},
          _current_table,
          certainty
        )
        when operation in @table_drop_operations and is_atom(table) do
-    operation = {:drop_table, Atom.to_string(table), cascading_drop?(drop_options)}
+    operation =
+      {:drop_table, table_identity(table, table_options), cascading_drop?(drop_options)}
+
     [with_certainty(operation, certainty)]
   end
 
@@ -1235,10 +1334,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
               is_atom(destination) do
     reference_options = List.flatten(reference_options)
 
+    destination_prefix =
+      Keyword.get(reference_options, :prefix, table_prefix_from_identity(table))
+
     foreign_key = {
       table,
       Atom.to_string(column),
-      Atom.to_string(destination),
+      schema_table_identity(destination, destination_prefix),
       reference_options |> Keyword.get(:column, :id) |> Atom.to_string(),
       foreign_key_constraint_name(table, column, reference_options)
     }
@@ -1270,7 +1372,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp foreign_key_constraint_name(table, column, reference_options) do
     case Keyword.get(reference_options, :name) do
-      nil -> "#{table}_#{column}_fkey"
+      nil -> "#{table_name_from_identity(table)}_#{column}_fkey"
       name when is_atom(name) or is_binary(name) -> to_string(name)
     end
   end
@@ -1385,23 +1487,66 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp table_operation(
          {:rename, _metadata,
           [
-            {:table, _old_table_metadata, [old_table | _old_table_options]},
-            [to: {:table, _new_table_metadata, [new_table | _new_table_options]}]
+            {:table, _old_table_metadata, [old_table | old_table_options]},
+            [to: {:table, _new_table_metadata, [new_table | new_table_options]}]
           ]}
        )
        when is_atom(old_table) and is_atom(new_table) do
-    {:rename, Atom.to_string(old_table), Atom.to_string(new_table)}
+    {:rename, table_identity(old_table, old_table_options),
+     table_identity(new_table, new_table_options)}
   end
 
   defp table_operation(
-         {operation, _metadata, [{:table, _table_metadata, [table | _table_options]} | _options]}
+         {operation, _metadata, [{:table, _table_metadata, [table | table_options]} | _options]}
        )
        when operation in @table_lifecycle_operations and is_atom(table) do
     lifecycle_operation = if operation in @table_create_operations, do: :create, else: :drop
-    {lifecycle_operation, Atom.to_string(table)}
+    {lifecycle_operation, table_identity(table, table_options)}
   end
 
   defp table_operation(_node), do: nil
+
+  defp table_identity(table, options) do
+    options = List.flatten(options)
+
+    prefix =
+      case Keyword.fetch(options, :prefix) do
+        {:ok, prefix} when is_nil(prefix) or is_atom(prefix) or is_binary(prefix) ->
+          prefix
+
+        {:ok, prefix} ->
+          raise ArgumentError,
+                "cannot statically resolve migration table prefix: #{Macro.to_string(prefix)}"
+
+        :error ->
+          nil
+      end
+
+    schema_table_identity(table, prefix)
+  end
+
+  defp schema_table_identity(table, prefix) when prefix in [nil, :public, "public"],
+    do: to_string(table)
+
+  defp schema_table_identity(table, prefix) when is_atom(prefix) or is_binary(prefix),
+    do: "#{prefix}.#{table}"
+
+  defp resource_table_identity(table, resource),
+    do: schema_table_identity(table, AshPostgres.DataLayer.Info.schema(resource))
+
+  defp table_prefix_from_identity(identity) do
+    case String.split(identity, ".", parts: 2) do
+      [_table] -> nil
+      [prefix, _table] -> prefix
+    end
+  end
+
+  defp table_name_from_identity(identity) do
+    case String.split(identity, ".", parts: 2) do
+      [table] -> table
+      [_prefix, table] -> table
+    end
+  end
 
   defp apply_table_operation({:create, table}, tables), do: MapSet.put(tables, table)
   defp apply_table_operation({:drop, table}, tables), do: MapSet.delete(tables, table)
@@ -1570,5 +1715,40 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         do: remaining,
         else: Map.put(remaining, identity, candidates)
     end)
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceSupport.AuditParentResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "parents"
+    schema "audit"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceSupport.AuditChildResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "children"
+    schema "audit"
+    repo OfficeGraph.Repo
+    migrate? false
+  end
+
+  attributes do
+    uuid_primary_key :id
+    attribute :parent_id, :uuid
   end
 end

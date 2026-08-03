@@ -94,6 +94,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
              class: "direct_ecto",
              construct: "Repo.transaction",
              function: "persist/1",
+             line: 3,
              ordinal: 1,
              path: "lib/example.ex"
            }
@@ -122,6 +123,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert diagnostic.path == "lib/copied_example.ex"
   end
 
+  test "does not let an approval follow an occurrence to another source line" do
+    moved_occurrence = Map.put(occurrence("sha256:current"), :line, 4)
+
+    diagnostics =
+      DatabaseBoundaryGate.compare(
+        [moved_occurrence],
+        [approved_entry("sha256:current")]
+      )
+
+    assert Enum.map(diagnostics, &{&1.kind, &1.line}) == [new: 4, stale: 3]
+  end
+
   test "current repository matches the reviewed database exceptions" do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
   end
@@ -129,7 +142,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   test "rejects approved exceptions without exact evidence in their accepted OpenSpec change" do
     Enum.each([:missing_change, :unrelated_record], fn scenario ->
       with_boundary_repository(fn root, source, occurrence ->
-        approved = approved_entry(occurrence.fingerprint)
+        approved = approved_entry(occurrence)
 
         inventory_path =
           Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
@@ -170,7 +183,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
 
   test "accepts exact approval evidence from the active OpenSpec change before archival" do
     with_boundary_repository(fn root, source, occurrence ->
-      approved = approved_entry(occurrence.fingerprint)
+      approved = approved_entry(occurrence)
 
       inventory_path =
         Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
@@ -241,10 +254,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     }
   end
 
-  defp approved_entry(fingerprint) do
+  defp approved_entry(fingerprint) when is_binary(fingerprint) do
     occurrence(fingerprint)
+    |> approved_entry()
+  end
+
+  defp approved_entry(occurrence) when is_map(occurrence) do
+    occurrence
     |> stringify_keys()
-    |> Map.drop(["line"])
     |> Map.merge(%{
       "approving_change" => "approved-change",
       "owner" => "OfficeGraph.Example",

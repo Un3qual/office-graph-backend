@@ -102,8 +102,8 @@ SHALL remain exact and fingerprinted.
 
 #### Scenario: Approved inventory repeats one locator
 
-- **WHEN** two approved entries share the same path, class, construct, function,
-  and ordinal even when their fingerprints differ
+- **WHEN** two approved entries share the same path, line, class, construct,
+  function, and ordinal even when their fingerprints differ
 - **THEN** canonical verification MUST reject the approved inventory before
   matching current fingerprints or suppressing stale entries
 

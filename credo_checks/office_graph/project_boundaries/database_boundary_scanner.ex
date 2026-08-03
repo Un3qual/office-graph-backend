@@ -1622,7 +1622,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp static_sql_payload?({operator, _metadata, [left, right]}) when operator in [:<>, :++],
     do: static_sql_payload?(left) and static_sql_payload?(right)
 
+  defp static_sql_payload?({:<<>>, _metadata, segments}) when is_list(segments),
+    do: Enum.all?(segments, &static_sql_bitstring_segment?/1)
+
   defp static_sql_payload?(payload), do: Macro.quoted_literal?(payload)
+
+  defp static_sql_bitstring_segment?(segment) when is_binary(segment), do: true
+
+  defp static_sql_bitstring_segment?(
+         {:"::", _metadata,
+          [
+            {{:., _dot_metadata, [Kernel, :to_string]}, interpolation_metadata, [value]},
+            {:binary, _binary_metadata, nil}
+          ]}
+       ) do
+    Keyword.get(interpolation_metadata, :from_interpolation, false) and
+      static_sql_payload?(value)
+  end
+
+  defp static_sql_bitstring_segment?(segment), do: Macro.quoted_literal?(segment)
 
   defp migration_sql_option_fingerprint_input(
          operation,

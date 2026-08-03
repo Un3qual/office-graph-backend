@@ -4,7 +4,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   approved exception.
   """
 
-  @locator_fields ["path", "class", "construct", "function", "ordinal"]
+  @locator_fields ["path", "line", "class", "construct", "function", "ordinal"]
   @approved_metadata_fields [
     "approving_change",
     "owner",
@@ -131,7 +131,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
 
   defp inventory_errors(approved_exceptions) do
     required_fields =
-      ["class", "construct", "fingerprint", "ordinal", "path"] ++
+      ["class", "construct", "fingerprint", "line", "ordinal", "path"] ++
         @approved_metadata_fields
 
     missing_field_errors =
@@ -283,6 +283,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         entries: Enum.map(entries, &elem(&1, 1)),
         duplicate_locator: %{
           path: entry["path"],
+          line: entry["line"],
           class: entry["class"],
           construct: entry["construct"],
           function: entry["function"],
@@ -332,6 +333,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         value -> if blank?(value), do: [], else: ["ordinal"]
       end
 
+    invalid_line =
+      entry
+      |> Map.get("line")
+      |> case do
+        value when is_integer(value) and value > 0 -> []
+        value -> if blank?(value), do: [], else: ["line"]
+      end
+
     invalid_approving_change =
       case Map.get(entry, "approving_change") do
         value when is_binary(value) and value != "" ->
@@ -343,7 +352,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
           []
       end
 
-    (invalid_strings ++ invalid_function ++ invalid_ordinal ++ invalid_approving_change)
+    (invalid_strings ++
+       invalid_function ++ invalid_line ++ invalid_ordinal ++ invalid_approving_change)
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -354,6 +364,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       is_binary(entry["construct"]) and entry["construct"] != "" and
       (is_nil(entry["function"]) or
          (is_binary(entry["function"]) and entry["function"] != "")) and
+      is_integer(entry["line"]) and entry["line"] > 0 and
       is_integer(entry["ordinal"]) and entry["ordinal"] > 0
   end
 

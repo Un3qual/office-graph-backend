@@ -101,6 +101,14 @@ binary literals or documentation text.
 - **THEN** the scanner MUST resolve that attribute for both classification and
   occurrence fingerprinting so changing the SQL invalidates the exact approval
 
+#### Scenario: SQL payload contains literal interpolation
+
+- **WHEN** a classified raw-SQL payload interpolates only statically resolvable
+  literal values
+- **THEN** the scanner MUST retain the exact interpolation AST in its
+  fingerprint and allow exact approval while continuing to reject payloads
+  that interpolate runtime values
+
 ### Requirement: Duplicate static-analysis configuration is prohibited
 
 Each static analyzer SHALL have one canonical invocation and one path/options

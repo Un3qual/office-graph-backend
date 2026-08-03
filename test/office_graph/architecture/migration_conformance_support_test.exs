@@ -1251,6 +1251,37 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "rejects statically interpolated migration execute SQL that changes ownership" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_interpolated_sql_ddl_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_sql_ddl.exs"),
+      ~S'''
+      defmodule SqlDdl do
+        use Ecto.Migration
+
+        def change do
+          execute("CREATE TABLE #{:interpolated_examples} (id uuid PRIMARY KEY)")
+        end
+      end
+      '''
+    )
+
+    File.cd!(root, fn ->
+      assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
+  end
+
   test "substitutes bindings from destructured migration helper parameters" do
     root =
       Path.join(
@@ -1732,6 +1763,160 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ) == [
                "aliased_children.parent_id references aliased_parents.id without a matching belongs_to"
              ]
+    end)
+  end
+
+  test "normalizes qualified and aliased migration lifecycle calls" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_qualified_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        alias Ecto.Migration, as: Migration
+        use Migration
+
+        def change do
+          Ecto.Migration.create(Ecto.Migration.table(:qualified_parents))
+
+          Migration.create(Migration.table(:qualified_children)) do
+            Migration.add(:parent_id, Migration.references(:qualified_parents))
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "qualified_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "qualified_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "qualified_children",
+               "qualified_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "qualified_children.parent_id references qualified_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "preserves table prefixes in migration ownership identities" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_prefixed_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:events)
+          create table(:events, prefix: "audit")
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == ["audit.events", "events"]
+    end)
+  end
+
+  test "compares prefixed migration foreign keys with Ash resource schemas" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_prefixed_foreign_key_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents, prefix: "audit")
+
+          create table(:children, prefix: "audit") do
+            add :parent_id, references(:parents)
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, MigrationConformanceSupport.AuditChildResource},
+      "parents" => {nil, MigrationConformanceSupport.AuditParentResource}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "audit.children.parent_id references audit.parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "rejects table prefixes that cannot be resolved statically" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_dynamic_prefix_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          prefix = configured_prefix()
+          create table(:events, prefix: prefix)
+        end
+
+        defp configured_prefix, do: System.fetch_env!("EVENT_SCHEMA")
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert_raise ArgumentError, ~r/cannot statically resolve migration table prefix/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
     end)
   end
 end
