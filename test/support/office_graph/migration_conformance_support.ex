@@ -639,6 +639,23 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {resolved_value, bindings}
   end
 
+  defp resolve_local_bindings({:case, _metadata, [value, options]} = node, bindings)
+       when is_list(options) do
+    case Keyword.fetch(options, :do) do
+      {:ok, clauses} when is_list(clauses) ->
+        {value, _value_bindings} = resolve_local_bindings(value, bindings)
+        value = substitute_bindings(value, bindings)
+
+        case resolve_static_case_bodies(clauses, value, bindings) do
+          {:ok, bodies} -> {block([value | bodies]), bindings}
+          :unknown -> resolve_local_binding_tuple(node, bindings)
+        end
+
+      _not_a_case_expression ->
+        resolve_local_binding_tuple(node, bindings)
+    end
+  end
+
   defp resolve_local_bindings({:for, _metadata, arguments} = node, bindings)
        when is_list(arguments) do
     case static_for_parts(arguments) do
@@ -721,6 +738,67 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     {block(bodies), outer_bindings}
   end
+
+  defp resolve_static_case_bodies(clauses, value, bindings) do
+    Enum.reduce_while(clauses, {:ok, [], false}, fn clause, {:ok, bodies, preceding_possible?} ->
+      case resolve_static_case_clause(clause, value, bindings) do
+        :no_match ->
+          {:cont, {:ok, bodies, preceding_possible?}}
+
+        {:possible, body} ->
+          {:cont, {:ok, [with_ast_certainty(body, :possible) | bodies], true}}
+
+        {:definite, body} when preceding_possible? ->
+          {:halt, {:ok, [with_ast_certainty(body, :possible) | bodies], true}}
+
+        {:definite, body} ->
+          {:halt, {:ok, [body | bodies], false}}
+
+        :unknown ->
+          {:halt, :unknown}
+      end
+    end)
+    |> case do
+      {:ok, bodies, _preceding_possible?} -> {:ok, Enum.reverse(bodies)}
+      :unknown -> :unknown
+    end
+  end
+
+  defp resolve_static_case_clause({:->, _metadata, [heads, body]}, value, bindings)
+       when is_list(heads) do
+    with {:ok, pattern, guards} <- static_case_head(heads) do
+      {pattern_status, pattern_bindings} = match_parameter_pattern(pattern, value, %{})
+      clause_bindings = Map.merge(bindings, pattern_bindings)
+      guard_status = guards_match(guards, clause_bindings)
+
+      case {pattern_status, guard_status} do
+        {:no_match, _guard_status} ->
+          :no_match
+
+        {_pattern_status, :no_match} ->
+          :no_match
+
+        {:match, :match} ->
+          resolve_static_case_body(body, clause_bindings, :definite)
+
+        {_possible_pattern, _possible_guard} ->
+          resolve_static_case_body(body, clause_bindings, :possible)
+      end
+    end
+  end
+
+  defp resolve_static_case_clause(_clause, _value, _bindings), do: :unknown
+
+  defp resolve_static_case_body(body, bindings, certainty) do
+    {body, _body_bindings} = resolve_local_bindings(body, bindings)
+    {certainty, body}
+  end
+
+  defp static_case_head([{:when, _metadata, [pattern | guards]}]),
+    do: {:ok, pattern, guards}
+
+  defp static_case_head([pattern]), do: {:ok, pattern, []}
+  defp static_case_head(_heads), do: :unknown
 
   defp apply_static_for_qualifier({:<-, _metadata, [pattern, source]}, bindings) do
     Enum.reduce_while(bindings, {:known, []}, fn {certainty, iteration_bindings},
@@ -987,12 +1065,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp collect_foreign_key_operations(
          {operation, _metadata,
-          [{:table, _table_metadata, [table | _table_options]} | _drop_options]},
+          [{:table, _table_metadata, [table | _table_options]} | drop_options]},
          _current_table,
          certainty
        )
        when operation in @table_drop_operations and is_atom(table) do
-    operation = {:drop_table, Atom.to_string(table)}
+    operation = {:drop_table, Atom.to_string(table), cascading_drop?(drop_options)}
     [with_certainty(operation, certainty)]
   end
 
@@ -1048,6 +1126,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       nil -> "#{table}_#{column}_fkey"
       name when is_atom(name) or is_binary(name) -> to_string(name)
     end
+  end
+
+  defp cascading_drop?(drop_options) do
+    options =
+      Enum.flat_map(drop_options, fn
+        options when is_list(options) -> options
+        _option -> []
+      end)
+
+    Keyword.get(options, :mode) == :cascade
   end
 
   defp migration_table_operations(ast) do
@@ -1204,14 +1292,18 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp apply_foreign_key_operation({:possible, {:remove, _table, _column}}, foreign_keys),
     do: foreign_keys
 
-  defp apply_foreign_key_operation({:drop_table, table}, foreign_keys) do
-    Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_keys} ->
-      source_table == table
+  defp apply_foreign_key_operation({:drop_table, table, cascading?}, foreign_keys) do
+    reject_foreign_keys(foreign_keys, fn
+      {source_table, _source_column, destination_table, _destination_column, _constraint_name} ->
+        source_table == table or (cascading? and destination_table == table)
     end)
   end
 
-  defp apply_foreign_key_operation({:possible, {:drop_table, _table}}, foreign_keys),
-    do: foreign_keys
+  defp apply_foreign_key_operation(
+         {:possible, {:drop_table, _table, _cascading?}},
+         foreign_keys
+       ),
+       do: foreign_keys
 
   defp apply_foreign_key_operation({:drop_constraint, table, name}, foreign_keys) do
     reject_foreign_keys(foreign_keys, fn

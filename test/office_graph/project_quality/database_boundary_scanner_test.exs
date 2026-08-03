@@ -192,6 +192,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "does not classify unqualified local fragment functions without an Ecto import" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   def fragment(value), do: value
+                   def unsafe_fragment(value), do: value
+
+                   def render do
+                     fragment("display only")
+                     unsafe_fragment("still not SQL")
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
   test "classifies fully qualified and aliased Ecto query fragments as raw SQL" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

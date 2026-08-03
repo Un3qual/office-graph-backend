@@ -212,6 +212,38 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "executes only the statically matching case branch" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_static_case_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          case :create do
+            :create -> create table(:case_selected_examples)
+            :drop -> drop table(:case_selected_examples)
+          end
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == ["case_selected_examples"]
+    end)
+  end
+
   test "executes only statically selected foreign-key branches" do
     root =
       Path.join(
@@ -1390,6 +1422,72 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     expected_resources = %{
       "conditional_children" => {nil, OfficeGraph.Tenancy.Organization},
       "conditional_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == []
+    end)
+  end
+
+  test "removes inbound foreign keys when a destination table is dropped with cascade" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_cascading_destination_drop_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:cascade_parents)
+
+          create table(:cascade_children) do
+            add :parent_id, references(:cascade_parents)
+          end
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000001_drop_parents.exs"),
+      """
+      defmodule DropParents do
+        use Ecto.Migration
+
+        def change do
+          drop table(:cascade_parents), mode: :cascade
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(migrations, "20260731000002_recreate_parents.exs"),
+      """
+      defmodule RecreateParents do
+        use Ecto.Migration
+
+        def change do
+          create table(:cascade_parents)
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "cascade_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "cascade_parents" => {nil, OfficeGraph.Tenancy.Workspace}
     }
 
     File.cd!(root, fn ->

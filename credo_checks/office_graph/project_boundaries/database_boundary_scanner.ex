@@ -120,9 +120,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @database_alias_targets [
     "Ecto.Adapters.SQL",
     "Ecto.Multi",
+    "Ecto.Query",
+    "Ecto.Query.API",
     "OfficeGraph.Repo",
     "Postgrex"
   ]
+
+  @ecto_fragment_import_targets ["Ecto.Query", "Ecto.Query.API"]
 
   @migration_create_operations [:create, :create_if_not_exists]
   @migration_sql_option_constructs [:constraint, :index, :unique_index]
@@ -809,9 +813,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       classify_database_operation(receiver, operation)
   end
 
-  defp classify_node({construct, _metadata, arguments}, _migration?, _environment)
-       when construct in [:fragment, :unsafe_fragment] and is_list(arguments),
-       do: {:raw_sql, to_string(construct)}
+  defp classify_node({construct, _metadata, arguments}, migration?, environment)
+       when construct in [:fragment, :unsafe_fragment] and is_list(arguments) do
+    if migration? or imported_fragment?(environment, construct, length(arguments)),
+      do: {:raw_sql, to_string(construct)}
+  end
 
   defp classify_node({:execute, _metadata, arguments}, true, _environment)
        when is_list(arguments),
@@ -1248,6 +1254,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp imported_receiver(environment, operation, arity) do
     Enum.find_value(environment.imports, fn declaration ->
       if import_applies?(declaration, operation, arity), do: declaration.target
+    end)
+  end
+
+  defp imported_fragment?(environment, operation, arity) do
+    Enum.any?(environment.imports, fn declaration ->
+      declaration.target in @ecto_fragment_import_targets and
+        import_applies?(declaration, operation, arity)
     end)
   end
 
