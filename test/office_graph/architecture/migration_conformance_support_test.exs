@@ -989,6 +989,86 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "selects statically matching migration helper clauses with boolean guards" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_boolean_guard_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          guarded_ddl(:add)
+          alternative_guarded_ddl(:add)
+        end
+
+        defp guarded_ddl(mode) when mode == :add and mode != :remove do
+          create table(:boolean_and_guard_examples)
+        end
+
+        defp guarded_ddl(_mode) do
+          drop table(:boolean_and_guard_examples)
+        end
+
+        defp alternative_guarded_ddl(mode) when mode == :remove or mode == :add do
+          create table(:boolean_or_guard_examples)
+        end
+
+        defp alternative_guarded_ddl(_mode) do
+          drop table(:boolean_or_guard_examples)
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "boolean_and_guard_examples",
+               "boolean_or_guard_examples"
+             ]
+    end)
+  end
+
+  test "expands statically enumerable migration comprehensions" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_static_comprehension_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def up do
+          for table_name <- [:static_users, :static_groups] do
+            create table(table_name)
+          end
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == ["static_groups", "static_users"]
+    end)
+  end
+
   test "substitutes bindings from destructured migration helper parameters" do
     root =
       Path.join(

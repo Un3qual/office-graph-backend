@@ -639,6 +639,29 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {resolved_value, bindings}
   end
 
+  defp resolve_local_bindings({:for, _metadata, arguments} = node, bindings)
+       when is_list(arguments) do
+    case static_for_parts(arguments) do
+      {:ok, qualifiers, body} ->
+        case static_for_bindings(qualifiers, [bindings]) do
+          {:known, iteration_bindings} ->
+            bodies =
+              Enum.map(iteration_bindings, fn iteration_bindings ->
+                {body, _body_bindings} = resolve_local_bindings(body, iteration_bindings)
+                body
+              end)
+
+            {block(bodies), bindings}
+
+          :unknown ->
+            resolve_local_binding_tuple(node, bindings)
+        end
+
+      :unknown ->
+        resolve_local_binding_tuple(node, bindings)
+    end
+  end
+
   defp resolve_local_bindings(nodes, bindings) when is_list(nodes) do
     nodes =
       Enum.map(nodes, fn node ->
@@ -650,6 +673,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp resolve_local_bindings(node, bindings) when is_tuple(node) do
+    resolve_local_binding_tuple(node, bindings)
+  end
+
+  defp resolve_local_bindings(node, bindings), do: {node, bindings}
+
+  defp resolve_local_binding_tuple(node, bindings) do
     node =
       node
       |> Tuple.to_list()
@@ -663,7 +692,93 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {node, bindings}
   end
 
-  defp resolve_local_bindings(node, bindings), do: {node, bindings}
+  defp static_for_parts(arguments) do
+    case Enum.split(arguments, -1) do
+      {qualifiers, [options]} when is_list(options) ->
+        if Keyword.keyword?(options) and Keyword.keys(options) == [:do],
+          do: {:ok, qualifiers, Keyword.fetch!(options, :do)},
+          else: :unknown
+
+      _not_a_plain_comprehension ->
+        :unknown
+    end
+  end
+
+  defp static_for_bindings([], bindings), do: {:known, bindings}
+
+  defp static_for_bindings([qualifier | qualifiers], bindings) do
+    with {:known, bindings} <- apply_static_for_qualifier(qualifier, bindings) do
+      static_for_bindings(qualifiers, bindings)
+    end
+  end
+
+  defp apply_static_for_qualifier({:<-, _metadata, [pattern, source]}, bindings) do
+    Enum.reduce_while(bindings, {:known, []}, fn bindings, {:known, reversed_matches} ->
+      source = substitute_bindings(source, bindings)
+
+      case static_for_values(source) do
+        {:known, values} ->
+          case bind_static_for_values(pattern, values, bindings) do
+            {:known, value_bindings} ->
+              {:cont, {:known, Enum.reverse(value_bindings, reversed_matches)}}
+
+            :unknown ->
+              {:halt, :unknown}
+          end
+
+        :unknown ->
+          {:halt, :unknown}
+      end
+    end)
+    |> case do
+      {:known, reversed_matches} -> {:known, Enum.reverse(reversed_matches)}
+      :unknown -> :unknown
+    end
+  end
+
+  defp apply_static_for_qualifier(qualifier, bindings) do
+    Enum.reduce_while(bindings, {:known, []}, fn bindings, {:known, matches} ->
+      qualifier = substitute_bindings(qualifier, bindings)
+
+      case static_guard_result(qualifier) do
+        :match -> {:cont, {:known, [bindings | matches]}}
+        :no_match -> {:cont, {:known, matches}}
+        :unknown -> {:halt, :unknown}
+      end
+    end)
+    |> case do
+      {:known, matches} -> {:known, Enum.reverse(matches)}
+      :unknown -> :unknown
+    end
+  end
+
+  defp static_for_values(values) when is_list(values) do
+    case static_guard_value(values) do
+      {:known, _values} -> {:known, values}
+      :unknown -> :unknown
+    end
+  end
+
+  defp static_for_values(_source), do: :unknown
+
+  defp bind_static_for_values(pattern, values, bindings) do
+    Enum.reduce_while(values, {:known, []}, fn value, {:known, matches} ->
+      case match_parameter_pattern(pattern, value, %{}) do
+        {:match, pattern_bindings} ->
+          {:cont, {:known, [Map.merge(bindings, pattern_bindings) | matches]}}
+
+        {:no_match, _pattern_bindings} ->
+          {:cont, {:known, matches}}
+
+        {:unknown, _pattern_bindings} ->
+          {:halt, :unknown}
+      end
+    end)
+    |> case do
+      {:known, matches} -> {:known, Enum.reverse(matches)}
+      :unknown -> :unknown
+    end
+  end
 
   defp guards_match([], _bindings), do: :match
 
@@ -682,6 +797,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     Enum.reduce(guards, :no_match, fn guard, status ->
       combine_guard_or(status, static_guard_result(guard))
     end)
+  end
+
+  defp static_guard_result({operation, _metadata, [left, right]})
+       when operation in [:and, :or] do
+    left_status = static_guard_result(left)
+    right_status = static_guard_result(right)
+
+    case operation do
+      :and -> combine_guard_and(left_status, right_status)
+      :or -> combine_guard_or(left_status, right_status)
+    end
   end
 
   defp static_guard_result({operation, _metadata, [left, right]})

@@ -884,6 +884,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.uniq(fingerprints) == fingerprints
   end
 
+  test "does not bind statically mismatched generator patterns into SQL fingerprints" do
+    [
+      "with {:ok, statement} <- {:error, __STATEMENT__}, do: OfficeGraph.Repo.query!(statement, [])",
+      "for {:ok, statement} <- [{:error, __STATEMENT__}], do: OfficeGraph.Repo.query!(statement, [])"
+    ]
+    |> Enum.each(fn generator_source ->
+      fingerprints =
+        ["SELECT 1", "SELECT 2"]
+        |> Enum.map(fn statement ->
+          source = String.replace(generator_source, "__STATEMENT__", inspect(statement))
+
+          [occurrence] =
+            DatabaseBoundaryScanner.scan_sources([
+              %{
+                path: "lib/example.ex",
+                source: """
+                defmodule Example do
+                  def load do
+                    #{source}
+                  end
+                end
+                """
+              }
+            ])
+
+          assert occurrence.construct == "Repo.query!"
+          occurrence.fingerprint
+        end)
+
+      assert length(Enum.uniq(fingerprints)) == 1
+    end)
+  end
+
   test "binds static case discriminants into clause SQL fingerprints" do
     fingerprints =
       ["SELECT 1", "SELECT 2"]
@@ -911,11 +944,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.uniq(fingerprints) == fingerprints
   end
 
-  test "binds default parameter SQL into direct-call fingerprints" do
+  test "binds static cons-pattern case discriminants into SQL fingerprints" do
     fingerprints =
       ["SELECT 1", "SELECT 2"]
       |> Enum.map(fn statement ->
         [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def load do
+                  case [#{inspect(statement)}, :ignored] do
+                    [statement | _rest] -> OfficeGraph.Repo.query!(statement, [])
+                  end
+                end
+              end
+              """
+            }
+          ])
+
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
+  test "binds default SQL only for generated lower-arity function fingerprints" do
+    fingerprints_by_default =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn statement ->
+        occurrences =
           DatabaseBoundaryScanner.scan_sources([
             %{
               path: "lib/example.ex",
@@ -929,11 +989,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             }
           ])
 
-        assert occurrence.construct == "Repo.query!"
-        occurrence.fingerprint
+        assert Enum.all?(occurrences, &(&1.construct == "Repo.query!"))
+        Map.new(occurrences, &{&1.function, &1.fingerprint})
       end)
 
-    assert Enum.uniq(fingerprints) == fingerprints
+    assert Enum.all?(
+             fingerprints_by_default,
+             &(Map.keys(&1) |> Enum.sort() == ["load/0", "load/1"])
+           )
+
+    [first, second] = fingerprints_by_default
+    refute first["load/0"] == second["load/0"]
+    assert first["load/1"] == second["load/1"]
+    refute first["load/0"] == first["load/1"]
   end
 
   test "does not treat bitstring modifiers as clause-bound variables" do

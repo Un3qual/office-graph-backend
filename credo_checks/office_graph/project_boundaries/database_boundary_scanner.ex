@@ -162,14 +162,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({kind, _metadata, [head, body_options]}, environment, context, occurrences)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
-    child_context = %{context | function: function_signature(head)}
-    child_environment = %{environment | bindings: %{}}
+    occurrences =
+      head
+      |> function_variants()
+      |> Enum.reduce(occurrences, fn variant, occurrences ->
+        child_context = %{context | function: variant.signature}
+        child_environment = %{environment | bindings: %{}}
 
-    {child_environment, occurrences} =
-      scan_function_parameters(head, child_environment, child_context, occurrences)
+        {child_environment, occurrences} =
+          scan_function_defaults(
+            variant.parameters,
+            variant.omitted_indexes,
+            child_environment,
+            child_context,
+            occurrences
+          )
 
-    {_child_environment, occurrences} =
-      scan_children(body_options, child_environment, child_context, occurrences)
+        {_child_environment, occurrences} =
+          scan_children(body_options, child_environment, child_context, occurrences)
+
+        occurrences
+      end)
 
     {environment, occurrences}
   end
@@ -362,37 +375,77 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_children(node, environment, context, occurrences)
   end
 
-  defp scan_function_parameters(head, environment, context, occurrences) do
-    head
-    |> function_parameters()
+  defp scan_function_defaults(
+         parameters,
+         omitted_indexes,
+         environment,
+         context,
+         occurrences
+       ) do
+    parameters
+    |> Enum.with_index()
     |> Enum.reduce({environment, occurrences}, fn
-      {:\\, _metadata, [pattern, default]}, {environment, occurrences} ->
-        {environment, occurrences} =
-          scan_node(default, environment, context, occurrences)
+      {{:\\, _metadata, [pattern, default]}, index}, {environment, occurrences} ->
+        if MapSet.member?(omitted_indexes, index) do
+          {environment, occurrences} =
+            scan_node(default, environment, context, occurrences)
 
-        resolved_pattern = resolve_struct_aliases(pattern, environment)
+          resolved_pattern = resolve_struct_aliases(pattern, environment)
 
-        resolved_default =
-          default
-          |> resolve_attributes(environment)
-          |> resolve_bindings(environment)
-          |> resolve_struct_aliases(environment)
+          resolved_default =
+            default
+            |> resolve_attributes(environment)
+            |> resolve_bindings(environment)
+            |> resolve_struct_aliases(environment)
 
-        bindings = bind_pattern(resolved_pattern, resolved_default, environment.bindings)
-        {%{environment | bindings: bindings}, occurrences}
+          bindings = bind_pattern(resolved_pattern, resolved_default, environment.bindings)
+          {%{environment | bindings: bindings}, occurrences}
+        else
+          {environment, occurrences}
+        end
 
       _parameter, accumulator ->
         accumulator
     end)
   end
 
-  defp function_parameters({:when, _metadata, [head | _guards]}),
-    do: function_parameters(head)
+  defp function_variants(head) do
+    case function_name_and_parameters(head) do
+      {name, parameters} ->
+        defaults =
+          parameters
+          |> Enum.with_index()
+          |> Enum.flat_map(fn
+            {{:\\, _metadata, [_pattern, _default]}, index} -> [index]
+            {_parameter, _index} -> []
+          end)
 
-  defp function_parameters({_name, _metadata, parameters}) when is_list(parameters),
-    do: parameters
+        full_arity = length(parameters)
 
-  defp function_parameters(_head), do: []
+        0..length(defaults)
+        |> Enum.map(fn omitted_count ->
+          omitted_indexes = defaults |> Enum.take(-omitted_count) |> MapSet.new()
+
+          %{
+            omitted_indexes: omitted_indexes,
+            parameters: parameters,
+            signature: "#{name}/#{full_arity - omitted_count}"
+          }
+        end)
+
+      nil ->
+        []
+    end
+  end
+
+  defp function_name_and_parameters({:when, _metadata, [head | _guards]}),
+    do: function_name_and_parameters(head)
+
+  defp function_name_and_parameters({name, _metadata, parameters})
+       when is_atom(name) and (is_list(parameters) or is_nil(parameters)),
+       do: {name, parameters || []}
+
+  defp function_name_and_parameters(_head), do: nil
 
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
@@ -537,19 +590,41 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       static_pattern_match?(left_pattern, left_value) and
         static_pattern_match?(right_pattern, right_value)
 
-  defp static_pattern_match?(patterns, values)
-       when is_list(patterns) and is_list(values) and length(patterns) == length(values),
-       do:
-         Enum.zip(patterns, values)
-         |> Enum.all?(fn {pattern, value} ->
-           static_pattern_match?(pattern, value)
-         end)
+  defp static_pattern_match?(patterns, values) when is_list(patterns) and is_list(values) do
+    case List.last(patterns) do
+      {:|, _metadata, [_head_pattern, _tail_pattern]} ->
+        static_cons_pattern_match?(patterns, values)
+
+      _not_a_cons_pattern ->
+        length(patterns) == length(values) and
+          patterns
+          |> Enum.zip(values)
+          |> Enum.all?(fn {pattern, value} ->
+            static_pattern_match?(pattern, value)
+          end)
+    end
+  end
 
   defp static_pattern_match?(pattern, value)
        when is_atom(pattern) or is_binary(pattern) or is_number(pattern),
        do: pattern === value
 
   defp static_pattern_match?(_pattern, _value), do: false
+
+  defp static_cons_pattern_match?(
+         [{:|, _metadata, [head_pattern, tail_pattern]}],
+         [head_value | tail_value]
+       ) do
+    static_pattern_match?(head_pattern, head_value) and
+      static_pattern_match?(tail_pattern, tail_value)
+  end
+
+  defp static_cons_pattern_match?([pattern | patterns], [value | values]) do
+    static_pattern_match?(pattern, value) and
+      static_cons_pattern_match?(patterns, values)
+  end
+
+  defp static_cons_pattern_match?(_patterns, _values), do: false
 
   defp pattern_binding_names({:^, _metadata, [_pattern]}), do: []
 
@@ -638,14 +713,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp bind_generator_patterns(environment, _patterns, _source, :enumerate), do: environment
 
   defp bind_generator_value(environment, patterns, value) do
-    bindings =
-      Enum.reduce(patterns, environment.bindings, fn pattern, bindings ->
-        pattern
-        |> resolve_struct_aliases(environment)
-        |> bind_pattern(value, bindings)
-      end)
+    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
 
-    %{environment | bindings: bindings}
+    if Enum.all?(patterns, &static_pattern_match?(&1, value)) do
+      bindings =
+        Enum.reduce(patterns, environment.bindings, fn pattern, bindings ->
+          bind_pattern(pattern, value, bindings)
+        end)
+
+      %{environment | bindings: bindings}
+    else
+      environment
+    end
   end
 
   defp static_binding_source?(value)
@@ -1187,14 +1266,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: target in @database_alias_targets
 
   defp import_applies?(_declaration, _operation, _arity), do: false
-
-  defp function_signature({:when, _metadata, [head | _guards]}), do: function_signature(head)
-
-  defp function_signature({name, _metadata, arguments}) when is_atom(name) do
-    "#{name}/#{length(arguments || [])}"
-  end
-
-  defp function_signature(_head), do: nil
 
   defp receiver_name({:__aliases__, _metadata, parts}) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
