@@ -88,6 +88,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
            }
   end
 
+  test "rejects non-map approved exceptions without crashing the boundary gate" do
+    [diagnostic] = DatabaseBoundaryGate.compare([], [nil])
+
+    assert diagnostic.kind == :invalid_inventory
+    assert diagnostic.inventory == :approved_exceptions
+    assert diagnostic.entry == 1
+    assert "fingerprint" in diagnostic.missing_fields
+  end
+
+  test "requires an exact approval to match both fingerprint and locator" do
+    copied_occurrence = Map.put(occurrence("sha256:current"), :path, "lib/copied_example.ex")
+
+    [diagnostic] =
+      DatabaseBoundaryGate.compare(
+        [occurrence("sha256:current"), copied_occurrence],
+        [approved_entry("sha256:current")]
+      )
+
+    assert diagnostic.kind == :new
+    assert diagnostic.fingerprint == "sha256:current"
+    assert diagnostic.path == "lib/copied_example.ex"
+  end
+
   test "current repository matches the reviewed database exceptions" do
     assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
   end

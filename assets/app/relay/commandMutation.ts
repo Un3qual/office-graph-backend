@@ -96,7 +96,18 @@ export function useCommandMutation<TMutation extends MutationParameters, TInput,
         return false;
       }
 
-      const variables = config.toVariables(input);
+      let variables: TMutation["variables"];
+
+      try {
+        variables = config.toVariables(input);
+      } catch (failure) {
+        setState(
+          mapCommandFailure(
+            failure instanceof Error ? failure : new Error("Command preparation failed."),
+          ),
+        );
+        return false;
+      }
 
       pending.current = true;
       setState({ status: "pending" });

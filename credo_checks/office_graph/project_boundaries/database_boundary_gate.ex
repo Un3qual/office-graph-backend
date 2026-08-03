@@ -78,7 +78,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   defp approved_match(approved_exceptions, occurrence) do
     Enum.reduce_while(approved_exceptions, :new, fn approved_exception, match ->
       cond do
-        approved_exception["fingerprint"] == occurrence["fingerprint"] ->
+        same_locator?(approved_exception, occurrence) and
+            approved_exception["fingerprint"] == occurrence["fingerprint"] ->
           {:halt, :exact}
 
         same_locator?(approved_exception, occurrence) ->
@@ -189,11 +190,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     |> Map.update("class", nil, &normalize_class/1)
   end
 
-  defp normalize_entry(entry, inventory) do
+  defp normalize_entry(entry, inventory) when is_map(entry) do
     entry
     |> normalize_entry()
     |> Map.put("inventory", inventory)
   end
+
+  defp normalize_entry(_entry, inventory), do: %{"inventory" => inventory}
 
   defp same_locator?(left, right) do
     Enum.all?(@locator_fields, &(Map.get(left, &1) == Map.get(right, &1)))

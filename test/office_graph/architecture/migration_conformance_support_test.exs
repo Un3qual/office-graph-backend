@@ -337,6 +337,64 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "keeps schema state that an unknown comprehension filter may remove" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_unknown_comprehension_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table(:parents)
+
+          create table(:children) do
+            add :parent_id, references(:parents)
+          end
+
+          create table(:possibly_removed)
+
+          for _iteration <- [:once], System.get_env("REMOVE_OPTIONAL_SCHEMA") do
+            drop table(:possibly_removed)
+
+            alter table(:children) do
+              remove :parent_id
+            end
+          end
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "children" => {nil, OfficeGraph.Tenancy.Organization},
+      "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "children",
+               "parents",
+               "possibly_removed"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "applies source and destination column renames to foreign-key identities" do
     root =
       Path.join(

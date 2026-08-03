@@ -172,7 +172,7 @@ describe("operator command workflow", () => {
     });
   });
 
-  it("remains idle and accepts a later command when Relay ID translation fails", () => {
+  it("reports a safe error and accepts a later command when Relay ID translation fails", () => {
     const request = deferredRequest();
     const environment = relayEnvironment(request.fetch);
     const { result } = renderHook(() => useCreateWorkPacketCommand(), {
@@ -190,13 +190,18 @@ describe("operator command workflow", () => {
       verificationCheckIds: ["check-1"],
     };
 
-    expect(() => {
-      act(() => result.current.submit(input));
-    }).toThrow("Expected a graph_item Relay ID, received verification_check.");
+    let accepted = true;
 
-    expect(result.current.state).toEqual({ status: "idle" });
+    act(() => {
+      accepted = result.current.submit(input);
+    });
 
-    let accepted = false;
+    expect(accepted).toBe(false);
+    expect(result.current.state).toEqual({
+      status: "error",
+      code: "unknown",
+      message: "Unable to complete this action. Try again.",
+    });
 
     act(() => {
       accepted = result.current.submit({

@@ -643,18 +643,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        when is_list(arguments) do
     case static_for_parts(arguments) do
       {:ok, qualifiers, body} ->
-        case static_for_bindings(qualifiers, [bindings]) do
+        case static_for_bindings(qualifiers, [{:definite, bindings}]) do
           {:known, iteration_bindings} ->
-            bodies =
-              Enum.map(iteration_bindings, fn iteration_bindings ->
-                {body, _body_bindings} = resolve_local_bindings(body, iteration_bindings)
-                body
+            resolve_static_for_bodies(body, iteration_bindings, bindings)
+
+          {:unknown, partial_iteration_bindings} ->
+            partial_iteration_bindings =
+              Enum.map(partial_iteration_bindings, fn {_certainty, iteration_bindings} ->
+                {:possible, iteration_bindings}
               end)
 
-            {block(bodies), bindings}
-
-          :unknown ->
-            resolve_local_binding_tuple(node, bindings)
+            resolve_static_for_bodies(body, partial_iteration_bindings, bindings)
         end
 
       :unknown ->
@@ -707,19 +706,34 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp static_for_bindings([], bindings), do: {:known, bindings}
 
   defp static_for_bindings([qualifier | qualifiers], bindings) do
-    with {:known, bindings} <- apply_static_for_qualifier(qualifier, bindings) do
-      static_for_bindings(qualifiers, bindings)
+    case apply_static_for_qualifier(qualifier, bindings) do
+      {:known, bindings} -> static_for_bindings(qualifiers, bindings)
+      {:unknown, bindings} -> {:unknown, bindings}
     end
   end
 
+  defp resolve_static_for_bodies(body, iteration_bindings, outer_bindings) do
+    bodies =
+      Enum.map(iteration_bindings, fn {certainty, iteration_bindings} ->
+        {body, _body_bindings} = resolve_local_bindings(body, iteration_bindings)
+        with_ast_certainty(body, certainty)
+      end)
+
+    {block(bodies), outer_bindings}
+  end
+
   defp apply_static_for_qualifier({:<-, _metadata, [pattern, source]}, bindings) do
-    Enum.reduce_while(bindings, {:known, []}, fn bindings, {:known, reversed_matches} ->
-      source = substitute_bindings(source, bindings)
+    Enum.reduce_while(bindings, {:known, []}, fn {certainty, iteration_bindings},
+                                                 {:known, reversed_matches} ->
+      source = substitute_bindings(source, iteration_bindings)
 
       case static_for_values(source) do
         {:known, values} ->
-          case bind_static_for_values(pattern, values, bindings) do
+          case bind_static_for_values(pattern, values, iteration_bindings) do
             {:known, value_bindings} ->
+              value_bindings =
+                Enum.map(value_bindings, &{certainty, &1})
+
               {:cont, {:known, Enum.reverse(value_bindings, reversed_matches)}}
 
             :unknown ->
@@ -732,25 +746,29 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end)
     |> case do
       {:known, reversed_matches} -> {:known, Enum.reverse(reversed_matches)}
-      :unknown -> :unknown
+      :unknown -> {:unknown, bindings}
     end
   end
 
   defp apply_static_for_qualifier(qualifier, bindings) do
-    Enum.reduce_while(bindings, {:known, []}, fn bindings, {:known, matches} ->
-      qualifier = substitute_bindings(qualifier, bindings)
+    bindings =
+      Enum.reduce(bindings, [], fn {certainty, iteration_bindings}, matches ->
+        qualifier = substitute_bindings(qualifier, iteration_bindings)
 
-      case static_guard_result(qualifier) do
-        :match -> {:cont, {:known, [bindings | matches]}}
-        :no_match -> {:cont, {:known, matches}}
-        :unknown -> {:halt, :unknown}
-      end
-    end)
-    |> case do
-      {:known, matches} -> {:known, Enum.reverse(matches)}
-      :unknown -> :unknown
-    end
+        case static_guard_result(qualifier) do
+          :match -> [{certainty, iteration_bindings} | matches]
+          :no_match -> matches
+          :unknown -> [{:possible, iteration_bindings} | matches]
+        end
+      end)
+
+    {:known, Enum.reverse(bindings)}
   end
+
+  defp with_ast_certainty(body, :definite), do: body
+
+  defp with_ast_certainty(body, :possible),
+    do: {:__possible_migration_operations__, [], [body]}
 
   defp static_for_values(values) when is_list(values) do
     case static_guard_value(values) do
@@ -874,6 +892,14 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp migration_foreign_key_operations(ast) do
     collect_foreign_key_operations(ast, nil, :definite)
+  end
+
+  defp collect_foreign_key_operations(
+         {:__possible_migration_operations__, _metadata, [body]},
+         table,
+         certainty
+       ) do
+    collect_foreign_key_operations(body, table, possible_certainty(certainty))
   end
 
   defp collect_foreign_key_operations(
@@ -1026,6 +1052,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp migration_table_operations(ast) do
     collect_table_operations(ast, :definite)
+  end
+
+  defp collect_table_operations(
+         {:__possible_migration_operations__, _metadata, [body]},
+         certainty
+       ) do
+    collect_table_operations(body, possible_certainty(certainty))
   end
 
   defp collect_table_operations(
