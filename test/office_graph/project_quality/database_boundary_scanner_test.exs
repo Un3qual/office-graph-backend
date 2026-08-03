@@ -497,6 +497,46 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "classifies SQL-bearing migration constructs returned from reachable local helpers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              create active_index("deleted_at IS NULL")
+              create partitioned_table()
+            end
+
+            defp active_index(predicate),
+              do: index(:items, [:status], where: predicate)
+
+            defp partitioned_table, do: table_definition()
+
+            defp table_definition,
+              do: table(:events, options: "PARTITION BY RANGE (inserted_at)")
+
+            defp unused_index,
+              do: index(:items, [:archived_at], where: "archived_at IS NULL")
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "migration.where", "change/0", 5},
+             {:raw_sql, "migration.options", "change/0", 6}
+           ]
+
+    refute Map.has_key?(
+             Enum.find(occurrences, &(&1.construct == "migration.where")),
+             :approval
+           )
+  end
+
   test "classifies qualified migration execution calls" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

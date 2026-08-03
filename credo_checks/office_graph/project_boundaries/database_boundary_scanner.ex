@@ -156,7 +156,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       body ->
         child_context = %{context | function: nil}
-        child_environment = %{environment | attributes: %{}}
+
+        child_environment = %{
+          environment
+          | attributes: %{},
+            local_functions: collect_local_functions(body)
+        }
 
         {_child_environment, occurrences} =
           scan_node(body, child_environment, child_context, occurrences)
@@ -356,7 +361,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     fingerprint_node = resolve_bindings(resolved_node, environment)
 
     occurrences =
-      classify_migration_sql_options(fingerprint_node, context, occurrences)
+      classify_migration_sql_options(fingerprint_node, environment, context, occurrences)
 
     occurrences =
       case classify_node(resolved_node, context.migration?, environment) do
@@ -432,10 +437,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         |> Enum.map(fn omitted_count ->
           omitted_indexes = defaults |> Enum.take(-omitted_count) |> MapSet.new()
 
+          arity = full_arity - omitted_count
+
           %{
+            arity: arity,
+            name: name,
             omitted_indexes: omitted_indexes,
             parameters: parameters,
-            signature: "#{name}/#{full_arity - omitted_count}"
+            signature: "#{name}/#{arity}"
           }
         end)
 
@@ -452,6 +461,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        do: {name, parameters || []}
 
   defp function_name_and_parameters(_head), do: nil
+
+  defp collect_local_functions(body) do
+    body
+    |> module_expressions()
+    |> Enum.reduce(%{}, fn
+      {kind, _metadata, [head, body_options]}, functions
+      when kind in [:def, :defp] and is_list(body_options) ->
+        Enum.reduce(function_variants(head), functions, fn variant, functions ->
+          definition = Map.put(variant, :body, Keyword.get(body_options, :do))
+
+          Map.update(
+            functions,
+            {variant.name, variant.arity},
+            [definition],
+            &(&1 ++ [definition])
+          )
+        end)
+
+      _expression, functions ->
+        functions
+    end)
+  end
+
+  defp module_expressions({:__block__, _metadata, expressions}) when is_list(expressions),
+    do: expressions
+
+  defp module_expressions(expression), do: [expression]
 
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
@@ -879,14 +915,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_migration_sql_options(
-         {operation, _metadata, [{construct, construct_metadata, arguments}]},
+         {operation, metadata, [construct_or_helper]},
+         environment,
          %{migration?: true} = context,
          occurrences
        )
-       when operation in @migration_create_operations and
-              construct in @migration_sql_option_constructs and is_list(arguments) do
+       when operation in @migration_create_operations do
+    construct_or_helper
+    |> resolve_migration_constructs(environment, MapSet.new())
+    |> Enum.reduce(occurrences, fn construct_node, occurrences ->
+      classify_migration_construct_sql_options(
+        operation,
+        Keyword.get(metadata, :line, 1),
+        construct_node,
+        context,
+        occurrences
+      )
+    end)
+  end
+
+  defp classify_migration_sql_options(_node, _environment, _context, occurrences),
+    do: occurrences
+
+  defp classify_migration_construct_sql_options(
+         operation,
+         line,
+         {construct, _construct_metadata, arguments},
+         context,
+         occurrences
+       )
+       when construct in @migration_sql_option_constructs and is_list(arguments) do
     option_keys = migration_sql_option_keys(construct)
-    line = Keyword.get(construct_metadata, :line, 1)
 
     case List.last(arguments) do
       options when is_list(options) ->
@@ -925,7 +984,201 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp classify_migration_sql_options(_node, _context, occurrences), do: occurrences
+  defp classify_migration_construct_sql_options(
+         _operation,
+         _line,
+         _construct_node,
+         _context,
+         occurrences
+       ),
+       do: occurrences
+
+  defp resolve_migration_constructs(node, environment, resolving) do
+    resolved_node =
+      node
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
+
+    do_resolve_migration_constructs(resolved_node, environment, resolving)
+  end
+
+  defp do_resolve_migration_constructs(
+         {construct, _metadata, arguments} = node,
+         _environment,
+         _resolving
+       )
+       when construct in @migration_sql_option_constructs and is_list(arguments),
+       do: [node]
+
+  defp do_resolve_migration_constructs(
+         {:__block__, _metadata, expressions},
+         environment,
+         resolving
+       )
+       when is_list(expressions),
+       do: resolve_migration_return_sequence(expressions, environment, resolving)
+
+  defp do_resolve_migration_constructs(
+         {branch, _metadata, [_condition, options]},
+         environment,
+         resolving
+       )
+       when branch in [:if, :unless] and is_list(options) do
+    options
+    |> Keyword.take([:do, :else])
+    |> Keyword.values()
+    |> Enum.flat_map(&resolve_migration_constructs(&1, environment, resolving))
+  end
+
+  defp do_resolve_migration_constructs(
+         {branch, _metadata, arguments},
+         environment,
+         resolving
+       )
+       when branch in [:case, :cond, :with] and is_list(arguments) do
+    arguments
+    |> List.last()
+    |> case do
+      options when is_list(options) ->
+        options
+        |> Keyword.take([:do, :else])
+        |> Keyword.values()
+        |> Enum.flat_map(&migration_clause_bodies/1)
+        |> Enum.flat_map(&resolve_migration_constructs(&1, environment, resolving))
+
+      _not_options ->
+        []
+    end
+  end
+
+  defp do_resolve_migration_constructs(
+         {name, _metadata, arguments},
+         environment,
+         resolving
+       )
+       when is_atom(name) and (is_list(arguments) or is_nil(arguments)) do
+    arguments = arguments || []
+    key = {name, length(arguments)}
+
+    if MapSet.member?(resolving, key) do
+      []
+    else
+      environment.local_functions
+      |> Map.get(key, [])
+      |> matching_local_definitions(arguments, environment)
+      |> Enum.flat_map(fn definition ->
+        child_environment = bind_local_function_arguments(definition, arguments, environment)
+
+        resolve_migration_constructs(
+          definition.body,
+          child_environment,
+          MapSet.put(resolving, key)
+        )
+      end)
+    end
+  end
+
+  defp do_resolve_migration_constructs(_node, _environment, _resolving), do: []
+
+  defp resolve_migration_return_sequence([], _environment, _resolving), do: []
+
+  defp resolve_migration_return_sequence([expression], environment, resolving),
+    do: resolve_migration_constructs(expression, environment, resolving)
+
+  defp resolve_migration_return_sequence(
+         [{:=, _metadata, [pattern, value]} | expressions],
+         environment,
+         resolving
+       ) do
+    resolved_pattern = resolve_struct_aliases(pattern, environment)
+
+    resolved_value =
+      value
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
+      |> resolve_struct_aliases(environment)
+
+    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
+
+    resolve_migration_return_sequence(
+      expressions,
+      %{environment | bindings: bindings},
+      resolving
+    )
+  end
+
+  defp resolve_migration_return_sequence([_expression | expressions], environment, resolving),
+    do: resolve_migration_return_sequence(expressions, environment, resolving)
+
+  defp migration_clause_bodies(clauses) when is_list(clauses),
+    do: Enum.flat_map(clauses, &migration_clause_bodies/1)
+
+  defp migration_clause_bodies({:->, _metadata, [_patterns, body]}), do: [body]
+  defp migration_clause_bodies(_clause), do: []
+
+  defp matching_local_definitions(definitions, arguments, environment) do
+    if Enum.all?(arguments, &static_binding_source?/1) do
+      Enum.filter(definitions, fn definition ->
+        definition
+        |> supplied_local_parameters()
+        |> Enum.zip(arguments)
+        |> Enum.all?(fn {parameter, argument} ->
+          parameter
+          |> local_parameter_pattern()
+          |> resolve_struct_aliases(environment)
+          |> static_pattern_match?(argument)
+        end)
+      end)
+    else
+      definitions
+    end
+  end
+
+  defp bind_local_function_arguments(definition, arguments, environment) do
+    bindings =
+      definition
+      |> supplied_local_parameters()
+      |> Enum.zip(arguments)
+      |> Enum.reduce(environment.bindings, fn {parameter, argument}, bindings ->
+        pattern = parameter |> local_parameter_pattern() |> resolve_struct_aliases(environment)
+        bind_pattern(pattern, argument, bindings)
+      end)
+
+    environment = %{environment | bindings: bindings}
+
+    definition.parameters
+    |> Enum.with_index()
+    |> Enum.reduce(environment, fn
+      {{:\\, _metadata, [pattern, default]}, index}, environment ->
+        if MapSet.member?(definition.omitted_indexes, index) do
+          resolved_default =
+            default
+            |> resolve_attributes(environment)
+            |> resolve_bindings(environment)
+            |> resolve_struct_aliases(environment)
+
+          pattern = resolve_struct_aliases(pattern, environment)
+          %{environment | bindings: bind_pattern(pattern, resolved_default, environment.bindings)}
+        else
+          environment
+        end
+
+      _parameter, environment ->
+        environment
+    end)
+  end
+
+  defp supplied_local_parameters(definition) do
+    definition.parameters
+    |> Enum.with_index()
+    |> Enum.reject(fn {_parameter, index} ->
+      MapSet.member?(definition.omitted_indexes, index)
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp local_parameter_pattern({:\\, _metadata, [pattern, _default]}), do: pattern
+  defp local_parameter_pattern(pattern), do: pattern
 
   defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
 
@@ -1022,7 +1275,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     )
   end
 
-  defp empty_environment, do: %{aliases: %{}, attributes: %{}, bindings: %{}, imports: []}
+  defp empty_environment,
+    do: %{aliases: %{}, attributes: %{}, bindings: %{}, imports: [], local_functions: %{}}
 
   defp resolve_attributes(node, environment) do
     Macro.prewalk(node, fn
