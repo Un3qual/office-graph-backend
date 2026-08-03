@@ -10,6 +10,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert DatabaseBoundaryGate.compare(current, approved) == []
   end
 
+  test "does not allow an exact fingerprint to approve unresolved SQL" do
+    current = [Map.put(occurrence("sha256:current"), :approval, :unresolved_sql)]
+    approved = [approved_entry("sha256:current")]
+
+    [diagnostic] = DatabaseBoundaryGate.compare(current, approved)
+
+    assert diagnostic.kind == :unresolved
+    assert diagnostic.approval == :unresolved_sql
+    assert diagnostic.fingerprint == "sha256:current"
+  end
+
   test "accepts nullable function metadata for module-level occurrences" do
     current = [occurrence("sha256:current") |> Map.put(:function, nil)]
     approved = [approved_entry("sha256:current") |> Map.put("function", nil)]

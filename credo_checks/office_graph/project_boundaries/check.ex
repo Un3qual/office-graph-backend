@@ -128,6 +128,18 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(%{kind: :unresolved} = diagnostic, root, params) do
+    format_boundary_issue(
+      root,
+      diagnostic.path,
+      params,
+      "unresolved database boundary: #{diagnostic.construct} (#{diagnostic.class}) at " <>
+        "#{function_name(diagnostic)}; the SQL payload is not statically fingerprintable " <>
+        "and cannot be approved",
+      diagnostic.line
+    )
+  end
+
   defp issue_for(%{kind: :new} = diagnostic, root, params) do
     format_boundary_issue(
       root,

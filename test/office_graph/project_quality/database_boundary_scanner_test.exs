@@ -26,6 +26,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.function == "load/1"
     assert occurrence.line == 5
     assert String.starts_with?(occurrence.fingerprint, "sha256:")
+    refute Map.has_key?(occurrence, :approval)
+  end
+
+  test "marks unresolved raw SQL parameters as unapprovable" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo
+
+            def run, do: query("SELECT 1")
+            defp query(sql), do: Repo.query!(sql)
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "classifies repository operations through an explicit alias" do
@@ -449,6 +471,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies raw table creation options and modifiers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              create table(:events,
+                       modifiers: "UNLOGGED",
+                       options: "PARTITION BY RANGE (inserted_at)"
+                     )
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct}) == [
+             {:raw_sql, "migration.modifiers"},
+             {:raw_sql, "migration.options"}
+           ]
+  end
+
   test "classifies qualified migration execution calls" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -471,6 +519,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.line}) == [
              {"migration.execute", 6},
              {"migration.execute", 7}
+           ]
+  end
+
+  test "classifies repository SQL through migration repo receivers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+            alias Ecto.Migration, as: Migration
+
+            def change do
+              repo().query!("DELETE FROM events", [])
+              Migration.repo().query!("DELETE FROM archived_events", [])
+              Ecto.Migration.repo().query!("DELETE FROM deleted_events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "Repo.query!", 6},
+             {:raw_sql, "Repo.query!", 7},
+             {:raw_sql, "Repo.query!", 8}
            ]
   end
 

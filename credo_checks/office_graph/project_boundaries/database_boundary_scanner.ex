@@ -128,8 +128,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   @ecto_fragment_import_targets ["Ecto.Query", "Ecto.Query.API"]
 
+  @migration_repo_receiver "Ecto.Migration.repo()"
   @migration_create_operations [:create, :create_if_not_exists]
-  @migration_sql_option_constructs [:constraint, :index, :unique_index]
+  @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
   @postgrex_raw_sql_operations [
@@ -372,6 +373,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
               construct,
               fingerprint_node
             )
+            |> mark_sql_approval(class, construct, fingerprint_node)
             | occurrences
           ]
       end
@@ -806,8 +808,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     receiver =
       receiver
       |> resolve_bindings(environment)
-      |> receiver_name()
-      |> resolve_receiver(environment)
+      |> database_receiver_name(migration?, environment)
 
     classify_migration_operation(receiver, operation, migration?) ||
       classify_database_operation(receiver, operation)
@@ -908,6 +909,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                     value
                   )
                 )
+                |> mark_sql_payload_approval(value)
                 | occurrences
               ]
             else
@@ -927,8 +929,65 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
 
+  defp migration_sql_option_keys(:table), do: [:modifiers, :options]
+
   defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
     do: [:options, :where]
+
+  defp mark_sql_approval(occurrence, :raw_sql, construct, node) do
+    case raw_sql_payload(node, construct) do
+      {:ok, payload} -> mark_sql_payload_approval(occurrence, payload)
+      :error -> Map.put(occurrence, :approval, :unresolved_sql)
+    end
+  end
+
+  defp mark_sql_approval(occurrence, _class, _construct, _node), do: occurrence
+
+  defp mark_sql_payload_approval(occurrence, payload) do
+    if static_sql_payload?(payload),
+      do: occurrence,
+      else: Map.put(occurrence, :approval, :unresolved_sql)
+  end
+
+  defp raw_sql_payload(
+         {{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments},
+         construct
+       )
+       when is_list(arguments) do
+    fetch_sql_argument(arguments, construct)
+  end
+
+  defp raw_sql_payload({_operation, _metadata, arguments}, construct)
+       when is_list(arguments) do
+    fetch_sql_argument(arguments, construct)
+  end
+
+  defp raw_sql_payload({:unsafe_fragment, payload}, "unsafe_fragment"), do: {:ok, payload}
+  defp raw_sql_payload(_node, _construct), do: :error
+
+  defp fetch_sql_argument(arguments, "Ecto.Adapters.SQL." <> _operation),
+    do: fetch_argument(arguments, 1)
+
+  defp fetch_sql_argument(arguments, "Postgrex." <> operation)
+       when operation in ["prepare", "prepare!", "prepare_execute", "prepare_execute!"],
+       do: fetch_argument(arguments, 2)
+
+  defp fetch_sql_argument(arguments, "Postgrex." <> _operation),
+    do: fetch_argument(arguments, 1)
+
+  defp fetch_sql_argument(arguments, _construct), do: fetch_argument(arguments, 0)
+
+  defp fetch_argument(arguments, index) do
+    case Enum.fetch(arguments, index) do
+      {:ok, argument} -> {:ok, argument}
+      :error -> :error
+    end
+  end
+
+  defp static_sql_payload?({operator, _metadata, [left, right]}) when operator in [:<>, :++],
+    do: static_sql_payload?(left) and static_sql_payload?(right)
+
+  defp static_sql_payload?(payload), do: Macro.quoted_literal?(payload)
 
   defp migration_sql_option_fingerprint_input(
          operation,
@@ -1289,6 +1348,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp receiver_name(_receiver), do: nil
 
+  defp database_receiver_name(receiver, true, environment) do
+    if migration_repo_call?(receiver, environment) do
+      @migration_repo_receiver
+    else
+      receiver |> receiver_name() |> resolve_receiver(environment)
+    end
+  end
+
+  defp database_receiver_name(receiver, false, environment),
+    do: receiver |> receiver_name() |> resolve_receiver(environment)
+
+  defp migration_repo_call?({:repo, _metadata, arguments}, _environment)
+       when arguments in [nil, []],
+       do: true
+
+  defp migration_repo_call?(
+         {{:., _dot_metadata, [receiver, :repo]}, _metadata, arguments},
+         environment
+       )
+       when arguments in [nil, []] do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Migration"
+  end
+
+  defp migration_repo_call?(_receiver, _environment), do: false
+
   defp resolve_receiver(nil, _environment), do: nil
 
   defp resolve_receiver(receiver, environment) do
@@ -1304,7 +1388,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp repo_receiver?(receiver), do: receiver in ["Repo", "OfficeGraph.Repo"]
+  defp repo_receiver?(receiver),
+    do: receiver in ["Repo", "OfficeGraph.Repo", @migration_repo_receiver]
 
   defp node_line({{:., _dot_metadata, _receiver_and_operation}, metadata, _arguments}),
     do: Keyword.get(metadata, :line, 1)

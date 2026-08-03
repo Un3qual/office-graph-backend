@@ -5,6 +5,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @table_drop_operations [:drop, :drop_if_exists]
   @table_definition_operations [:alter | @table_create_operations]
   @table_lifecycle_operations @table_create_operations ++ @table_drop_operations
+  @foreign_key_definition_operations [:add, :add_if_not_exists, :modify]
 
   def migration_tables do
     "priv/repo/migrations/*.exs"
@@ -1084,7 +1085,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          table,
          certainty
        )
-       when operation in [:add, :modify] and is_binary(table) and is_atom(column) and
+       when operation in @foreign_key_definition_operations and is_binary(table) and
+              is_atom(column) and
               is_atom(destination) do
     reference_options = List.flatten(reference_options)
 

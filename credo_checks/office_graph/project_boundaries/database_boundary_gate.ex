@@ -59,6 +59,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   defp current_diagnostics(current, approved_exceptions) do
     Enum.flat_map(current, fn occurrence ->
       case approved_match(approved_exceptions, occurrence) do
+        :unresolved ->
+          [diagnostic(occurrence, :unresolved)]
+
         :exact ->
           []
 
@@ -76,19 +79,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   end
 
   defp approved_match(approved_exceptions, occurrence) do
-    Enum.reduce_while(approved_exceptions, :new, fn approved_exception, match ->
-      cond do
-        same_locator?(approved_exception, occurrence) and
-            approved_exception["fingerprint"] == occurrence["fingerprint"] ->
-          {:halt, :exact}
+    if occurrence["approval"] == :unresolved_sql do
+      :unresolved
+    else
+      Enum.reduce_while(approved_exceptions, :new, fn approved_exception, match ->
+        cond do
+          same_locator?(approved_exception, occurrence) and
+              approved_exception["fingerprint"] == occurrence["fingerprint"] ->
+            {:halt, :exact}
 
-        same_locator?(approved_exception, occurrence) ->
-          {:cont, {:changed, approved_exception}}
+          same_locator?(approved_exception, occurrence) ->
+            {:cont, {:changed, approved_exception}}
 
-        true ->
-          {:cont, match}
-      end
-    end)
+          true ->
+            {:cont, match}
+        end
+      end)
+    end
   end
 
   defp stale_diagnostics(current, approved_exceptions) do
@@ -243,7 +250,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   defp normalize_class(value), do: value
 
   defp diagnostic(occurrence, kind) do
-    %{
+    diagnostic = %{
       kind: kind,
       class: occurrence["class"],
       construct: occurrence["construct"],
@@ -253,6 +260,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       ordinal: occurrence["ordinal"],
       path: occurrence["path"]
     }
+
+    case Map.fetch(occurrence, "approval") do
+      {:ok, approval} -> Map.put(diagnostic, :approval, approval)
+      :error -> diagnostic
+    end
   end
 
   defp blank?(nil), do: true
