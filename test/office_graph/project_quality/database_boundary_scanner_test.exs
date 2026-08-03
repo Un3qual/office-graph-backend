@@ -56,6 +56,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
   end
 
+  test "preserves apply calls explicitly imported from a non-Kernel module" do
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "lib/example.ex",
+               source: """
+               defmodule Example do
+                 import Kernel, except: [apply: 3]
+                 import Example.CustomApply, only: [apply: 3]
+
+                 def load do
+                   apply(OfficeGraph.Repo, :query!, ["SELECT 1", []])
+                 end
+               end
+               """
+             }
+           ]) == []
+  end
+
   test "marks unresolved raw SQL parameters as unapprovable" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -496,6 +514,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:raw_sql, "migration.exclude"},
                {:raw_sql, "fragment"}
              ])
+  end
+
+  test "classifies SQL options in qualified and aliased migration constructs" do
+    [
+      "create Ecto.Migration.index(:items, [:id], where: \"deleted_at IS NULL\")",
+      "Ecto.Migration.create(Migration.index(:items, [:id], where: \"deleted_at IS NULL\"))"
+    ]
+    |> Enum.each(fn statement ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "priv/repo/migrations/20260803000000_example.exs",
+            source: """
+            defmodule ExampleMigration do
+              use Ecto.Migration
+              alias Ecto.Migration, as: Migration
+
+              def change do
+                #{statement}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "migration.where"
+      assert occurrence.function == "change/0"
+    end)
   end
 
   test "classifies raw table creation options and modifiers" do

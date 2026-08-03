@@ -195,9 +195,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   end
 
   defp approval_change_directories(root, change) do
-    root
-    |> Path.join("openspec/changes/archive/*-#{change}")
-    |> Path.wildcard()
+    active_change = Path.join(root, "openspec/changes/#{change}")
+
+    archived_changes =
+      root
+      |> Path.join("openspec/changes/archive/*-#{change}")
+      |> Path.wildcard()
+
+    [active_change | archived_changes]
     |> Enum.filter(&File.dir?/1)
     |> Enum.sort()
   end

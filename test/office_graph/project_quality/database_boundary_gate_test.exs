@@ -129,17 +129,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   test "rejects approved exceptions without exact evidence in their accepted OpenSpec change" do
     Enum.each([:missing_change, :unrelated_record], fn scenario ->
       with_boundary_repository(fn root, source, occurrence ->
-        approved =
-          occurrence
-          |> stringify_keys()
-          |> Map.drop(["line", "approval"])
-          |> Map.merge(%{
-            "approving_change" => "approved-change",
-            "owner" => "OfficeGraph.Example",
-            "reason" => "Required by the approved test contract.",
-            "retirement_condition" => "Remove when the approved mechanism is retired.",
-            "verification" => "Covered by the strict boundary gate."
-          })
+        approved = approved_entry(occurrence.fingerprint)
 
         inventory_path =
           Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
@@ -175,6 +165,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
         assert diagnostic.approving_change == "approved-change"
         assert diagnostic.fingerprint == occurrence.fingerprint
       end)
+    end)
+  end
+
+  test "accepts exact approval evidence from the active OpenSpec change before archival" do
+    with_boundary_repository(fn root, source, occurrence ->
+      approved = approved_entry(occurrence.fingerprint)
+
+      inventory_path =
+        Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+
+      File.mkdir_p!(Path.dirname(inventory_path))
+      File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
+
+      evidence_path =
+        Path.join(
+          root,
+          "openspec/changes/approved-change/database-exception-approvals.json"
+        )
+
+      File.mkdir_p!(Path.dirname(evidence_path))
+      File.write!(evidence_path, Jason.encode!(%{"version" => 1, "approvals" => [approved]}))
+
+      source_path = Path.join(root, occurrence.path)
+      File.mkdir_p!(Path.dirname(source_path))
+      File.write!(source_path, source)
+      {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+      assert DatabaseBoundaryGate.check_repository(root) == []
     end)
   end
 

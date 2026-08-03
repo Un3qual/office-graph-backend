@@ -150,6 +150,45 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
+  test "reports every conflicting approval change path at the approved inventory" do
+    with_repository(fn root ->
+      source = """
+      defmodule Example do
+        def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+      end
+      """
+
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+
+      approved = approved_entry(occurrence, occurrence.fingerprint)
+
+      write_tracked!(root, "lib/example.ex", source)
+
+      write_json!(root, @approved_path, %{
+        "version" => 1,
+        "exceptions" => [approved]
+      })
+
+      change_paths = [
+        "openspec/changes/archive/2026-08-01-approved-change",
+        "openspec/changes/archive/2026-08-02-approved-change"
+      ]
+
+      Enum.each(change_paths, fn change_path ->
+        write_json!(root, Path.join(change_path, "database-exception-approvals.json"), %{
+          "version" => 1,
+          "approvals" => [approved]
+        })
+      end)
+
+      issue = root |> run_check() |> issue_with("invalid_approval_provenance", @approved_path)
+
+      assert issue.message =~ "ambiguous_change"
+      assert Enum.all?(change_paths, &String.contains?(issue.message, &1))
+    end)
+  end
+
   test "reports duplicate approved locators at the inventory that owns them" do
     with_repository(fn root ->
       source = """

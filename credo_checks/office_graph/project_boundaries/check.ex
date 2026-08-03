@@ -113,7 +113,8 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       params,
       "invalid_approval_provenance #{inventory_name(diagnostic.inventory)} " <>
         "entry #{diagnostic.entry}: change #{diagnostic.approving_change} does not record " <>
-        "fingerprint #{diagnostic.fingerprint} (#{diagnostic.reason})"
+        "fingerprint #{diagnostic.fingerprint} " <>
+        approval_provenance_context(diagnostic, root)
     )
   end
 
@@ -163,6 +164,13 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       diagnostic.line
     )
   end
+
+  defp approval_provenance_context(%{change_paths: change_paths, reason: reason}, root) do
+    paths = change_paths |> Enum.map(&Path.relative_to(&1, root)) |> Enum.join(", ")
+    "(#{reason}; matching changes: #{paths})"
+  end
+
+  defp approval_provenance_context(%{reason: reason}, _root), do: "(#{reason})"
 
   defp format_boundary_issue(root, path, params, message, line \\ nil) do
     source =

@@ -391,9 +391,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          {:apply, metadata, [receiver, operation, arguments]} = node,
          environment
        ) do
-    if Map.has_key?(environment.local_functions, {:apply, 3}),
-      do: node,
-      else: static_applied_call(receiver, operation, arguments, metadata, node)
+    imported_receiver = imported_receiver(environment, :apply, 3)
+
+    if Map.has_key?(environment.local_functions, {:apply, 3}) or
+         imported_receiver not in [nil, "Kernel"] do
+      node
+    else
+      static_applied_call(receiver, operation, arguments, metadata, node)
+    end
   end
 
   defp normalize_static_apply(
@@ -971,6 +976,48 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          occurrences
        )
        when operation in @migration_create_operations do
+    classify_migration_constructs(
+      operation,
+      metadata,
+      construct_or_helper,
+      environment,
+      context,
+      occurrences
+    )
+  end
+
+  defp classify_migration_sql_options(
+         {{:., _dot_metadata, [receiver, operation]}, metadata, [construct_or_helper]},
+         environment,
+         %{migration?: true} = context,
+         occurrences
+       )
+       when operation in @migration_create_operations do
+    if migration_module_receiver?(receiver, environment) do
+      classify_migration_constructs(
+        operation,
+        metadata,
+        construct_or_helper,
+        environment,
+        context,
+        occurrences
+      )
+    else
+      occurrences
+    end
+  end
+
+  defp classify_migration_sql_options(_node, _environment, _context, occurrences),
+    do: occurrences
+
+  defp classify_migration_constructs(
+         operation,
+         metadata,
+         construct_or_helper,
+         environment,
+         context,
+         occurrences
+       ) do
     construct_or_helper
     |> resolve_migration_constructs(environment, MapSet.new())
     |> Enum.reduce(occurrences, fn construct_node, occurrences ->
@@ -983,9 +1030,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       )
     end)
   end
-
-  defp classify_migration_sql_options(_node, _environment, _context, occurrences),
-    do: occurrences
 
   defp classify_migration_construct_sql_options(
          operation,
@@ -1059,6 +1103,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when construct in @migration_sql_option_constructs and is_list(arguments),
        do: [node]
+
+  defp do_resolve_migration_constructs(
+         {{:., _dot_metadata, [receiver, construct]}, metadata, arguments},
+         environment,
+         _resolving
+       )
+       when construct in @migration_sql_option_constructs and is_list(arguments) do
+    if migration_module_receiver?(receiver, environment),
+      do: [{construct, metadata, arguments}],
+      else: []
+  end
 
   defp do_resolve_migration_constructs(
          {:__block__, _metadata, expressions},
@@ -1953,6 +2008,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp migration_repo_call?(_receiver, _environment), do: false
+
+  defp migration_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Migration"
+  end
 
   defp resolve_receiver(nil, _environment), do: nil
 
