@@ -132,7 +132,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_repo_receiver "Ecto.Migration.repo()"
   @migration_create_operations [:create, :create_if_not_exists]
   @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
-  @ecto_sql_direct_operations [:explain]
+  @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
   @postgrex_raw_sql_operations [
@@ -387,7 +387,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           ]
       end
 
-    scan_children(node, environment, context, occurrences)
+    scan_classified_children(node, environment, context, occurrences)
   end
 
   defp normalize_static_apply(
@@ -876,6 +876,83 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end)
   end
 
+  defp scan_classified_children(node, environment, context, occurrences) do
+    case migration_table_block(node, environment, context) do
+      {:ok, construct, block_options, table_target} ->
+        {_construct_environment, occurrences} =
+          scan_node(construct, environment, context, occurrences)
+
+        {_options_environment, occurrences} =
+          block_options
+          |> Keyword.delete(:do)
+          |> Keyword.values()
+          |> scan_isolated_children(environment, context, occurrences)
+
+        table_context = Map.put(context, :migration_table_target, table_target)
+
+        {_block_environment, occurrences} =
+          scan_node(Keyword.get(block_options, :do), environment, table_context, occurrences)
+
+        {environment, occurrences}
+
+      :error ->
+        scan_children(node, environment, context, occurrences)
+    end
+  end
+
+  defp migration_table_block(
+         {operation, _metadata, [construct, block_options]},
+         environment,
+         %{migration?: true}
+       )
+       when operation in [:alter, :create, :create_if_not_exists] and is_list(block_options) do
+    migration_table_block(operation, construct, block_options, environment)
+  end
+
+  defp migration_table_block(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, [construct, block_options]},
+         environment,
+         %{migration?: true}
+       )
+       when operation in [:alter, :create, :create_if_not_exists] and is_list(block_options) do
+    if migration_module_receiver?(receiver, environment),
+      do: migration_table_block(operation, construct, block_options, environment),
+      else: :error
+  end
+
+  defp migration_table_block(_node, _environment, _context), do: :error
+
+  defp migration_table_block(operation, construct, block_options, environment) do
+    if Keyword.keyword?(block_options) and Keyword.has_key?(block_options, :do) do
+      table_targets =
+        construct
+        |> resolve_migration_constructs(environment, MapSet.new())
+        |> Enum.flat_map(fn
+          {:table, _metadata, arguments} when is_list(arguments) ->
+            [
+              Enum.join(
+                [
+                  "operation: #{operation}",
+                  "target: #{migration_construct_target(:table, arguments, migration_sql_option_keys(:table))}"
+                ],
+                "\n"
+              )
+            ]
+
+          _construct ->
+            []
+        end)
+        |> Enum.sort()
+
+      case table_targets do
+        [] -> :error
+        targets -> {:ok, construct, block_options, Enum.join(targets, "\n---\n")}
+      end
+    else
+      :error
+    end
+  end
+
   defp scan_children({_name, metadata, arguments}, environment, context, occurrences)
        when is_list(metadata) and is_list(arguments) do
     scan_isolated_children(arguments, environment, context, occurrences)
@@ -1012,7 +1089,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       receiver in ["Ecto.Adapters.SQL", "Ecto.Migration", "Ecto.Query.API", "Postgrex"] ->
         {:raw_sql, "#{receiver}.apply"}
 
-      receiver in ["Ecto.Multi", "Ecto.Query"] ->
+      receiver == "Ecto.Multi" ->
         {:direct_ecto, "#{receiver}.apply"}
 
       true ->
@@ -1035,6 +1112,44 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       context,
       occurrences
     )
+  end
+
+  defp classify_migration_sql_options(
+         {operation, metadata, arguments},
+         _environment,
+         %{migration?: true, migration_table_target: table_target} = context,
+         occurrences
+       )
+       when operation in [:add, :modify] and is_list(arguments) do
+    classify_migration_column_sql_option(
+      operation,
+      metadata,
+      arguments,
+      table_target,
+      context,
+      occurrences
+    )
+  end
+
+  defp classify_migration_sql_options(
+         {{:., _dot_metadata, [receiver, operation]}, metadata, arguments},
+         environment,
+         %{migration?: true, migration_table_target: table_target} = context,
+         occurrences
+       )
+       when operation in [:add, :modify] and is_list(arguments) do
+    if migration_module_receiver?(receiver, environment) do
+      classify_migration_column_sql_option(
+        operation,
+        metadata,
+        arguments,
+        table_target,
+        context,
+        occurrences
+      )
+    else
+      occurrences
+    end
   end
 
   defp classify_migration_sql_options(
@@ -1061,6 +1176,75 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_sql_options(_node, _environment, _context, occurrences),
     do: occurrences
+
+  defp classify_migration_column_sql_option(
+         operation,
+         metadata,
+         arguments,
+         table_target,
+         context,
+         occurrences
+       ) do
+    case List.last(arguments) do
+      options when is_list(options) ->
+        if Keyword.keyword?(options) do
+          classify_generated_column_option(
+            operation,
+            metadata,
+            arguments,
+            options,
+            table_target,
+            context,
+            occurrences
+          )
+        else
+          occurrences
+        end
+
+      _options ->
+        occurrences
+    end
+  end
+
+  defp classify_generated_column_option(
+         operation,
+         metadata,
+         arguments,
+         options,
+         table_target,
+         context,
+         occurrences
+       ) do
+    case Keyword.fetch(options, :generated) do
+      {:ok, value} ->
+        fingerprint_input =
+          Enum.join(
+            [
+              table_target,
+              "column: #{migration_construct_target(operation, arguments, [:generated])}",
+              "option: generated",
+              "value: #{Macro.to_string(value)}"
+            ],
+            "\n"
+          )
+
+        [
+          occurrence(
+            context.path,
+            Keyword.get(metadata, :line, 1),
+            context.function,
+            :raw_sql,
+            "migration.generated",
+            fingerprint_input
+          )
+          |> mark_sql_payload_approval(value)
+          | occurrences
+        ]
+
+      :error ->
+        occurrences
+    end
+  end
 
   defp classify_migration_constructs(
          operation,
@@ -1719,19 +1903,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          key,
          value
        ) do
-    target_options =
-      arguments
-      |> List.last()
-      |> Enum.reject(fn
-        {option_key, _value} -> option_key in option_keys
-        _option -> false
-      end)
-
-    target =
-      arguments
-      |> List.replace_at(-1, target_options)
-      |> then(&{construct, [], &1})
-      |> Macro.to_string()
+    target = migration_construct_target(construct, arguments, option_keys)
 
     Enum.join(
       [
@@ -1742,6 +1914,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       ],
       "\n"
     )
+  end
+
+  defp migration_construct_target(construct, arguments, option_keys) do
+    target_arguments =
+      case List.last(arguments) do
+        options when is_list(options) ->
+          target_options =
+            Enum.reject(options, fn
+              {option_key, _value} -> option_key in option_keys
+              _option -> false
+            end)
+
+          List.replace_at(arguments, -1, target_options)
+
+        _not_options ->
+          arguments
+      end
+
+    {construct, [], target_arguments}
+    |> Macro.to_string()
   end
 
   defp empty_environment,

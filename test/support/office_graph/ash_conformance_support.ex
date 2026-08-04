@@ -990,6 +990,66 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     end
   end
 
+  @spec dataloader_resolver_violations(Path.t(), String.t()) :: [String.t()]
+  def dataloader_resolver_violations(path, source) do
+    ast = Code.string_to_quoted!(source, file: path, columns: true)
+    direct_locations = direct_dataloader_resolver_locations(ast)
+
+    ast
+    |> dataloader_call_locations()
+    |> Enum.reject(&MapSet.member?(direct_locations, &1))
+    |> Enum.sort()
+    |> Enum.map(fn {line, column} ->
+      "#{path}:#{line}:#{column} dataloader resolver is not a direct field option"
+    end)
+  end
+
+  defp direct_dataloader_resolver_locations(ast) do
+    {_ast, locations} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:field, _metadata, arguments} = node, locations when is_list(arguments) ->
+          location =
+            arguments
+            |> List.last()
+            |> case do
+              options when is_list(options) ->
+                if Keyword.keyword?(options) do
+                  options
+                  |> Keyword.get(:resolve)
+                  |> dataloader_call_location()
+                end
+
+              _not_options ->
+                nil
+            end
+
+          locations = if location, do: MapSet.put(locations, location), else: locations
+          {node, locations}
+
+        node, locations ->
+          {node, locations}
+      end)
+
+    locations
+  end
+
+  defp dataloader_call_locations(ast) do
+    {_ast, locations} =
+      Macro.prewalk(ast, [], fn node, locations ->
+        case dataloader_call_location(node) do
+          nil -> {node, locations}
+          location -> {node, [location | locations]}
+        end
+      end)
+
+    Enum.reverse(locations)
+  end
+
+  defp dataloader_call_location({:dataloader, metadata, arguments}) when is_list(arguments),
+    do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+
+  defp dataloader_call_location(_node), do: nil
+
   def unmodeled_uuid_identifier_fields(expected_resources) do
     expected_resources
     |> Enum.flat_map(fn {_table, {_domain, resource}} ->

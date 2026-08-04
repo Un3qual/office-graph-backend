@@ -225,6 +225,37 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
            "Generated growing lists must be Relay connections:\n#{format_errors(non_relay_lists)}"
   end
 
+  test "custom dataloader fields declare the resolver directly" do
+    violations =
+      "lib/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        dataloader_resolver_violations(path, File.read!(path))
+      end)
+
+    assert violations == [],
+           "Use resolve: dataloader(Source) directly without a block or wrapper resolver:\n#{format_errors(violations)}"
+  end
+
+  test "dataloader resolver conformance distinguishes direct field options from wrappers" do
+    source = """
+    defmodule ExampleSchema do
+      field :direct, :user, resolve: dataloader(Example.Source)
+
+      field :block_form, :user do
+        resolve dataloader(Example.Source)
+      end
+
+      def wrapped_resolver, do: dataloader(Example.Source)
+    end
+    """
+
+    assert dataloader_resolver_violations("lib/example_schema.ex", source) == [
+             "lib/example_schema.ex:5:13 dataloader resolver is not a direct field option",
+             "lib/example_schema.ex:8:29 dataloader resolver is not a direct field option"
+           ]
+  end
+
   test "generated Ash API declarations stay declarative" do
     forbidden_patterns = [
       "OfficeGraphWeb.",

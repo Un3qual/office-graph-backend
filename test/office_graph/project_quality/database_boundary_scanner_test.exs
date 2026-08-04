@@ -96,6 +96,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "does not treat dynamic Ecto.Query builder dispatch as database access" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def dispatch_query(operation, arguments),
+              do: apply(Ecto.Query, operation, arguments)
+
+            def dispatch_multi(operation, arguments),
+              do: apply(Ecto.Multi, operation, arguments)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:direct_ecto, "Ecto.Multi.apply", "dispatch_multi/2"}
+           ]
+  end
+
   test "preserves apply calls explicitly imported from a non-Kernel module" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{
@@ -346,6 +368,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Ecto.Adapters.SQL.explain", 6},
              {:direct_ecto, "Ecto.Adapters.SQL.explain", 7},
              {:direct_ecto, "Ecto.Adapters.SQL.explain", 8}
+           ]
+  end
+
+  test "classifies Ecto SQL adapter checkout as direct database access" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Adapters.SQL, as: SQL
+            import Ecto.Adapters.SQL, only: [checkout: 3]
+
+            def with_connection(meta, opts, callback) do
+              Ecto.Adapters.SQL.checkout(meta, opts, callback)
+              SQL.checkout(meta, opts, callback)
+              checkout(meta, opts, callback)
+              Example.SQL.checkout(meta, opts, callback)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Ecto.Adapters.SQL.checkout", 6},
+             {:direct_ecto, "Ecto.Adapters.SQL.checkout", 7},
+             {:direct_ecto, "Ecto.Adapters.SQL.checkout", 8}
            ]
   end
 
@@ -740,6 +790,77 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:raw_sql, "migration.options"}
              ]
     end)
+  end
+
+  test "classifies generated column expressions within migration table blocks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260804000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            @search_expression "ALWAYS AS (lower(name)) STORED"
+
+            def change do
+              create table(:users) do
+                add :search_name, :text, generated: @search_expression
+              end
+
+              runtime_expression = System.fetch_env!("SEARCH_EXPRESSION")
+
+              alter table(:users) do
+                modify :search_key, :text, generated: runtime_expression
+              end
+
+              Ecto.Migration.alter(Ecto.Migration.table(:accounts)) do
+                Ecto.Migration.add :search_name, :text,
+                  generated: "ALWAYS AS (lower(name)) STORED"
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {occurrence.construct, occurrence.line, Map.get(occurrence, :approval)}
+           end) == [
+             {"migration.generated", 8, nil},
+             {"migration.generated", 14, :unresolved_sql},
+             {"migration.generated", 18, nil}
+           ]
+  end
+
+  test "binds generated-column fingerprints to the enclosing table and column" do
+    scan = fn table, column, expression ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "priv/repo/migrations/20260804000000_example.exs",
+            source: """
+            defmodule ExampleMigration do
+              use Ecto.Migration
+
+              def change do
+                alter table(#{inspect(table)}) do
+                  add #{inspect(column)}, :text, generated: #{inspect(expression)}
+                end
+              end
+            end
+            """
+          }
+        ])
+
+      occurrence.fingerprint
+    end
+
+    baseline = scan.(:users, :search_name, "ALWAYS AS (lower(name)) STORED")
+
+    refute scan.(:accounts, :search_name, "ALWAYS AS (lower(name)) STORED") == baseline
+    refute scan.(:users, :search_key, "ALWAYS AS (lower(name)) STORED") == baseline
+    refute scan.(:users, :search_name, "ALWAYS AS (upper(name)) STORED") == baseline
   end
 
   test "classifies SQL-bearing migration constructs returned from reachable local helpers" do

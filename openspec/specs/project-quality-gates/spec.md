@@ -76,6 +76,13 @@ reject every unmatched occurrence or stale approved exception.
 - **THEN** the database-boundary scanner MUST classify the call as direct Ecto
   access without treating its generated query as repository-authored raw SQL
 
+#### Scenario: Ecto SQL adapter checks out a connection
+
+- **WHEN** tracked code calls `Ecto.Adapters.SQL.checkout` through a fully
+  qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as direct Ecto
+  connection access
+
 #### Scenario: Verification examines project scope
 
 - **WHEN** the database-boundary scan runs
@@ -125,6 +132,13 @@ binary literals or documentation text.
   statically known operation, and fail closed for a dynamic operation that
   could execute repository-authored SQL
 
+#### Scenario: Dynamic apply targets the Ecto query builder
+
+- **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically targets
+  `Ecto.Query` while its operation or argument list remains runtime-provided
+- **THEN** the scanner MUST NOT classify the call as database access solely
+  because `Ecto.Query` constructs queries without executing them
+
 #### Scenario: Reversible migration execute carries two commands
 
 - **WHEN** a migration uses `execute(up_command, down_command)`
@@ -146,6 +160,14 @@ binary literals or documentation text.
   trailing `do` block
 - **THEN** the scanner MUST classify each SQL-bearing table option without
   treating the trailing block as part of the construct identity or payload
+
+#### Scenario: Generated column carries a SQL expression
+
+- **WHEN** a migration table block uses `add` or `modify` with a `generated`
+  expression
+- **THEN** the scanner MUST classify the expression as repository-authored SQL,
+  bind its fingerprint to the enclosing table and column, and reject an
+  expression that cannot be resolved statically
 
 ### Requirement: Duplicate static-analysis configuration is prohibited
 
