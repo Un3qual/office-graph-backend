@@ -132,6 +132,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_repo_receiver "Ecto.Migration.repo()"
   @migration_create_operations [:create, :create_if_not_exists]
   @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
+  @kernel_value_callback_operations [:tap, :then]
   @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
@@ -155,6 +156,45 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     pipeline
     |> expand_pipeline()
     |> scan_node(environment, context, occurrences)
+  end
+
+  defp scan_node(
+         {operation, _metadata, [value, {:fn, _fn_metadata, _clauses} = callback]} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when operation in @kernel_value_callback_operations do
+    if kernel_value_callback_call?(operation, environment) do
+      scan_invoked_literal_callback(callback, [value], environment, context, occurrences)
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata,
+          [value, {:fn, _fn_metadata, _clauses} = callback]} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when operation in @kernel_value_callback_operations do
+    if kernel_module_receiver?(receiver, environment) do
+      scan_invoked_literal_callback(callback, [value], environment, context, occurrences)
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [{:fn, _fn_metadata, _clauses} = callback]}, _metadata, arguments},
+         environment,
+         context,
+         occurrences
+       )
+       when is_list(arguments) do
+    scan_invoked_literal_callback(callback, arguments, environment, context, occurrences)
   end
 
   defp scan_node({:defmodule, _metadata, arguments}, environment, context, occurrences) do
@@ -473,6 +513,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
   end
 
+  defp kernel_value_callback_call?(operation, environment) do
+    not Map.has_key?(environment.local_functions, {operation, 2}) and
+      explicitly_imported_receiver(environment, operation, 2) in [nil, "Kernel"]
+  end
+
+  defp kernel_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
+  end
+
   defp scan_function_defaults(
          parameters,
          omitted_indexes,
@@ -591,6 +640,94 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp local_definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
   defp local_definition_kind(kind) when kind in [:def, :defp], do: :function
+
+  defp scan_invoked_literal_callback(
+         {:fn, _metadata, clauses},
+         arguments,
+         environment,
+         context,
+         occurrences
+       ) do
+    {_arguments_environment, occurrences} =
+      scan_isolated_children(arguments, environment, context, occurrences)
+
+    resolved_arguments =
+      Enum.map(arguments, fn argument ->
+        argument
+        |> resolve_attributes(environment)
+        |> resolve_bindings(environment)
+        |> resolve_struct_aliases(environment)
+      end)
+
+    occurrences =
+      Enum.reduce(clauses, occurrences, fn clause, occurrences ->
+        scan_invoked_callback_clause(
+          clause,
+          resolved_arguments,
+          environment,
+          context,
+          occurrences
+        )
+      end)
+
+    {environment, occurrences}
+  end
+
+  defp scan_invoked_callback_clause(
+         {:->, _metadata, [parameters, body]},
+         arguments,
+         environment,
+         context,
+         occurrences
+       )
+       when is_list(parameters) do
+    {patterns, guards} = clause_patterns_and_guards(parameters)
+
+    child_environment =
+      environment
+      |> remove_pattern_bindings(patterns)
+      |> bind_static_callback_patterns(patterns, arguments)
+
+    {_guard_environment, occurrences} =
+      scan_isolated_children(guards, child_environment, context, occurrences)
+
+    {_body_environment, occurrences} =
+      scan_node(body, child_environment, context, occurrences)
+
+    occurrences
+  end
+
+  defp scan_invoked_callback_clause(
+         clause,
+         _arguments,
+         environment,
+         context,
+         occurrences
+       ) do
+    {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
+    occurrences
+  end
+
+  defp bind_static_callback_patterns(environment, patterns, arguments)
+       when length(patterns) == length(arguments) do
+    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
+    pairs = Enum.zip(patterns, arguments)
+
+    if Enum.all?(pairs, fn {pattern, argument} ->
+         static_binding_source?(argument) and static_pattern_match?(pattern, argument)
+       end) do
+      bindings =
+        Enum.reduce(pairs, environment.bindings, fn {pattern, argument}, bindings ->
+          bind_pattern(pattern, argument, bindings)
+        end)
+
+      %{environment | bindings: bindings}
+    else
+      environment
+    end
+  end
+
+  defp bind_static_callback_patterns(environment, _patterns, _arguments), do: environment
 
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
@@ -2358,6 +2495,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       if import_applies?(declaration, operation, arity), do: declaration.target
     end)
   end
+
+  defp explicitly_imported_receiver(environment, operation, arity) do
+    Enum.find_value(environment.imports, fn declaration ->
+      if explicit_import_applies?(declaration, operation, arity), do: declaration.target
+    end)
+  end
+
+  defp explicit_import_applies?(%{only: %MapSet{} = only}, operation, arity),
+    do: MapSet.member?(only, {operation, arity})
+
+  defp explicit_import_applies?(%{except: %MapSet{} = except}, operation, arity),
+    do: not MapSet.member?(except, {operation, arity})
+
+  defp explicit_import_applies?(%{only: nil, except: nil}, _operation, _arity), do: true
 
   defp imported_fragment?(environment, operation, arity) do
     Enum.any?(environment.imports, fn declaration ->

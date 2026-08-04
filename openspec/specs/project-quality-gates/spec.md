@@ -131,6 +131,16 @@ binary literals or documentation text.
   fingerprint and allow exact approval while continuing to reject payloads
   that interpolate runtime values
 
+#### Scenario: Static callback receives a database receiver
+
+- **WHEN** a direct literal-function invocation or a known Kernel value
+  callback passes a statically resolvable repository receiver into a literal
+  callback pattern
+- **THEN** the scanner MUST bind the callback pattern before classifying and
+  fingerprinting database calls in its body, and MUST NOT assume Kernel
+  callback semantics when the operation resolves to a local or imported
+  function
+
 #### Scenario: Database apply target is static but invocation data is unresolved
 
 - **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically targets a known

@@ -1378,6 +1378,57 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "binds static arguments when scanning invoked literal callbacks" do
+    [
+      ~s'then(OfficeGraph.Repo, fn repo -> repo.query!("DELETE FROM events", []) end)',
+      ~s'Kernel.then(OfficeGraph.Repo, fn repo -> repo.query!("DELETE FROM events", []) end)',
+      ~s'OfficeGraph.Repo |> then(fn repo -> repo.query!("DELETE FROM events", []) end)',
+      ~s'tap(OfficeGraph.Repo, fn repo -> repo.query!("DELETE FROM events", []) end)',
+      ~s'(fn repo -> repo.query!("DELETE FROM events", []) end).(OfficeGraph.Repo)'
+    ]
+    |> Enum.each(fn callback_invocation ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{callback_invocation}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+      refute Map.has_key?(occurrence, :approval)
+    end)
+  end
+
+  test "does not apply Kernel callback semantics to explicitly imported functions" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   import Example.Callbacks
+
+                   def load do
+                     then(OfficeGraph.Repo, fn repo ->
+                       repo.query!("DELETE FROM events", [])
+                     end)
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
   test "case-clause patterns shadow outer SQL bindings" do
     fingerprints =
       ["SELECT 1", "SELECT 2"]
