@@ -99,6 +99,21 @@ diverge.
 - **THEN** canonical model-ownership verification MUST inventory the same table
   and foreign-key effects as the equivalent imported migration DSL calls
 
+#### Scenario: Migration lifecycle uses pipeline syntax
+
+- **WHEN** a forward migration pipes a table construct into a create, drop, or
+  other supported lifecycle operation
+- **THEN** canonical model-ownership verification MUST inventory the same table
+  and foreign-key effects as the equivalent nested migration DSL call
+
+#### Scenario: Migration lifecycle uses binary table names
+
+- **WHEN** a forward migration creates, drops, alters, references, or renames a
+  table using a binary name accepted by `Ecto.Migration`
+- **THEN** canonical model-ownership verification MUST preserve that table
+  identity and inventory the same lifecycle and foreign-key effects as the
+  equivalent atom table name
+
 #### Scenario: Migration creates a prefixed table
 
 - **WHEN** a forward migration creates, drops, alters, references, or renames a

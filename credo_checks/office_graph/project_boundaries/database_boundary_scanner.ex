@@ -133,6 +133,84 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_create_operations [:create, :create_if_not_exists]
   @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
   @kernel_value_callback_operations [:tap, :then]
+
+  @enum_unary_element_callback_operations [
+    :all?,
+    :any?,
+    :chunk_by,
+    :count,
+    :dedup_by,
+    :each,
+    :filter,
+    :find,
+    :find_index,
+    :find_value,
+    :flat_map,
+    :frequencies_by,
+    :group_by,
+    :into,
+    :map,
+    :map_every,
+    :map_intersperse,
+    :map_join,
+    :max_by,
+    :min_by,
+    :min_max_by,
+    :product_by,
+    :reject,
+    :sort_by,
+    :split_with,
+    :sum_by,
+    :uniq_by
+  ]
+
+  @enum_element_first_callback_operations [
+    :flat_map_reduce,
+    :map_reduce,
+    :reduce,
+    :reduce_while,
+    :scan
+  ]
+
+  @enum_second_argument_unary_callback_operations [
+    :all?,
+    :any?,
+    :chunk_by,
+    :count,
+    :dedup_by,
+    :each,
+    :filter,
+    :find,
+    :find_index,
+    :find_value,
+    :flat_map,
+    :frequencies_by,
+    :group_by,
+    :map,
+    :max_by,
+    :min_by,
+    :min_max_by,
+    :product_by,
+    :reject,
+    :sort_by,
+    :split_with,
+    :sum_by,
+    :uniq_by
+  ]
+
+  @enum_third_argument_unary_callback_operations [
+    :find,
+    :find_value,
+    :into,
+    :map_every,
+    :map_intersperse,
+    :map_join
+  ]
+
+  @enum_callback_operations Enum.uniq(
+                              @enum_unary_element_callback_operations ++
+                                @enum_element_first_callback_operations
+                            )
   @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
@@ -195,6 +273,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when is_list(arguments) do
     scan_invoked_literal_callback(callback, arguments, environment, context, occurrences)
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when operation in @enum_callback_operations and is_list(arguments) do
+    if enum_module_receiver?(receiver, environment) do
+      scan_enum_literal_callbacks(
+        node,
+        operation,
+        arguments,
+        environment,
+        context,
+        occurrences
+      )
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
   end
 
   defp scan_node({:defmodule, _metadata, arguments}, environment, context, occurrences) do
@@ -522,6 +621,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
   end
 
+  defp enum_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Enum"
+  end
+
   defp scan_function_defaults(
          parameters,
          omitted_indexes,
@@ -648,30 +751,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          context,
          occurrences
        ) do
-    {_arguments_environment, occurrences} =
-      scan_isolated_children(arguments, environment, context, occurrences)
-
-    resolved_arguments =
-      Enum.map(arguments, fn argument ->
-        argument
-        |> resolve_attributes(environment)
-        |> resolve_bindings(environment)
-        |> resolve_struct_aliases(environment)
-      end)
+    {resolved_arguments, arguments_environment, occurrences} =
+      scan_invoked_callback_arguments(
+        arguments,
+        environment,
+        context,
+        occurrences
+      )
 
     occurrences =
       Enum.reduce(clauses, occurrences, fn clause, occurrences ->
         scan_invoked_callback_clause(
           clause,
           resolved_arguments,
-          environment,
+          arguments_environment,
           context,
           occurrences
         )
       end)
 
-    {environment, occurrences}
+    {arguments_environment, occurrences}
   end
+
+  defp scan_invoked_callback_arguments(
+         arguments,
+         environment,
+         context,
+         occurrences
+       ) do
+    {resolved_arguments, {environment, occurrences}} =
+      Enum.map_reduce(arguments, {environment, occurrences}, fn argument,
+                                                                {environment, occurrences} ->
+        {argument_environment, occurrences} =
+          scan_node(argument, environment, context, occurrences)
+
+        resolved_argument =
+          argument
+          |> callback_argument_result()
+          |> resolve_attributes(argument_environment)
+          |> resolve_bindings(argument_environment)
+          |> resolve_struct_aliases(argument_environment)
+
+        {resolved_argument, {argument_environment, occurrences}}
+      end)
+
+    {resolved_arguments, environment, occurrences}
+  end
+
+  defp callback_argument_result({:=, _metadata, [_pattern, value]}),
+    do: callback_argument_result(value)
+
+  defp callback_argument_result({:__block__, _metadata, expressions})
+       when is_list(expressions) and expressions != [],
+       do: expressions |> List.last() |> callback_argument_result()
+
+  defp callback_argument_result(argument), do: argument
 
   defp scan_invoked_callback_clause(
          {:->, _metadata, [parameters, body]},
@@ -683,18 +817,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_list(parameters) do
     {patterns, guards} = clause_patterns_and_guards(parameters)
 
-    child_environment =
-      environment
-      |> remove_pattern_bindings(patterns)
-      |> bind_static_callback_patterns(patterns, arguments)
+    environment = remove_pattern_bindings(environment, patterns)
 
-    {_guard_environment, occurrences} =
-      scan_isolated_children(guards, child_environment, context, occurrences)
+    case bind_static_callback_patterns(environment, patterns, arguments) do
+      {:ok, child_environment} ->
+        {_guard_environment, occurrences} =
+          scan_isolated_children(guards, child_environment, context, occurrences)
 
-    {_body_environment, occurrences} =
-      scan_node(body, child_environment, context, occurrences)
+        {_body_environment, occurrences} =
+          scan_node(body, child_environment, context, occurrences)
 
-    occurrences
+        occurrences
+
+      :no_match ->
+        occurrences
+    end
   end
 
   defp scan_invoked_callback_clause(
@@ -711,23 +848,188 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp bind_static_callback_patterns(environment, patterns, arguments)
        when length(patterns) == length(arguments) do
     patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
-    pairs = Enum.zip(patterns, arguments)
 
-    if Enum.all?(pairs, fn {pattern, argument} ->
-         static_binding_source?(argument) and static_pattern_match?(pattern, argument)
-       end) do
-      bindings =
-        Enum.reduce(pairs, environment.bindings, fn {pattern, argument}, bindings ->
-          bind_pattern(pattern, argument, bindings)
+    patterns
+    |> Enum.zip(arguments)
+    |> Enum.reduce_while({:ok, environment}, fn {pattern, argument}, {:ok, environment} ->
+      cond do
+        not static_binding_source?(argument) ->
+          {:cont, {:ok, environment}}
+
+        static_pattern_match?(pattern, argument) ->
+          bindings = bind_pattern(pattern, argument, environment.bindings)
+          {:cont, {:ok, %{environment | bindings: bindings}}}
+
+        true ->
+          {:halt, :no_match}
+      end
+    end)
+  end
+
+  defp bind_static_callback_patterns(_environment, _patterns, _arguments), do: :no_match
+
+  defp scan_enum_literal_callbacks(
+         node,
+         operation,
+         arguments,
+         environment,
+         context,
+         occurrences
+       ) do
+    callback_indexes = enum_element_callback_indexes(operation, length(arguments))
+
+    callback_arguments =
+      callback_indexes
+      |> Enum.map(&Enum.at(arguments, &1))
+      |> Enum.filter(&enum_element_callback?(operation, &1))
+
+    callback_indexes =
+      Enum.filter(callback_indexes, fn index ->
+        enum_element_callback?(operation, Enum.at(arguments, index))
+      end)
+
+    if callback_arguments != [] do
+      {arguments_environment, occurrences} =
+        arguments
+        |> Enum.with_index()
+        |> Enum.reduce({environment, occurrences}, fn {argument, index},
+                                                      {environment, occurrences} ->
+          if index in callback_indexes do
+            {environment, occurrences}
+          else
+            scan_node(argument, environment, context, occurrences)
+          end
         end)
 
-      %{environment | bindings: bindings}
+      resolved_enumerable =
+        arguments
+        |> List.first()
+        |> callback_argument_result()
+        |> resolve_attributes(arguments_environment)
+        |> resolve_bindings(arguments_environment)
+        |> resolve_struct_aliases(arguments_environment)
+
+      if is_list(resolved_enumerable) and static_binding_source?(resolved_enumerable) do
+        scan_static_enum_callbacks(
+          operation,
+          callback_arguments,
+          resolved_enumerable,
+          arguments_environment,
+          context,
+          occurrences
+        )
+      else
+        occurrences =
+          Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
+            {_callback_environment, occurrences} =
+              scan_node(callback, arguments_environment, context, occurrences)
+
+            occurrences
+          end)
+
+        {arguments_environment, occurrences}
+      end
     else
-      environment
+      scan_executable_node(node, environment, context, occurrences)
     end
   end
 
-  defp bind_static_callback_patterns(environment, _patterns, _arguments), do: environment
+  defp enum_element_callback_indexes(operation, arity) do
+    cond do
+      arity == 2 and operation in @enum_second_argument_unary_callback_operations ->
+        [1]
+
+      arity == 3 and operation == :group_by ->
+        [1, 2]
+
+      arity == 3 and operation in @enum_third_argument_unary_callback_operations ->
+        [2]
+
+      arity >= 3 and operation in [:max_by, :min_by, :min_max_by, :sort_by] ->
+        [1]
+
+      arity == 2 and operation in [:reduce, :scan] ->
+        [1]
+
+      arity == 3 and operation in @enum_element_first_callback_operations ->
+        [2]
+
+      true ->
+        []
+    end
+  end
+
+  defp scan_static_enum_callbacks(
+         operation,
+         callback_arguments,
+         resolved_enumerable,
+         arguments_environment,
+         context,
+         occurrences
+       ) do
+    elements =
+      case Enum.uniq(resolved_enumerable) do
+        [] -> [{:__unresolved_enum_element__, [], []}]
+        elements -> elements
+      end
+
+    occurrences =
+      Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
+        Enum.reduce(elements, occurrences, fn element, occurrences ->
+          callback_arguments = enum_callback_arguments(operation, callback, element)
+
+          {_callback_environment, occurrences} =
+            scan_invoked_literal_callback(
+              callback,
+              callback_arguments,
+              arguments_environment,
+              context,
+              occurrences
+            )
+
+          occurrences
+        end)
+      end)
+
+    {arguments_environment, occurrences}
+  end
+
+  defp enum_element_callback?(operation, {:fn, _metadata, clauses} = callback)
+       when is_list(clauses) do
+    case literal_callback_arity(callback) do
+      1 -> operation in @enum_unary_element_callback_operations
+      2 -> operation in @enum_element_first_callback_operations
+      _arity -> false
+    end
+  end
+
+  defp enum_element_callback?(_operation, _argument), do: false
+
+  defp literal_callback_arity({:fn, _metadata, clauses}) do
+    arities =
+      Enum.map(clauses, fn
+        {:->, _clause_metadata, [parameters, _body]} when is_list(parameters) ->
+          parameters |> clause_patterns_and_guards() |> elem(0) |> length()
+
+        _clause ->
+          :unknown
+      end)
+
+    case Enum.uniq(arities) do
+      [arity] when is_integer(arity) -> arity
+      _arities -> :unknown
+    end
+  end
+
+  defp enum_callback_arguments(operation, callback, element) do
+    arity = literal_callback_arity(callback)
+
+    if operation in @enum_element_first_callback_operations do
+      [element | List.duplicate({:__unresolved_enum_callback_argument__, [], []}, arity - 1)]
+    else
+      [element]
+    end
+  end
 
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
@@ -1194,6 +1496,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_list(arguments),
        do: {:raw_sql, "migration.execute"}
 
+  defp classify_node({:execute_file, _metadata, arguments}, true, _environment)
+       when is_list(arguments),
+       do: {:raw_sql, "migration.execute_file"}
+
   defp classify_node({:insert, _metadata, arguments}, true, _environment)
        when is_list(arguments),
        do: {:direct_ecto, "migration.insert"}
@@ -1213,6 +1519,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_operation("Ecto.Migration", :execute),
     do: {:raw_sql, "migration.execute"}
+
+  defp classify_migration_operation("Ecto.Migration", :execute_file),
+    do: {:raw_sql, "migration.execute_file"}
 
   defp classify_migration_operation("Ecto.Migration", :insert),
     do: {:direct_ecto, "migration.insert"}
@@ -1450,6 +1759,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when construct in @migration_sql_option_constructs and is_list(arguments) do
     option_keys = migration_sql_option_keys(construct)
 
+    occurrences =
+      classify_migration_index_expression_fields(
+        operation,
+        line,
+        construct,
+        arguments,
+        option_keys,
+        context,
+        occurrences
+      )
+
     case List.last(arguments) do
       options when is_list(options) ->
         Enum.reduce(options, occurrences, fn
@@ -1495,6 +1815,111 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          occurrences
        ),
        do: occurrences
+
+  defp classify_migration_index_expression_fields(
+         operation,
+         line,
+         construct,
+         arguments,
+         option_keys,
+         context,
+         occurrences
+       )
+       when construct in [:index, :unique_index] do
+    case Enum.at(arguments, 1) do
+      fields when is_list(fields) ->
+        fields
+        |> Enum.with_index()
+        |> Enum.reduce(occurrences, fn {field, index}, occurrences ->
+          case migration_index_expression_payload(field) do
+            :safe_column ->
+              occurrences
+
+            {:raw_sql, payload} ->
+              [
+                occurrence(
+                  context.path,
+                  line,
+                  context.function,
+                  :raw_sql,
+                  "migration.index_expression",
+                  migration_index_expression_fingerprint_input(
+                    operation,
+                    construct,
+                    arguments,
+                    option_keys,
+                    index,
+                    field
+                  )
+                )
+                |> mark_sql_payload_approval(payload)
+                | occurrences
+              ]
+          end
+        end)
+
+      field when is_atom(field) ->
+        occurrences
+
+      unresolved_fields ->
+        [
+          occurrence(
+            context.path,
+            line,
+            context.function,
+            :raw_sql,
+            "migration.index_expression",
+            migration_index_expression_fingerprint_input(
+              operation,
+              construct,
+              arguments,
+              option_keys,
+              :unresolved,
+              unresolved_fields
+            )
+          )
+          |> mark_sql_payload_approval(unresolved_fields)
+          | occurrences
+        ]
+    end
+  end
+
+  defp classify_migration_index_expression_fields(
+         _operation,
+         _line,
+         _construct,
+         _arguments,
+         _option_keys,
+         _context,
+         occurrences
+       ),
+       do: occurrences
+
+  defp migration_index_expression_payload(field) when is_atom(field), do: :safe_column
+
+  defp migration_index_expression_payload({direction, field})
+       when direction in [
+              :asc,
+              :asc_nulls_first,
+              :asc_nulls_last,
+              :desc,
+              :desc_nulls_first,
+              :desc_nulls_last
+            ] and is_atom(field),
+       do: :safe_column
+
+  defp migration_index_expression_payload({direction, field})
+       when direction in [
+              :asc,
+              :asc_nulls_first,
+              :asc_nulls_last,
+              :desc,
+              :desc_nulls_first,
+              :desc_nulls_last
+            ] and is_binary(field),
+       do: {:raw_sql, field}
+
+  defp migration_index_expression_payload(field), do: {:raw_sql, field}
 
   defp resolve_migration_constructs(node, environment, resolving) do
     resolved_node =
@@ -2019,6 +2444,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if length(arguments) in [1, 2], do: {:ok, arguments}, else: :error
   end
 
+  defp fetch_sql_arguments(arguments, "migration.execute_file") do
+    if length(arguments) in [1, 2], do: {:ok, arguments}, else: :error
+  end
+
   defp fetch_sql_arguments(arguments, construct) do
     case fetch_sql_argument(arguments, construct) do
       {:ok, argument} -> {:ok, [argument]}
@@ -2084,6 +2513,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         "target: #{target}",
         "option: #{key}",
         "value: #{Macro.to_string(value)}"
+      ],
+      "\n"
+    )
+  end
+
+  defp migration_index_expression_fingerprint_input(
+         operation,
+         construct,
+         arguments,
+         option_keys,
+         index,
+         field
+       ) do
+    target = migration_construct_target(construct, arguments, option_keys)
+
+    Enum.join(
+      [
+        "operation: #{operation}",
+        "target: #{target}",
+        "field: #{index}",
+        "value: #{Macro.to_string(field)}"
       ],
       "\n"
     )

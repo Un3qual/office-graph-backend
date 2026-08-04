@@ -1409,6 +1409,105 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "uses callback argument expression results when binding literal callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              then(repo = OfficeGraph.Repo, fn repo ->
+                repo.query!("DELETE FROM events", [])
+              end)
+
+              (fn {:ok, repo} -> repo.query!("DELETE FROM events", []) end).(
+                {:ok, repo} = {:ok, OfficeGraph.Repo}
+              )
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/0", 4},
+             {"Repo.query!", "load/0", 7}
+           ]
+  end
+
+  test "binds static enumerable elements in literal Enum callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Enum, as: CoreEnum
+
+            def load(initial) do
+              Enum.each([OfficeGraph.Repo], fn repo ->
+                repo.query!("DELETE FROM events", [])
+              end)
+
+              [OfficeGraph.Repo]
+              |> Enum.map(fn repo -> repo.query!("DELETE FROM events", []) end)
+
+              CoreEnum.reduce([OfficeGraph.Repo], initial, fn repo, accumulator ->
+                repo.query!("DELETE FROM events", [])
+                accumulator
+              end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/1", 6},
+             {"Repo.query!", "load/1", 10},
+             {"Repo.query!", "load/1", 13}
+           ]
+  end
+
+  test "does not apply Enum callback semantics to unrelated modules" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   def load do
+                     Example.Enum.each([OfficeGraph.Repo], fn repo ->
+                       repo.query!("DELETE FROM events", [])
+                     end)
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
+  test "does not treat function-valued Enum arguments as element callbacks" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   def load do
+                     Enum.find(
+                       [OfficeGraph.Repo],
+                       fn default -> default.query!("DELETE FROM events", []) end,
+                       fn _repo -> false end
+                     )
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
   test "does not apply Kernel callback semantics to explicitly imported functions" do
     assert [] ==
              DatabaseBoundaryScanner.scan_sources([
@@ -2011,6 +2110,64 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"migration.execute", 6, :unresolved_sql},
              {"migration.execute", 7, nil}
            ]
+  end
+
+  test "classifies migration execute_file paths as raw SQL payloads" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change(runtime_path) do
+              execute_file("priv/repo/sql/change.pgsql")
+              Ecto.Migration.execute_file("priv/repo/sql/up.pgsql", "priv/repo/sql/down.pgsql")
+              execute_file(runtime_path)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {occurrence.construct, occurrence.line, Map.get(occurrence, :approval)}
+           end) == [
+             {"migration.execute_file", 5, nil},
+             {"migration.execute_file", 6, nil},
+             {"migration.execute_file", 7, :unresolved_sql}
+           ]
+  end
+
+  test "classifies expression index fields as target-bound raw SQL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change(runtime_expression) do
+              create index(:users, ["lower(email)"])
+              create unique_index(:accounts, [:tenant_id, "lower(email)"])
+              create index(:profiles, [runtime_expression])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {occurrence.construct, occurrence.line, Map.get(occurrence, :approval)}
+           end) == [
+             {"migration.index_expression", 5, nil},
+             {"migration.index_expression", 6, nil},
+             {"migration.index_expression", 7, :unresolved_sql}
+           ]
+
+    assert occurrences |> Enum.map(& &1.fingerprint) |> Enum.uniq() |> length() == 3
   end
 
   test "classifies migration execute and data insertion constructs" do

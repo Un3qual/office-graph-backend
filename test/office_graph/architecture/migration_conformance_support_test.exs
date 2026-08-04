@@ -1894,6 +1894,107 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "normalizes piped migration lifecycle and foreign-key calls" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_piped_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          table(:piped_parents) |> create()
+
+          table(:piped_children) |> create() do
+            add :parent_id, references(:piped_parents)
+          end
+
+          table(:piped_removed) |> create()
+          table(:piped_removed) |> drop()
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "piped_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "piped_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "piped_children",
+               "piped_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "piped_children.parent_id references piped_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "preserves binary table names across migration ownership operations" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_binary_table_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          create table("binary_old_parents")
+          rename table("binary_old_parents"), to: table("binary_parents")
+
+          create table("binary_children") do
+            add :parent_id, references("binary_parents")
+          end
+
+          create table("binary_removed")
+          drop table("binary_removed")
+        end
+      end
+      """
+    )
+
+    expected_resources = %{
+      "binary_children" => {nil, OfficeGraph.Tenancy.Organization},
+      "binary_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+    }
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "binary_children",
+               "binary_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "binary_children.parent_id references binary_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "preserves table prefixes in migration ownership identities" do
     root =
       Path.join(

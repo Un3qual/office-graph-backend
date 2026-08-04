@@ -406,6 +406,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {:__block__, metadata, expressions}
   end
 
+  defp normalize_migration_calls({:|>, _metadata, _arguments} = pipeline, aliases) do
+    pipeline
+    |> expand_pipeline()
+    |> normalize_migration_calls(aliases)
+  end
+
   defp normalize_migration_calls(
          {{:., _dot_metadata, [receiver, operation]}, metadata, arguments} = node,
          aliases
@@ -429,6 +435,14 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp normalize_migration_calls(node, _aliases), do: node
+
+  defp expand_pipeline(pipeline) do
+    [{first, _position} | rest] = Macro.unpipe(pipeline)
+
+    Enum.reduce(rest, first, fn {call, position}, piped ->
+      Macro.pipe(piped, call, position)
+    end)
+  end
 
   defp put_module_aliases(aliases, [target]),
     do: apply_module_aliases(aliases, target, [])
@@ -1361,7 +1375,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _table,
          certainty
        )
-       when is_atom(old_table) and is_atom(new_table) do
+       when (is_atom(old_table) or is_binary(old_table)) and
+              (is_atom(new_table) or is_binary(new_table)) do
     operation =
       {:rename_table, table_identity(old_table, old_table_options),
        table_identity(new_table, new_table_options)}
@@ -1379,7 +1394,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _table,
          certainty
        )
-       when is_atom(table) and is_atom(old_column) and is_atom(new_column) do
+       when (is_atom(table) or is_binary(table)) and is_atom(old_column) and
+              is_atom(new_column) do
     operation =
       {:rename_column, table_identity(table, table_options), Atom.to_string(old_column),
        Atom.to_string(new_column)}
@@ -1393,7 +1409,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _current_table,
          certainty
        )
-       when operation in @table_definition_operations and is_atom(table) do
+       when operation in @table_definition_operations and
+              (is_atom(table) or is_binary(table)) do
     collect_foreign_key_operations(block, table_identity(table, table_options), certainty)
   end
 
@@ -1416,7 +1433,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _current_table,
          certainty
        )
-       when operation in @table_drop_operations and is_atom(table) do
+       when operation in @table_drop_operations and
+              (is_atom(table) or is_binary(table)) do
     operation =
       {:drop_table, table_identity(table, table_options), cascading_drop?(drop_options)}
 
@@ -1435,7 +1453,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        )
        when operation in @foreign_key_definition_operations and is_binary(table) and
               is_atom(column) and
-              is_atom(destination) do
+              (is_atom(destination) or is_binary(destination)) do
     reference_options = List.flatten(reference_options)
 
     destination_prefix =
@@ -1595,7 +1613,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
             [to: {:table, _new_table_metadata, [new_table | new_table_options]}]
           ]}
        )
-       when is_atom(old_table) and is_atom(new_table) do
+       when (is_atom(old_table) or is_binary(old_table)) and
+              (is_atom(new_table) or is_binary(new_table)) do
     {:rename, table_identity(old_table, old_table_options),
      table_identity(new_table, new_table_options)}
   end
@@ -1603,7 +1622,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp table_operation(
          {operation, _metadata, [{:table, _table_metadata, [table | table_options]} | _options]}
        )
-       when operation in @table_lifecycle_operations and is_atom(table) do
+       when operation in @table_lifecycle_operations and
+              (is_atom(table) or is_binary(table)) do
     lifecycle_operation = if operation in @table_create_operations, do: :create, else: :drop
     {lifecycle_operation, table_identity(table, table_options)}
   end

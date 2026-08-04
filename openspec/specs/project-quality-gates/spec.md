@@ -133,13 +133,15 @@ binary literals or documentation text.
 
 #### Scenario: Static callback receives a database receiver
 
-- **WHEN** a direct literal-function invocation or a known Kernel value
-  callback passes a statically resolvable repository receiver into a literal
-  callback pattern
+- **WHEN** a direct literal-function invocation, a known Kernel value callback,
+  or a supported `Enum` operation passes a statically resolvable repository
+  receiver into a literal callback pattern, including through a match or
+  assignment expression evaluated as the callback argument
 - **THEN** the scanner MUST bind the callback pattern before classifying and
-  fingerprinting database calls in its body, and MUST NOT assume Kernel
-  callback semantics when the operation resolves to a local or imported
-  function
+  fingerprinting database calls in its body, bind independently known
+  callback parameters even when another parameter is dynamic, and MUST NOT
+  assume Kernel or `Enum` callback semantics when the receiver resolves to an
+  unrelated local, imported, or qualified function
 
 #### Scenario: Database apply target is static but invocation data is unresolved
 
@@ -163,6 +165,14 @@ binary literals or documentation text.
 - **THEN** both executable commands MUST be statically fingerprintable before
   the occurrence can receive an exact raw-SQL approval
 
+#### Scenario: Migration executes SQL from files
+
+- **WHEN** a migration uses `execute_file/1` or reversible `execute_file/2`
+  through an imported, aliased, or fully qualified migration receiver
+- **THEN** the scanner MUST classify the call as repository-authored raw SQL
+  and require every executable file path to be statically fingerprintable
+  before the occurrence can receive an exact approval
+
 #### Scenario: External migration helper invokes an explicit SQL API
 
 - **WHEN** tracked code outside `priv/repo/migrations` invokes
@@ -185,6 +195,15 @@ binary literals or documentation text.
   unqualified, aliased, or fully qualified creation operation
 - **THEN** the scanner MUST classify and fingerprint the executable construct
   exactly as it does for the equivalent nested call
+
+#### Scenario: Migration index carries raw expression fields
+
+- **WHEN** an index or unique-index construct includes a string expression
+  field or a field whose safety cannot be resolved statically
+- **THEN** the scanner MUST classify the field as repository-authored raw SQL,
+  bind its fingerprint to the enclosing index target and field position, and
+  reject exact approval for unresolved fields while leaving atom column fields
+  unclassified
 
 #### Scenario: Generated column carries a SQL expression
 
