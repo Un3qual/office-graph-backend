@@ -192,7 +192,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     sql = sql_code_without_comments_or_literals(sql)
 
     Regex.match?(
-      ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)TABLE\b/i,
+      ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)(?:FOREIGN\s+)?TABLE\b/i,
       sql
     )
   end

@@ -1251,6 +1251,46 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "rejects migration execute SQL that changes foreign-table ownership" do
+    Enum.each(
+      [
+        "CREATE FOREIGN TABLE auxiliary (id uuid) SERVER auxiliary_server",
+        "ALTER FOREIGN TABLE auxiliary ADD COLUMN label text",
+        "DROP FOREIGN TABLE IF EXISTS auxiliary"
+      ],
+      fn sql ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_foreign_table_ddl_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        File.mkdir_p!(migrations)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(migrations, "20260804000000_foreign_table_ddl.exs"),
+          """
+          defmodule ForeignTableDdl do
+            use Ecto.Migration
+
+            def change do
+              execute(#{inspect(sql)})
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
   test "treats SQL comments as whitespace when rejecting ownership DDL" do
     Enum.each(
       [

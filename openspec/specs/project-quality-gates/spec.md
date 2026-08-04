@@ -115,6 +115,14 @@ binary literals or documentation text.
 - **THEN** the scanner MUST resolve that attribute for both classification and
   occurrence fingerprinting so changing the SQL invalidates the exact approval
 
+#### Scenario: SQL payload uses an accumulated module attribute
+
+- **WHEN** a SQL-bearing call references a module attribute registered with
+  `accumulate: true`
+- **THEN** the scanner MUST fingerprint every accumulated value in compiler
+  order, and MUST reject exact approval when accumulation semantics cannot be
+  determined statically
+
 #### Scenario: SQL payload contains literal interpolation
 
 - **WHEN** a classified raw-SQL payload interpolates only statically resolvable
@@ -161,6 +169,13 @@ binary literals or documentation text.
 - **THEN** the scanner MUST classify each SQL-bearing table option without
   treating the trailing block as part of the construct identity or payload
 
+#### Scenario: Migration construction uses pipeline syntax
+
+- **WHEN** a migration pipes an index, constraint, or table construct into an
+  unqualified, aliased, or fully qualified creation operation
+- **THEN** the scanner MUST classify and fingerprint the executable construct
+  exactly as it does for the equivalent nested call
+
 #### Scenario: Generated column carries a SQL expression
 
 - **WHEN** a migration table block uses `add` or `modify` with a `generated`
@@ -193,6 +208,13 @@ artifacts.
 - **THEN** it MUST parse executable `create table` and `drop table` calls from
   quoted AST, including multiline calls, while ignoring comments, strings, and
   rollback-only functions
+
+#### Scenario: Raw SQL changes foreign-table ownership
+
+- **WHEN** a statically resolvable migration execution creates, alters, or drops
+  a PostgreSQL foreign table
+- **THEN** conformance MUST reject the SQL and require declarative migration
+  constructs rather than omitting the table from the ownership inventory
 
 #### Scenario: Relay resource conformance is checked
 

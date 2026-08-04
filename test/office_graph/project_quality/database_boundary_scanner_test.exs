@@ -721,6 +721,46 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "classifies SQL options in piped migration constructs" do
+    fingerprints =
+      ["deleted_at IS NULL", "archived_at IS NULL"]
+      |> Enum.map(fn predicate ->
+        occurrences =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "priv/repo/migrations/20260804000000_example.exs",
+              source: """
+              defmodule ExampleMigration do
+                use Ecto.Migration
+                alias Ecto.Migration, as: Migration
+
+                def change do
+                  index(:items, [:id], where: #{inspect(predicate)}) |> create()
+
+                  Ecto.Migration.table(:events, options: "PARTITION BY RANGE (inserted_at)")
+                  |> Migration.create() do
+                    add :inserted_at, :utc_datetime_usec
+                  end
+                end
+              end
+              """
+            }
+          ])
+
+        assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+                 {:raw_sql, "migration.where", "change/0"},
+                 {:raw_sql, "migration.options", "change/0"}
+               ]
+
+        Enum.map(occurrences, & &1.fingerprint)
+      end)
+
+    [[first_where, first_options], [second_where, second_options]] = fingerprints
+
+    assert first_where != second_where
+    assert first_options == second_options
+  end
+
   test "classifies raw table creation options and modifiers" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -1784,6 +1824,71 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "Repo.query!"
     assert occurrence.function == nil
     assert occurrence.line == 4
+  end
+
+  test "fingerprints every value of an accumulated SQL module attribute" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn first_statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                Module.register_attribute(__MODULE__, :sql, accumulate: true)
+
+                @sql #{inspect(first_statement)}
+                @sql "; SELECT 3"
+
+                def load, do: OfficeGraph.Repo.query!(@sql, [])
+              end
+              """
+            }
+          ])
+
+        refute Map.has_key?(occurrence, :approval)
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+
+    [literal_occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load, do: OfficeGraph.Repo.query!(["; SELECT 3", "SELECT 1"], [])
+          end
+          """
+        }
+      ])
+
+    assert hd(fingerprints) == literal_occurrence.fingerprint
+  end
+
+  test "fails closed when module attribute accumulation cannot be determined" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            Module.register_attribute(__MODULE__, :sql,
+              accumulate: System.get_env("ACCUMULATE_SQL") == "true"
+            )
+
+            @sql "SELECT 1"
+            @sql "; SELECT 2"
+
+            def load, do: OfficeGraph.Repo.query!(@sql, [])
+          end
+          """
+        }
+      ])
+
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "ignores where and check keywords outside SQL-bearing migration constructs" do

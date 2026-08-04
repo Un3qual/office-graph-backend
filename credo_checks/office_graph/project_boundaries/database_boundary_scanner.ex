@@ -151,6 +151,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_sequence(expressions, environment, context, occurrences)
   end
 
+  defp scan_node({:|>, _metadata, _arguments} = pipeline, environment, context, occurrences) do
+    pipeline
+    |> expand_pipeline()
+    |> scan_node(environment, context, occurrences)
+  end
+
   defp scan_node({:defmodule, _metadata, arguments}, environment, context, occurrences) do
     case block_body(arguments) do
       nil ->
@@ -162,6 +168,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         child_environment = %{
           environment
           | attributes: %{},
+            attribute_modes: %{},
+            uncertain_attribute_registration?: false,
             local_functions: collect_local_functions(body)
         }
 
@@ -321,8 +329,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     resolved_value = resolve_attributes(value, environment)
 
-    {%{environment | attributes: Map.put(environment.attributes, name, resolved_value)},
-     occurrences}
+    {put_module_attribute_value(environment, name, resolved_value), occurrences}
   end
 
   defp scan_node(
@@ -342,6 +349,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {put_import(environment, metadata, arguments), occurrences}
   end
 
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, :register_attribute]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when length(arguments) in [2, 3] do
+    if module_attribute_registration?(receiver, arguments, environment) do
+      {_child_environment, occurrences} =
+        scan_children(node, environment, context, occurrences)
+
+      {register_module_attribute(environment, arguments), occurrences}
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
   defp scan_node({:=, _metadata, [pattern, value]}, environment, context, occurrences) do
     {environment, occurrences} = scan_node(value, environment, context, occurrences)
 
@@ -359,6 +383,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node(node, environment, context, occurrences) do
+    scan_executable_node(node, environment, context, occurrences)
+  end
+
+  defp scan_executable_node(node, environment, context, occurrences) do
     resolved_node = resolve_attributes(node, environment)
     fingerprint_node = resolve_bindings(resolved_node, environment)
     classification_node = normalize_static_apply(fingerprint_node, environment)
@@ -388,6 +416,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       end
 
     scan_classified_children(node, environment, context, occurrences)
+  end
+
+  defp expand_pipeline(pipeline) do
+    [{first, _position} | rest] = Macro.unpipe(pipeline)
+
+    Enum.reduce(rest, first, fn {call, position}, piped ->
+      Macro.pipe(piped, call, position)
+    end)
   end
 
   defp normalize_static_apply(
@@ -1936,8 +1972,100 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> Macro.to_string()
   end
 
-  defp empty_environment,
-    do: %{aliases: %{}, attributes: %{}, bindings: %{}, imports: [], local_functions: %{}}
+  defp empty_environment do
+    %{
+      aliases: %{},
+      attribute_modes: %{},
+      attributes: %{},
+      bindings: %{},
+      imports: [],
+      local_functions: %{},
+      uncertain_attribute_registration?: false
+    }
+  end
+
+  defp module_attribute_registration?(receiver, [module | _arguments], environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Module" and
+      match?({:__MODULE__, _metadata, _context}, module)
+  end
+
+  defp register_module_attribute(environment, [_module, name | arguments]) do
+    name =
+      name
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
+
+    options =
+      arguments
+      |> List.first([])
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
+
+    case name do
+      name when is_atom(name) ->
+        mode = module_attribute_mode(options)
+
+        %{
+          environment
+          | attribute_modes: Map.put(environment.attribute_modes, name, mode),
+            attributes:
+              if(mode == :unknown,
+                do: Map.delete(environment.attributes, name),
+                else: environment.attributes
+              )
+        }
+
+      _dynamic_name ->
+        %{environment | uncertain_attribute_registration?: true}
+    end
+  end
+
+  defp module_attribute_mode(options) when is_list(options) do
+    if Keyword.keyword?(options) do
+      case Keyword.fetch(options, :accumulate) do
+        :error -> :single
+        {:ok, true} -> :accumulate
+        {:ok, false} -> :single
+        {:ok, _dynamic} -> :unknown
+      end
+    else
+      :unknown
+    end
+  end
+
+  defp module_attribute_mode(_options), do: :unknown
+
+  defp put_module_attribute_value(environment, name, value) do
+    mode =
+      if environment.uncertain_attribute_registration? do
+        :unknown
+      else
+        Map.get(environment.attribute_modes, name, :single)
+      end
+
+    attributes =
+      case mode do
+        :single ->
+          Map.put(environment.attributes, name, value)
+
+        :accumulate ->
+          case Map.fetch(environment.attributes, name) do
+            :error ->
+              Map.put(environment.attributes, name, [value])
+
+            {:ok, values} when is_list(values) ->
+              Map.put(environment.attributes, name, [value | values])
+
+            {:ok, _incompatible_value} ->
+              Map.delete(environment.attributes, name)
+          end
+
+        :unknown ->
+          Map.delete(environment.attributes, name)
+      end
+
+    %{environment | attributes: attributes}
+  end
 
   defp resolve_attributes(node, environment) do
     Macro.prewalk(node, fn
