@@ -362,6 +362,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     resolved_node = resolve_attributes(node, environment)
     fingerprint_node = resolve_bindings(resolved_node, environment)
     classification_node = normalize_static_apply(fingerprint_node, environment)
+    occurrence_node = normalized_occurrence_node(classification_node, fingerprint_node)
 
     occurrences =
       classify_migration_sql_options(fingerprint_node, environment, context, occurrences)
@@ -379,7 +380,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
               context.function,
               class,
               construct,
-              classification_node
+              occurrence_node
             )
             |> mark_sql_approval(class, construct, classification_node)
             | occurrences
@@ -415,11 +416,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp normalize_static_apply(node, _environment), do: node
 
+  defp normalized_occurrence_node(
+         {:unresolved_database_apply, _receiver, _operation, _arguments},
+         original_node
+       ),
+       do: original_node
+
+  defp normalized_occurrence_node(normalized_node, _original_node), do: normalized_node
+
   defp static_applied_call(receiver, operation, arguments, metadata, _fallback)
        when is_atom(operation) and is_list(arguments),
        do: {{:., [], [receiver, operation]}, metadata, arguments}
 
-  defp static_applied_call(_receiver, _operation, _arguments, _metadata, fallback), do: fallback
+  defp static_applied_call(receiver, operation, arguments, _metadata, _fallback),
+    do: {:unresolved_database_apply, receiver, operation, arguments}
 
   defp kernel_apply_receiver?(:erlang, _environment), do: true
 
@@ -907,6 +917,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       classify_database_operation(receiver, operation)
   end
 
+  defp classify_node(
+         {:unresolved_database_apply, receiver, operation, _arguments},
+         migration?,
+         environment
+       ) do
+    receiver =
+      receiver
+      |> resolve_bindings(environment)
+      |> database_receiver_name(migration?, environment)
+
+    operation = resolve_bindings(operation, environment)
+
+    classify_migration_operation(receiver, operation) ||
+      classify_database_operation(receiver, operation) ||
+      classify_dynamic_database_apply(receiver, operation)
+  end
+
   defp classify_node({construct, _metadata, arguments}, migration?, environment)
        when construct in [:fragment, :unsafe_fragment] and is_list(arguments) do
     if migration? or imported_fragment?(environment, construct, length(arguments)),
@@ -969,6 +996,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       receiver in ["Ecto.Multi", "Multi"] and operation in @direct_multi_operations ->
         {:direct_ecto, "Ecto.Multi.#{operation}"}
+
+      true ->
+        nil
+    end
+  end
+
+  defp classify_dynamic_database_apply(_receiver, operation) when is_atom(operation), do: nil
+
+  defp classify_dynamic_database_apply(receiver, _operation) do
+    cond do
+      repo_receiver?(receiver) ->
+        {:raw_sql, "Repo.apply"}
+
+      receiver in ["Ecto.Adapters.SQL", "Ecto.Migration", "Ecto.Query.API", "Postgrex"] ->
+        {:raw_sql, "#{receiver}.apply"}
+
+      receiver in ["Ecto.Multi", "Ecto.Query"] ->
+        {:direct_ecto, "#{receiver}.apply"}
 
       true ->
         nil
@@ -1577,13 +1622,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: [:options, :where]
 
   defp mark_sql_approval(occurrence, :raw_sql, construct, node) do
-    case raw_sql_payload(node, construct) do
-      {:ok, payload} -> mark_sql_payload_approval(occurrence, payload)
+    case raw_sql_payloads(node, construct) do
+      {:ok, payloads} -> mark_sql_payloads_approval(occurrence, payloads)
       :error -> Map.put(occurrence, :approval, :unresolved_sql)
     end
   end
 
   defp mark_sql_approval(occurrence, _class, _construct, _node), do: occurrence
+
+  defp mark_sql_payloads_approval(occurrence, payloads) do
+    if Enum.all?(payloads, &static_sql_payload?/1),
+      do: occurrence,
+      else: Map.put(occurrence, :approval, :unresolved_sql)
+  end
 
   defp mark_sql_payload_approval(occurrence, payload) do
     if static_sql_payload?(payload),
@@ -1591,21 +1642,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       else: Map.put(occurrence, :approval, :unresolved_sql)
   end
 
-  defp raw_sql_payload(
+  defp raw_sql_payloads(
          {{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments},
          construct
        )
        when is_list(arguments) do
-    fetch_sql_argument(arguments, construct)
+    fetch_sql_arguments(arguments, construct)
   end
 
-  defp raw_sql_payload({_operation, _metadata, arguments}, construct)
+  defp raw_sql_payloads({_operation, _metadata, arguments}, construct)
        when is_list(arguments) do
-    fetch_sql_argument(arguments, construct)
+    fetch_sql_arguments(arguments, construct)
   end
 
-  defp raw_sql_payload({:unsafe_fragment, payload}, "unsafe_fragment"), do: {:ok, payload}
-  defp raw_sql_payload(_node, _construct), do: :error
+  defp raw_sql_payloads({:unsafe_fragment, payload}, "unsafe_fragment"), do: {:ok, [payload]}
+  defp raw_sql_payloads(_node, _construct), do: :error
+
+  defp fetch_sql_arguments(arguments, "migration.execute") do
+    if length(arguments) in [1, 2], do: {:ok, arguments}, else: :error
+  end
+
+  defp fetch_sql_arguments(arguments, construct) do
+    case fetch_sql_argument(arguments, construct) do
+      {:ok, argument} -> {:ok, [argument]}
+      :error -> :error
+    end
+  end
 
   defp fetch_sql_argument(arguments, "Ecto.Adapters.SQL." <> _operation),
     do: fetch_argument(arguments, 1)

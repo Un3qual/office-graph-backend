@@ -116,6 +116,21 @@ binary literals or documentation text.
   fingerprint and allow exact approval while continuing to reject payloads
   that interpolate runtime values
 
+#### Scenario: Database apply target is static but invocation data is unresolved
+
+- **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically targets a known
+  repository, Ecto, migration, SQL-adapter, or Postgrex module while its
+  operation or argument list remains runtime-provided
+- **THEN** the scanner MUST retain the known database target, classify any
+  statically known operation, and fail closed for a dynamic operation that
+  could execute repository-authored SQL
+
+#### Scenario: Reversible migration execute carries two commands
+
+- **WHEN** a migration uses `execute(up_command, down_command)`
+- **THEN** both executable commands MUST be statically fingerprintable before
+  the occurrence can receive an exact raw-SQL approval
+
 #### Scenario: External migration helper invokes an explicit SQL API
 
 - **WHEN** tracked code outside `priv/repo/migrations` invokes

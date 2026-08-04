@@ -56,6 +56,46 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
   end
 
+  test "rejects unresolved apply calls targeting database modules" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias OfficeGraph.Repo
+
+            def dispatch_repo(operation, arguments),
+              do: apply(Repo, operation, arguments)
+
+            def dispatch_sql(arguments),
+              do: Kernel.apply(Ecto.Adapters.SQL, :query, arguments)
+
+            def dispatch_postgrex(operation, arguments),
+              do: :erlang.apply(Postgrex, operation, arguments)
+
+            def dispatch_multi(operation, arguments),
+              do: apply(Ecto.Multi, operation, arguments)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               Map.get(occurrence, :approval)
+             }
+           end) == [
+             {:raw_sql, "Repo.apply", "dispatch_repo/2", :unresolved_sql},
+             {:raw_sql, "Ecto.Adapters.SQL.query", "dispatch_sql/1", :unresolved_sql},
+             {:raw_sql, "Postgrex.apply", "dispatch_postgrex/2", :unresolved_sql},
+             {:direct_ecto, "Ecto.Multi.apply", "dispatch_multi/2", nil}
+           ]
+  end
+
   test "preserves apply calls explicitly imported from a non-Kernel module" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{
@@ -1666,6 +1706,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.count(occurrences, &(&1.construct == "migration.execute")) == 2
     assert Enum.all?(occurrences, &(&1.class == :raw_sql))
+  end
+
+  test "rejects reversible migration execute when either command is nonliteral" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              execute("CREATE INDEX examples_code_index ON examples (code)", System.fetch_env!("ROLLBACK_SQL"))
+              Ecto.Migration.execute(System.fetch_env!("FORWARD_SQL"), "DROP INDEX examples_code_index")
+              execute("CREATE INDEX examples_label_index ON examples (label)", "DROP INDEX examples_label_index")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {occurrence.construct, occurrence.line, Map.get(occurrence, :approval)}
+           end) == [
+             {"migration.execute", 5, :unresolved_sql},
+             {"migration.execute", 6, :unresolved_sql},
+             {"migration.execute", 7, nil}
+           ]
   end
 
   test "classifies migration execute and data insertion constructs" do
