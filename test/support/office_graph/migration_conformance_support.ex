@@ -112,6 +112,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                 "use declarative Ecto migration constructs so conformance can inventory it"
       end
 
+      with {:ok, arguments} <- migration_execute_file_arguments(node),
+           {:ok, path} <- arguments |> List.first() |> static_migration_file_path(),
+           sql <- File.read!(path),
+           true <- schema_ownership_sql?(sql) do
+        raise ArgumentError,
+              "migration execute SQL changes table or foreign-key ownership; " <>
+                "use declarative Ecto migration constructs so conformance can inventory it"
+      end
+
       node
     end)
   end
@@ -138,6 +147,31 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp migration_execute_arguments(_node), do: :error
 
+  defp migration_execute_file_arguments({:execute_file, _metadata, arguments})
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_file_arguments(
+         {{:., _dot_metadata, [_receiver, :execute_file]}, _metadata, arguments}
+       )
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_file_arguments(
+         {:apply, _metadata, [_receiver, :execute_file, arguments]}
+       )
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_file_arguments(
+         {{:., _dot_metadata, [_apply_receiver, :apply]}, _metadata,
+          [_receiver, :execute_file, arguments]}
+       )
+       when is_list(arguments),
+       do: {:ok, arguments}
+
+  defp migration_execute_file_arguments(_node), do: :error
+
   defp static_migration_sql(sql) when is_binary(sql), do: {:ok, sql}
 
   defp static_migration_sql({:<>, _metadata, [left, right]}) do
@@ -161,6 +195,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp static_migration_sql(_sql), do: :error
+
+  defp static_migration_file_path(path) do
+    with {:ok, path} when is_binary(path) <- static_migration_sql(path),
+         :relative <- Path.type(path),
+         expanded <- Path.expand(path, "/"),
+         normalized <- Path.relative_to(expanded, "/"),
+         false <- normalized in ["", ".", ".."],
+         false <- String.starts_with?(normalized, "../") do
+      {:ok, normalized}
+    else
+      _unavailable -> :error
+    end
+  end
 
   defp static_migration_sql_segment(segment) when is_binary(segment), do: {:ok, segment}
 
@@ -213,15 +260,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     do: skip_sql_block_comment(rest, 1, [" " | code])
 
   defp do_sql_code_without_comments_or_literals(<<"'", rest::binary>>, code),
-    do: skip_sql_single_quoted(rest, [" " | code])
+    do:
+      if(sql_do_block_prefix?(code),
+        do: preserve_sql_single_quoted_do_body(rest, code),
+        else: skip_sql_single_quoted(rest, [" " | code])
+      )
 
   defp do_sql_code_without_comments_or_literals(<<"\"", rest::binary>>, code),
     do: skip_sql_double_quoted(rest, [" " | code])
 
   defp do_sql_code_without_comments_or_literals(<<"$", _rest::binary>> = sql, code) do
     case sql_dollar_quote_delimiter(sql) do
-      nil -> consume_sql_codepoint(sql, code)
-      delimiter -> skip_sql_dollar_quoted(sql, delimiter, [" " | code])
+      nil ->
+        consume_sql_codepoint(sql, code)
+
+      delimiter ->
+        if sql_do_block_prefix?(code),
+          do: preserve_sql_dollar_quoted_do_body(sql, delimiter, code),
+          else: skip_sql_dollar_quoted(sql, delimiter, [" " | code])
     end
   end
 
@@ -265,6 +321,28 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp skip_sql_single_quoted(<<_codepoint::utf8, rest::binary>>, code),
     do: skip_sql_single_quoted(rest, code)
 
+  defp preserve_sql_single_quoted_do_body(sql, code) do
+    case take_sql_single_quoted(sql, []) do
+      {:ok, body, trailing} ->
+        body_code = sql_code_without_comments_or_literals(body)
+        do_sql_code_without_comments_or_literals(trailing, [" ", body_code, " " | code])
+
+      :error ->
+        code
+    end
+  end
+
+  defp take_sql_single_quoted(<<>>, _body), do: :error
+
+  defp take_sql_single_quoted(<<"''", rest::binary>>, body),
+    do: take_sql_single_quoted(rest, ["'" | body])
+
+  defp take_sql_single_quoted(<<"'", rest::binary>>, body),
+    do: {:ok, body |> Enum.reverse() |> IO.iodata_to_binary(), rest}
+
+  defp take_sql_single_quoted(<<codepoint::utf8, rest::binary>>, body),
+    do: take_sql_single_quoted(rest, [<<codepoint::utf8>> | body])
+
   defp skip_sql_double_quoted(<<>>, code), do: code
 
   defp skip_sql_double_quoted(<<"\"\"", rest::binary>>, code),
@@ -297,6 +375,34 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       :nomatch ->
         code
     end
+  end
+
+  defp preserve_sql_dollar_quoted_do_body(sql, delimiter, code) do
+    delimiter_size = byte_size(delimiter)
+    rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
+
+    case :binary.match(rest, delimiter) do
+      {closing_offset, ^delimiter_size} ->
+        body = binary_part(rest, 0, closing_offset)
+        trailing_offset = closing_offset + delimiter_size
+        trailing_size = byte_size(rest) - trailing_offset
+        trailing = binary_part(rest, trailing_offset, trailing_size)
+        body_code = sql_code_without_comments_or_literals(body)
+
+        do_sql_code_without_comments_or_literals(trailing, [" ", body_code, " " | code])
+
+      :nomatch ->
+        code
+    end
+  end
+
+  defp sql_do_block_prefix?(code) do
+    code = code |> Enum.reverse() |> IO.iodata_to_binary()
+
+    Regex.match?(
+      ~r/(?:^|;)\s*DO(?:\s+LANGUAGE\s+[A-Za-z_][A-Za-z0-9_$]*)?\s*\z/i,
+      code
+    )
   end
 
   defp migration_entrypoint(functions, key) do

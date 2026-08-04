@@ -10,9 +10,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @spec scan_sources([%{required(:path) => String.t(), required(:source) => String.t()}]) ::
           [map()]
   def scan_sources(sources) do
+    file_sources =
+      Map.new(sources, fn %{path: path, source: source} ->
+        {normalize_source_path(path), source}
+      end)
+
+    scan_sources(sources, fn path ->
+      with {:ok, path} <- normalize_execute_file_path(path),
+           false <- excluded_path?(path),
+           {:ok, source} <- Map.fetch(file_sources, path) do
+        {:ok, source}
+      else
+        _unavailable -> :error
+      end
+    end)
+  end
+
+  defp scan_sources(sources, file_resolver) do
     sources
     |> Enum.filter(&eligible_source?/1)
     |> Enum.flat_map(&scan_source/1)
+    |> resolve_execute_file_occurrences(file_resolver)
     |> Enum.sort_by(&{&1.path, &1.line, &1.construct})
     |> add_ordinals_and_fingerprints()
   end
@@ -21,24 +39,47 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   def scan_repository(root \\ File.cwd!()) do
     case System.cmd("git", ["ls-files", "-z"], cd: root, stderr_to_stdout: true) do
       {tracked_files, 0} ->
-        tracked_files
-        |> String.split("\0", trim: true)
-        |> Enum.filter(&eligible_path?/1)
-        |> Enum.flat_map(fn path ->
-          full_path = Path.join(root, path)
+        tracked_paths = String.split(tracked_files, "\0", trim: true)
+        tracked_path_set = MapSet.new(tracked_paths, &normalize_source_path/1)
 
-          case File.read(full_path) do
-            {:ok, source} ->
-              [%{path: path, source: source}]
+        sources =
+          tracked_paths
+          |> Enum.filter(&eligible_path?/1)
+          |> Enum.flat_map(fn path ->
+            full_path = Path.join(root, path)
 
-            {:error, :enoent} ->
-              []
+            case File.read(full_path) do
+              {:ok, source} ->
+                [%{path: path, source: source}]
 
-            {:error, reason} ->
-              raise File.Error, reason: reason, action: "read file", path: full_path
+              {:error, :enoent} ->
+                []
+
+              {:error, reason} ->
+                raise File.Error, reason: reason, action: "read file", path: full_path
+            end
+          end)
+
+        scan_sources(sources, fn path ->
+          with {:ok, path} <- normalize_execute_file_path(path),
+               false <- excluded_path?(path),
+               true <- MapSet.member?(tracked_path_set, path) do
+            full_path = Path.join(root, path)
+
+            case File.read(full_path) do
+              {:ok, source} ->
+                {:ok, source}
+
+              {:error, :enoent} ->
+                :error
+
+              {:error, reason} ->
+                raise File.Error, reason: reason, action: "read file", path: full_path
+            end
+          else
+            _unavailable -> :error
           end
         end)
-        |> scan_sources()
 
       {error, status} ->
         raise "git ls-files failed with status #{status}: #{String.trim(error)}"
@@ -139,7 +180,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :any?,
     :chunk_by,
     :count,
+    :count_until,
     :dedup_by,
+    :drop_while,
     :each,
     :filter,
     :find,
@@ -159,8 +202,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :product_by,
     :reject,
     :sort_by,
+    :split_while,
     :split_with,
     :sum_by,
+    :take_while,
     :uniq_by
   ]
 
@@ -178,6 +223,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :chunk_by,
     :count,
     :dedup_by,
+    :drop_while,
     :each,
     :filter,
     :find,
@@ -193,8 +239,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :product_by,
     :reject,
     :sort_by,
+    :split_while,
     :split_with,
     :sum_by,
+    :take_while,
     :uniq_by
   ]
 
@@ -416,8 +464,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_list(arguments) do
     {qualifiers, options} = split_qualifiers_and_options(arguments)
 
-    {child_environment, occurrences} =
-      scan_generator_qualifiers(qualifiers, environment, context, occurrences, :enumerate)
+    {child_environments, occurrences} =
+      scan_for_qualifiers(qualifiers, environment, context, occurrences)
 
     {_options_environment, occurrences} =
       options
@@ -425,8 +473,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> Keyword.values()
       |> scan_isolated_children(environment, context, occurrences)
 
-    {_body_environment, occurrences} =
-      scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
+    occurrences =
+      Enum.reduce(child_environments, occurrences, fn child_environment, occurrences ->
+        {_body_environment, occurrences} =
+          scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
+
+        occurrences
+      end)
 
     {environment, occurrences}
   end
@@ -939,6 +992,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       arity == 2 and operation in @enum_second_argument_unary_callback_operations ->
         [1]
 
+      arity == 3 and operation == :count_until ->
+        [1]
+
       arity == 3 and operation == :group_by ->
         [1, 2]
 
@@ -1244,6 +1300,104 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       {qualifiers, options} -> {qualifiers ++ options, []}
     end
   end
+
+  defp scan_for_qualifiers(qualifiers, environment, context, occurrences) do
+    Enum.reduce(qualifiers, {[environment], occurrences}, fn qualifier,
+                                                             {environments, occurrences} ->
+      {next_environments, occurrences} =
+        Enum.reduce(environments, {[], occurrences}, fn environment,
+                                                        {next_environments, occurrences} ->
+          {qualifier_environments, occurrences} =
+            scan_for_qualifier(qualifier, environment, context, occurrences)
+
+          {Enum.reverse(qualifier_environments, next_environments), occurrences}
+        end)
+
+      {next_environments |> Enum.reverse() |> Enum.uniq(), occurrences}
+    end)
+  end
+
+  defp scan_for_qualifier(
+         {:<-, _metadata, [pattern, source]},
+         environment,
+         context,
+         occurrences
+       ) do
+    {source_environment, occurrences} = scan_node(source, environment, context, occurrences)
+    {patterns, guards} = clause_patterns_and_guards([pattern])
+
+    resolved_source =
+      source
+      |> resolve_attributes(source_environment)
+      |> resolve_bindings(source_environment)
+      |> resolve_struct_aliases(source_environment)
+
+    child_environment = remove_pattern_bindings(source_environment, patterns)
+
+    child_environments =
+      if is_list(resolved_source) and static_binding_source?(resolved_source) and
+           Enum.any?(resolved_source, &static_value_contains_database_receiver?(&1, environment)) do
+        resolved_source
+        |> Enum.uniq_by(&Macro.to_string/1)
+        |> Enum.flat_map(&static_generator_environments(child_environment, patterns, &1))
+      else
+        [bind_generator_patterns(child_environment, patterns, resolved_source, :enumerate)]
+      end
+
+    occurrences =
+      Enum.reduce(child_environments, occurrences, fn child_environment, occurrences ->
+        {_guard_environment, occurrences} =
+          scan_isolated_children(guards, child_environment, context, occurrences)
+
+        occurrences
+      end)
+
+    {child_environments, occurrences}
+  end
+
+  defp scan_for_qualifier(qualifier, environment, context, occurrences) do
+    {environment, occurrences} = scan_node(qualifier, environment, context, occurrences)
+    {[environment], occurrences}
+  end
+
+  defp static_generator_environments(environment, patterns, value) do
+    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
+
+    if Enum.all?(patterns, &static_pattern_match?(&1, value)) do
+      [bind_generator_value(environment, patterns, value)]
+    else
+      []
+    end
+  end
+
+  defp static_value_contains_database_receiver?(
+         {:__aliases__, _metadata, _parts} = receiver,
+         environment
+       ) do
+    resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)
+    resolved_receiver in @database_alias_targets
+  end
+
+  defp static_value_contains_database_receiver?({:{}, _metadata, values}, environment),
+    do: Enum.any?(values, &static_value_contains_database_receiver?(&1, environment))
+
+  defp static_value_contains_database_receiver?({:%{}, _metadata, fields}, environment),
+    do: Enum.any?(fields, &static_value_contains_database_receiver?(&1, environment))
+
+  defp static_value_contains_database_receiver?({:%, _metadata, [module, fields]}, environment),
+    do:
+      static_value_contains_database_receiver?(module, environment) or
+        static_value_contains_database_receiver?(fields, environment)
+
+  defp static_value_contains_database_receiver?({left, right}, environment),
+    do:
+      static_value_contains_database_receiver?(left, environment) or
+        static_value_contains_database_receiver?(right, environment)
+
+  defp static_value_contains_database_receiver?(values, environment) when is_list(values),
+    do: Enum.any?(values, &static_value_contains_database_receiver?(&1, environment))
+
+  defp static_value_contains_database_receiver?(_value, _environment), do: false
 
   defp scan_generator_qualifiers(
          qualifiers,
@@ -2403,6 +2557,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
     do: [:options, :where]
 
+  defp mark_sql_approval(occurrence, :raw_sql, "migration.execute_file", node) do
+    with {:ok, payloads} <- raw_sql_payloads(node, "migration.execute_file"),
+         {:ok, paths} <- static_execute_file_paths(payloads) do
+      Map.put(occurrence, :execute_file_paths, paths)
+    else
+      _unresolved -> Map.put(occurrence, :approval, :unresolved_sql)
+    end
+  end
+
   defp mark_sql_approval(occurrence, :raw_sql, construct, node) do
     case raw_sql_payloads(node, construct) do
       {:ok, payloads} -> mark_sql_payloads_approval(occurrence, payloads)
@@ -2496,6 +2659,68 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp static_sql_bitstring_segment?(segment), do: Macro.quoted_literal?(segment)
+
+  defp static_execute_file_paths(payloads) do
+    Enum.reduce_while(payloads, {:ok, []}, fn payload, {:ok, paths} ->
+      case static_execute_file_path(payload) do
+        {:ok, path} -> {:cont, {:ok, [path | paths]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, paths} -> {:ok, Enum.reverse(paths)}
+      :error -> :error
+    end
+  end
+
+  defp static_execute_file_path(path) when is_binary(path), do: {:ok, path}
+
+  defp static_execute_file_path({:<>, _metadata, [left, right]}) do
+    with {:ok, left} <- static_execute_file_path(left),
+         {:ok, right} <- static_execute_file_path(right),
+         do: {:ok, left <> right}
+  end
+
+  defp static_execute_file_path({:<<>>, _metadata, segments}) when is_list(segments) do
+    Enum.reduce_while(segments, {:ok, []}, fn segment, {:ok, values} ->
+      case static_execute_file_path_segment(segment) do
+        {:ok, value} -> {:cont, {:ok, [value | values]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, values |> Enum.reverse() |> IO.iodata_to_binary()}
+      :error -> :error
+    end
+  end
+
+  defp static_execute_file_path(_path), do: :error
+
+  defp static_execute_file_path_segment(segment) when is_binary(segment), do: {:ok, segment}
+
+  defp static_execute_file_path_segment(
+         {:"::", _metadata,
+          [
+            {{:., _dot_metadata, [Kernel, :to_string]}, interpolation_metadata, [value]},
+            {:binary, _binary_metadata, nil}
+          ]}
+       ) do
+    if Keyword.get(interpolation_metadata, :from_interpolation, false),
+      do: static_execute_file_interpolation(value),
+      else: :error
+  end
+
+  defp static_execute_file_path_segment(_segment), do: :error
+
+  defp static_execute_file_interpolation(value)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: {:ok, to_string(value)}
+
+  defp static_execute_file_interpolation(value) when is_list(value) do
+    if Enum.all?(value, &is_integer/1), do: {:ok, List.to_string(value)}, else: :error
+  end
+
+  defp static_execute_file_interpolation(_value), do: :error
 
   defp migration_sql_option_fingerprint_input(
          operation,
@@ -3049,6 +3274,46 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp eligible_source?(%{path: path}), do: eligible_path?(path)
 
+  defp resolve_execute_file_occurrences(occurrences, file_resolver) do
+    Enum.map(occurrences, fn
+      %{execute_file_paths: paths} = occurrence ->
+        resolved_files =
+          Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, files} ->
+            with {:ok, path} <- normalize_execute_file_path(path),
+                 {:ok, contents} <- file_resolver.(path) do
+              content_fingerprint =
+                contents
+                |> then(&:crypto.hash(:sha256, &1))
+                |> Base.encode16(case: :lower)
+
+              {:cont, {:ok, [{path, content_fingerprint} | files]}}
+            else
+              _unavailable -> {:halt, :error}
+            end
+          end)
+
+        occurrence = Map.delete(occurrence, :execute_file_paths)
+
+        case resolved_files do
+          {:ok, files} ->
+            file_fingerprints =
+              files
+              |> Enum.reverse()
+              |> Enum.map_join("\n", fn {path, fingerprint} ->
+                "execute_file: #{path}\ncontent_sha256: #{fingerprint}"
+              end)
+
+            Map.update!(occurrence, :normalized, &Enum.join([&1, file_fingerprints], "\n"))
+
+          :error ->
+            Map.put(occurrence, :approval, :unresolved_sql)
+        end
+
+      occurrence ->
+        occurrence
+    end)
+  end
+
   defp eligible_path?(path) do
     path = String.trim_leading(path, "./")
     extension = Path.extname(path)
@@ -3059,6 +3324,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp excluded_path?(path) do
     Enum.any?(String.split(path, "/"), &(&1 in ["_build", "deps", "node_modules"]))
   end
+
+  defp normalize_source_path(path) do
+    case normalize_execute_file_path(path) do
+      {:ok, path} -> path
+      :error -> path
+    end
+  end
+
+  defp normalize_execute_file_path(path) when is_binary(path) do
+    expanded = Path.expand(path, "/")
+    normalized = Path.relative_to(expanded, "/")
+
+    if Path.type(path) == :relative and normalized not in ["", ".", ".."] and
+         not String.starts_with?(normalized, "../") do
+      {:ok, normalized}
+    else
+      :error
+    end
+  end
+
+  defp normalize_execute_file_path(_path), do: :error
 
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
 

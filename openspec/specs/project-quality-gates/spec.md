@@ -134,14 +134,23 @@ binary literals or documentation text.
 #### Scenario: Static callback receives a database receiver
 
 - **WHEN** a direct literal-function invocation, a known Kernel value callback,
-  or a supported `Enum` operation passes a statically resolvable repository
-  receiver into a literal callback pattern, including through a match or
-  assignment expression evaluated as the callback argument
+  or a supported `Enum` operation, including predicate overloads such as
+  `take_while/2`, passes a statically resolvable repository receiver into a
+  literal callback pattern, including through a match or assignment expression
+  evaluated as the callback argument
 - **THEN** the scanner MUST bind the callback pattern before classifying and
   fingerprinting database calls in its body, bind independently known
   callback parameters even when another parameter is dynamic, and MUST NOT
   assume Kernel or `Enum` callback semantics when the receiver resolves to an
   unrelated local, imported, or qualified function
+
+#### Scenario: Static comprehension enumerates database receivers
+
+- **WHEN** a `for` comprehension enumerates a statically resolvable list that
+  contains one or more repository receivers
+- **THEN** the scanner MUST evaluate the body under every distinct statically
+  matching generator binding, classify database calls for the matching
+  receiver values, and omit statically impossible pattern branches
 
 #### Scenario: Database apply target is static but invocation data is unresolved
 
@@ -170,8 +179,9 @@ binary literals or documentation text.
 - **WHEN** a migration uses `execute_file/1` or reversible `execute_file/2`
   through an imported, aliased, or fully qualified migration receiver
 - **THEN** the scanner MUST classify the call as repository-authored raw SQL
-  and require every executable file path to be statically fingerprintable
-  before the occurrence can receive an exact approval
+  and require every executable path to resolve to a tracked project file whose
+  contents participate in the occurrence fingerprint before the occurrence can
+  receive an exact approval
 
 #### Scenario: External migration helper invokes an explicit SQL API
 

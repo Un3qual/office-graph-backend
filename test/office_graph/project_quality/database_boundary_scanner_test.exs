@@ -1470,6 +1470,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "binds static enumerable elements in predicate Enum callback overloads" do
+    callback_invocations = [
+      ~s'Enum.take_while([OfficeGraph.Repo], fn repo -> repo.query!("SELECT 1", []) end)',
+      ~s'Enum.drop_while([OfficeGraph.Repo], fn repo -> repo.query!("SELECT 1", []) end)',
+      ~s'Enum.split_while([OfficeGraph.Repo], fn repo -> repo.query!("SELECT 1", []) end)',
+      ~s'Enum.count_until([OfficeGraph.Repo], fn repo -> repo.query!("SELECT 1", []) end, 1)'
+    ]
+
+    Enum.each(callback_invocations, fn callback_invocation ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{callback_invocation}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+    end)
+  end
+
   test "does not apply Enum callback semantics to unrelated modules" do
     assert [] ==
              DatabaseBoundaryScanner.scan_sources([
@@ -1610,6 +1640,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "Repo.query!"
     assert occurrence.function == "load/0"
     assert occurrence.line == 3
+  end
+
+  test "classifies repository calls through every distinct static for generator value" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              for repo <- [Example.NotARepo, OfficeGraph.Repo, OfficeGraph.Repo] do
+                repo.query!("SELECT 1", [])
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 4
   end
 
   test "binds statically matched with generators into SQL fingerprints" do
@@ -2112,7 +2165,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "classifies migration execute_file paths as raw SQL payloads" do
+  test "classifies migration execute_file contents as raw SQL payloads" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{
@@ -2128,7 +2181,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             end
           end
           """
-        }
+        },
+        %{path: "priv/repo/sql/change.pgsql", source: "SELECT 1"},
+        %{path: "priv/repo/sql/up.pgsql", source: "SELECT 2"},
+        %{path: "priv/repo/sql/down.pgsql", source: "SELECT 3"}
       ])
 
     assert Enum.map(occurrences, fn occurrence ->
@@ -2138,6 +2194,52 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"migration.execute_file", 6, nil},
              {"migration.execute_file", 7, :unresolved_sql}
            ]
+  end
+
+  test "invalidates execute_file fingerprints when referenced contents change" do
+    fingerprints =
+      ["SELECT 1", "SELECT 2"]
+      |> Enum.map(fn file_contents ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "priv/repo/migrations/20260728000000_example.exs",
+              source: """
+              defmodule ExampleMigration do
+                use Ecto.Migration
+
+                def change do
+                  execute_file("priv/repo/sql/change.pgsql")
+                end
+              end
+              """
+            },
+            %{path: "priv/repo/sql/change.pgsql", source: file_contents}
+          ])
+
+        refute Map.has_key?(occurrence, :approval)
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+
+    [missing_file_occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              execute_file("priv/repo/sql/missing.pgsql")
+            end
+          end
+          """
+        }
+      ])
+
+    assert missing_file_occurrence.approval == :unresolved_sql
   end
 
   test "classifies expression index fields as target-bound raw SQL" do
@@ -2312,6 +2414,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       assert DatabaseBoundaryScanner.scan_repository(root)
              |> Enum.map(& &1.path)
              |> MapSet.new() == MapSet.new(paths)
+    end)
+  end
+
+  test "repository scans bind execute_file fingerprints to tracked file contents" do
+    with_git_repository(fn root ->
+      migration_path = "priv/repo/migrations/20260804000000_execute_file.exs"
+      sql_path = "priv/repo/sql/change.pgsql"
+
+      Enum.each([migration_path, sql_path], fn path ->
+        root |> Path.join(path) |> Path.dirname() |> File.mkdir_p!()
+      end)
+
+      File.write!(
+        Path.join(root, migration_path),
+        """
+        defmodule ExecuteFileMigration do
+          use Ecto.Migration
+
+          def change do
+            execute_file("priv/repo/sql/change.pgsql")
+          end
+        end
+        """
+      )
+
+      File.write!(Path.join(root, sql_path), "SELECT 1")
+      {_output, 0} = System.cmd("git", ["add", "--", migration_path, sql_path], cd: root)
+
+      [first] = DatabaseBoundaryScanner.scan_repository(root)
+      File.write!(Path.join(root, sql_path), "SELECT 2")
+      [second] = DatabaseBoundaryScanner.scan_repository(root)
+
+      refute first.fingerprint == second.fingerprint
     end)
   end
 

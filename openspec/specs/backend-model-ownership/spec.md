@@ -128,6 +128,22 @@ diverge.
 - **THEN** canonical model-ownership verification MUST treat those comments as
   SQL whitespace and reject the unmodeled ownership change
 
+#### Scenario: Ownership DDL is wrapped in an executable DO block
+
+- **WHEN** approved migration execution SQL contains table lifecycle or
+  foreign-key DDL inside a PostgreSQL `DO` block
+- **THEN** canonical model-ownership verification MUST inspect the executable
+  block body while continuing to ignore matching phrases in SQL comments and
+  inert string literals, and MUST reject the unmodeled ownership change
+
+#### Scenario: Ownership DDL is loaded from a migration file
+
+- **WHEN** a forward migration invokes `execute_file/1` or the forward path of
+  reversible `execute_file/2`
+- **THEN** canonical model-ownership verification MUST inspect the referenced
+  tracked file contents and reject table lifecycle or foreign-key DDL that the
+  declarative migration inventory cannot model
+
 ### Requirement: Exception Ledger Is A Burn-Down Contract
 
 Office Graph SHALL distinguish unapproved database-access removal debt from

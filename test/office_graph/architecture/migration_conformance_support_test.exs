@@ -1251,6 +1251,121 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "rejects ownership DDL inside executable migration DO blocks" do
+    Enum.each(
+      [
+        "DO $$ BEGIN CREATE TABLE sql_owned_examples (id uuid); END $$;",
+        "DO $body$ BEGIN ALTER TABLE examples ADD COLUMN label text; END $body$ LANGUAGE plpgsql;",
+        "DO LANGUAGE plpgsql 'BEGIN DROP TABLE sql_owned_examples; END';"
+      ],
+      fn sql ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_do_block_ddl_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        File.mkdir_p!(migrations)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(migrations, "20260804000000_do_block_ddl.exs"),
+          """
+          defmodule DoBlockDdl do
+            use Ecto.Migration
+
+            def change do
+              execute(#{inspect(sql)})
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
+  test "rejects ownership DDL loaded by migration execute_file" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_execute_file_ddl_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    sql_directory = Path.join(root, "priv/repo/sql")
+    File.mkdir_p!(migrations)
+    File.mkdir_p!(sql_directory)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260804000000_execute_file_ddl.exs"),
+      """
+      defmodule ExecuteFileDdl do
+        use Ecto.Migration
+
+        def change do
+          execute_file("priv/repo/sql/change.pgsql")
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(sql_directory, "change.pgsql"),
+      "DO $$ BEGIN CREATE TABLE sql_owned_examples (id uuid); END $$;"
+    )
+
+    File.cd!(root, fn ->
+      assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
+  end
+
+  test "ignores ownership phrases in inert SQL literals inside and outside DO blocks" do
+    Enum.each(
+      [
+        "SELECT $$ CREATE TABLE inert_examples $$",
+        "DO $$ BEGIN RAISE NOTICE 'CREATE TABLE inert_examples'; END $$;"
+      ],
+      fn sql ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_inert_sql_literal_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        File.mkdir_p!(migrations)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(migrations, "20260804000000_inert_sql_literal.exs"),
+          """
+          defmodule InertSqlLiteral do
+            use Ecto.Migration
+
+            def change do
+              execute(#{inspect(sql)})
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert MigrationConformanceSupport.migration_tables() == []
+        end)
+      end
+    )
+  end
+
   test "rejects migration execute SQL that changes foreign-table ownership" do
     Enum.each(
       [
