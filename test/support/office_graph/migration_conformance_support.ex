@@ -259,12 +259,18 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp do_sql_code_without_comments_or_literals(<<"/*", rest::binary>>, code),
     do: skip_sql_block_comment(rest, 1, [" " | code])
 
-  defp do_sql_code_without_comments_or_literals(<<"'", rest::binary>>, code),
-    do:
-      if(sql_do_block_prefix?(code),
-        do: preserve_sql_single_quoted_do_body(rest, code),
-        else: skip_sql_single_quoted(rest, [" " | code])
-      )
+  defp do_sql_code_without_comments_or_literals(<<"'", rest::binary>>, code) do
+    cond do
+      sql_do_block_prefix?(code) ->
+        preserve_sql_single_quoted_code(rest, code)
+
+      sql_dynamic_execute_prefix?(code) ->
+        preserve_sql_single_quoted_code(rest, code)
+
+      true ->
+        skip_sql_single_quoted(rest, [" " | code])
+    end
+  end
 
   defp do_sql_code_without_comments_or_literals(<<"\"", rest::binary>>, code),
     do: skip_sql_double_quoted(rest, [" " | code])
@@ -275,9 +281,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         consume_sql_codepoint(sql, code)
 
       delimiter ->
-        if sql_do_block_prefix?(code),
-          do: preserve_sql_dollar_quoted_do_body(sql, delimiter, code),
-          else: skip_sql_dollar_quoted(sql, delimiter, [" " | code])
+        cond do
+          sql_do_block_prefix?(code) ->
+            preserve_sql_dollar_quoted_code(sql, delimiter, code)
+
+          sql_dynamic_execute_prefix?(code) ->
+            preserve_sql_dollar_quoted_code(sql, delimiter, code)
+
+          true ->
+            skip_sql_dollar_quoted(sql, delimiter, [" " | code])
+        end
     end
   end
 
@@ -321,7 +334,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp skip_sql_single_quoted(<<_codepoint::utf8, rest::binary>>, code),
     do: skip_sql_single_quoted(rest, code)
 
-  defp preserve_sql_single_quoted_do_body(sql, code) do
+  defp preserve_sql_single_quoted_code(sql, code) do
     case take_sql_single_quoted(sql, []) do
       {:ok, body, trailing} ->
         body_code = sql_code_without_comments_or_literals(body)
@@ -377,7 +390,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp preserve_sql_dollar_quoted_do_body(sql, delimiter, code) do
+  defp preserve_sql_dollar_quoted_code(sql, delimiter, code) do
     delimiter_size = byte_size(delimiter)
     rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
 
@@ -403,6 +416,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       ~r/(?:^|;)\s*DO(?:\s+LANGUAGE\s+[A-Za-z_][A-Za-z0-9_$]*)?\s*\z/i,
       code
     )
+  end
+
+  defp sql_dynamic_execute_prefix?(code) do
+    code = code |> Enum.reverse() |> IO.iodata_to_binary()
+    Regex.match?(~r/\bEXECUTE\s*\z/i, code)
   end
 
   defp migration_entrypoint(functions, key) do

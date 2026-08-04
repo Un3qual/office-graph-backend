@@ -1409,6 +1409,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "binds static arguments when scanning invoked capture callbacks" do
+    [
+      ~s'then(OfficeGraph.Repo, & &1.query!("DELETE FROM events", []))',
+      ~s'Kernel.then(OfficeGraph.Repo, & &1.query!("DELETE FROM events", []))',
+      ~s'OfficeGraph.Repo |> then(& &1.query!("DELETE FROM events", []))',
+      ~s'Enum.each([OfficeGraph.Repo], & &1.query!("DELETE FROM events", []))',
+      ~s'(& &1.query!("DELETE FROM events", [])).(OfficeGraph.Repo)'
+    ]
+    |> Enum.each(fn callback_invocation ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{callback_invocation}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+      refute Map.has_key?(occurrence, :approval)
+    end)
+  end
+
+  test "binds static database receiver and SQL arguments through local helpers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              run_query(OfficeGraph.Repo, "DELETE FROM events")
+            end
+
+            defp run_query(repo, sql), do: repo.query!(sql, [])
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "run_query/2"
+    assert occurrence.line == 6
+    refute Map.has_key?(occurrence, :approval)
+  end
+
   test "uses callback argument expression results when binding literal callbacks" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -1663,6 +1718,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "Repo.query!"
     assert occurrence.function == "load/0"
     assert occurrence.line == 4
+  end
+
+  test "expands static for generators for every accepted bare database receiver" do
+    cases = [
+      {"Repo", ~s'receiver.query!("SELECT 1", [])', :raw_sql, "Repo.query!"},
+      {"Multi", ~s'receiver.run(:step, fn _repo, changes -> {:ok, changes} end)', :direct_ecto,
+       "Ecto.Multi.run"}
+    ]
+
+    Enum.each(cases, fn {receiver, call, class, construct} ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                for receiver <- [Example.NotDatabase, #{receiver}], do: #{call}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == class
+      assert occurrence.construct == construct
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+    end)
   end
 
   test "binds statically matched with generators into SQL fingerprints" do
@@ -2240,6 +2324,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       ])
 
     assert missing_file_occurrence.approval == :unresolved_sql
+  end
+
+  test "does not resolve execute_file paths that escape the scan root" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260728000000_example.exs",
+          source: """
+          defmodule ExampleMigration do
+            use Ecto.Migration
+
+            def change do
+              execute_file("../priv/repo/sql/change.pgsql")
+            end
+          end
+          """
+        },
+        %{path: "priv/repo/sql/change.pgsql", source: "SELECT 1"}
+      ])
+
+    assert occurrence.construct == "migration.execute_file"
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "classifies expression index fields as target-bound raw SQL" do

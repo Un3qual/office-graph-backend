@@ -1256,7 +1256,10 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       [
         "DO $$ BEGIN CREATE TABLE sql_owned_examples (id uuid); END $$;",
         "DO $body$ BEGIN ALTER TABLE examples ADD COLUMN label text; END $body$ LANGUAGE plpgsql;",
-        "DO LANGUAGE plpgsql 'BEGIN DROP TABLE sql_owned_examples; END';"
+        "DO LANGUAGE plpgsql 'BEGIN DROP TABLE sql_owned_examples; END';",
+        "DO $$ BEGIN EXECUTE 'CREATE TABLE sql_owned_examples (id uuid)'; END $$;",
+        "DO $body$ BEGIN EXECUTE 'ALTER TABLE examples ADD COLUMN label text'; END $body$;",
+        "DO LANGUAGE plpgsql 'BEGIN EXECUTE ''DROP TABLE sql_owned_examples''; END';"
       ],
       fn sql ->
         root =
@@ -1333,7 +1336,8 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     Enum.each(
       [
         "SELECT $$ CREATE TABLE inert_examples $$",
-        "DO $$ BEGIN RAISE NOTICE 'CREATE TABLE inert_examples'; END $$;"
+        "DO $$ BEGIN RAISE NOTICE 'CREATE TABLE inert_examples'; END $$;",
+        "DO $$ BEGIN EXECUTE 'SELECT ''CREATE TABLE inert_examples'''; END $$;"
       ],
       fn sql ->
         root =

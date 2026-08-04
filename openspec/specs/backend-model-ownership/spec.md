@@ -131,10 +131,12 @@ diverge.
 #### Scenario: Ownership DDL is wrapped in an executable DO block
 
 - **WHEN** approved migration execution SQL contains table lifecycle or
-  foreign-key DDL inside a PostgreSQL `DO` block
+  foreign-key DDL inside a PostgreSQL `DO` block, including a statically quoted
+  command passed directly to PL/pgSQL `EXECUTE`
 - **THEN** canonical model-ownership verification MUST inspect the executable
-  block body while continuing to ignore matching phrases in SQL comments and
-  inert string literals, and MUST reject the unmodeled ownership change
+  block body and the executed command while continuing to ignore matching
+  phrases in SQL comments and nested inert string literals, and MUST reject the
+  unmodeled ownership change
 
 #### Scenario: Ownership DDL is loaded from a migration file
 
