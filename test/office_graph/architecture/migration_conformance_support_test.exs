@@ -2039,7 +2039,8 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         def change do
           apply(Ecto.Migration, :create, [table(:static_apply_parents)])
           Kernel.apply(Migration, :create, [table(:static_apply_children)])
-          :erlang.apply(Ecto.Migration, :create, [table(:static_apply_removed)])
+          :erlang.apply(Ecto.Migration, :create, [table(:static_apply_erlang)])
+          apply(Ecto.Migration, :create, [table(:static_apply_removed)])
           apply(Ecto.Migration, :drop, [table(:static_apply_removed)])
         end
       end
@@ -2049,6 +2050,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     File.cd!(root, fn ->
       assert MigrationConformanceSupport.migration_tables() == [
                "static_apply_children",
+               "static_apply_erlang",
                "static_apply_parents"
              ]
     end)
