@@ -155,6 +155,14 @@ binary literals or documentation text.
   position, scan every non-callback argument, and bind each static element
   before classifying database calls in the callback body
 
+#### Scenario: Enum callback receives an implicit accumulator
+
+- **WHEN** `Enum.reduce/2` or `Enum.scan/2` receives a statically resolvable
+  enumerable whose first element is a repository receiver
+- **THEN** the scanner MUST model that first element as the implicit
+  accumulator and scan callback invocations with the remaining elements in
+  element-first order
+
 #### Scenario: Static local helper receives a database receiver
 
 - **WHEN** a matching local function is called with a statically resolvable
@@ -234,6 +242,14 @@ binary literals or documentation text.
 - **THEN** the scanner MUST treat that body as data and MUST NOT report it,
   while still expanding a statically invoked local macro and classifying the
   executable database syntax that macro emits
+
+#### Scenario: Building quoted data evaluates inputs
+
+- **WHEN** a `quote` evaluates an enabled `unquote` or a `bind_quoted` value
+  containing database access
+- **THEN** the scanner MUST classify the evaluated expression while leaving
+  the remaining quoted body inert, and MUST preserve `unquote: false`
+  semantics
 
 #### Scenario: Block-form table creation carries SQL options
 
@@ -495,6 +511,15 @@ The project-local database-boundary scanner SHALL classify repository-authored E
 
 - **WHEN** tracked source calls `fragment` on a receiver that does not resolve to the Ecto query API
 - **THEN** the scanner MUST NOT classify the call solely from the operation name
+
+#### Scenario: Ecto query helper embeds repository-authored SQL
+
+- **WHEN** a local query helper supplies string `lock` or `hints` clauses to
+  `Ecto.Query.from`, `join`, or `lock`, including through an import or explicit
+  alias
+- **THEN** the scanner MUST emit a raw-SQL occurrence whose exact fingerprint
+  includes the query target, option identity, and authored SQL value, even
+  when a repository call receives only the helper invocation
 
 ### Requirement: Database boundary scanning classifies repository connection ownership
 

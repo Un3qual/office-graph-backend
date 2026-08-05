@@ -481,8 +481,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_node({:quote, _metadata, _arguments}, environment, _context, occurrences),
-    do: {environment, occurrences}
+  defp scan_node({:quote, _metadata, arguments}, environment, context, occurrences)
+       when is_list(arguments) do
+    options = local_quote_options(arguments)
+
+    {environment, occurrences} =
+      options
+      |> Keyword.get(:bind_quoted)
+      |> scan_quote_bindings(environment, context, occurrences)
+
+    if local_quote_unquotes?(options) do
+      options
+      |> Keyword.get(:do)
+      |> scan_quote_unquotes(environment, context, occurrences)
+    else
+      {environment, occurrences}
+    end
+  end
 
   defp scan_node({kind, _metadata, [head, body_options]}, environment, context, occurrences)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
@@ -717,6 +732,47 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_executable_node(node, environment, context, occurrences)
   end
 
+  defp scan_quote_bindings(bindings, environment, context, occurrences)
+       when is_list(bindings) do
+    Enum.reduce(bindings, {environment, occurrences}, fn
+      {_name, expression}, {environment, occurrences} ->
+        scan_node(expression, environment, context, occurrences)
+
+      _invalid_binding, accumulator ->
+        accumulator
+    end)
+  end
+
+  defp scan_quote_bindings(_bindings, environment, _context, occurrences),
+    do: {environment, occurrences}
+
+  defp scan_quote_unquotes({:quote, _metadata, _arguments}, environment, _context, occurrences),
+    do: {environment, occurrences}
+
+  defp scan_quote_unquotes(
+         {operation, _metadata, [expression]},
+         environment,
+         context,
+         occurrences
+       )
+       when operation in [:unquote, :unquote_splicing],
+       do: scan_node(expression, environment, context, occurrences)
+
+  defp scan_quote_unquotes(nodes, environment, context, occurrences) when is_list(nodes) do
+    Enum.reduce(nodes, {environment, occurrences}, fn node, {environment, occurrences} ->
+      scan_quote_unquotes(node, environment, context, occurrences)
+    end)
+  end
+
+  defp scan_quote_unquotes(node, environment, context, occurrences) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> scan_quote_unquotes(environment, context, occurrences)
+  end
+
+  defp scan_quote_unquotes(_node, environment, _context, occurrences),
+    do: {environment, occurrences}
+
   defp scan_executable_node(node, environment, context, occurrences) do
     occurrences = record_executable_occurrence(node, environment, context, occurrences)
     scan_classified_children(node, environment, context, occurrences)
@@ -727,6 +783,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     fingerprint_node = resolve_bindings(resolved_node, environment)
     classification_node = normalize_static_apply(fingerprint_node, environment)
     occurrence_node = normalized_occurrence_node(classification_node, fingerprint_node)
+
+    occurrences =
+      classify_query_sql_options(classification_node, environment, context, occurrences)
 
     occurrences =
       classify_migration_sql_options(classification_node, environment, context, occurrences)
@@ -1495,23 +1554,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          context,
          occurrences
        ) do
-    elements =
-      case Enum.uniq(resolved_enumerable) do
-        [] -> [{:__unresolved_enum_element__, [], []}]
-        elements -> elements
-      end
+    callback_invocations =
+      enum_callback_invocations(
+        operation,
+        invocation_arguments,
+        resolved_enumerable,
+        arguments_environment
+      )
 
     occurrences =
       Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
-        Enum.reduce(elements, occurrences, fn element, occurrences ->
-          callback_arguments =
-            enum_callback_arguments(
-              operation,
-              invocation_arguments,
-              element,
-              arguments_environment
-            )
-
+        Enum.reduce(callback_invocations, occurrences, fn callback_arguments, occurrences ->
           {_callback_environment, occurrences} =
             scan_invoked_literal_callback(
               callback,
@@ -1526,6 +1579,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       end)
 
     {arguments_environment, occurrences}
+  end
+
+  defp enum_callback_invocations(
+         operation,
+         invocation_arguments,
+         [accumulator | elements],
+         _environment
+       )
+       when operation in [:reduce, :scan] and length(invocation_arguments) == 2 do
+    elements
+    |> Enum.uniq()
+    |> Enum.map(&[&1, accumulator])
+  end
+
+  defp enum_callback_invocations(
+         operation,
+         invocation_arguments,
+         resolved_enumerable,
+         environment
+       ) do
+    elements =
+      case Enum.uniq(resolved_enumerable) do
+        [] -> [{:__unresolved_enum_element__, [], []}]
+        elements -> elements
+      end
+
+    Enum.map(elements, fn element ->
+      enum_callback_arguments(operation, invocation_arguments, element, environment)
+    end)
   end
 
   defp enum_element_callback?(operation, {:fn, _metadata, clauses} = callback)
@@ -2244,6 +2326,127 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         nil
     end
   end
+
+  defp classify_query_sql_options(node, environment, context, occurrences) do
+    with {:ok, operation, metadata, arguments} <- ecto_query_call(node, environment) do
+      operation
+      |> query_sql_option_entries(arguments)
+      |> Enum.reduce(occurrences, fn {key, value, option_keys}, occurrences ->
+        if repository_authored_query_sql?(key, value) do
+          [
+            occurrence(
+              context.path,
+              Keyword.get(metadata, :line, 1),
+              context.function,
+              :raw_sql,
+              "Ecto.Query.#{key}",
+              query_sql_option_fingerprint_input(
+                operation,
+                arguments,
+                option_keys,
+                key,
+                value
+              )
+            )
+            |> mark_sql_payload_approval(value)
+            | occurrences
+          ]
+        else
+          occurrences
+        end
+      end)
+    else
+      :error -> occurrences
+    end
+  end
+
+  defp ecto_query_call(
+         {{:., _dot_metadata, [receiver, operation]}, metadata, arguments},
+         environment
+       )
+       when is_atom(operation) and is_list(arguments) do
+    if receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Query",
+      do: {:ok, operation, metadata, arguments},
+      else: :error
+  end
+
+  defp ecto_query_call({operation, metadata, arguments}, environment)
+       when is_atom(operation) and is_list(arguments) do
+    arity = length(arguments)
+
+    if not Map.has_key?(environment.local_functions, {operation, arity}) and
+         imported_receiver(environment, operation, arity) == "Ecto.Query",
+       do: {:ok, operation, metadata, arguments},
+       else: :error
+  end
+
+  defp ecto_query_call(_node, _environment), do: :error
+
+  defp query_sql_option_entries(:from, arguments) when length(arguments) == 2,
+    do: query_keyword_sql_option_entries(List.last(arguments), [:hints, :lock])
+
+  defp query_sql_option_entries(:join, arguments) when length(arguments) == 5,
+    do: query_keyword_sql_option_entries(List.last(arguments), [:hints])
+
+  defp query_sql_option_entries(:lock, arguments) when length(arguments) in [2, 3],
+    do: [{:lock, List.last(arguments), [:lock]}]
+
+  defp query_sql_option_entries(_operation, _arguments), do: []
+
+  defp query_keyword_sql_option_entries(options, option_keys) when is_list(options) do
+    if Keyword.keyword?(options) do
+      Enum.flat_map(options, fn
+        {key, value} ->
+          if key in option_keys, do: [{key, value, option_keys}], else: []
+
+        _option ->
+          []
+      end)
+    else
+      []
+    end
+  end
+
+  defp query_keyword_sql_option_entries(_options, _option_keys), do: []
+
+  defp repository_authored_query_sql?(:hints, []), do: false
+  defp repository_authored_query_sql?(:lock, value) when value in [nil, true, false], do: false
+  defp repository_authored_query_sql?(_key, _value), do: true
+
+  defp query_sql_option_fingerprint_input(
+         operation,
+         arguments,
+         option_keys,
+         key,
+         value
+       ) do
+    target_arguments = query_sql_option_target_arguments(operation, arguments, option_keys)
+
+    Enum.join(
+      [
+        "query: #{Macro.to_string({operation, [], target_arguments})}",
+        "option: #{key}",
+        "value: #{Macro.to_string(value)}"
+      ],
+      "\n"
+    )
+  end
+
+  defp query_sql_option_target_arguments(operation, arguments, option_keys)
+       when operation in [:from, :join] do
+    case List.last(arguments) do
+      options when is_list(options) ->
+        List.replace_at(arguments, -1, Keyword.drop(options, option_keys))
+
+      _options ->
+        arguments
+    end
+  end
+
+  defp query_sql_option_target_arguments(:lock, arguments, _option_keys),
+    do: List.delete_at(arguments, -1)
+
+  defp query_sql_option_target_arguments(_operation, arguments, _option_keys), do: arguments
 
   defp classify_migration_sql_options(
          {operation, metadata, [construct_or_helper | _trailing_arguments]},

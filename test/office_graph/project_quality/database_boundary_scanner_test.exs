@@ -507,6 +507,95 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "classifies SQL-bearing query helper options with value-sensitive fingerprints" do
+    occurrences_by_lock =
+      ["FOR UPDATE", "FOR SHARE"]
+      |> Enum.map(fn lock_clause ->
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              import Ecto.Query
+
+              defp locked_users do
+                from user in "users",
+                  hints: ["ONLY"],
+                  lock: #{inspect(lock_clause)}
+              end
+
+              def load, do: OfficeGraph.Repo.all(locked_users())
+            end
+            """
+          }
+        ])
+      end)
+
+    assert Enum.map(List.first(occurrences_by_lock), fn occurrence ->
+             {occurrence.class, occurrence.construct, occurrence.function, occurrence.line}
+           end) == [
+             {:raw_sql, "Ecto.Query.hints", "locked_users/0", 5},
+             {:raw_sql, "Ecto.Query.lock", "locked_users/0", 5},
+             {:direct_ecto, "Repo.all", "load/0", 10}
+           ]
+
+    lock_fingerprints =
+      Enum.map(occurrences_by_lock, fn occurrences ->
+        occurrences
+        |> Enum.find(&(&1.construct == "Ecto.Query.lock"))
+        |> Map.fetch!(:fingerprint)
+      end)
+
+    assert Enum.uniq(lock_fingerprints) == lock_fingerprints
+  end
+
+  test "classifies SQL-bearing Ecto.Query options across aliases and imports" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Ecto.Query, as: Query
+            import Ecto.Query, only: [join: 5, lock: 2]
+
+            def build(query) do
+              Query.from("users", hints: ["FULL"], lock: "FOR UPDATE")
+              join(query, :inner, [], "comments", hints: ["USE INDEX comments_created_at"])
+              lock(query, "FOR SHARE")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Ecto.Query.hints", "build/1", 6},
+             {:raw_sql, "Ecto.Query.lock", "build/1", 6},
+             {:raw_sql, "Ecto.Query.hints", "build/1", 7},
+             {:raw_sql, "Ecto.Query.lock", "build/1", 8}
+           ]
+  end
+
+  test "does not classify generated or empty Ecto.Query lock and hint values as authored SQL" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   import Ecto.Query
+
+                   def build(query) do
+                     from("users", hints: [], lock: true)
+                     lock(query, false)
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
   test "classifies every Postgrex SQL preparation and execution spelling" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -1081,6 +1170,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                  """
                }
              ])
+  end
+
+  test "classifies database calls evaluated while quoted data is built" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def unquoted do
+              quote do
+                unquote(OfficeGraph.Repo.query!("DELETE FROM events", []))
+              end
+            end
+
+            def bound do
+              quote bind_quoted: [
+                      rows: OfficeGraph.Repo.query!("SELECT 1", [])
+                    ] do
+                rows
+              end
+            end
+
+            def inert do
+              quote unquote: false do
+                unquote(OfficeGraph.Repo.query!("DELETE FROM ignored", []))
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "unquoted/0", 4},
+             {:raw_sql, "Repo.query!", "bound/0", 10}
+           ]
   end
 
   test "classifies database calls emitted by invoked local macros" do
@@ -1836,6 +1962,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.construct, &1.function}) ==
              List.duplicate({"Repo.query!", "load/0"}, 5)
+  end
+
+  test "binds implicit static accumulators in Enum.reduce/2 and Enum.scan/2" do
+    Enum.each([:reduce, :scan], fn operation ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                Enum.#{operation}([OfficeGraph.Repo, :event], fn _event, repo ->
+                  repo.query!("DELETE FROM events", [])
+                  repo
+                end)
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 4
+    end)
   end
 
   test "binds static enumerable elements in predicate Enum callback overloads" do
