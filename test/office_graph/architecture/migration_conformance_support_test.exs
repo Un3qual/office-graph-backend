@@ -1255,7 +1255,8 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     Enum.each(
       [
         ~s'repo().query!("CREATE TABLE repo_owned_examples (id uuid PRIMARY KEY)", [])',
-        ~s'Ecto.Adapters.SQL.query(repo(), "CREATE TABLE adapter_owned_examples (id uuid PRIMARY KEY)", [])'
+        ~s'Ecto.Adapters.SQL.query(repo(), "CREATE TABLE adapter_owned_examples (id uuid PRIMARY KEY)", [])',
+        ~s'RepoAlias.query!("CREATE TABLE alias_owned_examples (id uuid PRIMARY KEY)", [])'
       ],
       fn query_call ->
         root =
@@ -1273,6 +1274,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
           """
           defmodule QueryDdl do
             use Ecto.Migration
+            alias OfficeGraph.Repo, as: RepoAlias
 
             def change do
               #{query_call}
@@ -1283,6 +1285,62 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
         File.cd!(root, fn ->
           assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
+  test "fails closed for lifecycle calls delegated to repository migration helpers" do
+    Enum.each(
+      [
+        {"import MyApp.MigrationHelpers", "create_auxiliary_table()"},
+        {"alias MyApp.MigrationHelpers, as: Helpers", "Helpers.create_auxiliary_table()"},
+        {"", "MyApp.MigrationHelpers.create_auxiliary_table()"}
+      ],
+      fn {module_setup, helper_call} ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_external_helper_conformance_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        helpers = Path.join(root, "lib/my_app")
+        File.mkdir_p!(migrations)
+        File.mkdir_p!(helpers)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(helpers, "migration_helpers.ex"),
+          """
+          defmodule MyApp.MigrationHelpers do
+            import Ecto.Migration
+
+            def create_auxiliary_table do
+              create table(:external_helper_owned)
+            end
+          end
+          """
+        )
+
+        File.write!(
+          Path.join(migrations, "20260805000000_external_helper.exs"),
+          """
+          defmodule ExternalHelperMigration do
+            use Ecto.Migration
+            #{module_setup}
+
+            def change do
+              #{helper_call}
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert_raise ArgumentError, ~r/repository migration helper/, fn ->
             MigrationConformanceSupport.migration_tables()
           end
         end)

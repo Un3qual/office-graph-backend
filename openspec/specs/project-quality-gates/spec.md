@@ -146,6 +146,15 @@ binary literals or documentation text.
   NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
   an unrelated local, imported, or qualified function
 
+#### Scenario: Consumed stream invokes a static callback
+
+- **WHEN** `Stream.run/1` consumes a supported stream operation, including
+  `Stream.map_every/3`, whose callback receives elements from a statically
+  resolvable repository enumerable
+- **THEN** the scanner MUST select the callback by operation and argument
+  position, scan every non-callback argument, and bind each static element
+  before classifying database calls in the callback body
+
 #### Scenario: Static local helper receives a database receiver
 
 - **WHEN** a matching local function is called with a statically resolvable
@@ -210,6 +219,21 @@ binary literals or documentation text.
   qualified, aliased, or imported receiver
 - **THEN** the scanner MUST classify that explicit SQL-bearing call exactly as
   it would inside a migration file
+
+#### Scenario: External helper uses the migration macro
+
+- **WHEN** tracked code outside `priv/repo/migrations` invokes an unqualified
+  SQL-bearing API or `repo/0` imported by `use Ecto.Migration`
+- **THEN** the scanner MUST model only the relevant macro-provided imports and
+  classify the call without treating unrelated Kernel functions as migration
+  imports
+
+#### Scenario: Quoted database syntax is inert
+
+- **WHEN** ordinary code stores a database call only inside a `quote` body
+- **THEN** the scanner MUST treat that body as data and MUST NOT report it,
+  while still expanding a statically invoked local macro and classifying the
+  executable database syntax that macro emits
 
 #### Scenario: Block-form table creation carries SQL options
 

@@ -435,6 +435,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
   end
 
+  test "classifies Ecto migration SQL APIs imported by use in external helpers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example_migration_helper.ex",
+          source: """
+          defmodule ExampleMigrationHelper do
+            alias Ecto.Migration, as: Migration
+            use Migration
+
+            def run do
+              execute("SELECT 1")
+              fragment("clock_timestamp()")
+              repo().query!("DELETE FROM events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "migration.execute", 6},
+             {:raw_sql, "fragment", 7},
+             {:raw_sql, "Repo.query!", 8}
+           ]
+  end
+
   test "does not classify unqualified local fragment functions without an Ecto import" do
     assert [] ==
              DatabaseBoundaryScanner.scan_sources([
@@ -1038,6 +1065,48 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
   end
 
+  test "does not classify database calls stored only as quoted data" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   def ast do
+                     quote do
+                       OfficeGraph.Repo.query!("SELECT 1", [])
+                     end
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
+  test "classifies database calls emitted by invoked local macros" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            defmacrop run_query do
+              quote do
+                OfficeGraph.Repo.query!("SELECT 1", [])
+              end
+            end
+
+            def load, do: run_query()
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+  end
+
   test "classifies qualified migration execution calls" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -1622,6 +1691,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "Repo.query!", "load/0", 4},
              {:raw_sql, "Repo.query!", "load/0", 9}
            ]
+  end
+
+  test "binds static elements in consumed Stream.map_every callbacks" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Stream.map_every([OfficeGraph.Repo], 1, fn repo ->
+                repo.query!("DELETE FROM events", [])
+              end)
+              |> Stream.run()
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 4
   end
 
   test "resolves statically known map receiver projections" do

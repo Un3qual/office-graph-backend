@@ -158,6 +158,24 @@ diverge.
   tracked file contents and reject table lifecycle or foreign-key DDL that the
   declarative migration inventory cannot model
 
+#### Scenario: Ownership DDL uses a repository query receiver
+
+- **WHEN** a forward migration sends statically resolvable table lifecycle or
+  foreign-key DDL through `repo().query/query!`, an Ecto SQL adapter, or a
+  fully qualified or explicitly aliased repository module
+- **THEN** canonical model-ownership verification MUST reject the unmodeled
+  ownership change and require declarative migration constructs
+
+#### Scenario: Migration delegates lifecycle work to a repository helper
+
+- **WHEN** a forward migration invokes an imported, aliased, or fully
+  qualified repository-authored helper whose lifecycle effects cannot be
+  inventoried from the migration module
+- **THEN** canonical model-ownership verification MUST fail closed and require
+  the declarative lifecycle constructs to remain visible to the migration
+  inventory, while leaving dependency-owned migration entrypoints outside this
+  repository-helper rule
+
 ### Requirement: Exception Ledger Is A Burn-Down Contract
 
 Office Graph SHALL distinguish unapproved database-access removal debt from

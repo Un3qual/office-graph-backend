@@ -8,13 +8,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @foreign_key_definition_operations [:add, :add_if_not_exists, :modify]
 
   def migration_tables do
+    repository_helpers = repository_migration_helpers()
+
     "priv/repo/migrations/*.exs"
     |> Path.wildcard()
     |> Enum.sort()
     |> Enum.reduce(MapSet.new(), fn path, tables ->
       path
       |> File.read!()
-      |> migration_forward_ast()
+      |> migration_forward_ast(repository_helpers)
       |> migration_table_operations()
       |> Enum.reduce(tables, &apply_table_operation/2)
     end)
@@ -60,13 +62,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_foreign_keys do
+    repository_helpers = repository_migration_helpers()
+
     "priv/repo/migrations/*.exs"
     |> Path.wildcard()
     |> Enum.sort()
     |> Enum.reduce(%{}, fn path, foreign_keys ->
       path
       |> File.read!()
-      |> migration_forward_ast()
+      |> migration_forward_ast(repository_helpers)
       |> migration_foreign_key_operations()
       |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
     end)
@@ -80,8 +84,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.sort()
   end
 
-  defp migration_forward_ast(source) do
+  defp migration_forward_ast(source, repository_helpers) do
     ast = Code.string_to_quoted!(source)
+    module_body = migration_module_body(ast)
+
+    repository_helper_imports =
+      repository_migration_helper_imports(module_body, repository_helpers)
+
     functions = migration_functions(ast)
 
     forward_ast =
@@ -99,7 +108,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           {:__block__, [], []}
       end
 
-    reject_schema_ownership_sql!(forward_ast)
+    forward_ast
+    |> reject_schema_ownership_sql!()
+    |> reject_repository_migration_helpers!(repository_helpers, repository_helper_imports)
   end
 
   defp reject_schema_ownership_sql!(ast) do
@@ -124,6 +135,181 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       node
     end)
   end
+
+  defp repository_migration_helpers do
+    ["lib/**/*.ex", "lib/**/*.exs"]
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.sort()
+    |> Enum.reduce(%{}, fn path, helpers ->
+      path
+      |> File.read!()
+      |> Code.string_to_quoted!(file: path)
+      |> collect_repository_helper_modules(nil, helpers)
+    end)
+  end
+
+  defp collect_repository_helper_modules(
+         {:defmodule, _metadata, [module, [do: body]]},
+         parent_module,
+         helpers
+       ) do
+    module = repository_module_name(module, parent_module)
+
+    helpers =
+      if is_binary(module) do
+        keys = repository_public_function_keys(body)
+        Map.update(helpers, module, keys, &MapSet.union(&1, keys))
+      else
+        helpers
+      end
+
+    body
+    |> module_expressions()
+    |> Enum.reduce(helpers, fn expression, helpers ->
+      collect_repository_helper_modules(expression, module, helpers)
+    end)
+  end
+
+  defp collect_repository_helper_modules(nodes, parent_module, helpers) when is_list(nodes) do
+    Enum.reduce(nodes, helpers, fn node, helpers ->
+      collect_repository_helper_modules(node, parent_module, helpers)
+    end)
+  end
+
+  defp collect_repository_helper_modules(node, parent_module, helpers) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> collect_repository_helper_modules(parent_module, helpers)
+  end
+
+  defp collect_repository_helper_modules(_node, _parent_module, helpers), do: helpers
+
+  defp repository_module_name(module, parent_module) do
+    case module_name(module) do
+      nil ->
+        nil
+
+      module when is_binary(parent_module) ->
+        if String.contains?(module, "."), do: module, else: "#{parent_module}.#{module}"
+
+      module ->
+        module
+    end
+  end
+
+  defp repository_public_function_keys(body) do
+    body
+    |> module_expressions()
+    |> Enum.reduce(MapSet.new(), fn
+      {kind, _metadata, [head, body_options]}, keys
+      when kind in [:def, :defmacro] and is_list(body_options) ->
+        case {local_function_head(head), Keyword.fetch(body_options, :do)} do
+          {{key, parameters, guards}, {:ok, body}} ->
+            key
+            |> local_function_definitions(kind, parameters, guards, body)
+            |> Enum.reduce(keys, &MapSet.put(&2, &1.key))
+
+          _not_a_public_definition ->
+            keys
+        end
+
+      _expression, keys ->
+        keys
+    end)
+  end
+
+  defp repository_migration_helper_imports(body, repository_helpers) do
+    {_aliases, imports} =
+      body
+      |> module_expressions()
+      |> Enum.reduce({%{}, []}, fn
+        {:alias, _metadata, arguments}, {aliases, imports} ->
+          {put_module_aliases(aliases, arguments), imports}
+
+        {:import, _metadata, [target | _options]}, {aliases, imports} ->
+          module = resolve_module_name(target, aliases)
+
+          if Map.has_key?(repository_helpers, module),
+            do: {aliases, [module | imports]},
+            else: {aliases, imports}
+
+        _expression, accumulator ->
+          accumulator
+      end)
+
+    Enum.uniq(imports)
+  end
+
+  defp reject_repository_migration_helpers!(ast, repository_helpers, imported_helpers) do
+    Macro.prewalk(ast, fn
+      {:import, _metadata, [target | _options]} = node ->
+        module = migration_module_name(target)
+
+        if Map.has_key?(repository_helpers, module) do
+          raise ArgumentError, repository_migration_helper_message(module)
+        end
+
+        node
+
+      {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node
+      when is_atom(operation) and is_list(arguments) ->
+        module = migration_module_name(receiver)
+
+        if repository_helper_call?(
+             repository_helpers,
+             module,
+             {operation, length(arguments)}
+           ) do
+          raise ArgumentError,
+                repository_migration_helper_message(module, operation, length(arguments))
+        end
+
+        node
+
+      {operation, _metadata, arguments} = node
+      when is_atom(operation) and is_list(arguments) ->
+        case Enum.find(imported_helpers, fn module ->
+               repository_helper_call?(
+                 repository_helpers,
+                 module,
+                 {operation, length(arguments)}
+               )
+             end) do
+          nil ->
+            :ok
+
+          module ->
+            raise ArgumentError,
+                  repository_migration_helper_message(module, operation, length(arguments))
+        end
+
+        node
+
+      node ->
+        node
+    end)
+
+    ast
+  end
+
+  defp repository_helper_call?(repository_helpers, module, key) when is_binary(module) do
+    repository_helpers
+    |> Map.get(module, MapSet.new())
+    |> MapSet.member?(key)
+  end
+
+  defp repository_helper_call?(_repository_helpers, _module, _key), do: false
+
+  defp repository_migration_helper_message(module),
+    do:
+      "migration imports repository migration helper #{module}; " <>
+        "inline declarative Ecto migration constructs so conformance can inventory them"
+
+  defp repository_migration_helper_message(module, operation, arity),
+    do:
+      "migration delegates lifecycle analysis to repository migration helper " <>
+        "#{module}.#{operation}/#{arity}; inline declarative Ecto migration constructs " <>
+        "so conformance can inventory them"
 
   defp migration_inline_sql_payload(node) do
     case migration_execute_arguments(node) do
@@ -165,11 +351,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        when arguments in [nil, []],
        do: migration_module_name(receiver) == "Ecto.Migration"
 
-  defp migration_repo_query_receiver?(_receiver), do: false
+  defp migration_repo_query_receiver?(receiver) do
+    case migration_module_name(receiver) do
+      nil -> false
+      name -> name |> String.split(".") |> List.last() |> String.ends_with?("Repo")
+    end
+  end
 
   defp migration_module_name({:__aliases__, _metadata, parts}) when is_list(parts),
     do: Enum.join(parts, ".")
 
+  defp migration_module_name(module) when is_binary(module), do: module
   defp migration_module_name(module) when is_atom(module), do: Atom.to_string(module)
   defp migration_module_name(_module), do: nil
 
@@ -704,6 +896,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp normalize_migration_calls(
+         {:import, metadata, [target | options]},
+         aliases,
+         local_function_keys
+       ) do
+    target = resolve_module_name(target, aliases) || target
+
+    options =
+      Enum.map(options, &normalize_migration_calls(&1, aliases, local_function_keys))
+
+    {:import, metadata, [target | options]}
+  end
+
+  defp normalize_migration_calls(
          {:apply, metadata, [receiver, operation, arguments]},
          aliases,
          local_function_keys
@@ -751,7 +956,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp normalize_migration_calls(
-         {{:., _dot_metadata, [receiver, operation]}, metadata, arguments} = node,
+         {{:., dot_metadata, [receiver, operation]}, metadata, arguments} = node,
          aliases,
          local_function_keys
        )
@@ -759,9 +964,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     arguments =
       Enum.map(arguments, &normalize_migration_calls(&1, aliases, local_function_keys))
 
-    if resolve_module_name(receiver, aliases) == "Ecto.Migration",
-      do: {operation, metadata, arguments},
-      else: put_elem(node, 2, arguments)
+    case resolve_module_name(receiver, aliases) do
+      "Ecto.Migration" ->
+        {operation, metadata, arguments}
+
+      receiver when is_binary(receiver) ->
+        {{:., dot_metadata, [receiver, operation]}, metadata, arguments}
+
+      _unresolved_receiver ->
+        put_elem(node, 2, arguments)
+    end
   end
 
   defp normalize_migration_calls(nodes, aliases, local_function_keys) when is_list(nodes),
