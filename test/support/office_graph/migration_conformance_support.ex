@@ -420,8 +420,105 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp sql_dynamic_execute_prefix?(code) do
     code = code |> Enum.reverse() |> IO.iodata_to_binary()
-    Regex.match?(~r/\bEXECUTE\s*\z/i, code)
+
+    case Regex.run(~r/\bEXECUTE\b([^;]*)\z/is, code, capture: :all_but_first) do
+      [expression] -> dynamic_execute_literal_prefix?(expression)
+      nil -> false
+    end
   end
+
+  defp dynamic_execute_literal_prefix?(expression) do
+    expression = String.trim(expression)
+
+    direct_literal? = Regex.match?(~r/\A(?:\(\s*)*\z/, expression)
+
+    format_template? =
+      Regex.match?(
+        ~r/\A(?:\(\s*)*(?:pg_catalog\.)?format\s*\(\s*\z/i,
+        expression
+      )
+
+    concatenated_fragment? =
+      String.ends_with?(expression, "||") and
+        expression
+        |> binary_part(0, byte_size(expression) - 2)
+        |> dynamic_execute_concat_literal_context?()
+
+    direct_literal? or format_template? or concatenated_fragment?
+  end
+
+  defp dynamic_execute_concat_literal_context?(expression) do
+    expression
+    |> dynamic_execute_open_frames([], "", false)
+    |> Enum.all?(fn
+      :group -> true
+      {:format, 0} -> true
+      _function_or_format_argument -> false
+    end)
+  end
+
+  defp dynamic_execute_open_frames(<<>>, frames, _identifier, _separated?), do: frames
+
+  defp dynamic_execute_open_frames(<<codepoint, rest::binary>>, frames, identifier, separated?)
+       when codepoint in ?a..?z or codepoint in ?A..?Z or codepoint in ?0..?9 or
+              codepoint in [?_, ?$, ?.] do
+    next = <<codepoint>>
+    identifier = if separated? and identifier != "", do: next, else: identifier <> next
+    dynamic_execute_open_frames(rest, frames, identifier, false)
+  end
+
+  defp dynamic_execute_open_frames(<<codepoint, rest::binary>>, frames, identifier, _separated?)
+       when codepoint in [32, ?\t, ?\n, ?\r] do
+    dynamic_execute_open_frames(rest, frames, identifier, true)
+  end
+
+  defp dynamic_execute_open_frames(<<"(", rest::binary>>, frames, identifier, _separated?) do
+    frame =
+      case String.downcase(identifier) do
+        "" ->
+          :group
+
+        "format" ->
+          {:format, 0}
+
+        identifier ->
+          if String.ends_with?(identifier, ".format"), do: {:format, 0}, else: :function
+      end
+
+    dynamic_execute_open_frames(rest, [frame | frames], "", false)
+  end
+
+  defp dynamic_execute_open_frames(
+         <<")", rest::binary>>,
+         [_frame | frames],
+         _identifier,
+         _separated?
+       ),
+       do: dynamic_execute_open_frames(rest, frames, "", false)
+
+  defp dynamic_execute_open_frames(<<")", rest::binary>>, [], _identifier, _separated?),
+    do: dynamic_execute_open_frames(rest, [], "", false)
+
+  defp dynamic_execute_open_frames(<<",", rest::binary>>, frames, _identifier, _separated?) do
+    frames =
+      case frames do
+        [{:format, argument_index} | outer_frames] ->
+          [{:format, argument_index + 1} | outer_frames]
+
+        frames ->
+          frames
+      end
+
+    dynamic_execute_open_frames(rest, frames, "", false)
+  end
+
+  defp dynamic_execute_open_frames(
+         <<_codepoint, rest::binary>>,
+         frames,
+         _identifier,
+         _separated?
+       ),
+       do: dynamic_execute_open_frames(rest, frames, "", false)
 
   defp migration_entrypoint(functions, key) do
     case functions
@@ -433,11 +530,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_functions(ast) do
+    expressions = ast |> migration_module_body() |> module_expressions()
+    local_function_keys = migration_local_function_keys(expressions)
+
     {functions, _attributes, _aliases} =
-      ast
-      |> migration_module_body()
-      |> module_expressions()
-      |> Enum.reduce({%{}, %{}, %{}}, fn
+      Enum.reduce(expressions, {%{}, %{}, %{}}, fn
         {:alias, _metadata, arguments}, {functions, attributes, aliases} ->
           {functions, attributes, put_module_aliases(aliases, arguments)}
 
@@ -460,7 +557,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                   guards,
                   body
                   |> resolve_module_attributes(attributes)
-                  |> normalize_migration_calls(aliases)
+                  |> normalize_migration_calls(aliases, local_function_keys)
                 )
                 |> Enum.reduce(functions, fn definition, functions ->
                   Map.update(functions, definition.key, [definition], fn definitions ->
@@ -513,10 +610,28 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp module_expressions(nil), do: []
   defp module_expressions(expression), do: [expression]
 
-  defp normalize_migration_calls({:__block__, metadata, expressions}, aliases) do
+  defp migration_local_function_keys(expressions) do
+    Enum.reduce(expressions, MapSet.new(), fn
+      {kind, _metadata, [head, body_options]}, keys
+      when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
+        case local_function_head(head) do
+          {{name, arity}, _parameters, _guards} -> MapSet.put(keys, {name, arity})
+          nil -> keys
+        end
+
+      _expression, keys ->
+        keys
+    end)
+  end
+
+  defp normalize_migration_calls(
+         {:__block__, metadata, expressions},
+         aliases,
+         local_function_keys
+       ) do
     {expressions, _aliases} =
       Enum.map_reduce(expressions, aliases, fn expression, aliases ->
-        normalized = normalize_migration_calls(expression, aliases)
+        normalized = normalize_migration_calls(expression, aliases, local_function_keys)
 
         aliases =
           case expression do
@@ -530,35 +645,117 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {:__block__, metadata, expressions}
   end
 
-  defp normalize_migration_calls({:|>, _metadata, _arguments} = pipeline, aliases) do
+  defp normalize_migration_calls(
+         {:|>, _metadata, _arguments} = pipeline,
+         aliases,
+         local_function_keys
+       ) do
     pipeline
     |> expand_pipeline()
-    |> normalize_migration_calls(aliases)
+    |> normalize_migration_calls(aliases, local_function_keys)
+  end
+
+  defp normalize_migration_calls(
+         {:apply, metadata, [receiver, operation, arguments]},
+         aliases,
+         local_function_keys
+       ) do
+    arguments = normalize_migration_calls(arguments, aliases, local_function_keys)
+    fallback = {:apply, metadata, [receiver, operation, arguments]}
+
+    if MapSet.member?(local_function_keys, {:apply, 3}) do
+      fallback
+    else
+      normalize_static_migration_apply(
+        receiver,
+        operation,
+        arguments,
+        metadata,
+        fallback,
+        aliases
+      )
+    end
+  end
+
+  defp normalize_migration_calls(
+         {{:., dot_metadata, [apply_receiver, :apply]}, metadata,
+          [receiver, operation, arguments]},
+         aliases,
+         local_function_keys
+       ) do
+    arguments = normalize_migration_calls(arguments, aliases, local_function_keys)
+
+    fallback =
+      {{:., dot_metadata, [apply_receiver, :apply]}, metadata, [receiver, operation, arguments]}
+
+    if migration_apply_receiver?(apply_receiver, aliases) do
+      normalize_static_migration_apply(
+        receiver,
+        operation,
+        arguments,
+        metadata,
+        fallback,
+        aliases
+      )
+    else
+      fallback
+    end
   end
 
   defp normalize_migration_calls(
          {{:., _dot_metadata, [receiver, operation]}, metadata, arguments} = node,
-         aliases
+         aliases,
+         local_function_keys
        )
        when is_atom(operation) and is_list(arguments) do
-    arguments = Enum.map(arguments, &normalize_migration_calls(&1, aliases))
+    arguments =
+      Enum.map(arguments, &normalize_migration_calls(&1, aliases, local_function_keys))
 
     if resolve_module_name(receiver, aliases) == "Ecto.Migration",
       do: {operation, metadata, arguments},
       else: put_elem(node, 2, arguments)
   end
 
-  defp normalize_migration_calls(nodes, aliases) when is_list(nodes),
-    do: Enum.map(nodes, &normalize_migration_calls(&1, aliases))
+  defp normalize_migration_calls(nodes, aliases, local_function_keys) when is_list(nodes),
+    do: Enum.map(nodes, &normalize_migration_calls(&1, aliases, local_function_keys))
 
-  defp normalize_migration_calls(node, aliases) when is_tuple(node) do
+  defp normalize_migration_calls(node, aliases, local_function_keys) when is_tuple(node) do
     node
     |> Tuple.to_list()
-    |> Enum.map(&normalize_migration_calls(&1, aliases))
+    |> Enum.map(&normalize_migration_calls(&1, aliases, local_function_keys))
     |> List.to_tuple()
   end
 
-  defp normalize_migration_calls(node, _aliases), do: node
+  defp normalize_migration_calls(node, _aliases, _local_function_keys), do: node
+
+  defp normalize_static_migration_apply(
+         receiver,
+         operation,
+         arguments,
+         metadata,
+         fallback,
+         aliases
+       )
+       when is_atom(operation) and is_list(arguments) do
+    if resolve_module_name(receiver, aliases) == "Ecto.Migration",
+      do: {operation, metadata, arguments},
+      else: fallback
+  end
+
+  defp normalize_static_migration_apply(
+         _receiver,
+         _operation,
+         _arguments,
+         _metadata,
+         fallback,
+         _aliases
+       ),
+       do: fallback
+
+  defp migration_apply_receiver?(:erlang, _aliases), do: true
+
+  defp migration_apply_receiver?(receiver, aliases),
+    do: resolve_module_name(receiver, aliases) == "Kernel"
 
   defp expand_pipeline(pipeline) do
     [{first, _position} | rest] = Macro.unpipe(pipeline)

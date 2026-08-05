@@ -721,6 +721,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "classifies SQL-bearing migration options through static apply entrypoints" do
+    [
+      ~s'apply(Ecto.Migration, :create, [index(:items, [:id], where: "deleted_at IS NULL")])',
+      ~s'Kernel.apply(Ecto.Migration, :create, [index(:items, [:id], where: "deleted_at IS NULL")])',
+      ~s':erlang.apply(Ecto.Migration, :create, [index(:items, [:id], where: "deleted_at IS NULL")])'
+    ]
+    |> Enum.each(fn statement ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "priv/repo/migrations/20260804000000_example.exs",
+            source: """
+            defmodule ExampleMigration do
+              use Ecto.Migration
+
+              def change do
+                #{statement}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "migration.where"
+      assert occurrence.function == "change/0"
+    end)
+  end
+
   test "classifies SQL options in piped migration constructs" do
     fingerprints =
       ["deleted_at IS NULL", "archived_at IS NULL"]
@@ -1440,6 +1469,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "binds static database receivers through captured local functions" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.each([OfficeGraph.Repo], &run_query/1)
+            end
+
+            defp run_query(repo), do: repo.query!("DELETE FROM events", [])
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "run_query/1"
+    assert occurrence.line == 6
+    refute Map.has_key?(occurrence, :approval)
+  end
+
   test "binds static database receiver and SQL arguments through local helpers" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -1523,6 +1576,48 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"Repo.query!", "load/1", 10},
              {"Repo.query!", "load/1", 13}
            ]
+  end
+
+  test "binds explicit static accumulators in Enum callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.flat_map_reduce([:ok], OfficeGraph.Repo, fn _event, repo ->
+                repo.query!("DELETE FROM events", [])
+                {[], repo}
+              end)
+
+              Enum.map_reduce([:ok], OfficeGraph.Repo, fn _event, repo ->
+                repo.query!("DELETE FROM events", [])
+                {:ok, repo}
+              end)
+
+              Enum.reduce([:ok], OfficeGraph.Repo, fn _event, repo ->
+                repo.query!("DELETE FROM events", [])
+                repo
+              end)
+
+              Enum.reduce_while([:ok], OfficeGraph.Repo, fn _event, repo ->
+                repo.query!("DELETE FROM events", [])
+                {:cont, repo}
+              end)
+
+              Enum.scan([:ok], OfficeGraph.Repo, fn _event, repo ->
+                repo.query!("DELETE FROM events", [])
+                repo
+              end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function}) ==
+             List.duplicate({"Repo.query!", "load/0"}, 5)
   end
 
   test "binds static enumerable elements in predicate Enum callback overloads" do

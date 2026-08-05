@@ -136,14 +136,15 @@ binary literals or documentation text.
 - **WHEN** a direct literal-function invocation, a known Kernel value callback,
   or a supported `Enum` operation, including predicate overloads such as
   `take_while/2`, passes a statically resolvable repository receiver into a
-  literal `fn` or positional capture callback pattern, including through a
-  match or assignment expression evaluated as the callback argument
-- **THEN** the scanner MUST normalize positional captures without executing
-  source, bind the callback pattern before classifying and fingerprinting
-  database calls in its body, bind independently known callback parameters even
-  when another parameter is dynamic, and MUST NOT assume Kernel or `Enum`
-  callback semantics when the receiver resolves to an unrelated local,
-  imported, or qualified function
+  literal `fn`, positional capture callback pattern, or captured local function,
+  including through a match or assignment expression evaluated as the callback
+  argument or through an explicit static `Enum` accumulator
+- **THEN** the scanner MUST normalize positional and matching local-function
+  captures without executing source, bind the callback pattern before
+  classifying and fingerprinting database calls in its body, bind independently
+  known callback parameters even when another parameter is dynamic, and MUST
+  NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
+  an unrelated local, imported, or qualified function
 
 #### Scenario: Static local helper receives a database receiver
 
@@ -178,6 +179,14 @@ binary literals or documentation text.
   `Ecto.Query` while its operation or argument list remains runtime-provided
 - **THEN** the scanner MUST NOT classify the call as database access solely
   because `Ecto.Query` constructs queries without executing them
+
+#### Scenario: Static apply invokes migration constructs with SQL options
+
+- **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically invokes an
+  `Ecto.Migration` create operation whose index, constraint, table, or generated
+  column construct contains an executable SQL-bearing option or expression
+- **THEN** the scanner MUST classify and fingerprint the SQL-bearing construct
+  from the normalized invocation exactly as it does for a direct migration call
 
 #### Scenario: Reversible migration execute carries two commands
 

@@ -1259,7 +1259,9 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         "DO LANGUAGE plpgsql 'BEGIN DROP TABLE sql_owned_examples; END';",
         "DO $$ BEGIN EXECUTE 'CREATE TABLE sql_owned_examples (id uuid)'; END $$;",
         "DO $body$ BEGIN EXECUTE 'ALTER TABLE examples ADD COLUMN label text'; END $body$;",
-        "DO LANGUAGE plpgsql 'BEGIN EXECUTE ''DROP TABLE sql_owned_examples''; END';"
+        "DO LANGUAGE plpgsql 'BEGIN EXECUTE ''DROP TABLE sql_owned_examples''; END';",
+        "DO $$ BEGIN EXECUTE format('CREATE TABLE %I (id uuid)', 'sql_owned_examples'); END $$;",
+        "DO $$ BEGIN EXECUTE 'CREATE TABLE ' || quote_ident('sql_owned_examples') || ' (id uuid)'; END $$;"
       ],
       fn sql ->
         root =
@@ -1337,7 +1339,10 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       [
         "SELECT $$ CREATE TABLE inert_examples $$",
         "DO $$ BEGIN RAISE NOTICE 'CREATE TABLE inert_examples'; END $$;",
-        "DO $$ BEGIN EXECUTE 'SELECT ''CREATE TABLE inert_examples'''; END $$;"
+        "DO $$ BEGIN EXECUTE 'SELECT ''CREATE TABLE inert_examples'''; END $$;",
+        "DO $$ BEGIN EXECUTE format('SELECT %L', 'CREATE TABLE inert_examples'); END $$;",
+        "DO $$ BEGIN EXECUTE 'SELECT ' || quote_literal('CREATE TABLE inert_examples'); END $$;",
+        "DO $$ DECLARE value text := 'safe'; BEGIN EXECUTE 'SELECT ' || quote_literal(value || 'CREATE TABLE inert_examples'); END $$;"
       ],
       fn sql ->
         root =
@@ -2010,6 +2015,73 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ) == [
                "qualified_children.parent_id references qualified_parents.id without a matching belongs_to"
              ]
+    end)
+  end
+
+  test "normalizes migration lifecycle calls through static apply entrypoints" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_static_apply_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        alias Ecto.Migration, as: Migration
+        use Migration
+
+        def change do
+          apply(Ecto.Migration, :create, [table(:static_apply_parents)])
+          Kernel.apply(Migration, :create, [table(:static_apply_children)])
+          :erlang.apply(Ecto.Migration, :create, [table(:static_apply_removed)])
+          apply(Ecto.Migration, :drop, [table(:static_apply_removed)])
+        end
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == [
+               "static_apply_children",
+               "static_apply_parents"
+             ]
+    end)
+  end
+
+  test "does not normalize a shadowed local apply function as migration lifecycle" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_local_apply_migration_conformance_#{System.unique_integer([:positive])}"
+      )
+
+    migrations = Path.join(root, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(migrations, "20260731000000_create_examples.exs"),
+      """
+      defmodule CreateExamples do
+        use Ecto.Migration
+
+        def change do
+          apply(Ecto.Migration, :create, [table(:not_created)])
+        end
+
+        defp apply(_receiver, _operation, _arguments), do: :ok
+      end
+      """
+    )
+
+    File.cd!(root, fn ->
+      assert MigrationConformanceSupport.migration_tables() == []
     end)
   end
 

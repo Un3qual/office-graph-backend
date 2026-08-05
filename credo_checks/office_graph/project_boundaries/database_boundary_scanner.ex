@@ -292,7 +292,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when operation in @kernel_value_callback_operations do
     with true <- kernel_value_callback_call?(operation, environment),
-         {:ok, callback} <- normalize_literal_callback(callback) do
+         {:ok, callback} <- normalize_literal_callback(callback, environment) do
       scan_invoked_literal_callback(callback, [value], environment, context, occurrences)
     else
       _not_literal_kernel_callback ->
@@ -308,7 +308,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when operation in @kernel_value_callback_operations do
     with true <- kernel_module_receiver?(receiver, environment),
-         {:ok, callback} <- normalize_literal_callback(callback) do
+         {:ok, callback} <- normalize_literal_callback(callback, environment) do
       scan_invoked_literal_callback(callback, [value], environment, context, occurrences)
     else
       _not_literal_kernel_callback ->
@@ -323,7 +323,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          occurrences
        )
        when is_list(arguments) do
-    case normalize_literal_callback(callback) do
+    case normalize_literal_callback(callback, environment) do
       {:ok, callback} ->
         scan_invoked_literal_callback(callback, arguments, environment, context, occurrences)
 
@@ -609,7 +609,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence_node = normalized_occurrence_node(classification_node, fingerprint_node)
 
     occurrences =
-      classify_migration_sql_options(fingerprint_node, environment, context, occurrences)
+      classify_migration_sql_options(classification_node, environment, context, occurrences)
 
     occurrences =
       case classify_node(classification_node, context.migration?, environment) do
@@ -821,10 +821,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp local_definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
   defp local_definition_kind(kind) when kind in [:def, :defp], do: :function
 
-  defp normalize_literal_callback({:fn, _metadata, _clauses} = callback),
+  defp normalize_literal_callback({:fn, _metadata, _clauses} = callback, _environment),
     do: {:ok, callback}
 
-  defp normalize_literal_callback({:&, metadata, [body]}) do
+  defp normalize_literal_callback(
+         {:&, metadata, [{:/, _arity_metadata, [{name, _name_metadata, context}, arity]}]},
+         environment
+       )
+       when is_atom(name) and (is_atom(context) or is_nil(context)) and is_integer(arity) and
+              arity >= 0 do
+    if local_function_capture?(environment, name, arity) do
+      parameters = if arity == 0, do: [], else: Enum.map(1..arity, &capture_argument/1)
+      body = {name, metadata, parameters}
+      {:ok, {:fn, metadata, [{:->, metadata, [parameters, body]}]}}
+    else
+      :error
+    end
+  end
+
+  defp normalize_literal_callback({:&, metadata, [body]}, _environment) do
     {_body, {arity, nested_capture?}} =
       Macro.prewalk(body, {0, false}, fn
         {:&, _placeholder_metadata, [index]} = placeholder, {arity, nested_capture?}
@@ -856,7 +871,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp normalize_literal_callback(_callback), do: :error
+  defp normalize_literal_callback(_callback, _environment), do: :error
+
+  defp local_function_capture?(environment, name, arity) do
+    environment.local_functions
+    |> Map.get({name, arity}, [])
+    |> Enum.any?(&(&1.kind == :function))
+  end
 
   defp capture_argument(index), do: Macro.var(:"boundary_capture_argument_#{index}", __MODULE__)
 
@@ -1056,7 +1077,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     callback_entries =
       callback_indexes
       |> Enum.flat_map(fn index ->
-        with {:ok, callback} <- arguments |> Enum.at(index) |> normalize_literal_callback(),
+        with {:ok, callback} <-
+               arguments |> Enum.at(index) |> normalize_literal_callback(environment),
              true <- enum_element_callback?(operation, callback) do
           [{index, callback}]
         else
@@ -1092,6 +1114,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         scan_static_enum_callbacks(
           operation,
           callback_arguments,
+          arguments,
           resolved_enumerable,
           arguments_environment,
           context,
@@ -1144,6 +1167,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_static_enum_callbacks(
          operation,
          callback_arguments,
+         invocation_arguments,
          resolved_enumerable,
          arguments_environment,
          context,
@@ -1158,7 +1182,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrences =
       Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
         Enum.reduce(elements, occurrences, fn element, occurrences ->
-          callback_arguments = enum_callback_arguments(operation, callback, element)
+          callback_arguments =
+            enum_callback_arguments(
+              operation,
+              invocation_arguments,
+              element,
+              arguments_environment
+            )
 
           {_callback_environment, occurrences} =
             scan_invoked_literal_callback(
@@ -1203,15 +1233,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp enum_callback_arguments(operation, callback, element) do
-    arity = literal_callback_arity(callback)
-
+  defp enum_callback_arguments(
+         operation,
+         invocation_arguments,
+         element,
+         environment
+       ) do
     if operation in @enum_element_first_callback_operations do
-      [element | List.duplicate({:__unresolved_enum_callback_argument__, [], []}, arity - 1)]
+      accumulator = enum_accumulator_argument(operation, invocation_arguments, environment)
+      [element, accumulator]
     else
       [element]
     end
   end
+
+  defp enum_accumulator_argument(operation, arguments, environment)
+       when operation in @enum_element_first_callback_operations and length(arguments) == 3 do
+    arguments
+    |> Enum.at(1)
+    |> callback_argument_result()
+    |> resolve_attributes(environment)
+    |> resolve_bindings(environment)
+    |> resolve_struct_aliases(environment)
+  end
+
+  defp enum_accumulator_argument(_operation, _arguments, _environment),
+    do: {:__unresolved_enum_callback_argument__, [], []}
 
   defp scan_pattern_clause(
          {:->, _metadata, [parameters, body]},
