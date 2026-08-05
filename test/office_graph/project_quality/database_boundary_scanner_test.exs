@@ -1544,6 +1544,131 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "resolves statically bound closures before direct invocation" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              query = fn repo -> repo.query!("DELETE FROM events", []) end
+              query.(OfficeGraph.Repo)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+  end
+
+  test "binds database receivers in callbacks supplied by Repo and Ecto.Multi" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(multi) do
+              OfficeGraph.Repo.transaction(fn repo ->
+                repo.query!(System.fetch_env!("SQL"), [])
+              end)
+
+              Ecto.Multi.run(multi, :query, fn repo, _changes ->
+                repo.query!(System.fetch_env!("SQL"), [])
+              end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:direct_ecto, "Repo.transaction", "load/1", 3},
+             {:raw_sql, "Repo.query!", "load/1", 4},
+             {:direct_ecto, "Ecto.Multi.run", "load/1", 7},
+             {:raw_sql, "Repo.query!", "load/1", 8}
+           ]
+  end
+
+  test "binds static elements in consumed Stream callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Stream.each([OfficeGraph.Repo], fn repo ->
+                repo.query!("DELETE FROM events", [])
+              end)
+              |> Stream.run()
+
+              Stream.map([OfficeGraph.Repo], fn repo ->
+                repo.query!("DELETE FROM archived_events", [])
+              end)
+              |> Stream.run()
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "load/0", 4},
+             {:raw_sql, "Repo.query!", "load/0", 9}
+           ]
+  end
+
+  test "resolves statically known map receiver projections" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              state = %{repo: OfficeGraph.Repo}
+              state.repo.query!("DELETE FROM events", [])
+              Map.fetch!(state, :repo).query!("DELETE FROM archived_events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "load/0", 4},
+             {:raw_sql, "Repo.query!", "load/0", 5}
+           ]
+  end
+
+  test "fails closed when an unresolved receiver expression contains a database module" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(key) do
+              state = %{repo: OfficeGraph.Repo}
+              Map.fetch!(state, key).query!(System.fetch_env!("SQL"), [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/1"
+    assert occurrence.line == 4
+  end
+
   test "binds static enumerable elements in literal Enum callbacks" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -2182,6 +2307,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       end)
 
     assert Enum.uniq(fingerprints) == fingerprints
+  end
+
+  test "fingerprints local helpers with their definition-time module attributes" do
+    fingerprints =
+      ["DELETE FROM second", "DELETE FROM third"]
+      |> Enum.map(fn trailing_sql ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                @sql "DELETE FROM first"
+                defp query(repo), do: repo.query!(@sql, [])
+
+                @sql #{inspect(trailing_sql)}
+                def load, do: query(OfficeGraph.Repo)
+              end
+              """
+            }
+          ])
+
+        assert occurrence.class == :raw_sql
+        assert occurrence.construct == "Repo.query!"
+        occurrence.fingerprint
+      end)
+
+    assert length(Enum.uniq(fingerprints)) == 1
   end
 
   test "does not reclassify executable module attribute expressions at references" do

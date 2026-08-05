@@ -104,11 +104,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp reject_schema_ownership_sql!(ast) do
     Macro.prewalk(ast, fn node ->
-      with {:ok, arguments} <- migration_execute_arguments(node),
-           {:ok, sql} <- arguments |> List.first() |> static_migration_sql(),
+      with {:ok, sql_payload} <- migration_inline_sql_payload(node),
+           {:ok, sql} <- static_migration_sql(sql_payload),
            true <- schema_ownership_sql?(sql) do
         raise ArgumentError,
-              "migration execute SQL changes table or foreign-key ownership; " <>
+              "migration SQL changes table or foreign-key ownership; " <>
                 "use declarative Ecto migration constructs so conformance can inventory it"
       end
 
@@ -124,6 +124,54 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       node
     end)
   end
+
+  defp migration_inline_sql_payload(node) do
+    case migration_execute_arguments(node) do
+      {:ok, arguments} ->
+        arguments |> List.first() |> then(&{:ok, &1})
+
+      :error ->
+        migration_query_sql_payload(node)
+    end
+  end
+
+  defp migration_query_sql_payload(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments}
+       )
+       when operation in [:query, :query!] and is_list(arguments) do
+    if migration_repo_query_receiver?(receiver) and arguments != [],
+      do: {:ok, List.first(arguments)},
+      else: migration_sql_adapter_payload(receiver, operation, arguments)
+  end
+
+  defp migration_query_sql_payload(_node), do: :error
+
+  defp migration_sql_adapter_payload(receiver, operation, [_repo, sql | _arguments])
+       when operation in [:query, :query!] do
+    if migration_module_name(receiver) == "Ecto.Adapters.SQL",
+      do: {:ok, sql},
+      else: :error
+  end
+
+  defp migration_sql_adapter_payload(_receiver, _operation, _arguments), do: :error
+
+  defp migration_repo_query_receiver?({:repo, _metadata, arguments})
+       when arguments in [nil, []],
+       do: true
+
+  defp migration_repo_query_receiver?(
+         {{:., _dot_metadata, [receiver, :repo]}, _metadata, arguments}
+       )
+       when arguments in [nil, []],
+       do: migration_module_name(receiver) == "Ecto.Migration"
+
+  defp migration_repo_query_receiver?(_receiver), do: false
+
+  defp migration_module_name({:__aliases__, _metadata, parts}) when is_list(parts),
+    do: Enum.join(parts, ".")
+
+  defp migration_module_name(module) when is_atom(module), do: Atom.to_string(module)
+  defp migration_module_name(_module), do: nil
 
   defp migration_execute_arguments({:execute, _metadata, arguments}) when is_list(arguments),
     do: {:ok, arguments}

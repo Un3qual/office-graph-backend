@@ -1251,6 +1251,45 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "rejects ownership DDL sent through migration repository query APIs" do
+    Enum.each(
+      [
+        ~s'repo().query!("CREATE TABLE repo_owned_examples (id uuid PRIMARY KEY)", [])',
+        ~s'Ecto.Adapters.SQL.query(repo(), "CREATE TABLE adapter_owned_examples (id uuid PRIMARY KEY)", [])'
+      ],
+      fn query_call ->
+        root =
+          Path.join(
+            System.tmp_dir!(),
+            "office_graph_query_ddl_conformance_#{System.unique_integer([:positive])}"
+          )
+
+        migrations = Path.join(root, "priv/repo/migrations")
+        File.mkdir_p!(migrations)
+        on_exit(fn -> File.rm_rf!(root) end)
+
+        File.write!(
+          Path.join(migrations, "20260805000000_query_ddl.exs"),
+          """
+          defmodule QueryDdl do
+            use Ecto.Migration
+
+            def change do
+              #{query_call}
+            end
+          end
+          """
+        )
+
+        File.cd!(root, fn ->
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
   test "rejects ownership DDL inside executable migration DO blocks" do
     Enum.each(
       [

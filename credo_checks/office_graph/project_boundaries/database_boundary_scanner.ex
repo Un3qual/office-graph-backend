@@ -174,6 +174,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_create_operations [:create, :create_if_not_exists]
   @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
   @kernel_value_callback_operations [:tap, :then]
+  @repo_supplied_callback_operations [:transact, :transaction]
 
   @enum_unary_element_callback_operations [
     :all?,
@@ -259,6 +260,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                               @enum_unary_element_callback_operations ++
                                 @enum_element_first_callback_operations
                             )
+  @stream_unary_element_callback_operations [
+    :chunk_by,
+    :dedup_by,
+    :drop_while,
+    :each,
+    :filter,
+    :flat_map,
+    :map,
+    :reject,
+    :take_while,
+    :uniq_by
+  ]
   @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
@@ -353,6 +366,79 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, :run]}, _metadata, [stream]} = node,
+         environment,
+         context,
+         occurrences
+       ) do
+    if stream_module_receiver?(receiver, environment) do
+      case scan_consumed_stream(stream, environment, context, occurrences) do
+        {:ok, environment, occurrences} -> {environment, occurrences}
+        :error -> scan_executable_node(node, environment, context, occurrences)
+      end
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when operation in @repo_supplied_callback_operations and is_list(arguments) do
+    callback = List.first(arguments)
+
+    with {:ok, callback} <- normalize_literal_callback(callback, environment),
+         1 <- literal_callback_arity(callback),
+         {:ok, callback_receiver} <-
+           static_repo_callback_receiver(receiver, environment, context.migration?) do
+      scan_database_callback_call(
+        node,
+        receiver,
+        arguments,
+        0,
+        callback,
+        [callback_receiver],
+        environment,
+        context,
+        occurrences
+      )
+    else
+      _unsupported_callback -> scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, :run]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when length(arguments) == 3 do
+    callback = Enum.at(arguments, 2)
+
+    with true <- ecto_multi_receiver?(receiver, environment),
+         {:ok, callback} <- normalize_literal_callback(callback, environment),
+         2 <- literal_callback_arity(callback) do
+      scan_database_callback_call(
+        node,
+        receiver,
+        arguments,
+        2,
+        callback,
+        [generic_repo_receiver(), {:__unresolved_multi_changes__, [], []}],
+        environment,
+        context,
+        occurrences
+      )
+    else
+      _unsupported_callback -> scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
   defp scan_node({:defmodule, _metadata, arguments}, environment, context, occurrences) do
     case block_body(arguments) do
       nil ->
@@ -366,7 +452,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           | attributes: %{},
             attribute_modes: %{},
             uncertain_attribute_registration?: false,
-            local_functions: collect_local_functions(body)
+            local_functions: %{}
+        }
+
+        child_environment = %{
+          child_environment
+          | local_functions: collect_local_functions(body, child_environment)
         }
 
         {_child_environment, occurrences} =
@@ -603,6 +694,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_executable_node(node, environment, context, occurrences) do
+    occurrences = record_executable_occurrence(node, environment, context, occurrences)
+    scan_classified_children(node, environment, context, occurrences)
+  end
+
+  defp record_executable_occurrence(node, environment, context, occurrences) do
     resolved_node = resolve_attributes(node, environment)
     fingerprint_node = resolve_bindings(resolved_node, environment)
     classification_node = normalize_static_apply(fingerprint_node, environment)
@@ -631,8 +727,92 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           ]
       end
 
-    scan_classified_children(node, environment, context, occurrences)
+    occurrences
   end
+
+  defp scan_database_callback_call(
+         node,
+         receiver,
+         arguments,
+         callback_index,
+         callback,
+         callback_arguments,
+         environment,
+         context,
+         occurrences
+       ) do
+    occurrences = record_executable_occurrence(node, environment, context, occurrences)
+    {environment, occurrences} = scan_node(receiver, environment, context, occurrences)
+
+    {environment, occurrences} =
+      arguments
+      |> Enum.with_index()
+      |> Enum.reduce({environment, occurrences}, fn
+        {_callback, ^callback_index}, accumulator ->
+          accumulator
+
+        {argument, _index}, {environment, occurrences} ->
+          scan_node(argument, environment, context, occurrences)
+      end)
+
+    {_callback_environment, occurrences} =
+      scan_invoked_literal_callback(
+        callback,
+        callback_arguments,
+        environment,
+        context,
+        occurrences
+      )
+
+    {environment, occurrences}
+  end
+
+  defp scan_consumed_stream(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, [enumerable, callback]},
+         environment,
+         context,
+         occurrences
+       )
+       when operation in @stream_unary_element_callback_operations do
+    with true <- stream_module_receiver?(receiver, environment),
+         {:ok, callback} <- normalize_literal_callback(callback, environment),
+         1 <- literal_callback_arity(callback) do
+      {[resolved_enumerable], arguments_environment, occurrences} =
+        scan_invoked_callback_arguments(
+          [enumerable],
+          environment,
+          context,
+          occurrences
+        )
+
+      occurrences =
+        if is_list(resolved_enumerable) and static_binding_source?(resolved_enumerable) do
+          Enum.reduce(Enum.uniq(resolved_enumerable), occurrences, fn element, occurrences ->
+            {_callback_environment, occurrences} =
+              scan_invoked_literal_callback(
+                callback,
+                [element],
+                arguments_environment,
+                context,
+                occurrences
+              )
+
+            occurrences
+          end)
+        else
+          {_callback_environment, occurrences} =
+            scan_node(callback, arguments_environment, context, occurrences)
+
+          occurrences
+        end
+
+      {:ok, arguments_environment, occurrences}
+    else
+      _unsupported_stream -> :error
+    end
+  end
+
+  defp scan_consumed_stream(_stream, _environment, _context, _occurrences), do: :error
 
   defp expand_pipeline(pipeline) do
     [{first, _position} | rest] = Macro.unpipe(pipeline)
@@ -701,6 +881,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp enum_module_receiver?(receiver, environment) do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Enum"
   end
+
+  defp stream_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Stream"
+  end
+
+  defp ecto_multi_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Multi"
+  end
+
+  defp static_repo_callback_receiver(receiver, environment, migration?) do
+    resolved_receiver = resolve_static_expression(receiver, environment)
+
+    case database_receiver_name(resolved_receiver, migration?, environment) do
+      receiver_name when receiver_name in ["Repo", "OfficeGraph.Repo"] ->
+        {:ok, resolved_receiver}
+
+      @migration_repo_receiver ->
+        {:ok, generic_repo_receiver()}
+
+      _not_a_repo ->
+        :error
+    end
+  end
+
+  defp generic_repo_receiver, do: {:__aliases__, [], [:Repo]}
 
   defp scan_function_defaults(
          parameters,
@@ -788,29 +993,68 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp function_name_and_parameters(_head), do: nil
 
-  defp collect_local_functions(body) do
-    body
-    |> module_expressions()
-    |> Enum.reduce(%{}, fn
-      {kind, _metadata, [head, body_options]}, functions
-      when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
-        Enum.reduce(function_variants(head), functions, fn variant, functions ->
-          definition =
-            variant
-            |> Map.put(:body, Keyword.get(body_options, :do))
-            |> Map.put(:kind, local_definition_kind(kind))
+  defp collect_local_functions(body, environment) do
+    {functions, _environment} =
+      body
+      |> module_expressions()
+      |> Enum.reduce({%{}, environment}, fn expression, {functions, environment} ->
+        case expression do
+          {:alias, metadata, arguments} ->
+            {functions, put_aliases(environment, metadata, arguments)}
 
-          Map.update(
-            functions,
-            {variant.name, variant.arity},
-            [definition],
-            &(&1 ++ [definition])
-          )
-        end)
+          {:import, metadata, arguments} ->
+            {functions, put_import(environment, metadata, arguments)}
 
-      _expression, functions ->
-        functions
-    end)
+          {:@, _metadata, [{name, _name_metadata, [value]}]} when is_atom(name) ->
+            value = resolve_attributes(value, environment)
+            {functions, put_module_attribute_value(environment, name, value)}
+
+          {{:., _dot_metadata, [receiver, :register_attribute]}, _metadata, arguments}
+          when length(arguments) in [2, 3] ->
+            if module_attribute_registration?(receiver, arguments, environment) do
+              {functions, register_module_attribute(environment, arguments)}
+            else
+              {functions, environment}
+            end
+
+          {kind, _metadata, [head, body_options]}
+          when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
+            definition_environment = local_definition_environment_snapshot(environment)
+
+            functions =
+              Enum.reduce(function_variants(head), functions, fn variant, functions ->
+                definition =
+                  variant
+                  |> Map.put(:body, Keyword.get(body_options, :do))
+                  |> Map.put(:definition_environment, definition_environment)
+                  |> Map.put(:kind, local_definition_kind(kind))
+
+                Map.update(
+                  functions,
+                  {variant.name, variant.arity},
+                  [definition],
+                  &(&1 ++ [definition])
+                )
+              end)
+
+            {functions, environment}
+
+          _expression ->
+            {functions, environment}
+        end
+      end)
+
+    functions
+  end
+
+  defp local_definition_environment_snapshot(environment) do
+    Map.take(environment, [
+      :aliases,
+      :attribute_modes,
+      :attributes,
+      :imports,
+      :uncertain_attribute_registration?
+    ])
   end
 
   defp module_expressions({:__block__, _metadata, expressions}) when is_list(expressions),
@@ -821,10 +1065,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp local_definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
   defp local_definition_kind(kind) when kind in [:def, :defp], do: :function
 
-  defp normalize_literal_callback({:fn, _metadata, _clauses} = callback, _environment),
+  defp normalize_literal_callback(callback, environment) do
+    callback
+    |> resolve_attributes(environment)
+    |> resolve_callback_binding(environment, MapSet.new())
+    |> do_normalize_literal_callback(environment)
+  end
+
+  defp resolve_callback_binding(
+         {name, _metadata, binding_context} = callback,
+         environment,
+         resolving
+       )
+       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
+    if MapSet.member?(resolving, name) do
+      callback
+    else
+      case Map.fetch(environment.bindings, name) do
+        {:ok, value} ->
+          resolve_callback_binding(value, environment, MapSet.put(resolving, name))
+
+        :error ->
+          callback
+      end
+    end
+  end
+
+  defp resolve_callback_binding(callback, _environment, _resolving), do: callback
+
+  defp do_normalize_literal_callback({:fn, _metadata, _clauses} = callback, _environment),
     do: {:ok, callback}
 
-  defp normalize_literal_callback(
+  defp do_normalize_literal_callback(
          {:&, metadata, [{:/, _arity_metadata, [{name, _name_metadata, context}, arity]}]},
          environment
        )
@@ -839,7 +1111,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp normalize_literal_callback({:&, metadata, [body]}, _environment) do
+  defp do_normalize_literal_callback({:&, metadata, [body]}, _environment) do
     {_body, {arity, nested_capture?}} =
       Macro.prewalk(body, {0, false}, fn
         {:&, _placeholder_metadata, [index]} = placeholder, {arity, nested_capture?}
@@ -871,7 +1143,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp normalize_literal_callback(_callback, _environment), do: :error
+  defp do_normalize_literal_callback(_callback, _environment), do: :error
 
   defp local_function_capture?(environment, name, arity) do
     environment.local_functions
@@ -1572,6 +1844,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp static_value_contains_database_receiver?(values, environment) when is_list(values),
     do: Enum.any?(values, &static_value_contains_database_receiver?(&1, environment))
 
+  defp static_value_contains_database_receiver?(value, environment) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> Enum.any?(&static_value_contains_database_receiver?(&1, environment))
+  end
+
   defp static_value_contains_database_receiver?(_value, _environment), do: false
 
   defp scan_generator_qualifiers(
@@ -1789,13 +2067,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          migration?,
          environment
        ) do
-    receiver =
-      receiver
-      |> resolve_bindings(environment)
-      |> database_receiver_name(migration?, environment)
+    resolved_receiver = resolve_static_expression(receiver, environment)
+    receiver = database_receiver_name(resolved_receiver, migration?, environment)
 
     classify_migration_operation(receiver, operation) ||
-      classify_database_operation(receiver, operation)
+      classify_database_operation(receiver, operation) ||
+      classify_unresolved_database_receiver(resolved_receiver, operation, environment)
   end
 
   defp classify_node(
@@ -1805,7 +2082,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        ) do
     receiver =
       receiver
-      |> resolve_bindings(environment)
+      |> resolve_static_expression(environment)
       |> database_receiver_name(migration?, environment)
 
     operation = resolve_bindings(operation, environment)
@@ -1887,6 +2164,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       true ->
         nil
+    end
+  end
+
+  defp classify_unresolved_database_receiver(receiver, operation, environment) do
+    if static_value_contains_database_receiver?(receiver, environment) do
+      cond do
+        operation in [:query, :query!] -> {:raw_sql, "Repo.#{operation}"}
+        operation in @direct_repo_operations -> {:direct_ecto, "Repo.#{operation}"}
+        true -> nil
+      end
     end
   end
 
@@ -2463,13 +2750,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp matching_local_definitions(definitions, arguments, environment) do
     definitions
     |> Enum.reduce_while([], fn definition, matches ->
+      definition_environment = local_definition_environment(definition, environment)
+
       parameters =
         definition
         |> supplied_local_parameters()
         |> Enum.map(fn parameter ->
           parameter
           |> local_parameter_pattern()
-          |> resolve_struct_aliases(environment)
+          |> resolve_struct_aliases(definition_environment)
         end)
 
       {pattern_status, _bindings} = match_local_parameters(parameters, arguments)
@@ -2680,6 +2969,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp combine_local_guard_or(:no_match, :no_match), do: :no_match
 
   defp bind_local_function_arguments(definition, arguments, environment) do
+    environment = local_definition_environment(definition, environment)
+
     bindings =
       definition
       |> supplied_local_parameters()
@@ -2711,6 +3002,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _parameter, environment ->
         environment
     end)
+  end
+
+  defp local_definition_environment(definition, environment) do
+    environment
+    |> Map.merge(Map.get(definition, :definition_environment, %{}))
+    |> Map.put(:bindings, %{})
   end
 
   defp supplied_local_parameters(definition) do
@@ -3095,6 +3392,63 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resolve_bindings(node, _environment, _resolving), do: node
+
+  defp resolve_static_expression(node, environment) do
+    node
+    |> resolve_attributes(environment)
+    |> resolve_bindings(environment)
+    |> resolve_struct_aliases(environment)
+    |> Macro.postwalk(&resolve_static_projection(&1, environment))
+  end
+
+  defp resolve_static_projection(
+         {{:., _dot_metadata, [container, field]}, _metadata, []} = projection,
+         _environment
+       )
+       when is_atom(field) do
+    case static_projection_fields(container) do
+      {:ok, fields} ->
+        case fetch_static_field(fields, field) do
+          {:ok, value} -> value
+          :error -> projection
+        end
+
+      :error ->
+        projection
+    end
+  end
+
+  defp resolve_static_projection(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, [container, field]} = projection,
+         environment
+       )
+       when operation in [:fetch!, :get] do
+    if receiver |> receiver_name() |> resolve_receiver(environment) == "Map" do
+      case static_projection_fields(container) do
+        {:ok, fields} ->
+          case fetch_static_field(fields, field) do
+            {:ok, value} -> value
+            :error -> projection
+          end
+
+        :error ->
+          projection
+      end
+    else
+      projection
+    end
+  end
+
+  defp resolve_static_projection(node, _environment), do: node
+
+  defp static_projection_fields({:%{}, _metadata, fields}) when is_list(fields),
+    do: {:ok, fields}
+
+  defp static_projection_fields({:%, _metadata, [_module, {:%{}, _map_metadata, fields}]})
+       when is_list(fields),
+       do: {:ok, fields}
+
+  defp static_projection_fields(_container), do: :error
 
   defp resolve_struct_aliases(node, environment) do
     Macro.prewalk(node, fn
