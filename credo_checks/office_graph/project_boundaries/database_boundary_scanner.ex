@@ -629,6 +629,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {environment, occurrences}
   end
 
+  defp scan_node(
+         {branch, _metadata, [condition, options]} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when branch in [:if, :unless] and is_list(options) do
+    if kernel_branch_macro_call?(branch, environment) and Keyword.keyword?(options) do
+      scan_kernel_branch(condition, options, environment, context, occurrences)
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, branch]}, _metadata, [condition, options]} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when branch in [:if, :unless] and is_list(options) do
+    if kernel_module_receiver?(receiver, environment) and Keyword.keyword?(options) do
+      scan_kernel_branch(condition, options, environment, context, occurrences)
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
   defp scan_node({:for, _metadata, arguments}, environment, context, occurrences)
        when is_list(arguments) do
     {qualifiers, options} = split_qualifiers_and_options(arguments)
@@ -657,17 +685,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_list(arguments) do
     {qualifiers, options} = split_qualifiers_and_options(arguments)
 
-    {child_environment, occurrences} =
+    {child_environment, failure_candidates, occurrences} =
       scan_generator_qualifiers(qualifiers, environment, context, occurrences, :match)
 
     {_body_environment, occurrences} =
       scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
 
+    else_clauses = Keyword.get(options, :else, [])
+
+    failure_candidates =
+      case failure_candidates do
+        [] -> [:unknown]
+        candidates -> Enum.uniq(candidates)
+      end
+
     occurrences =
-      options
-      |> Keyword.get(:else, [])
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_pattern_clause(clause, environment, context, occurrences)
+      Enum.reduce(failure_candidates, occurrences, fn
+        {:known, failed_value}, occurrences ->
+          Enum.reduce(else_clauses, occurrences, fn clause, occurrences ->
+            scan_pattern_clause(
+              clause,
+              environment,
+              context,
+              occurrences,
+              failed_value
+            )
+          end)
+
+        :unknown, occurrences ->
+          Enum.reduce(else_clauses, occurrences, fn clause, occurrences ->
+            scan_pattern_clause(clause, environment, context, occurrences)
+          end)
       end)
 
     {environment, occurrences}
@@ -767,6 +815,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node(node, environment, context, occurrences) do
     scan_executable_node(node, environment, context, occurrences)
+  end
+
+  defp scan_kernel_branch(condition, options, environment, context, occurrences) do
+    {condition_environment, occurrences} =
+      scan_node(condition, environment, context, occurrences)
+
+    occurrences =
+      options
+      |> Keyword.take([:do, :else])
+      |> Keyword.values()
+      |> Enum.reduce(occurrences, fn body, occurrences ->
+        {_body_environment, occurrences} =
+          scan_node(body, condition_environment, context, occurrences)
+
+        occurrences
+      end)
+
+    {condition_environment, occurrences}
   end
 
   defp scan_quote_bindings(bindings, environment, context, occurrences)
@@ -1008,6 +1074,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp kernel_value_callback_call?(operation, environment) do
+    not Map.has_key?(environment.local_functions, {operation, 2}) and
+      explicitly_imported_receiver(environment, operation, 2) in [nil, "Kernel"]
+  end
+
+  defp kernel_branch_macro_call?(operation, environment) do
     not Map.has_key?(environment.local_functions, {operation, 2}) and
       explicitly_imported_receiver(environment, operation, 2) in [nil, "Kernel"]
   end
@@ -1528,26 +1599,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         |> resolve_bindings(arguments_environment)
         |> resolve_struct_aliases(arguments_environment)
 
-      if is_list(resolved_enumerable) and static_binding_source?(resolved_enumerable) do
-        scan_static_enum_callbacks(
-          operation,
-          callback_arguments,
-          arguments,
-          resolved_enumerable,
-          arguments_environment,
-          context,
-          occurrences
-        )
-      else
-        occurrences =
-          Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
-            {_callback_environment, occurrences} =
-              scan_node(callback, arguments_environment, context, occurrences)
-
+      case static_enum_callback_elements(resolved_enumerable) do
+        {:ok, elements} ->
+          scan_static_enum_callbacks(
+            operation,
+            callback_arguments,
+            arguments,
+            elements,
+            arguments_environment,
+            context,
             occurrences
-          end)
+          )
 
-        {arguments_environment, occurrences}
+        :error ->
+          occurrences =
+            Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_node(callback, arguments_environment, context, occurrences)
+
+              occurrences
+            end)
+
+          {arguments_environment, occurrences}
       end
     else
       scan_executable_node(node, environment, context, occurrences)
@@ -1581,6 +1654,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         []
     end
   end
+
+  defp static_enum_callback_elements(values) when is_list(values) do
+    if static_binding_source?(values), do: {:ok, values}, else: :error
+  end
+
+  defp static_enum_callback_elements({:%{}, _metadata, fields} = map)
+       when is_list(fields) do
+    if static_binding_source?(map), do: {:ok, fields}, else: :error
+  end
+
+  defp static_enum_callback_elements(_enumerable), do: :error
 
   defp scan_static_enum_callbacks(
          operation,
@@ -2028,8 +2112,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          occurrences,
          binding_mode
        ) do
-    Enum.reduce(qualifiers, {environment, occurrences}, fn
-      {:<-, _metadata, [pattern, source]}, {environment, occurrences} ->
+    Enum.reduce(qualifiers, {environment, [], occurrences}, fn
+      {:<-, _metadata, [pattern, source]}, {environment, failure_candidates, occurrences} ->
         {environment, occurrences} = scan_node(source, environment, context, occurrences)
         {patterns, guards} = clause_patterns_and_guards([pattern])
 
@@ -2047,11 +2131,56 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         {_guard_environment, occurrences} =
           scan_isolated_children(guards, child_environment, context, occurrences)
 
-        {child_environment, occurrences}
+        failure_candidates =
+          with_failure_candidate(
+            patterns,
+            guards,
+            resolved_source,
+            environment,
+            child_environment,
+            failure_candidates
+          )
 
-      qualifier, {environment, occurrences} ->
-        scan_node(qualifier, environment, context, occurrences)
+        {child_environment, failure_candidates, occurrences}
+
+      qualifier, {environment, failure_candidates, occurrences} ->
+        {environment, occurrences} =
+          scan_node(qualifier, environment, context, occurrences)
+
+        {environment, failure_candidates, occurrences}
     end)
+  end
+
+  defp with_failure_candidate(
+         patterns,
+         guards,
+         source,
+         environment,
+         child_environment,
+         failure_candidates
+       ) do
+    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
+
+    guard_status =
+      guards
+      |> Enum.map(fn guard ->
+        guard
+        |> resolve_attributes(child_environment)
+        |> resolve_bindings(child_environment)
+        |> resolve_struct_aliases(child_environment)
+      end)
+      |> local_guards_match()
+
+    cond do
+      not static_binding_source?(source) ->
+        [:unknown | failure_candidates]
+
+      Enum.all?(patterns, &static_pattern_match?(&1, source)) and guard_status == :match ->
+        failure_candidates
+
+      true ->
+        [{:known, source} | failure_candidates]
+    end
   end
 
   defp bind_generator_patterns(environment, patterns, source, :match) do

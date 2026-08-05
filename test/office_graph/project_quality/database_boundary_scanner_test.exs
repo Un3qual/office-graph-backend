@@ -2269,6 +2269,86 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "threads condition bindings into if and unless branches" do
+    [
+      "if {:ok, repo} = {:ok, OfficeGraph.Repo}, do: repo.query!(\"SELECT 1\", [])",
+      "unless {:ok, repo} = {:ok, OfficeGraph.Repo}, do: :ok, else: repo.query!(\"SELECT 1\", [])",
+      "Kernel.if({:ok, repo} = {:ok, OfficeGraph.Repo}, do: repo.query!(\"SELECT 1\", []))",
+      "Kernel.unless({:ok, repo} = {:ok, OfficeGraph.Repo}, do: :ok, else: repo.query!(\"SELECT 1\", []))"
+    ]
+    |> Enum.each(fn conditional_source ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{conditional_source}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+    end)
+  end
+
+  test "expands static map enumerables into callback bindings" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.each(%{repo: OfficeGraph.Repo}, fn {_key, repo} ->
+                repo.query!("SELECT 1", [])
+              end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 4
+  end
+
+  test "binds statically failed with values into else clauses" do
+    [":error", "repo when false"]
+    |> Enum.each(fn generator_pattern ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                with #{generator_pattern} <- OfficeGraph.Repo do
+                  :ok
+                else
+                  repo -> repo.query!("SELECT 1", [])
+                end
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 6
+    end)
+  end
+
   test "classifies repository calls through singleton static for generators" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
