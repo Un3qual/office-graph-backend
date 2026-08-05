@@ -893,12 +893,25 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp module_expressions(expression), do: [expression]
 
   defp migration_local_function_keys(expressions) do
-    Enum.reduce(expressions, MapSet.new(), fn
+    Enum.reduce(expressions, %{all: MapSet.new(), exported: MapSet.new()}, fn
       {kind, _metadata, [head, body_options]}, keys
       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
         case local_function_head(head) do
-          {{name, arity}, _parameters, _guards} -> MapSet.put(keys, {name, arity})
-          nil -> keys
+          {key, parameters, guards} ->
+            key
+            |> local_function_definitions(kind, parameters, guards, nil)
+            |> Enum.reduce(keys, fn definition, keys ->
+              keys = %{keys | all: MapSet.put(keys.all, definition.key)}
+
+              if definition.kind == :function and definition.visibility == :public do
+                %{keys | exported: MapSet.put(keys.exported, definition.key)}
+              else
+                keys
+              end
+            end)
+
+          nil ->
+            keys
         end
 
       _expression, keys ->
@@ -958,7 +971,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     arguments = normalize_migration_calls(arguments, aliases, local_function_keys)
     fallback = {:apply, metadata, [receiver, operation, arguments]}
 
-    if MapSet.member?(local_function_keys, {:apply, 3}) do
+    if migration_local_function_defined?(local_function_keys, {:apply, 3}) do
       fallback
     else
       normalize_static_migration_apply(
@@ -967,7 +980,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         arguments,
         metadata,
         fallback,
-        aliases
+        aliases,
+        local_function_keys
       )
     end
   end
@@ -990,7 +1004,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         arguments,
         metadata,
         fallback,
-        aliases
+        aliases,
+        local_function_keys
       )
     else
       fallback
@@ -1036,12 +1051,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          arguments,
          metadata,
          fallback,
-         aliases
+         aliases,
+         local_function_keys
        )
        when is_atom(operation) and is_list(arguments) do
-    if resolve_module_name(receiver, aliases) == "Ecto.Migration",
-      do: {operation, metadata, arguments},
-      else: fallback
+    cond do
+      resolve_module_name(receiver, aliases) == "Ecto.Migration" ->
+        {operation, metadata, arguments}
+
+      migration_local_module_receiver?(receiver) and
+          migration_exported_function_defined?(
+            local_function_keys,
+            {operation, length(arguments)}
+          ) ->
+        {operation, metadata, arguments}
+
+      true ->
+        fallback
+    end
   end
 
   defp normalize_static_migration_apply(
@@ -1050,9 +1077,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _arguments,
          _metadata,
          fallback,
-         _aliases
+         _aliases,
+         _local_function_keys
        ),
        do: fallback
+
+  defp migration_local_module_receiver?({:__MODULE__, _metadata, _context}), do: true
+  defp migration_local_module_receiver?(_receiver), do: false
+
+  defp migration_local_function_defined?(local_function_keys, key),
+    do: MapSet.member?(local_function_keys.all, key)
+
+  defp migration_exported_function_defined?(local_function_keys, key),
+    do: MapSet.member?(local_function_keys.exported, key)
 
   defp migration_apply_receiver?(:erlang, _aliases), do: true
 

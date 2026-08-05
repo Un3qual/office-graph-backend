@@ -50,6 +50,41 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 3
   end
 
+  test "recognizes database module atoms in static helper and generator values" do
+    [
+      """
+      repo = :"Elixir.OfficeGraph.Repo"
+      run_query(repo, "DELETE FROM events")
+      """,
+      """
+      for repo <- [Example.NotARepo, :"Elixir.OfficeGraph.Repo"] do
+        repo.query!("DELETE FROM events", [])
+      end
+      """
+    ]
+    |> Enum.each(fn load_body ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{load_body}
+              end
+
+              defp run_query(repo, sql), do: repo.query!(sql, [])
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      refute Map.has_key?(occurrence, :approval)
+    end)
+  end
+
   test "fails closed for repository SQL exposed through defdelegate" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -2235,6 +2270,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert length(Enum.uniq(fingerprints)) == 1
   end
 
+  test "preserves bindings created while evaluating case subjects" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              case repo = OfficeGraph.Repo do
+                _repo -> :ok
+              end
+
+              repo.query!("DELETE FROM events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 7
+  end
+
   test "generator patterns shadow outer SQL bindings" do
     [
       "for statement <- statements, do: OfficeGraph.Repo.query!(statement, [])",
@@ -2788,6 +2848,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       end)
 
     assert length(Enum.uniq(fingerprints)) == 1
+  end
+
+  test "resolves compile-time bindings before storing module attributes" do
+    [
+      """
+      repo = OfficeGraph.Repo
+      @repo repo
+      """,
+      "@repo (repo = OfficeGraph.Repo)"
+    ]
+    |> Enum.each(fn module_setup ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              #{module_setup}
+
+              def load, do: @repo.query!("DELETE FROM events", [])
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+    end)
   end
 
   test "does not reclassify executable module attribute expressions at references" do

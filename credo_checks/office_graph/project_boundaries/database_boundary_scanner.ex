@@ -586,7 +586,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         )
       end)
 
-    {environment, occurrences}
+    {value_environment, occurrences}
   end
 
   defp scan_node({:fn, _metadata, clauses}, environment, context, occurrences) do
@@ -733,12 +733,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          occurrences
        )
        when is_atom(name) do
-    {_child_environment, occurrences} =
+    {value_environment, occurrences} =
       scan_node(value, environment, context, occurrences)
 
-    resolved_value = resolve_attributes(value, environment)
+    resolved_value =
+      value
+      |> callback_argument_result()
+      |> resolve_static_expression(value_environment)
 
-    {put_module_attribute_value(environment, name, resolved_value), occurrences}
+    {put_module_attribute_value(value_environment, name, resolved_value), occurrences}
   end
 
   defp scan_node(
@@ -2076,6 +2079,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     resolved_receiver in @database_alias_targets or repo_receiver?(resolved_receiver) or
       resolved_receiver == "Multi"
+  end
+
+  defp static_value_contains_database_receiver?(receiver, environment)
+       when is_atom(receiver) do
+    if receiver |> Atom.to_string() |> String.starts_with?("Elixir.") do
+      resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)
+
+      resolved_receiver in @database_alias_targets or repo_receiver?(resolved_receiver) or
+        resolved_receiver == "Multi"
+    else
+      false
+    end
   end
 
   defp static_value_contains_database_receiver?({:{}, _metadata, values}, environment),

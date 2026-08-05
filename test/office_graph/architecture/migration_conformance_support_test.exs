@@ -618,6 +618,37 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "includes DDL from exported local migration helpers invoked through apply" do
+    in_migration_root("office_graph_apply_helper_migration_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260805000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def up do
+            apply(__MODULE__, :create_first, [])
+            Kernel.apply(__MODULE__, :create_second, [])
+            :erlang.apply(__MODULE__, :create_third, [])
+          end
+
+          def create_first, do: create(table(:apply_helper_first))
+          def create_second, do: create(table(:apply_helper_second))
+          def create_third, do: create(table(:apply_helper_third))
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "apply_helper_first",
+               "apply_helper_second",
+               "apply_helper_third"
+             ]
+    end)
+  end
+
   test "resolves sequential local table bindings in forward migration DDL" do
     in_migration_root("office_graph_local_binding_conformance", fn root, migrations ->
       _ = root
