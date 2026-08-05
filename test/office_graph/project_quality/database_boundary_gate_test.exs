@@ -140,44 +140,88 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   end
 
   test "rejects approved exceptions without exact evidence in their accepted OpenSpec change" do
-    Enum.each([:missing_change, :unrelated_record], fn scenario ->
-      with_boundary_repository(fn root, source, occurrence ->
-        approved = approved_entry(occurrence)
+    Enum.each(
+      [missing_change: :missing_change, unrelated_record: :unrecorded_exception],
+      fn {scenario, expected_reason} ->
+        with_boundary_repository(fn root, source, occurrence ->
+          approved = approved_entry(occurrence)
 
-        inventory_path =
-          Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+          inventory_path =
+            Path.join(
+              root,
+              "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
+            )
 
-        File.mkdir_p!(Path.dirname(inventory_path))
-        File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
-
-        if scenario == :unrelated_record do
-          change_root =
-            Path.join(root, "openspec/changes/archive/20260801000000-approved-change")
-
-          File.mkdir_p!(change_root)
+          File.mkdir_p!(Path.dirname(inventory_path))
 
           File.write!(
-            Path.join(change_root, "database-exception-approvals.json"),
-            Jason.encode!(%{
-              "version" => 1,
-              "approvals" => [Map.put(approved, "fingerprint", "sha256:unrelated")]
-            })
+            inventory_path,
+            Jason.encode!(%{"version" => 1, "exceptions" => [approved]})
           )
-        end
 
-        source_path = Path.join(root, occurrence.path)
-        File.mkdir_p!(Path.dirname(source_path))
-        File.write!(source_path, source)
-        {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+          if scenario == :unrelated_record do
+            change_root =
+              Path.join(root, "openspec/changes/archive/2026-08-01-approved-change")
 
-        [diagnostic] = DatabaseBoundaryGate.check_repository(root)
+            File.mkdir_p!(change_root)
 
-        assert diagnostic.kind == :invalid_approval_provenance
-        assert diagnostic.inventory == :approved_exceptions
-        assert diagnostic.entry == 1
-        assert diagnostic.approving_change == "approved-change"
-        assert diagnostic.fingerprint == occurrence.fingerprint
-      end)
+            File.write!(
+              Path.join(change_root, "database-exception-approvals.json"),
+              Jason.encode!(%{
+                "version" => 1,
+                "approvals" => [Map.put(approved, "fingerprint", "sha256:unrelated")]
+              })
+            )
+          end
+
+          source_path = Path.join(root, occurrence.path)
+          File.mkdir_p!(Path.dirname(source_path))
+          File.write!(source_path, source)
+          {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+          [diagnostic] = DatabaseBoundaryGate.check_repository(root)
+
+          assert diagnostic.kind == :invalid_approval_provenance
+          assert diagnostic.inventory == :approved_exceptions
+          assert diagnostic.entry == 1
+          assert diagnostic.approving_change == "approved-change"
+          assert diagnostic.fingerprint == occurrence.fingerprint
+          assert diagnostic.reason == expected_reason
+        end)
+      end
+    )
+  end
+
+  test "matches only the exact dated archive directory for approval evidence" do
+    with_boundary_repository(fn root, source, occurrence ->
+      approved = approved_entry(occurrence)
+
+      inventory_path =
+        Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+
+      File.mkdir_p!(Path.dirname(inventory_path))
+      File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
+
+      exact_change_root =
+        Path.join(root, "openspec/changes/archive/2026-08-01-approved-change")
+
+      suffix_overlap_root =
+        Path.join(root, "openspec/changes/archive/2026-07-29-integrate-approved-change")
+
+      File.mkdir_p!(exact_change_root)
+      File.mkdir_p!(suffix_overlap_root)
+
+      File.write!(
+        Path.join(exact_change_root, "database-exception-approvals.json"),
+        Jason.encode!(%{"version" => 1, "approvals" => [approved]})
+      )
+
+      source_path = Path.join(root, occurrence.path)
+      File.mkdir_p!(Path.dirname(source_path))
+      File.write!(source_path, source)
+      {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+      assert DatabaseBoundaryGate.check_repository(root) == []
     end)
   end
 

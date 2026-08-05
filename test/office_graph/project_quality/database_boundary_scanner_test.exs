@@ -29,6 +29,49 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     refute Map.has_key?(occurrence, :approval)
   end
 
+  test "classifies repository SQL calls through module-atom receivers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              :"Elixir.OfficeGraph.Repo".query!("DELETE FROM events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+  end
+
+  test "fails closed for repository SQL exposed through defdelegate" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            defdelegate query(sql, params), to: OfficeGraph.Repo, as: :query!
+
+            def load, do: query("DELETE FROM events", [])
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "query/2"
+    assert occurrence.line == 2
+    assert occurrence.approval == :unresolved_sql
+  end
+
   test "classifies statically targeted apply calls through supported apply entrypoints" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -504,6 +547,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
              {:raw_sql, "Ecto.Query.API.fragment", 5},
              {:raw_sql, "Ecto.Query.API.unsafe_fragment", 6}
+           ]
+  end
+
+  test "marks runtime SQL-shaping fragment helpers as unapprovable" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            import Ecto.Query.API
+
+            def filter(field, value) do
+              fragment("? IS NOT NULL", identifier(^field))
+              fragment("? = 1", constant(^value))
+              fragment("? IS NOT NULL", identifier("fixed_column"))
+              fragment("? = ?", value, ^value)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.line, Map.get(&1, :approval)}) == [
+             {5, :unresolved_sql},
+             {6, :unresolved_sql},
+             {7, nil},
+             {8, nil}
            ]
   end
 
@@ -1231,6 +1302,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "Repo.query!"
     assert occurrence.function == "load/0"
+  end
+
+  test "fails closed for database calls emitted by public repository macros" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example/sql_macros.ex",
+          source: """
+          defmodule Example.SqlMacros do
+            defmacro run(sql) do
+              quote do
+                OfficeGraph.Repo.query!(unquote(sql), [])
+              end
+            end
+          end
+          """
+        },
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            require Example.SqlMacros
+
+            def load, do: Example.SqlMacros.run("DELETE FROM events")
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.path == "lib/example/sql_macros.ex"
+    assert occurrence.function == "run/1"
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "classifies qualified migration execution calls" do
@@ -2018,6 +2123,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       assert occurrence.function == "load/0"
       assert occurrence.line == 3
     end)
+  end
+
+  test "binds static enumerable elements in Enum.map_join/2 callbacks" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.map_join([OfficeGraph.Repo], fn repo ->
+                repo.query!("SELECT 1", [])
+              end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 4
   end
 
   test "does not apply Enum callback semantics to unrelated modules" do

@@ -197,10 +197,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   defp approval_change_directories(root, change) do
     active_change = Path.join(root, "openspec/changes/#{change}")
 
+    archived_change_pattern =
+      ~r/^\d{4}-\d{2}-\d{2}-#{Regex.escape(change)}$/
+
     archived_changes =
       root
-      |> Path.join("openspec/changes/archive/*-#{change}")
+      |> Path.join("openspec/changes/archive/*")
       |> Path.wildcard()
+      |> Enum.filter(fn path ->
+        File.dir?(path) and Regex.match?(archived_change_pattern, Path.basename(path))
+      end)
 
     [active_change | archived_changes]
     |> Enum.filter(&File.dir?/1)

@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement: Non-migration database access has no removal debt
+### Requirement: Non-migration database access is fully approved
 
 Office Graph SHALL have zero unapproved raw-SQL or direct-Ecto occurrences in
 runtime code, tests, test support, or seeds after this change. Historical

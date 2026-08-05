@@ -169,6 +169,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
 
   @ecto_fragment_import_targets ["Ecto.Migration", "Ecto.Query", "Ecto.Query.API"]
+  @fragment_sql_shape_helpers [:constant, :identifier, :splice]
   @ecto_migration_use_fixed_imports MapSet.new(
                                       execute: 1,
                                       execute: 2,
@@ -243,6 +244,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :frequencies_by,
     :group_by,
     :map,
+    :map_join,
     :max_by,
     :min_by,
     :min_max_by,
@@ -499,6 +501,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp scan_node(
+         {:defdelegate, metadata, [head, options]} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when is_list(options) do
+    with {name, parameters} <- function_name_and_parameters(head),
+         target when not is_nil(target) <- Keyword.get(options, :to),
+         operation when is_atom(operation) <- Keyword.get(options, :as, name) do
+      delegated_call = {{:., [], [target, operation]}, metadata, parameters}
+      child_context = %{context | function: "#{name}/#{length(parameters)}"}
+      child_environment = %{environment | bindings: %{}}
+
+      {_child_environment, occurrences} =
+        scan_node(delegated_call, child_environment, child_context, occurrences)
+
+      {environment, occurrences}
+    else
+      _unsupported_delegate -> scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
   defp scan_node({kind, _metadata, [head, body_options]}, environment, context, occurrences)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
     occurrences =
@@ -520,7 +545,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         {_child_environment, occurrences} =
           scan_children(body_options, child_environment, child_context, occurrences)
 
-        occurrences
+        if kind == :defmacro do
+          definition = %{body: Keyword.get(body_options, :do), kind: :macro}
+
+          {expanded_body, expanded_environment} =
+            expand_local_definition(definition, child_environment)
+
+          {_expanded_environment, occurrences} =
+            scan_node(expanded_body, expanded_environment, child_context, occurrences)
+
+          occurrences
+        else
+          occurrences
+        end
       end)
 
     {environment, occurrences}
@@ -805,7 +842,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
               construct,
               occurrence_node
             )
-            |> mark_sql_approval(class, construct, classification_node)
+            |> mark_sql_approval(class, construct, classification_node, environment)
             | occurrences
           ]
       end
@@ -3282,7 +3319,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
     do: [:options, :where]
 
-  defp mark_sql_approval(occurrence, :raw_sql, "migration.execute_file", node) do
+  defp mark_sql_approval(occurrence, :raw_sql, "migration.execute_file", node, _environment) do
     with {:ok, payloads} <- raw_sql_payloads(node, "migration.execute_file"),
          {:ok, paths} <- static_execute_file_paths(payloads) do
       Map.put(occurrence, :execute_file_paths, paths)
@@ -3291,14 +3328,64 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp mark_sql_approval(occurrence, :raw_sql, construct, node) do
-    case raw_sql_payloads(node, construct) do
-      {:ok, payloads} -> mark_sql_payloads_approval(occurrence, payloads)
-      :error -> Map.put(occurrence, :approval, :unresolved_sql)
+  defp mark_sql_approval(occurrence, :raw_sql, construct, node, environment) do
+    with {:ok, payloads} <- raw_sql_payloads(node, construct),
+         false <- dynamic_fragment_sql_shape?(node, construct, environment) do
+      mark_sql_payloads_approval(occurrence, payloads)
+    else
+      _unresolved -> Map.put(occurrence, :approval, :unresolved_sql)
     end
   end
 
-  defp mark_sql_approval(occurrence, _class, _construct, _node), do: occurrence
+  defp mark_sql_approval(occurrence, _class, _construct, _node, _environment), do: occurrence
+
+  defp dynamic_fragment_sql_shape?(node, construct, environment)
+       when construct in ["fragment", "Ecto.Query.API.fragment"] do
+    node
+    |> call_arguments()
+    |> Enum.drop(1)
+    |> Enum.any?(&contains_dynamic_fragment_sql_shape?(&1, environment))
+  end
+
+  defp dynamic_fragment_sql_shape?(_node, _construct, _environment), do: false
+
+  defp contains_dynamic_fragment_sql_shape?(argument, environment) do
+    {_argument, dynamic?} =
+      Macro.prewalk(argument, false, fn node, dynamic? ->
+        {node, dynamic? or dynamic_fragment_sql_shape_helper?(node, environment)}
+      end)
+
+    dynamic?
+  end
+
+  defp dynamic_fragment_sql_shape_helper?(
+         {operation, _metadata, [payload]},
+         environment
+       )
+       when operation in @fragment_sql_shape_helpers do
+    imported_receiver(environment, operation, 1) in @ecto_fragment_import_targets and
+      not static_sql_payload?(payload)
+  end
+
+  defp dynamic_fragment_sql_shape_helper?(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, [payload]},
+         environment
+       )
+       when operation in @fragment_sql_shape_helpers do
+    (receiver |> receiver_name() |> resolve_receiver(environment)) in @ecto_fragment_import_targets and
+      not static_sql_payload?(payload)
+  end
+
+  defp dynamic_fragment_sql_shape_helper?(_node, _environment), do: false
+
+  defp call_arguments({{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments})
+       when is_list(arguments),
+       do: arguments
+
+  defp call_arguments({_operation, _metadata, arguments}) when is_list(arguments),
+    do: arguments
+
+  defp call_arguments(_node), do: []
 
   defp mark_sql_payloads_approval(occurrence, payloads) do
     if Enum.all?(payloads, &static_sql_payload?/1),
@@ -4028,6 +4115,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp receiver_name({:__aliases__, _metadata, parts}) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
+  end
+
+  defp receiver_name(receiver) when is_atom(receiver) do
+    receiver
+    |> Atom.to_string()
+    |> String.trim_leading("Elixir.")
   end
 
   defp receiver_name({name, _metadata, context}) when is_atom(name) and is_atom(context),

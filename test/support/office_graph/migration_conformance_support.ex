@@ -8,20 +8,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @foreign_key_definition_operations [:add, :add_if_not_exists, :modify]
 
   def migration_tables do
-    repository_helpers = repository_migration_helpers()
-
-    "priv/repo/migrations/*.exs"
-    |> Path.wildcard()
-    |> Enum.sort()
-    |> Enum.reduce(MapSet.new(), fn path, tables ->
-      path
-      |> File.read!()
-      |> migration_forward_ast(repository_helpers)
-      |> migration_table_operations()
-      |> Enum.reduce(tables, &apply_table_operation/2)
-    end)
-    |> MapSet.to_list()
-    |> Enum.sort()
+    migration_inventory().tables
   end
 
   def resource_table_identities(expected_resources) do
@@ -62,26 +49,62 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_foreign_keys do
+    migration_inventory().foreign_keys
+  end
+
+  defp migration_inventory do
+    key = {__MODULE__, :migration_inventory, File.cwd!()}
+
+    case Process.get(key) do
+      nil ->
+        inventory = build_migration_inventory()
+        Process.put(key, inventory)
+        inventory
+
+      inventory ->
+        inventory
+    end
+  end
+
+  defp build_migration_inventory do
     repository_helpers = repository_migration_helpers()
 
-    "priv/repo/migrations/*.exs"
-    |> Path.wildcard()
-    |> Enum.sort()
-    |> Enum.reduce(%{}, fn path, foreign_keys ->
-      path
-      |> File.read!()
-      |> migration_forward_ast(repository_helpers)
-      |> migration_foreign_key_operations()
-      |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
-    end)
-    |> Map.values()
-    |> Enum.flat_map(&MapSet.to_list/1)
-    |> Enum.map(fn {source_table, source_attribute, destination_table, destination_attribute,
-                    _constraint_name} ->
-      {source_table, source_attribute, destination_table, destination_attribute}
-    end)
-    |> Enum.uniq()
-    |> Enum.sort()
+    {tables, foreign_keys} =
+      "priv/repo/migrations/*.exs"
+      |> Path.wildcard()
+      |> Enum.sort()
+      |> Enum.reduce({MapSet.new(), %{}}, fn path, {tables, foreign_keys} ->
+        forward_ast =
+          path
+          |> File.read!()
+          |> migration_forward_ast(repository_helpers)
+
+        tables =
+          forward_ast
+          |> migration_table_operations()
+          |> Enum.reduce(tables, &apply_table_operation/2)
+
+        foreign_keys =
+          forward_ast
+          |> migration_foreign_key_operations()
+          |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
+
+        {tables, foreign_keys}
+      end)
+
+    %{
+      tables: tables |> MapSet.to_list() |> Enum.sort(),
+      foreign_keys:
+        foreign_keys
+        |> Map.values()
+        |> Enum.flat_map(&MapSet.to_list/1)
+        |> Enum.map(fn {source_table, source_attribute, destination_table, destination_attribute,
+                        _constraint_name} ->
+          {source_table, source_attribute, destination_table, destination_attribute}
+        end)
+        |> Enum.uniq()
+        |> Enum.sort()
+    }
   end
 
   defp migration_forward_ast(source, repository_helpers) do
@@ -123,17 +146,34 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                 "use declarative Ecto migration constructs so conformance can inventory it"
       end
 
-      with {:ok, arguments} <- migration_execute_file_arguments(node),
-           {:ok, path} <- arguments |> List.first() |> static_migration_file_path(),
-           sql <- File.read!(path),
-           true <- schema_ownership_sql?(sql) do
-        raise ArgumentError,
-              "migration execute SQL changes table or foreign-key ownership; " <>
-                "use declarative Ecto migration constructs so conformance can inventory it"
-      end
+      reject_execute_file_ownership_sql!(node)
 
       node
     end)
+  end
+
+  defp reject_execute_file_ownership_sql!(node) do
+    case migration_execute_file_arguments(node) do
+      {:ok, arguments} ->
+        path =
+          case arguments |> List.first() |> static_migration_file_path() do
+            {:ok, path} ->
+              path
+
+            :error ->
+              raise ArgumentError,
+                    "cannot statically resolve migration execute_file path inside project root"
+          end
+
+        if path |> File.read!() |> schema_ownership_sql?() do
+          raise ArgumentError,
+                "migration execute SQL changes table or foreign-key ownership; " <>
+                  "use declarative Ecto migration constructs so conformance can inventory it"
+        end
+
+      :error ->
+        :ok
+    end
   end
 
   defp repository_migration_helpers do
@@ -439,11 +479,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp static_migration_file_path(path) do
     with {:ok, path} when is_binary(path) <- static_migration_sql(path),
          :relative <- Path.type(path),
-         expanded <- Path.expand(path, "/"),
-         normalized <- Path.relative_to(expanded, "/"),
-         false <- normalized in ["", ".", ".."],
-         false <- String.starts_with?(normalized, "../") do
-      {:ok, normalized}
+         project_root <- Path.expand(File.cwd!()),
+         expanded <- Path.expand(path, project_root),
+         relative <- Path.relative_to(expanded, project_root),
+         false <- relative in ["", ".", ".."],
+         false <- String.starts_with?(relative, "../"),
+         true <- File.regular?(expanded) do
+      {:ok, expanded}
     else
       _unavailable -> :error
     end
@@ -2038,7 +2080,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     reference_options = List.flatten(reference_options)
 
     destination_prefix =
-      Keyword.get(reference_options, :prefix, table_prefix_from_identity(table))
+      migration_table_prefix(reference_options, table_prefix_from_identity(table))
 
     foreign_key = {
       table,
@@ -2213,21 +2255,23 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp table_identity(table, options) do
     options = List.flatten(options)
-
-    prefix =
-      case Keyword.fetch(options, :prefix) do
-        {:ok, prefix} when is_nil(prefix) or is_atom(prefix) or is_binary(prefix) ->
-          prefix
-
-        {:ok, prefix} ->
-          raise ArgumentError,
-                "cannot statically resolve migration table prefix: #{Macro.to_string(prefix)}"
-
-        :error ->
-          nil
-      end
+    prefix = migration_table_prefix(options, nil)
 
     schema_table_identity(table, prefix)
+  end
+
+  defp migration_table_prefix(options, fallback) do
+    case Keyword.fetch(options, :prefix) do
+      {:ok, prefix} when is_nil(prefix) or is_atom(prefix) or is_binary(prefix) ->
+        prefix
+
+      {:ok, prefix} ->
+        raise ArgumentError,
+              "cannot statically resolve migration table prefix: #{Macro.to_string(prefix)}"
+
+      :error ->
+        fallback
+    end
   end
 
   defp schema_table_identity(table, prefix) when prefix in [nil, :public, "public"],

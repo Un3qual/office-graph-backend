@@ -80,7 +80,7 @@ typed result contract.
 - **WHEN** an entrypoint requests fields from another domain's private tables
 - **THEN** the owning domain MUST expose an approved action, relationship, or typed query result instead of allowing the caller to query the private table
 
-### Requirement: Non-migration database access has no removal debt
+### Requirement: Non-migration database access is fully approved
 
 Office Graph SHALL have zero unapproved raw-SQL or direct-Ecto occurrences in
 runtime code, tests, test support, or seeds. Explicitly approved exceptions
@@ -104,6 +104,14 @@ SHALL remain exact and fingerprinted.
 
 - **WHEN** two approved entries share the same path, line, class, construct,
   function, and ordinal even when their fingerprints differ
+- **THEN** canonical verification MUST reject the approved inventory before
+  matching current fingerprints or suppressing stale entries
+
+#### Scenario: Approval provenance is invalid
+
+- **WHEN** an approved exception references a missing change directory, a
+  missing or invalid approval-evidence file, an unmatched approval record, or
+  multiple archived directories for the same approving change
 - **THEN** canonical verification MUST reject the approved inventory before
   matching current fingerprints or suppressing stale entries
 
