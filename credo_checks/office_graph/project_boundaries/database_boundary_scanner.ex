@@ -101,7 +101,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_elixir_source(path, source) do
     migration? = migration_path?(path)
     ast = Code.string_to_quoted!(source, file: path, columns: true)
-    context = %{function: nil, local_call_stack: MapSet.new(), migration?: migration?, path: path}
+
+    context = %{
+      function: nil,
+      local_call_stack: MapSet.new(),
+      migration?: migration?,
+      path: path,
+      query_dsl?: false
+    }
+
     {_environment, occurrences} = scan_node(ast, empty_environment(), context, [])
     Enum.reverse(occurrences)
   end
@@ -288,6 +296,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                               @stream_second_argument_unary_callback_operations ++
                                                 @stream_third_argument_unary_callback_operations
                                             )
+  @repo_raw_sql_operations [:query, :query!, :query_many, :query_many!]
   @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
@@ -897,7 +906,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       classify_migration_sql_options(classification_node, environment, context, occurrences)
 
     occurrences =
-      case classify_node(classification_node, context.migration?, environment) do
+      case classify_node(classification_node, context, environment) do
         nil ->
           occurrences
 
@@ -1103,7 +1112,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp static_repo_callback_receiver(receiver, environment, migration?) do
-    resolved_receiver = resolve_static_expression(receiver, environment)
+    resolved_receiver = resolve_database_receiver_expression(receiver, environment)
 
     case database_receiver_name(resolved_receiver, migration?, environment) do
       receiver_name when receiver_name in ["Repo", "OfficeGraph.Repo"] ->
@@ -1324,6 +1333,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     else
       :error
     end
+  end
+
+  defp do_normalize_literal_callback(
+         {:&, metadata,
+          [
+            {:/, _arity_metadata,
+             [{{:., dot_metadata, [receiver, operation]}, call_metadata, []}, arity]}
+          ]},
+         _environment
+       )
+       when is_atom(operation) and is_integer(arity) and arity >= 0 do
+    parameters = if arity == 0, do: [], else: Enum.map(1..arity, &capture_argument/1)
+    body = {{:., dot_metadata, [receiver, operation]}, call_metadata, parameters}
+    {:ok, {:fn, metadata, [{:->, metadata, [parameters, body]}]}}
   end
 
   defp do_normalize_literal_callback({:&, metadata, [body]}, _environment) do
@@ -2272,26 +2295,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_classified_children(node, environment, context, occurrences) do
-    case migration_table_block(node, environment, context) do
-      {:ok, construct, block_options, table_target} ->
-        {_construct_environment, occurrences} =
-          scan_node(construct, environment, context, occurrences)
-
-        {_options_environment, occurrences} =
-          block_options
-          |> Keyword.delete(:do)
-          |> Keyword.values()
-          |> scan_isolated_children(environment, context, occurrences)
-
-        table_context = Map.put(context, :migration_table_target, table_target)
-
-        {_block_environment, occurrences} =
-          scan_node(Keyword.get(block_options, :do), environment, table_context, occurrences)
-
-        {environment, occurrences}
+    case ecto_query_call(node, environment) do
+      {:ok, _operation, _metadata, _arguments} ->
+        scan_children(node, environment, %{context | query_dsl?: true}, occurrences)
 
       :error ->
-        scan_children(node, environment, context, occurrences)
+        case migration_table_block(node, environment, context) do
+          {:ok, construct, block_options, table_target} ->
+            {_construct_environment, occurrences} =
+              scan_node(construct, environment, context, occurrences)
+
+            {_options_environment, occurrences} =
+              block_options
+              |> Keyword.delete(:do)
+              |> Keyword.values()
+              |> scan_isolated_children(environment, context, occurrences)
+
+            table_context = Map.put(context, :migration_table_target, table_target)
+
+            {_block_environment, occurrences} =
+              scan_node(Keyword.get(block_options, :do), environment, table_context, occurrences)
+
+            {environment, occurrences}
+
+          :error ->
+            scan_children(node, environment, context, occurrences)
+        end
     end
   end
 
@@ -2377,10 +2406,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_node(
          {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments},
-         migration?,
+         %{migration?: migration?},
          environment
        ) do
-    resolved_receiver = resolve_static_expression(receiver, environment)
+    resolved_receiver = resolve_database_receiver_expression(receiver, environment)
     receiver = database_receiver_name(resolved_receiver, migration?, environment)
 
     classify_migration_operation(receiver, operation) ||
@@ -2390,12 +2419,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_node(
          {:unresolved_database_apply, receiver, operation, _arguments},
-         migration?,
+         %{migration?: migration?},
          environment
        ) do
     receiver =
       receiver
-      |> resolve_static_expression(environment)
+      |> resolve_database_receiver_expression(environment)
       |> database_receiver_name(migration?, environment)
 
     operation = resolve_bindings(operation, environment)
@@ -2405,25 +2434,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       classify_dynamic_database_apply(receiver, operation)
   end
 
-  defp classify_node({construct, _metadata, arguments}, migration?, environment)
+  defp classify_node(
+         {construct, _metadata, arguments},
+         %{migration?: migration?, query_dsl?: query_dsl?},
+         environment
+       )
        when construct in [:fragment, :unsafe_fragment] and is_list(arguments) do
-    if migration? or imported_fragment?(environment, construct, length(arguments)),
+    if migration? or query_dsl? or imported_fragment?(environment, construct, length(arguments)),
       do: {:raw_sql, to_string(construct)}
   end
 
-  defp classify_node({:execute, _metadata, arguments}, true, _environment)
+  defp classify_node({:execute, _metadata, arguments}, %{migration?: true}, _environment)
        when is_list(arguments),
        do: {:raw_sql, "migration.execute"}
 
-  defp classify_node({:execute_file, _metadata, arguments}, true, _environment)
+  defp classify_node({:execute_file, _metadata, arguments}, %{migration?: true}, _environment)
        when is_list(arguments),
        do: {:raw_sql, "migration.execute_file"}
 
-  defp classify_node({:insert, _metadata, arguments}, true, _environment)
+  defp classify_node({:insert, _metadata, arguments}, %{migration?: true}, _environment)
        when is_list(arguments),
        do: {:direct_ecto, "migration.insert"}
 
-  defp classify_node({operation, _metadata, arguments}, _migration?, environment)
+  defp classify_node({operation, _metadata, arguments}, _context, environment)
        when is_atom(operation) and is_list(arguments) do
     receiver = imported_receiver(environment, operation, length(arguments))
 
@@ -2431,10 +2464,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       classify_database_operation(receiver, operation)
   end
 
-  defp classify_node({:unsafe_fragment, sql}, _migration?, _environment) when is_binary(sql),
+  defp classify_node({:unsafe_fragment, sql}, _context, _environment) when is_binary(sql),
     do: {:raw_sql, "unsafe_fragment"}
 
-  defp classify_node(_node, _migration?, _environment), do: nil
+  defp classify_node(_node, _context, _environment), do: nil
 
   defp classify_migration_operation("Ecto.Migration", :execute),
     do: {:raw_sql, "migration.execute"}
@@ -2460,7 +2493,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_direct_operations ->
         {:direct_ecto, "#{receiver}.#{operation}"}
 
-      operation in [:query, :query!] and repo_receiver?(receiver) ->
+      operation in @repo_raw_sql_operations and repo_receiver?(receiver) ->
         {:raw_sql, "Repo.#{operation}"}
 
       receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_raw_sql_operations ->
@@ -2483,7 +2516,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_unresolved_database_receiver(receiver, operation, environment) do
     if static_value_contains_database_receiver?(receiver, environment) do
       cond do
-        operation in [:query, :query!] -> {:raw_sql, "Repo.#{operation}"}
+        operation in @repo_raw_sql_operations -> {:raw_sql, "Repo.#{operation}"}
         operation in @direct_repo_operations -> {:direct_ecto, "Repo.#{operation}"}
         true -> nil
       end
@@ -3884,6 +3917,80 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> resolve_struct_aliases(environment)
     |> Macro.postwalk(&resolve_static_projection(&1, environment))
   end
+
+  defp resolve_database_receiver_expression(node, environment) do
+    resolve_database_receiver_expression(node, environment, MapSet.new())
+  end
+
+  defp resolve_database_receiver_expression(node, environment, resolving) do
+    resolved_node = resolve_static_expression(node, environment)
+
+    case resolved_node do
+      {name, _metadata, arguments} = local_call
+      when is_atom(name) and arguments in [nil, []] ->
+        key = {name, 0}
+
+        if MapSet.member?(resolving, key) do
+          local_call
+        else
+          results =
+            environment.local_functions
+            |> Map.get(key, [])
+            |> matching_local_definitions([], environment)
+            |> Enum.map(fn definition ->
+              child_environment = bind_local_function_arguments(definition, [], environment)
+              {body, child_environment} = expand_local_definition(definition, child_environment)
+
+              resolve_static_local_result(
+                body,
+                child_environment,
+                MapSet.put(resolving, key)
+              )
+            end)
+            |> Enum.uniq()
+
+          case results do
+            [] -> local_call
+            [result] -> result
+            results -> {:__block__, [], results}
+          end
+        end
+
+      _not_local_call ->
+        resolved_node
+    end
+  end
+
+  defp resolve_static_local_result({:__block__, _metadata, expressions}, environment, resolving)
+       when is_list(expressions),
+       do: resolve_static_local_result_sequence(expressions, environment, resolving)
+
+  defp resolve_static_local_result(expression, environment, resolving),
+    do: resolve_database_receiver_expression(expression, environment, resolving)
+
+  defp resolve_static_local_result_sequence([], _environment, _resolving), do: nil
+
+  defp resolve_static_local_result_sequence([expression], environment, resolving),
+    do: resolve_static_local_result(expression, environment, resolving)
+
+  defp resolve_static_local_result_sequence(
+         [{:=, _metadata, [pattern, value]} | expressions],
+         environment,
+         resolving
+       ) do
+    resolved_pattern = resolve_struct_aliases(pattern, environment)
+    resolved_value = resolve_static_local_result(value, environment, resolving)
+    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
+
+    resolve_static_local_result_sequence(
+      expressions,
+      %{environment | bindings: bindings},
+      resolving
+    )
+  end
+
+  defp resolve_static_local_result_sequence([_expression | expressions], environment, resolving),
+    do: resolve_static_local_result_sequence(expressions, environment, resolving)
 
   defp resolve_static_projection(
          {{:., _dot_metadata, [container, field]}, _metadata, []} = projection,

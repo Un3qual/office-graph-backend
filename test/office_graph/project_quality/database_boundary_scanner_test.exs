@@ -421,6 +421,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "classifies SQL-adapter query-many functions injected into repos as raw SQL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              OfficeGraph.Repo.query_many("SELECT 1; SELECT 2", [])
+              OfficeGraph.Repo.query_many!("SELECT 3; SELECT 4", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "Repo.query_many", 3},
+             {:raw_sql, "Repo.query_many!", 4}
+           ]
+
+    assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
+  end
+
   test "classifies generated Ecto SQL explain calls as direct database access" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -558,6 +582,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                  """
                }
              ])
+  end
+
+  test "classifies fragments inside recognized Ecto query DSL calls without fragment imports" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            import Ecto.Query, only: [from: 2]
+
+            def load(query) do
+              from row in query,
+                where: fragment("lower(?)", row.name) == "name"
+
+              Ecto.Query.from(
+                row in query,
+                where: fragment("upper(?)", row.name) == "NAME"
+              )
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:raw_sql, "fragment", 6},
+             {:raw_sql, "fragment", 10}
+           ]
+
+    assert Enum.all?(occurrences, &(not Map.has_key?(&1, :approval)))
   end
 
   test "classifies fully qualified and aliased Ecto query fragments as raw SQL" do
@@ -1804,6 +1859,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "classifies directly invoked remote database captures" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              (&OfficeGraph.Repo.query!/2).("DELETE FROM events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+    refute Map.has_key?(occurrence, :approval)
+  end
+
   test "binds static database receivers through captured local functions" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -1849,6 +1926,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "Repo.query!"
     assert occurrence.function == "run_query/2"
     assert occurrence.line == 6
+    refute Map.has_key?(occurrence, :approval)
+  end
+
+  test "resolves zero-arity local helpers used as database receivers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load, do: repo().query!("DELETE FROM events", [])
+
+            defp repo, do: OfficeGraph.Repo
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 2
     refute Map.has_key?(occurrence, :approval)
   end
 
