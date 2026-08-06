@@ -1150,8 +1150,11 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     Enum.each(
       [
         ~s'repo().query!("CREATE TABLE repo_owned_examples (id uuid PRIMARY KEY)", [])',
+        ~s'repo().query_many!("CREATE TABLE repo_many_owned_examples (id uuid PRIMARY KEY)", [])',
         ~s'Ecto.Adapters.SQL.query(repo(), "CREATE TABLE adapter_owned_examples (id uuid PRIMARY KEY)", [])',
-        ~s'RepoAlias.query!("CREATE TABLE alias_owned_examples (id uuid PRIMARY KEY)", [])'
+        ~s'Ecto.Adapters.SQL.query_many(repo(), "CREATE TABLE adapter_many_owned_examples (id uuid PRIMARY KEY)", [])',
+        ~s'RepoAlias.query!("CREATE TABLE alias_owned_examples (id uuid PRIMARY KEY)", [])',
+        ~s'RepoAlias.query_many!("CREATE TABLE alias_many_owned_examples (id uuid PRIMARY KEY)", [])'
       ],
       fn query_call ->
         in_migration_root("office_graph_query_ddl_conformance", fn root, migrations ->
@@ -1226,6 +1229,39 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         end)
       end
     )
+  end
+
+  test "fails closed for lifecycle calls exposed through repository defdelegates" do
+    in_migration_root("office_graph_defdelegated_helper_conformance", fn root, migrations ->
+      helpers = Path.join(root, "lib/my_app")
+      File.mkdir_p!(helpers)
+
+      File.write!(
+        Path.join(helpers, "migration_helpers.ex"),
+        """
+        defmodule MyApp.MigrationHelpers do
+          defdelegate create_auxiliary_table(), to: MyApp.RealMigrationHelpers
+        end
+        """
+      )
+
+      File.write!(
+        Path.join(migrations, "20260805000000_defdelegated_helper.exs"),
+        """
+        defmodule DefdelegatedHelperMigration do
+          use Ecto.Migration
+
+          def change do
+            MyApp.MigrationHelpers.create_auxiliary_table()
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/repository migration helper/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
   end
 
   test "rejects ownership DDL inside executable migration DO blocks" do
@@ -1820,6 +1856,51 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
                expected_resources
              ) == [
                "attribute_children.parent_id references attribute_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "resolves module-scope bindings before storing migration attributes" do
+    in_migration_root("office_graph_bound_module_attribute_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260731000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          table_name = :bound_attribute_parents
+          @parent_table table_name
+
+          table_name = :bound_attribute_children
+          @child_table table_name
+
+          def change do
+            create table(@parent_table)
+
+            create table(@child_table) do
+              add :parent_id, references(@parent_table)
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "bound_attribute_children" => {nil, OfficeGraph.Tenancy.Organization},
+        "bound_attribute_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "bound_attribute_children",
+               "bound_attribute_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "bound_attribute_children.parent_id references bound_attribute_parents.id without a matching belongs_to"
              ]
     end)
   end

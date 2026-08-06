@@ -6,6 +6,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @table_definition_operations [:alter | @table_create_operations]
   @table_lifecycle_operations @table_create_operations ++ @table_drop_operations
   @foreign_key_definition_operations [:add, :add_if_not_exists, :modify]
+  @migration_query_operations [:query, :query!, :query_many, :query_many!]
 
   def migration_tables do
     migration_inventory().tables
@@ -253,6 +254,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
             keys
         end
 
+      {:defdelegate, _metadata, [head, options]}, keys when is_list(options) ->
+        case local_function_head(head) do
+          {key, parameters, guards} ->
+            key
+            |> local_function_definitions(:def, parameters, guards, nil)
+            |> Enum.reduce(keys, &MapSet.put(&2, &1.key))
+
+          nil ->
+            keys
+        end
+
       _expression, keys ->
         keys
     end)
@@ -364,7 +376,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp migration_query_sql_payload(
          {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments}
        )
-       when operation in [:query, :query!] and is_list(arguments) do
+       when operation in @migration_query_operations and is_list(arguments) do
     if migration_repo_query_receiver?(receiver) and arguments != [],
       do: {:ok, List.first(arguments)},
       else: migration_sql_adapter_payload(receiver, operation, arguments)
@@ -373,7 +385,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp migration_query_sql_payload(_node), do: :error
 
   defp migration_sql_adapter_payload(receiver, operation, [_repo, sql | _arguments])
-       when operation in [:query, :query!] do
+       when operation in @migration_query_operations do
     if migration_module_name(receiver) == "Ecto.Adapters.SQL",
       do: {:ok, sql},
       else: :error
@@ -815,17 +827,32 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     expressions = ast |> migration_module_body() |> module_expressions()
     local_function_keys = migration_local_function_keys(expressions)
 
-    {functions, _attributes, _aliases} =
-      Enum.reduce(expressions, {%{}, %{}, %{}}, fn
-        {:alias, _metadata, arguments}, {functions, attributes, aliases} ->
-          {functions, attributes, put_module_aliases(aliases, arguments)}
+    {functions, _attributes, _aliases, _bindings} =
+      Enum.reduce(expressions, {%{}, %{}, %{}, %{}}, fn
+        {:alias, _metadata, arguments}, {functions, attributes, aliases, bindings} ->
+          {functions, attributes, put_module_aliases(aliases, arguments), bindings}
 
-        {:@, _metadata, [{name, _name_metadata, [value]}]}, {functions, attributes, aliases}
+        {:@, _metadata, [{name, _name_metadata, [value]}]},
+        {functions, attributes, aliases, bindings}
         when is_atom(name) ->
-          attributes = Map.put(attributes, name, resolve_module_attributes(value, attributes))
-          {functions, attributes, aliases}
+          {value, bindings} =
+            value
+            |> resolve_module_attributes(attributes)
+            |> resolve_local_bindings(bindings)
 
-        {kind, _meta, [head, body_options]}, {functions, attributes, aliases}
+          attributes = Map.put(attributes, name, value)
+          {functions, attributes, aliases, bindings}
+
+        {:=, _metadata, [_pattern, _value]} = assignment,
+        {functions, attributes, aliases, bindings} ->
+          {_resolved_value, bindings} =
+            assignment
+            |> resolve_module_attributes(attributes)
+            |> resolve_local_bindings(bindings)
+
+          {functions, attributes, aliases, bindings}
+
+        {kind, _meta, [head, body_options]}, {functions, attributes, aliases, bindings}
         when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
           head = resolve_module_attributes(head, attributes)
 
@@ -847,10 +874,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                   end)
                 end)
 
-              {functions, attributes, aliases}
+              {functions, attributes, aliases, bindings}
 
             _not_a_function_definition ->
-              {functions, attributes, aliases}
+              {functions, attributes, aliases, bindings}
           end
 
         _module_expression, accumulator ->
