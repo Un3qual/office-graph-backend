@@ -339,6 +339,32 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "keeps tables that may survive an unresolved cond branch" do
+    in_migration_root("office_graph_unknown_cond_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260806000000_create_durable.exs"),
+        """
+        defmodule CreateDurable do
+          use Ecto.Migration
+
+          def change do
+            create table(:durable)
+
+            cond do
+              System.get_env("DROP_DURABLE") -> drop table(:durable)
+              true -> :ok
+            end
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == ["durable"]
+    end)
+  end
+
   test "keeps foreign keys that may exist after an unknown migration branch" do
     in_migration_root("office_graph_unknown_foreign_key_branch", fn root, migrations ->
       _ = root
@@ -357,6 +383,47 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
                 add :parent_id, references(:parents)
               else
                 remove :parent_id
+              end
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "children" => {nil, OfficeGraph.Tenancy.Organization},
+        "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "keeps foreign keys that may survive an unresolved cond branch" do
+    in_migration_root("office_graph_unknown_foreign_key_cond", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260806000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:parents)
+
+            create table(:children) do
+              add :parent_id, references(:parents)
+            end
+
+            alter table(:children) do
+              cond do
+                System.get_env("DROP_PARENT_REFERENCE") -> remove :parent_id
+                true -> :ok
               end
             end
           end
@@ -1301,6 +1368,38 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "rejects ownership DDL in prefixed strings passed to dynamic EXECUTE" do
+    Enum.each(
+      [
+        "DO $$ BEGIN EXECUTE E'CREATE TABLE escape_owned_examples (id uuid)'; END $$;",
+        "DO $$ BEGIN EXECUTE E'SELECT \\'safe\\'; CREATE TABLE escaped_quote_owned_examples (id uuid)'; END $$;",
+        "DO $$ BEGIN EXECUTE U&'CREATE TABLE unicode_owned_examples (id uuid)'; END $$;"
+      ],
+      fn sql ->
+        in_migration_root("office_graph_prefixed_execute_ddl", fn root, migrations ->
+          _ = root
+
+          File.write!(
+            Path.join(migrations, "20260806000000_prefixed_execute_ddl.exs"),
+            """
+            defmodule PrefixedExecuteDdl do
+              use Ecto.Migration
+
+              def change do
+                execute(#{inspect(sql)})
+              end
+            end
+            """
+          )
+
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
   test "rejects ownership DDL loaded by migration execute_file" do
     in_migration_root("office_graph_execute_file_ddl", fn root, migrations ->
       _ = root
@@ -1942,6 +2041,43 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ) == [
                "aliased_children.parent_id references aliased_parents.id without a matching belongs_to"
              ]
+    end)
+  end
+
+  test "fails closed when a migration-like module uses an unrecognized wrapper" do
+    in_migration_root("office_graph_wrapped_migration_conformance", fn root, migrations ->
+      wrapper = Path.join(root, "lib/my_app/migration.ex")
+      File.mkdir_p!(Path.dirname(wrapper))
+
+      File.write!(
+        wrapper,
+        """
+        defmodule MyApp.Migration do
+          defmacro __using__(_options) do
+            quote do
+              use Ecto.Migration
+            end
+          end
+        end
+        """
+      )
+
+      File.write!(
+        Path.join(migrations, "20260806000000_create_wrapped.exs"),
+        """
+        defmodule CreateWrapped do
+          use MyApp.Migration
+
+          def change do
+            create table(:wrapped_examples)
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/cannot statically verify migration module/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
     end)
   end
 

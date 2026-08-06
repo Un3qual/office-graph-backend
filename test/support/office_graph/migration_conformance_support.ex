@@ -554,15 +554,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     do: skip_sql_block_comment(rest, 1, [" " | code])
 
   defp do_sql_code_without_comments_or_literals(<<"'", rest::binary>>, code) do
+    quote_mode = sql_single_quote_mode(code)
+
     cond do
       sql_do_block_prefix?(code) ->
-        preserve_sql_single_quoted_code(rest, code)
+        preserve_sql_single_quoted_code(rest, code, quote_mode)
 
       sql_dynamic_execute_prefix?(code) ->
-        preserve_sql_single_quoted_code(rest, code)
+        preserve_sql_single_quoted_code(rest, code, quote_mode)
 
       true ->
-        skip_sql_single_quoted(rest, [" " | code])
+        skip_sql_single_quoted(rest, [" " | code], quote_mode)
     end
   end
 
@@ -617,19 +619,26 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp skip_sql_block_comment(<<_codepoint::utf8, rest::binary>>, depth, code),
     do: skip_sql_block_comment(rest, depth, code)
 
-  defp skip_sql_single_quoted(<<>>, code), do: code
+  defp skip_sql_single_quoted(<<>>, code, _quote_mode), do: code
 
-  defp skip_sql_single_quoted(<<"''", rest::binary>>, code),
-    do: skip_sql_single_quoted(rest, code)
+  defp skip_sql_single_quoted(<<"''", rest::binary>>, code, quote_mode),
+    do: skip_sql_single_quoted(rest, code, quote_mode)
 
-  defp skip_sql_single_quoted(<<"'", rest::binary>>, code),
+  defp skip_sql_single_quoted(
+         <<"\\", _escaped_codepoint::utf8, rest::binary>>,
+         code,
+         :escape
+       ),
+       do: skip_sql_single_quoted(rest, code, :escape)
+
+  defp skip_sql_single_quoted(<<"'", rest::binary>>, code, _quote_mode),
     do: do_sql_code_without_comments_or_literals(rest, code)
 
-  defp skip_sql_single_quoted(<<_codepoint::utf8, rest::binary>>, code),
-    do: skip_sql_single_quoted(rest, code)
+  defp skip_sql_single_quoted(<<_codepoint::utf8, rest::binary>>, code, quote_mode),
+    do: skip_sql_single_quoted(rest, code, quote_mode)
 
-  defp preserve_sql_single_quoted_code(sql, code) do
-    case take_sql_single_quoted(sql, []) do
+  defp preserve_sql_single_quoted_code(sql, code, quote_mode) do
+    case take_sql_single_quoted(sql, [], quote_mode) do
       {:ok, body, trailing} ->
         body_code = sql_code_without_comments_or_literals(body)
         do_sql_code_without_comments_or_literals(trailing, [" ", body_code, " " | code])
@@ -639,16 +648,28 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp take_sql_single_quoted(<<>>, _body), do: :error
+  defp take_sql_single_quoted(<<>>, _body, _quote_mode), do: :error
 
-  defp take_sql_single_quoted(<<"''", rest::binary>>, body),
-    do: take_sql_single_quoted(rest, ["'" | body])
+  defp take_sql_single_quoted(<<"''", rest::binary>>, body, quote_mode),
+    do: take_sql_single_quoted(rest, ["'" | body], quote_mode)
 
-  defp take_sql_single_quoted(<<"'", rest::binary>>, body),
+  defp take_sql_single_quoted(
+         <<"\\", escaped_codepoint::utf8, rest::binary>>,
+         body,
+         :escape
+       ),
+       do:
+         take_sql_single_quoted(
+           rest,
+           [<<escaped_codepoint::utf8>>, "\\" | body],
+           :escape
+         )
+
+  defp take_sql_single_quoted(<<"'", rest::binary>>, body, _quote_mode),
     do: {:ok, body |> Enum.reverse() |> IO.iodata_to_binary(), rest}
 
-  defp take_sql_single_quoted(<<codepoint::utf8, rest::binary>>, body),
-    do: take_sql_single_quoted(rest, [<<codepoint::utf8>> | body])
+  defp take_sql_single_quoted(<<codepoint::utf8, rest::binary>>, body, quote_mode),
+    do: take_sql_single_quoted(rest, [<<codepoint::utf8>> | body], quote_mode)
 
   defp skip_sql_double_quoted(<<>>, code), do: code
 
@@ -704,7 +725,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp sql_do_block_prefix?(code) do
-    code = code |> Enum.reverse() |> IO.iodata_to_binary()
+    code =
+      code
+      |> Enum.reverse()
+      |> IO.iodata_to_binary()
+      |> strip_sql_string_literal_prefix()
 
     Regex.match?(
       ~r/(?:^|;)\s*DO(?:\s+LANGUAGE\s+[A-Za-z_][A-Za-z0-9_$]*)?\s*\z/i,
@@ -722,7 +747,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp dynamic_execute_literal_prefix?(expression) do
-    expression = String.trim(expression)
+    expression = expression |> String.trim() |> strip_sql_string_literal_prefix()
 
     direct_literal? = Regex.match?(~r/\A(?:\(\s*)*\z/, expression)
 
@@ -739,6 +764,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         |> dynamic_execute_concat_literal_context?()
 
     direct_literal? or format_template? or concatenated_fragment?
+  end
+
+  defp sql_single_quote_mode(code) do
+    code = code |> Enum.reverse() |> IO.iodata_to_binary()
+
+    if Regex.match?(~r/(?<![A-Za-z0-9_$])E\z/i, code), do: :escape, else: :standard
+  end
+
+  defp strip_sql_string_literal_prefix(expression) do
+    Regex.replace(~r/(?<![A-Za-z0-9_$])(?:E|N|U&)\z/i, expression, "")
   end
 
   defp dynamic_execute_concat_literal_context?(expression) do
@@ -887,15 +922,95 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
   end
 
-  defp migration_module_body({:__block__, _metadata, expressions}) do
-    Enum.find_value(expressions, &migration_module_body/1)
+  defp migration_module_body(ast) do
+    case find_migration_module_body(ast) do
+      nil -> reject_unrecognized_migration_module!(ast)
+      body -> body
+    end
   end
 
-  defp migration_module_body({:defmodule, _metadata, [_module, [do: body]]}) do
+  defp find_migration_module_body({:__block__, _metadata, expressions}) do
+    Enum.find_value(expressions, &find_migration_module_body/1)
+  end
+
+  defp find_migration_module_body({:defmodule, _metadata, [_module, [do: body]]}) do
     if uses_ecto_migration?(body), do: body
   end
 
-  defp migration_module_body(_ast), do: nil
+  defp find_migration_module_body(_ast), do: nil
+
+  defp reject_unrecognized_migration_module!(ast) do
+    case unrecognized_migration_module(ast) do
+      nil ->
+        nil
+
+      {module, []} ->
+        raise ArgumentError,
+              "cannot statically verify migration module #{module}: " <>
+                "expected use Ecto.Migration directly or through an explicit alias"
+
+      {module, use_targets} ->
+        raise ArgumentError,
+              IO.iodata_to_binary([
+                "cannot statically verify migration module ",
+                module,
+                ": unrecognized migration use target(s) ",
+                Enum.intersperse(use_targets, ", "),
+                "; wrapper macros must not hide migration ownership operations"
+              ])
+    end
+  end
+
+  defp unrecognized_migration_module({:__block__, _metadata, expressions}) do
+    Enum.find_value(expressions, &unrecognized_migration_module/1)
+  end
+
+  defp unrecognized_migration_module({:defmodule, _metadata, [module, [do: body]]}) do
+    if migration_entrypoint_module?(body) do
+      {module_name(module) || Macro.to_string(module), migration_use_targets(body)}
+    end
+  end
+
+  defp unrecognized_migration_module(_ast), do: nil
+
+  defp migration_entrypoint_module?(body) do
+    body
+    |> module_expressions()
+    |> Enum.any?(fn
+      {:def, _metadata, [head, body_options]} when is_list(body_options) ->
+        case local_function_head(head) do
+          {key, parameters, guards} ->
+            key
+            |> local_function_definitions(:def, parameters, guards, nil)
+            |> Enum.any?(&(&1.key in [{:up, 0}, {:change, 0}]))
+
+          nil ->
+            false
+        end
+
+      _module_expression ->
+        false
+    end)
+  end
+
+  defp migration_use_targets(body) do
+    {targets, _aliases} =
+      body
+      |> module_expressions()
+      |> Enum.reduce({[], %{}}, fn
+        {:alias, _metadata, arguments}, {targets, aliases} ->
+          {targets, put_module_aliases(aliases, arguments)}
+
+        {:use, _metadata, [target | _options]}, {targets, aliases} ->
+          target = resolve_module_name(target, aliases) || Macro.to_string(target)
+          {[target | targets], aliases}
+
+        _module_expression, accumulator ->
+          accumulator
+      end)
+
+    targets |> Enum.reverse() |> Enum.uniq()
+  end
 
   defp uses_ecto_migration?(body) do
     body
@@ -2026,6 +2141,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp collect_foreign_key_operations(
+         {:cond, _metadata, [[do: clauses]]},
+         table,
+         certainty
+       )
+       when is_list(clauses) do
+    collect_cond_operations(clauses, certainty, fn expression, branch_certainty ->
+      collect_foreign_key_operations(expression, table, branch_certainty)
+    end)
+  end
+
+  defp collect_foreign_key_operations(
          {operator, _metadata, [condition, options]},
          table,
          certainty
@@ -2207,6 +2333,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     collect_table_operations(body, possible_certainty(certainty))
   end
 
+  defp collect_table_operations({:cond, _metadata, [[do: clauses]]}, certainty)
+       when is_list(clauses) do
+    collect_cond_operations(clauses, certainty, &collect_table_operations/2)
+  end
+
   defp collect_table_operations(
          {operator, _metadata, [condition, options]},
          certainty
@@ -2255,6 +2386,40 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp collect_table_operations(_node, _certainty), do: []
+
+  defp collect_cond_operations(clauses, certainty, collect_operations) do
+    {operation_chunks, _remaining_certainty} =
+      Enum.reduce_while(clauses, {[], certainty}, fn
+        {:->, _metadata, [[condition], body]}, {operation_chunks, branch_certainty} ->
+          condition_operations = collect_operations.(condition, branch_certainty)
+
+          case static_truthiness(condition) do
+            :truthy ->
+              branch_operations = collect_operations.(body, branch_certainty)
+
+              {:halt, {[branch_operations, condition_operations | operation_chunks], nil}}
+
+            :falsy ->
+              {:cont, {[condition_operations | operation_chunks], branch_certainty}}
+
+            :unknown ->
+              possible_certainty = possible_certainty(branch_certainty)
+              branch_operations = collect_operations.(body, possible_certainty)
+
+              {:cont,
+               {[branch_operations, condition_operations | operation_chunks], possible_certainty}}
+          end
+
+        clause, {operation_chunks, branch_certainty} ->
+          possible_certainty = possible_certainty(branch_certainty)
+
+          {:cont,
+           {[collect_operations.(clause, possible_certainty) | operation_chunks],
+            possible_certainty}}
+      end)
+
+    operation_chunks |> Enum.reverse() |> List.flatten()
+  end
 
   defp selected_static_branch(:if, condition) do
     case static_truthiness(condition) do
