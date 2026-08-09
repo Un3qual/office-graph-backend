@@ -27,9 +27,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_sources(sources, file_resolver) do
+    sources = Enum.filter(sources, &eligible_source?/1)
+    remote_functions = collect_remote_functions(sources)
+
     sources
-    |> Enum.filter(&eligible_source?/1)
-    |> Enum.flat_map(&scan_source/1)
+    |> Enum.flat_map(&scan_source(&1, remote_functions))
     |> resolve_execute_file_occurrences(file_resolver)
     |> Enum.sort_by(&{&1.path, &1.line, &1.construct})
     |> add_ordinals_and_fingerprints()
@@ -86,7 +88,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_source(%{path: path, source: source}) when is_binary(source) do
+  defp scan_source(%{path: path, source: source}, remote_functions) when is_binary(source) do
     if Path.extname(path) == ".sql" do
       if String.trim(source) == "" do
         []
@@ -94,11 +96,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         [occurrence(path, 1, nil, :raw_sql, "sql_file", String.trim(source))]
       end
     else
-      scan_elixir_source(path, source)
+      scan_elixir_source(path, source, remote_functions)
     end
   end
 
-  defp scan_elixir_source(path, source) do
+  defp scan_elixir_source(path, source, remote_functions) do
     migration? = migration_path?(path)
     ast = Code.string_to_quoted!(source, file: path, columns: true)
 
@@ -110,7 +112,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       query_dsl?: false
     }
 
-    {_environment, occurrences} = scan_node(ast, empty_environment(), context, [])
+    environment = %{empty_environment() | remote_functions: remote_functions}
+    {_environment, occurrences} = scan_node(ast, environment, context, [])
     Enum.reverse(occurrences)
   end
 
@@ -2871,16 +2874,45 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, _arguments},
+         {operation, _metadata, [value]},
+         _context,
+         environment
+       )
+       when operation in [:exit, :throw] do
+    if kernel_local_call?(operation, 1, environment) and
+         database_receiver_escape_argument?(value, environment),
+       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
+  end
+
+  defp classify_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, [value]},
+         _context,
+         environment
+       )
+       when operation in [:exit, :throw] do
+    if kernel_module_receiver?(receiver, environment) and
+         database_receiver_escape_argument?(value, environment),
+       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
+  end
+
+  defp classify_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
          %{migration?: migration?},
          environment
-       ) do
+       )
+       when is_list(arguments) do
     resolved_receiver = resolve_database_receiver_expression(receiver, environment)
     receiver = database_receiver_name(resolved_receiver, migration?, environment)
 
     classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation) ||
-      classify_unresolved_database_receiver(resolved_receiver, operation, environment)
+      classify_unresolved_database_receiver(resolved_receiver, operation, environment) ||
+      classify_remote_database_receiver_escape(
+        resolved_receiver,
+        operation,
+        arguments,
+        environment
+      )
   end
 
   defp classify_node(
@@ -2987,6 +3019,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         true -> nil
       end
     end
+  end
+
+  defp classify_remote_database_receiver_escape(receiver, operation, arguments, environment) do
+    resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)
+
+    if MapSet.member?(
+         environment.remote_functions,
+         {resolved_receiver, operation, length(arguments)}
+       ) and
+         Enum.any?(arguments, &database_receiver_escape_argument?(&1, environment)),
+       do: {:raw_sql, "database_receiver.remote_helper"}
+  end
+
+  defp database_receiver_escape_argument?(argument, environment) do
+    argument
+    |> resolve_static_expression(environment)
+    |> static_value_contains_database_receiver?(environment)
   end
 
   defp classify_dynamic_database_apply(_receiver, operation) when is_atom(operation), do: nil
@@ -3971,6 +4020,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp mark_sql_approval(occurrence, :raw_sql, construct, _node, _environment)
+       when construct in [
+              "database_receiver.nonlocal_control_flow",
+              "database_receiver.remote_helper"
+            ],
+       do: Map.put(occurrence, :approval, :unresolved_sql)
+
   defp mark_sql_approval(occurrence, :raw_sql, construct, node, environment) do
     with {:ok, payloads} <- raw_sql_payloads(node, construct),
          false <- dynamic_fragment_sql_shape?(node, construct, environment) do
@@ -4247,10 +4303,94 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       bindings: %{},
       imports: [],
       local_functions: %{},
+      remote_functions: MapSet.new(),
       self_messages: [],
       uncertain_attribute_registration?: false
     }
   end
+
+  defp collect_remote_functions(sources) do
+    Enum.reduce(sources, MapSet.new(), fn %{path: path, source: source}, functions ->
+      if Path.extname(path) == ".sql" do
+        functions
+      else
+        source
+        |> Code.string_to_quoted!(file: path, columns: true)
+        |> collect_remote_functions_from_ast(functions, nil)
+      end
+    end)
+  end
+
+  defp collect_remote_functions_from_ast(
+         {:quote, _metadata, _arguments},
+         functions,
+         _parent_module
+       ),
+       do: functions
+
+  defp collect_remote_functions_from_ast(
+         {:defmodule, _metadata, [module | arguments]},
+         functions,
+         parent_module
+       ) do
+    {module_names, nested_parent} = tracked_module_names(module, parent_module)
+    body = block_body([module | arguments])
+
+    functions = collect_public_remote_functions(body, module_names, functions)
+
+    collect_remote_functions_from_ast(body, functions, nested_parent)
+  end
+
+  defp collect_remote_functions_from_ast(nodes, functions, parent_module)
+       when is_list(nodes),
+       do:
+         Enum.reduce(nodes, functions, fn node, functions ->
+           collect_remote_functions_from_ast(node, functions, parent_module)
+         end)
+
+  defp collect_remote_functions_from_ast(node, functions, parent_module)
+       when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> collect_remote_functions_from_ast(functions, parent_module)
+  end
+
+  defp collect_remote_functions_from_ast(_node, functions, _parent_module), do: functions
+
+  defp collect_public_remote_functions(body, module_names, functions) do
+    body
+    |> module_expressions()
+    |> Enum.reduce(functions, fn
+      {kind, _metadata, [head, body_options]}, functions
+      when kind in [:def, :defmacro] and is_list(body_options) ->
+        Enum.reduce(function_variants(head), functions, fn variant, functions ->
+          Enum.reduce(module_names, functions, fn module_name, functions ->
+            MapSet.put(functions, {module_name, variant.name, variant.arity})
+          end)
+        end)
+
+      _expression, functions ->
+        functions
+    end)
+  end
+
+  defp tracked_module_names(module, parent_module) do
+    case receiver_name(module) do
+      nil ->
+        {[], parent_module}
+
+      module_name ->
+        if parent_module && unqualified_module_alias?(module) do
+          nested_name = parent_module <> "." <> module_name
+          {[module_name, nested_name], nested_name}
+        else
+          {[module_name], module_name}
+        end
+    end
+  end
+
+  defp unqualified_module_alias?({:__aliases__, _metadata, [_part]}), do: true
+  defp unqualified_module_alias?(_module), do: false
 
   defp module_attribute_registration?(receiver, [module | _arguments], environment) do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Module" and

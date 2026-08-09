@@ -2687,6 +2687,89 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 6
   end
 
+  test "fails closed when a database receiver crosses nonlocal control flow" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              try do
+                throw(OfficeGraph.Repo)
+              catch
+                repo -> repo.query!("DELETE FROM events", [])
+              end
+
+              try do
+                Kernel.exit(OfficeGraph.Repo)
+              catch
+                :exit, repo -> repo.query!("DELETE FROM archived_events", [])
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 4, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 10, :unresolved_sql}
+           ]
+  end
+
+  test "fails closed when an ordinary remote helper receives a database receiver" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              SqlHelper.run(OfficeGraph.Repo, "DELETE FROM events")
+            end
+          end
+          """
+        },
+        %{
+          path: "lib/sql_helper.ex",
+          source: """
+          defmodule SqlHelper do
+            def run(repo, sql), do: repo.query!(sql, [])
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "database_receiver.remote_helper"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+    assert occurrence.approval == :unresolved_sql
+
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "lib/example.ex",
+               source: """
+               defmodule Example do
+                 def load do
+                   SqlHelper.run(Example.NotARepo, "DELETE FROM events")
+                   throw(Example.NotARepo)
+                 end
+               end
+               """
+             }
+           ]) == []
+  end
+
   test "binds statically delivered self messages into receive clauses" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
