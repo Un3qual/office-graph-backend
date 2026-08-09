@@ -141,6 +141,15 @@ diverge.
   and nested inert string literals, and MUST reject the unmodeled ownership
   change
 
+#### Scenario: Ownership DDL is wrapped in a stored routine definition
+
+- **WHEN** approved migration execution SQL defines a PostgreSQL procedure or
+  function whose single-quoted or dollar-quoted body contains table lifecycle
+  or foreign-key DDL
+- **THEN** canonical model-ownership verification MUST inspect the routine body
+  and reject the unmodeled ownership change while continuing to ignore matching
+  phrases in comments and inert nested string literals
+
 #### Scenario: Ownership DDL uses SELECT INTO table creation
 
 - **WHEN** approved migration execution SQL uses PostgreSQL `SELECT ... INTO`

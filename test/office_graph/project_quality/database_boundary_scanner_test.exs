@@ -2269,6 +2269,74 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "propagates static Enum map results into downstream callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.map([OfficeGraph.Repo], & &1)
+              |> Enum.each(fn repo -> repo.query!("DELETE FROM events", []) end)
+
+              Enum.map([:event], fn _event -> OfficeGraph.Repo end)
+              |> Enum.each(fn repo -> repo.query!("DELETE FROM archived_events", []) end)
+
+              Enum.map([OfficeGraph.Repo], &identity/1)
+              |> Enum.each(fn repo -> repo.query!("DELETE FROM retained_events", []) end)
+
+              Enum.map([OfficeGraph.Repo], &identity/1)
+              |> Stream.each(fn repo -> repo.query!("DELETE FROM streamed_events", []) end)
+              |> Stream.run()
+
+              Enum.map([:event], fn _event -> OfficeGraph.Repo end)
+              |> Task.async_stream(fn repo -> repo.query!("DELETE FROM tasked_events", []) end)
+              |> Stream.run()
+
+              Enum.map([OfficeGraph.Repo], fn _repo -> Example.NotRepo end)
+              |> Enum.each(fn value -> value.query!("DELETE FROM unrelated_events", []) end)
+            end
+
+            defp identity(value), do: value
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/0", 4},
+             {"Repo.query!", "load/0", 7},
+             {"Repo.query!", "load/0", 10},
+             {"Repo.query!", "load/0", 13},
+             {"Repo.query!", "load/0", 17}
+           ]
+  end
+
+  test "bounds static Enum result resolution across cyclic lexical bindings" do
+    scan =
+      Task.async(fn ->
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load(patterns) do
+                patterns = Enum.map(patterns, & &1)
+
+                Enum.each(patterns, fn value ->
+                  value.query!("DELETE FROM events", [])
+                end)
+              end
+            end
+            """
+          }
+        ])
+      end)
+
+    assert Task.await(scan, 1_000) == []
+  end
+
   test "binds explicit static accumulators in Enum callbacks" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

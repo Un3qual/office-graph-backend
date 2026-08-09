@@ -1540,6 +1540,68 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "rejects ownership DDL inside migration procedure definitions" do
+    Enum.each(
+      [
+        "CREATE PROCEDURE make_aux() LANGUAGE plpgsql AS $$ BEGIN CREATE TABLE auxiliary(id int); END $$; CALL make_aux();",
+        "CREATE OR REPLACE FUNCTION make_aux() RETURNS void LANGUAGE plpgsql AS $body$ BEGIN ALTER TABLE examples ADD COLUMN label text; END $body$; SELECT make_aux();",
+        "CREATE PROCEDURE drop_aux() LANGUAGE plpgsql AS 'BEGIN DROP TABLE auxiliary; END'; CALL drop_aux();"
+      ],
+      fn sql ->
+        in_migration_root("office_graph_procedure_ddl", fn root, migrations ->
+          _ = root
+
+          File.write!(
+            Path.join(migrations, "20260809000000_procedure_ddl.exs"),
+            """
+            defmodule ProcedureDdl do
+              use Ecto.Migration
+
+              def change do
+                execute(#{inspect(sql)})
+              end
+            end
+            """
+          )
+
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
+  test "allows inert text inside migration procedure definitions" do
+    in_migration_root("office_graph_inert_procedure_text", fn root, migrations ->
+      _ = root
+
+      sql = """
+      CREATE PROCEDURE log_message() LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE NOTICE 'CREATE TABLE inert (id int)';
+      END
+      $$;
+      CALL log_message();
+      """
+
+      File.write!(
+        Path.join(migrations, "20260809000000_inert_procedure_text.exs"),
+        """
+        defmodule InertProcedureText do
+          use Ecto.Migration
+
+          def change do
+            execute(#{inspect(sql)})
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == []
+    end)
+  end
+
   test "rejects ownership DDL in prefixed strings passed to dynamic EXECUTE" do
     Enum.each(
       [

@@ -573,6 +573,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       sql_dynamic_execute_prefix?(code) ->
         preserve_sql_single_quoted_code(rest, code, quote_mode)
 
+      sql_routine_definition_prefix?(code) ->
+        preserve_sql_single_quoted_code(rest, code, quote_mode)
+
       true ->
         skip_sql_single_quoted(rest, [" " | code], quote_mode)
     end
@@ -592,6 +595,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
             preserve_sql_dollar_quoted_code(sql, delimiter, code)
 
           sql_dynamic_execute_prefix?(code) ->
+            preserve_sql_dollar_quoted_code(sql, delimiter, code)
+
+          sql_routine_definition_prefix?(code) ->
             preserve_sql_dollar_quoted_code(sql, delimiter, code)
 
           true ->
@@ -754,6 +760,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       [expression] -> dynamic_execute_literal_prefix?(expression)
       nil -> false
     end
+  end
+
+  defp sql_routine_definition_prefix?(code) do
+    code =
+      code
+      |> Enum.reverse()
+      |> IO.iodata_to_binary()
+      |> strip_sql_string_literal_prefix()
+
+    Regex.match?(
+      ~r/(?:^|;)\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:PROCEDURE|FUNCTION)\b[^;]*\bAS\s*\z/i,
+      code
+    )
   end
 
   defp dynamic_execute_literal_prefix?(expression) do

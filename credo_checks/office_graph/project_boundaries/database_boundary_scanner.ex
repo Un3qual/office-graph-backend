@@ -1179,7 +1179,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       callback_environment = %{environment | self_messages: []}
 
       occurrences =
-        case resolved_arguments |> Map.get(enumerable_index) |> static_enum_callback_elements() do
+        case resolved_arguments
+             |> Map.get(enumerable_index)
+             |> static_enum_callback_elements(environment) do
           {:ok, elements} ->
             Enum.reduce(Enum.uniq(elements), occurrences, fn element, occurrences ->
               {_callback_environment, occurrences} =
@@ -1246,24 +1248,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       resolved_enumerable = List.first(resolved_arguments)
 
       occurrences =
-        if is_list(resolved_enumerable) and static_binding_source?(resolved_enumerable) do
-          Enum.reduce(Enum.uniq(resolved_enumerable), occurrences, fn element, occurrences ->
+        case static_enum_callback_elements(resolved_enumerable, arguments_environment) do
+          {:ok, elements} ->
+            Enum.reduce(Enum.uniq(elements), occurrences, fn element, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_invoked_literal_callback(
+                  callback,
+                  [element],
+                  arguments_environment,
+                  context,
+                  occurrences
+                )
+
+              occurrences
+            end)
+
+          :error ->
             {_callback_environment, occurrences} =
-              scan_invoked_literal_callback(
-                callback,
-                [element],
-                arguments_environment,
-                context,
-                occurrences
-              )
+              scan_node(callback, arguments_environment, context, occurrences)
 
             occurrences
-          end)
-        else
-          {_callback_environment, occurrences} =
-            scan_node(callback, arguments_environment, context, occurrences)
-
-          occurrences
         end
 
       {:ok, arguments_environment, occurrences}
@@ -1891,15 +1895,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           end
         end)
 
-      resolved_enumerable =
-        arguments
-        |> List.first()
-        |> callback_argument_result()
-        |> resolve_attributes(arguments_environment)
-        |> resolve_bindings(arguments_environment)
-        |> resolve_struct_aliases(arguments_environment)
-
-      case static_enum_callback_elements(resolved_enumerable) do
+      case arguments |> List.first() |> static_enum_callback_elements(arguments_environment) do
         {:ok, elements} ->
           scan_static_enum_callbacks(
             operation,
@@ -1955,6 +1951,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp static_enum_callback_elements(enumerable, environment) do
+    static_enum_callback_elements(enumerable, environment, MapSet.new())
+  end
+
+  defp static_enum_callback_elements(enumerable, environment, resolving) do
+    resolved_enumerable =
+      enumerable
+      |> callback_argument_result()
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
+      |> resolve_struct_aliases(environment)
+
+    if MapSet.member?(resolving, resolved_enumerable) do
+      :error
+    else
+      case static_enum_callback_elements(resolved_enumerable) do
+        {:ok, _elements} = result ->
+          result
+
+        :error ->
+          static_enum_operation_elements(
+            resolved_enumerable,
+            environment,
+            MapSet.put(resolving, resolved_enumerable)
+          )
+      end
+    end
+  end
+
   defp static_enum_callback_elements(values) when is_list(values) do
     if static_binding_source?(values), do: {:ok, values}, else: :error
   end
@@ -1965,6 +1990,148 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp static_enum_callback_elements(_enumerable), do: :error
+
+  defp static_enum_operation_elements(
+         {{:., _dot_metadata, [receiver, :map]}, _metadata, [enumerable, callback]},
+         environment,
+         resolving
+       ) do
+    with true <- enum_module_receiver?(receiver, environment),
+         {:ok, elements} <- static_enum_callback_elements(enumerable, environment, resolving),
+         {:ok, callback} <- normalize_literal_callback(callback, environment),
+         1 <- literal_callback_arity(callback) do
+      Enum.reduce_while(elements, {:ok, []}, fn element, {:ok, results} ->
+        case static_literal_callback_result(callback, [element], environment) do
+          {:ok, result} -> {:cont, {:ok, [result | results]}}
+          :error -> {:halt, :error}
+        end
+      end)
+      |> case do
+        {:ok, results} -> {:ok, Enum.reverse(results)}
+        :error -> :error
+      end
+    else
+      _unsupported_map -> :error
+    end
+  end
+
+  defp static_enum_operation_elements(_enumerable, _environment, _resolving), do: :error
+
+  defp static_literal_callback_result({:fn, _metadata, clauses}, arguments, environment) do
+    Enum.reduce_while(clauses, :error, fn
+      {:->, _clause_metadata, [parameters, body]}, :error when is_list(parameters) ->
+        {patterns, guards} = clause_patterns_and_guards(parameters)
+        environment = remove_pattern_bindings(environment, patterns)
+
+        case bind_static_callback_patterns(environment, patterns, arguments) do
+          {:ok, callback_environment} ->
+            resolved_guards =
+              Enum.map(guards, &resolve_static_expression(&1, callback_environment))
+
+            case local_guards_match(resolved_guards) do
+              :match ->
+                result =
+                  resolve_static_callback_result(body, callback_environment, MapSet.new())
+
+                if static_binding_source?(result) do
+                  {:halt, {:ok, result}}
+                else
+                  {:halt, :error}
+                end
+
+              :no_match ->
+                {:cont, :error}
+
+              :unknown ->
+                {:halt, :error}
+            end
+
+          :no_match ->
+            {:cont, :error}
+        end
+
+      _unsupported_clause, :error ->
+        {:halt, :error}
+    end)
+  end
+
+  defp resolve_static_callback_result(
+         {:__block__, _metadata, expressions},
+         environment,
+         resolving
+       )
+       when is_list(expressions) do
+    resolve_static_callback_result_sequence(expressions, environment, resolving)
+  end
+
+  defp resolve_static_callback_result(expression, environment, resolving) do
+    resolved_expression = resolve_static_expression(expression, environment)
+
+    case resolved_expression do
+      {name, _metadata, arguments} = local_call
+      when is_atom(name) and (is_list(arguments) or is_nil(arguments)) ->
+        arguments = arguments || []
+        key = {name, length(arguments)}
+
+        if MapSet.member?(resolving, key) do
+          local_call
+        else
+          results =
+            environment.local_functions
+            |> Map.get(key, [])
+            |> matching_local_definitions(arguments, environment)
+            |> Enum.map(fn definition ->
+              child_environment =
+                bind_local_function_arguments(definition, arguments, environment)
+
+              {body, child_environment} = expand_local_definition(definition, child_environment)
+
+              resolve_static_callback_result(
+                body,
+                child_environment,
+                MapSet.put(resolving, key)
+              )
+            end)
+            |> Enum.uniq()
+
+          case results do
+            [result] -> result
+            _none_or_ambiguous -> local_call
+          end
+        end
+
+      _not_local_call ->
+        resolved_expression
+    end
+  end
+
+  defp resolve_static_callback_result_sequence([], _environment, _resolving), do: nil
+
+  defp resolve_static_callback_result_sequence([expression], environment, resolving),
+    do: resolve_static_callback_result(expression, environment, resolving)
+
+  defp resolve_static_callback_result_sequence(
+         [{:=, _metadata, [pattern, value]} | expressions],
+         environment,
+         resolving
+       ) do
+    resolved_pattern = resolve_struct_aliases(pattern, environment)
+    resolved_value = resolve_static_callback_result(value, environment, resolving)
+    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
+
+    resolve_static_callback_result_sequence(
+      expressions,
+      %{environment | bindings: bindings},
+      resolving
+    )
+  end
+
+  defp resolve_static_callback_result_sequence(
+         [_expression | expressions],
+         environment,
+         resolving
+       ),
+       do: resolve_static_callback_result_sequence(expressions, environment, resolving)
 
   defp scan_static_enum_callbacks(
          operation,
@@ -4239,6 +4406,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
             |> matching_local_definitions([], environment)
             |> Enum.map(fn definition ->
               child_environment = bind_local_function_arguments(definition, [], environment)
+
               {body, child_environment} = expand_local_definition(definition, child_environment)
 
               resolve_static_local_result(

@@ -146,6 +146,16 @@ binary literals or documentation text.
   NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
   an unrelated local, imported, or qualified function
 
+#### Scenario: Static Enum result feeds a downstream callback
+
+- **WHEN** a supported `Enum.map/2` call produces the enumerable consumed by a
+  later supported callback operation and its literal or captured local callback
+  has a statically resolvable result
+- **THEN** the scanner MUST propagate each resolved result into the downstream
+  callback before classifying database calls, including when the callback
+  introduces or removes a repository receiver, and MUST terminate static
+  resolution when lexical rebinding produces a cyclic analysis value
+
 #### Scenario: Short-circuit operand binds a database receiver
 
 - **WHEN** the always-evaluated left operand of `&&`, `and`, `||`, or `or`
