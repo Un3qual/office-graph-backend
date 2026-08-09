@@ -530,12 +530,22 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp static_interpolation_string(_value), do: :error
 
   defp schema_ownership_sql?(sql) do
-    sql = sql_code_without_comments_or_literals(sql)
+    executable_sql = sql_code_without_comments_or_literals(sql)
+
+    top_level_sql =
+      sql
+      |> then(&Regex.replace(~r/(?<![A-Za-z0-9_$])DO(?![A-Za-z0-9_$])/i, &1, " "))
+      |> sql_code_without_comments_or_literals()
 
     Regex.match?(
       ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)(?:FOREIGN\s+)?TABLE\b/i,
-      sql
-    )
+      executable_sql
+    ) or table_creating_select_into?(top_level_sql, executable_sql)
+  end
+
+  defp table_creating_select_into?(top_level_sql, executable_sql) do
+    Regex.match?(~r/\bSELECT\b[^;]*\bINTO\b/i, top_level_sql) or
+      Regex.match?(~r/\bEXECUTE\b[^;]*\bSELECT\b[^;]*\bINTO\b/i, executable_sql)
   end
 
   defp sql_code_without_comments_or_literals(sql) do
@@ -1738,6 +1748,34 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  defp resolve_local_bindings({:try, _metadata, [options]} = node, bindings)
+       when is_list(options) do
+    with {:ok, body} <- Keyword.fetch(options, :do),
+         {resolved_body, _body_bindings} <- resolve_local_bindings(body, bindings),
+         result <- migration_expression_result(resolved_body),
+         {:ok, else_bodies} <- resolve_try_else_bodies(options, result, bindings) do
+      possible_exception_bodies =
+        [:rescue, :catch]
+        |> Enum.flat_map(&Keyword.get(options, &1, []))
+        |> resolve_possible_try_clause_bodies(bindings)
+
+      after_bodies =
+        case Keyword.fetch(options, :after) do
+          {:ok, after_body} ->
+            {after_body, _after_bindings} = resolve_local_bindings(after_body, bindings)
+            [after_body]
+
+          :error ->
+            []
+        end
+
+      bodies = [resolved_body | else_bodies ++ possible_exception_bodies ++ after_bodies]
+      {block(bodies), bindings}
+    else
+      _unsupported_try -> resolve_local_binding_tuple(node, bindings)
+    end
+  end
+
   defp resolve_local_bindings({:case, _metadata, [value, options]} = node, bindings)
        when is_list(options) do
     case Keyword.fetch(options, :do) do
@@ -1797,6 +1835,36 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     do: {:__migration_closure__, metadata, [clauses, bindings]}
 
   defp resolve_assignment_value(value, bindings), do: substitute_bindings(value, bindings)
+
+  defp migration_expression_result({:__block__, _metadata, expressions})
+       when is_list(expressions) and expressions != [],
+       do: expressions |> List.last() |> migration_expression_result()
+
+  defp migration_expression_result(expression), do: expression
+
+  defp resolve_try_else_bodies(options, result, bindings) do
+    case Keyword.fetch(options, :else) do
+      {:ok, clauses} when is_list(clauses) ->
+        resolve_static_case_bodies(clauses, result, bindings)
+
+      :error ->
+        {:ok, []}
+
+      _invalid_else ->
+        :unknown
+    end
+  end
+
+  defp resolve_possible_try_clause_bodies(clauses, bindings) do
+    Enum.flat_map(clauses, fn
+      {:->, _metadata, [_heads, body]} ->
+        {body, _body_bindings} = resolve_local_bindings(body, bindings)
+        [with_ast_certainty(body, :possible)]
+
+      _invalid_clause ->
+        []
+    end)
+  end
 
   defp static_migration_closure?({:__migration_closure__, _metadata, [_clauses, _bindings]}),
     do: true

@@ -323,6 +323,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node(
+         {operator, _metadata, [left, right]},
+         environment,
+         context,
+         occurrences
+       )
+       when operator in [:&&, :and, :||, :or] do
+    {left_environment, occurrences} = scan_node(left, environment, context, occurrences)
+    {_right_environment, occurrences} = scan_node(right, left_environment, context, occurrences)
+
+    {left_environment, occurrences}
+  end
+
+  defp scan_node(
          {operation, _metadata, [value, callback]} = node,
          environment,
          context,
@@ -726,6 +739,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
             scan_pattern_clause(clause, environment, context, occurrences)
           end)
       end)
+
+    {environment, occurrences}
+  end
+
+  defp scan_node({:try, _metadata, [options]}, environment, context, occurrences)
+       when is_list(options) do
+    body = Keyword.get(options, :do)
+    {body_environment, occurrences} = scan_node(body, environment, context, occurrences)
+
+    result = body |> callback_argument_result() |> resolve_static_expression(body_environment)
+
+    occurrences =
+      options
+      |> Keyword.get(:else, [])
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_pattern_clause(clause, environment, context, occurrences, result)
+      end)
+
+    occurrences =
+      [:rescue, :catch]
+      |> Enum.flat_map(&Keyword.get(options, &1, []))
+      |> Enum.reduce(occurrences, fn clause, occurrences ->
+        scan_pattern_clause(clause, environment, context, occurrences)
+      end)
+
+    {_after_environment, occurrences} =
+      scan_node(Keyword.get(options, :after), environment, context, occurrences)
 
     {environment, occurrences}
   end

@@ -141,6 +141,22 @@ diverge.
   and nested inert string literals, and MUST reject the unmodeled ownership
   change
 
+#### Scenario: Ownership DDL uses SELECT INTO table creation
+
+- **WHEN** approved migration execution SQL uses PostgreSQL `SELECT ... INTO`
+  to create a table directly or through a statically quoted dynamic `EXECUTE`
+- **THEN** canonical model-ownership verification MUST reject the unmodeled
+  table while leaving PL/pgSQL `SELECT ... INTO` variable assignment outside
+  the table-ownership classification
+
+#### Scenario: Migration try else selects a lifecycle branch
+
+- **WHEN** a forward migration's `try` body has a statically resolvable result
+  and its `else` clauses contain table or foreign-key lifecycle operations
+- **THEN** canonical model-ownership verification MUST apply only the matching
+  clause as definite and MUST retain schema state removed only by unmatched or
+  unresolved clauses
+
 #### Scenario: Migration lifecycle uses static apply
 
 - **WHEN** a forward migration invokes an `Ecto.Migration` table lifecycle

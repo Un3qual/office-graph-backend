@@ -146,6 +146,22 @@ binary literals or documentation text.
   NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
   an unrelated local, imported, or qualified function
 
+#### Scenario: Short-circuit operand binds a database receiver
+
+- **WHEN** the always-evaluated left operand of `&&`, `and`, `||`, or `or`
+  binds a statically resolvable repository receiver and execution can reach a
+  database call in the right operand
+- **THEN** the scanner MUST carry the left operand's lexical bindings into the
+  right operand before classifying and fingerprinting that call
+
+#### Scenario: Try result binds an else clause
+
+- **WHEN** a `try` body returns a statically resolvable repository receiver and
+  an `else` clause invokes a database operation through its matching result
+  pattern
+- **THEN** the scanner MUST bind the body result into the clause before
+  classifying and fingerprinting that operation
+
 #### Scenario: Consumed stream invokes a static callback
 
 - **WHEN** `Stream.run/1` consumes a supported stream operation, including

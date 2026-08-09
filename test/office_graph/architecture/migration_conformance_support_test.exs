@@ -365,6 +365,34 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "ignores table drops in statically unmatched try else clauses" do
+    in_migration_root("office_graph_static_try_else_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_durable.exs"),
+        """
+        defmodule CreateDurable do
+          use Ecto.Migration
+
+          def change do
+            create table(:durable)
+
+            try do
+              :ok
+            else
+              :ok -> :ok
+              :error -> drop table(:durable)
+            end
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == ["durable"]
+    end)
+  end
+
   test "keeps foreign keys that may exist after an unknown migration branch" do
     in_migration_root("office_graph_unknown_foreign_key_branch", fn root, migrations ->
       _ = root
@@ -424,6 +452,49 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
               cond do
                 System.get_env("DROP_PARENT_REFERENCE") -> remove :parent_id
                 true -> :ok
+              end
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "children" => {nil, OfficeGraph.Tenancy.Organization},
+        "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "ignores foreign-key removals in statically unmatched try else clauses" do
+    in_migration_root("office_graph_static_foreign_key_try_else", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:parents)
+
+            create table(:children) do
+              add :parent_id, references(:parents)
+            end
+
+            alter table(:children) do
+              try do
+                :ok
+              else
+                :ok -> :ok
+                :error -> remove :parent_id
               end
             end
           end
@@ -1398,6 +1469,88 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         end)
       end
     )
+  end
+
+  test "rejects table-creating SELECT INTO migration SQL" do
+    Enum.each(
+      [
+        "SELECT * INTO auxiliary FROM source_rows;",
+        "WITH rows AS (SELECT * FROM source_rows) SELECT * INTO UNLOGGED TABLE auxiliary FROM rows;",
+        "DO $$ BEGIN EXECUTE 'SELECT * INTO auxiliary FROM source_rows'; END $$;"
+      ],
+      fn sql ->
+        in_migration_root("office_graph_select_into_ddl", fn root, migrations ->
+          _ = root
+
+          File.write!(
+            Path.join(migrations, "20260809000000_select_into_ddl.exs"),
+            """
+            defmodule SelectIntoDdl do
+              use Ecto.Migration
+
+              def change do
+                execute(#{inspect(sql)})
+              end
+            end
+            """
+          )
+
+          assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
+  test "allows PL/pgSQL SELECT INTO variable assignment" do
+    Enum.each(
+      [
+        "DO $$ DECLARE result integer; BEGIN SELECT 1 INTO result; END $$;",
+        "DO $do$ DECLARE result integer; BEGIN SELECT 1 INTO result; END $do$;"
+      ],
+      fn sql ->
+        in_migration_root("office_graph_non_table_select_into", fn root, migrations ->
+          _ = root
+
+          File.write!(
+            Path.join(migrations, "20260809000000_non_table_select_into.exs"),
+            """
+            defmodule NonTableSelectInto do
+              use Ecto.Migration
+
+              def change do
+                execute(#{inspect(sql)})
+              end
+            end
+            """
+          )
+
+          assert MigrationConformanceSupport.migration_tables() == []
+        end)
+      end
+    )
+  end
+
+  test "ignores SELECT INTO text in inert dollar-quoted literals" do
+    in_migration_root("office_graph_inert_select_into", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_inert_select_into.exs"),
+        """
+        defmodule InertSelectInto do
+          use Ecto.Migration
+
+          def change do
+            execute("SELECT $do$ SELECT * INTO inert_table FROM source_rows $do$;")
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == []
+    end)
   end
 
   test "rejects ownership DDL loaded by migration execute_file" do

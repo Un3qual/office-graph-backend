@@ -2457,6 +2457,60 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end)
   end
 
+  test "threads left-operand bindings into reachable short-circuit operands" do
+    [
+      "(repo = OfficeGraph.Repo) && repo.query!(\"SELECT 1\", [])",
+      "(repo = OfficeGraph.Repo; true) and repo.query!(\"SELECT 1\", [])",
+      "(repo = OfficeGraph.Repo; false) || repo.query!(\"SELECT 1\", [])",
+      "(repo = OfficeGraph.Repo; false) or repo.query!(\"SELECT 1\", [])"
+    ]
+    |> Enum.each(fn expression ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{expression}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "Repo.query!"
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+    end)
+  end
+
+  test "binds a static try result into else clauses" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              try do
+                OfficeGraph.Repo
+              else
+                repo -> repo.query!("DELETE FROM events", [])
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 6
+  end
+
   test "expands static map enumerables into callback bindings" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
