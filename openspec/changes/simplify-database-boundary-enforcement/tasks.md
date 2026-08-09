@@ -1,0 +1,32 @@
+## 1. OpenSpec And Design Audit
+
+- [x] 1.1 Validate the active OpenSpec change strictly.
+- [x] 1.2 Self-review the design against the approved false-negative risks and update artifacts if gaps are found.
+
+## 2. Replacement Boundary Layers
+
+- [ ] 2.1 Add focused tests for forbidden source primitives, unresolved escape paths, SQL-like tracked files, and exact approval matching.
+- [ ] 2.2 Implement the repository-wide forbidden-primitive source scan without symbolic helper, callback, alias-flow, SQL-body, or control-flow evaluation.
+- [ ] 2.3 Add focused tests for BEAM dependency/import auditing of compiled low-level database primitives.
+- [ ] 2.4 Implement the compiled dependency/import audit and wire diagnostics through the database-boundary gate.
+- [ ] 2.5 Preserve the existing UUIDv7 approved exception fingerprints and provenance.
+
+## 3. Terminal Database Inventory
+
+- [ ] 3.1 Add focused tests for terminal database-object inventory parsing and comparison across tables, columns, keys, constraints, indexes, sequences, views, materialized views, routines, triggers, policies, grants, and extensions.
+- [ ] 3.2 Implement database-owned terminal inventory through PostgreSQL schema dump tooling without repository-authored catalog SQL.
+- [ ] 3.3 Compare terminal project-owned database objects with Ash/resource ownership metadata and existing foreign-key relationship expectations.
+- [ ] 3.4 Wire terminal inventory into migration-baseline verification.
+
+## 4. Remove Obsolete Scanner
+
+- [ ] 4.1 Run the replacement focused tests while the old scanner remains present.
+- [ ] 4.2 Delete the symbolic scanner/interpreter and synthetic semantic tests after replacement coverage passes.
+- [ ] 4.3 Update Credo issue formatting and project-quality tests for the replacement diagnostics.
+
+## 5. Verification And Publication
+
+- [ ] 5.1 Run focused project-quality, migration-conformance, and architecture tests in the Nix flake.
+- [ ] 5.2 Run canonical `./bin/verify` in the Nix flake.
+- [ ] 5.3 Perform a final anti-slop diff review.
+- [ ] 5.4 Commit, push `codex/simplify-database-boundary-enforcement`, and open a stacked PR targeting `codex/remediate-quality-review`.
