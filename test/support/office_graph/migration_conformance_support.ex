@@ -2248,6 +2248,18 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp collect_foreign_key_operations(
+         {operator, _metadata, [left, right]},
+         table,
+         certainty
+       )
+       when operator in [:&&, :and, :||, :or] do
+    collect_short_circuit_operations(operator, left, right, certainty, fn expression,
+                                                                          operand_certainty ->
+      collect_foreign_key_operations(expression, table, operand_certainty)
+    end)
+  end
+
+  defp collect_foreign_key_operations(
          {:rename, _metadata,
           [
             {:table, _old_table_metadata, [old_table | old_table_options]},
@@ -2434,6 +2446,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     condition_operations ++ branch_operations
   end
 
+  defp collect_table_operations({operator, _metadata, [left, right]}, certainty)
+       when operator in [:&&, :and, :||, :or] do
+    collect_short_circuit_operations(
+      operator,
+      left,
+      right,
+      certainty,
+      &collect_table_operations/2
+    )
+  end
+
   defp collect_table_operations(nodes, certainty) when is_list(nodes) do
     Enum.flat_map(nodes, &collect_table_operations(&1, certainty))
   end
@@ -2487,6 +2510,42 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       end)
 
     operation_chunks |> Enum.reverse() |> List.flatten()
+  end
+
+  defp collect_short_circuit_operations(
+         operator,
+         left,
+         right,
+         certainty,
+         collect_operations
+       ) do
+    left_operations = collect_operations.(left, certainty)
+
+    right_operations =
+      case short_circuit_right_certainty(operator, static_truthiness(left), certainty) do
+        :unreachable -> []
+        right_certainty -> collect_operations.(right, right_certainty)
+      end
+
+    left_operations ++ right_operations
+  end
+
+  defp short_circuit_right_certainty(operator, truthiness, certainty)
+       when operator in [:&&, :and] do
+    case truthiness do
+      :truthy -> certainty
+      :falsy -> :unreachable
+      :unknown -> possible_certainty(certainty)
+    end
+  end
+
+  defp short_circuit_right_certainty(operator, truthiness, certainty)
+       when operator in [:||, :or] do
+    case truthiness do
+      :truthy -> :unreachable
+      :falsy -> certainty
+      :unknown -> possible_certainty(certainty)
+    end
   end
 
   defp selected_static_branch(:if, condition) do

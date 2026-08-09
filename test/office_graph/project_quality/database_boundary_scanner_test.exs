@@ -2149,6 +2149,47 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 4
   end
 
+  test "binds static elements in Task async-stream callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(supervisor) do
+              Task.async_stream(
+                [OfficeGraph.Repo],
+                fn repo -> repo.query!("DELETE FROM events", []) end,
+                ordered: false
+              )
+              |> Stream.run()
+
+              Task.Supervisor.async_stream_nolink(
+                supervisor,
+                [OfficeGraph.Repo],
+                fn repo -> repo.query!("DELETE FROM archived_events", []) end,
+                ordered: false
+              )
+              |> Stream.run()
+
+              Example.Task.async_stream(
+                [OfficeGraph.Repo],
+                fn repo -> repo.query!("DELETE FROM unrelated_events", []) end,
+                ordered: false
+              )
+              |> Stream.run()
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "load/1", 5},
+             {:raw_sql, "Repo.query!", "load/1", 13}
+           ]
+  end
+
   test "resolves statically known map receiver projections" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -2576,6 +2617,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "Repo.query!"
     assert occurrence.function == "load/0"
     assert occurrence.line == 6
+  end
+
+  test "binds statically delivered self messages into receive clauses" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              send(self(), {:repository, OfficeGraph.Repo})
+              Kernel.send(Kernel.self(), OfficeGraph.Repo)
+
+              receive do
+                {:repository, repo} -> repo.query!("DELETE FROM events", [])
+              end
+
+              receive do
+                repo -> repo.query!("DELETE FROM archived_events", [])
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "load/0", 7},
+             {:raw_sql, "Repo.query!", "load/0", 11}
+           ]
+  end
+
+  test "does not shadow static local-helper expansion with Kernel send modeling" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              send(OfficeGraph.Repo, "DELETE FROM events")
+            end
+
+            defp send(repo, statement) do
+              repo.query!(statement, [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "send/2"
+    assert occurrence.line == 7
   end
 
   test "expands static map enumerables into callback bindings" do

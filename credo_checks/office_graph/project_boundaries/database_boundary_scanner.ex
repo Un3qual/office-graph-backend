@@ -296,6 +296,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                               @stream_second_argument_unary_callback_operations ++
                                                 @stream_third_argument_unary_callback_operations
                                             )
+  @task_stream_operations [:async_stream, :async_stream_nolink]
   @repo_raw_sql_operations [:query, :query!, :query_many, :query_many!]
   @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
@@ -333,6 +334,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {_right_environment, occurrences} = scan_node(right, left_environment, context, occurrences)
 
     {left_environment, occurrences}
+  end
+
+  defp scan_node(
+         {:send, _metadata, [target, message]} = node,
+         environment,
+         context,
+         occurrences
+       ) do
+    if kernel_local_call?(:send, 2, environment) do
+      scan_self_send(node, target, message, environment, context, occurrences)
+    else
+      if local_database_helper_call?(:send, [target, message], environment) do
+        scan_invoked_local_database_helper(
+          :send,
+          [target, message],
+          environment,
+          context,
+          occurrences
+        )
+      else
+        scan_executable_node(node, environment, context, occurrences)
+      end
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, :send]}, _metadata, [target, message]} = node,
+         environment,
+         context,
+         occurrences
+       ) do
+    if kernel_module_receiver?(receiver, environment) do
+      scan_self_send(node, target, message, environment, context, occurrences)
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
   end
 
   defp scan_node(
@@ -377,6 +414,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     case normalize_literal_callback(callback, environment) do
       {:ok, callback} ->
         scan_invoked_literal_callback(callback, arguments, environment, context, occurrences)
+
+      :error ->
+        scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
+       when operation in @task_stream_operations and is_list(arguments) do
+    case task_stream_callback_positions(receiver, operation, arguments, environment) do
+      {:ok, enumerable_index, callback_index} ->
+        scan_static_element_callback(
+          node,
+          arguments,
+          enumerable_index,
+          callback_index,
+          environment,
+          context,
+          occurrences
+        )
 
       :error ->
         scan_executable_node(node, environment, context, occurrences)
@@ -555,6 +616,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         child_context = %{context | function: variant.signature}
         child_environment = %{environment | bindings: %{}}
 
+        child_environment = %{child_environment | self_messages: []}
+
         {child_environment, occurrences} =
           scan_function_defaults(
             variant.parameters,
@@ -634,12 +697,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({:receive, _metadata, [options]}, environment, context, occurrences)
        when is_list(options) do
-    occurrences =
-      options
-      |> Keyword.get(:do, [])
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_pattern_clause(clause, environment, context, occurrences)
-      end)
+    {environment, occurrences} =
+      scan_receive_clauses(
+        Keyword.get(options, :do, []),
+        environment,
+        context,
+        occurrences
+      )
 
     occurrences =
       options
@@ -1005,6 +1069,159 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {environment, occurrences}
   end
 
+  defp scan_self_send(node, target, message, environment, context, occurrences) do
+    occurrences = record_executable_occurrence(node, environment, context, occurrences)
+
+    {[resolved_target, resolved_message], environment, occurrences} =
+      scan_invoked_callback_arguments(
+        [target, message],
+        environment,
+        context,
+        occurrences
+      )
+
+    environment =
+      if static_self_call?(resolved_target, environment) and
+           static_binding_source?(resolved_message) do
+        %{environment | self_messages: environment.self_messages ++ [resolved_message]}
+      else
+        environment
+      end
+
+    {environment, occurrences}
+  end
+
+  defp scan_receive_clauses(clauses, environment, context, occurrences)
+       when is_list(clauses) do
+    selected = static_receive_selection(clauses, environment)
+
+    occurrences =
+      clauses
+      |> Enum.with_index()
+      |> Enum.reduce(occurrences, fn {clause, clause_index}, occurrences ->
+        case selected do
+          %{clause_index: ^clause_index, message: message} ->
+            scan_pattern_clause(clause, environment, context, occurrences, message)
+
+          _unselected_clause ->
+            scan_pattern_clause(clause, environment, context, occurrences)
+        end
+      end)
+
+    environment =
+      case selected do
+        %{message_index: message_index} ->
+          %{environment | self_messages: List.delete_at(environment.self_messages, message_index)}
+
+        nil ->
+          environment
+      end
+
+    {environment, occurrences}
+  end
+
+  defp static_receive_selection(clauses, environment) do
+    environment.self_messages
+    |> Enum.with_index()
+    |> Enum.find_value(fn {message, message_index} ->
+      clauses
+      |> Enum.with_index()
+      |> Enum.find_value(fn
+        {{:->, _metadata, [parameters, _body]}, clause_index} when is_list(parameters) ->
+          {patterns, _guards} = clause_patterns_and_guards(parameters)
+          patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
+
+          if length(patterns) == 1 and static_pattern_match?(List.first(patterns), message) do
+            %{clause_index: clause_index, message: message, message_index: message_index}
+          end
+
+        {_invalid_clause, _clause_index} ->
+          nil
+      end)
+    end)
+  end
+
+  defp scan_static_element_callback(
+         node,
+         arguments,
+         enumerable_index,
+         callback_index,
+         environment,
+         context,
+         occurrences
+       ) do
+    callback = Enum.at(arguments, callback_index)
+
+    with {:ok, callback} <- normalize_literal_callback(callback, environment),
+         1 <- literal_callback_arity(callback) do
+      occurrences = record_executable_occurrence(node, environment, context, occurrences)
+
+      {resolved_arguments, environment, occurrences} =
+        arguments
+        |> Enum.with_index()
+        |> Enum.reduce({%{}, environment, occurrences}, fn
+          {_callback, ^callback_index}, accumulator ->
+            accumulator
+
+          {argument, index}, {resolved_arguments, environment, occurrences} ->
+            {argument_environment, occurrences} =
+              scan_node(argument, environment, context, occurrences)
+
+            resolved_argument = resolve_static_expression(argument, argument_environment)
+
+            {
+              Map.put(resolved_arguments, index, resolved_argument),
+              argument_environment,
+              occurrences
+            }
+        end)
+
+      callback_environment = %{environment | self_messages: []}
+
+      occurrences =
+        case resolved_arguments |> Map.get(enumerable_index) |> static_enum_callback_elements() do
+          {:ok, elements} ->
+            Enum.reduce(Enum.uniq(elements), occurrences, fn element, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_invoked_literal_callback(
+                  callback,
+                  [element],
+                  callback_environment,
+                  context,
+                  occurrences
+                )
+
+              occurrences
+            end)
+
+          :error ->
+            {_callback_environment, occurrences} =
+              scan_node(callback, callback_environment, context, occurrences)
+
+            occurrences
+        end
+
+      {environment, occurrences}
+    else
+      _unsupported_callback -> scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp task_stream_callback_positions(receiver, operation, arguments, environment) do
+    case {receiver |> receiver_name() |> resolve_receiver(environment), operation,
+          length(arguments)} do
+      {"Task", :async_stream, arity} when arity in [2, 3] ->
+        {:ok, 0, 1}
+
+      {"Task.Supervisor", operation, arity}
+      when operation in @task_stream_operations and arity in [3, 4] ->
+        {:ok, 1, 2}
+
+      _unsupported_task_stream ->
+        :error
+    end
+  end
+
   defp scan_consumed_stream(
          {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
          environment,
@@ -1126,9 +1343,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp kernel_value_callback_call?(operation, environment) do
-    not Map.has_key?(environment.local_functions, {operation, 2}) and
-      explicitly_imported_receiver(environment, operation, 2) in [nil, "Kernel"]
+    kernel_local_call?(operation, 2, environment)
   end
+
+  defp kernel_local_call?(operation, arity, environment) do
+    not Map.has_key?(environment.local_functions, {operation, arity}) and
+      explicitly_imported_receiver(environment, operation, arity) in [nil, "Kernel"]
+  end
+
+  defp static_self_call?({:self, _metadata, arguments}, environment)
+       when arguments in [nil, []],
+       do: kernel_local_call?(:self, 0, environment)
+
+  defp static_self_call?(
+         {{:., _dot_metadata, [receiver, :self]}, _metadata, arguments},
+         environment
+       )
+       when arguments in [nil, []],
+       do: kernel_module_receiver?(receiver, environment)
+
+  defp static_self_call?(_target, _environment), do: false
 
   defp kernel_branch_macro_call?(operation, environment) do
     not Map.has_key?(environment.local_functions, {operation, 2}) and
@@ -3846,6 +4080,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       bindings: %{},
       imports: [],
       local_functions: %{},
+      self_messages: [],
       uncertain_attribute_registration?: false
     }
   end

@@ -365,6 +365,72 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "keeps tables dropped only by unresolved short-circuit operands" do
+    in_migration_root("office_graph_unknown_short_circuit_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_durable.exs"),
+        """
+        defmodule CreateDurable do
+          use Ecto.Migration
+
+          def change do
+            create table(:durable_symbolic_and)
+            create table(:durable_strict_and)
+            create table(:durable_symbolic_or)
+            create table(:durable_strict_or)
+
+            System.get_env("DROP_SYMBOLIC_AND") && drop(table(:durable_symbolic_and))
+            (System.get_env("DROP_STRICT_AND") != nil) and drop(table(:durable_strict_and))
+            System.get_env("KEEP_SYMBOLIC_OR") || drop(table(:durable_symbolic_or))
+            is_nil(System.get_env("KEEP_STRICT_OR")) or drop(table(:durable_strict_or))
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "durable_strict_and",
+               "durable_strict_or",
+               "durable_symbolic_and",
+               "durable_symbolic_or"
+             ]
+    end)
+  end
+
+  test "resolves statically known short-circuit migration operands" do
+    in_migration_root("office_graph_static_short_circuit_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_durable.exs"),
+        """
+        defmodule CreateDurable do
+          use Ecto.Migration
+
+          def change do
+            create table(:kept_by_symbolic_and)
+            create table(:dropped_by_strict_and)
+            create table(:dropped_by_symbolic_or)
+            create table(:kept_by_strict_or)
+
+            false && drop(table(:kept_by_symbolic_and))
+            true and drop(table(:dropped_by_strict_and))
+            false || drop(table(:dropped_by_symbolic_or))
+            true or drop(table(:kept_by_strict_or))
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "kept_by_strict_or",
+               "kept_by_symbolic_and"
+             ]
+    end)
+  end
+
   test "ignores table drops in statically unmatched try else clauses" do
     in_migration_root("office_graph_static_try_else_conformance", fn root, migrations ->
       _ = root
@@ -412,6 +478,41 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
               else
                 remove :parent_id
               end
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "children" => {nil, OfficeGraph.Tenancy.Organization},
+        "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "keeps foreign keys removed only by an unresolved short-circuit operand" do
+    in_migration_root("office_graph_unknown_foreign_key_short_circuit", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:parents)
+
+            create table(:children) do
+              add :parent_id, references(:parents)
+              System.get_env("REMOVE_PARENT_REFERENCE") && remove(:parent_id)
             end
           end
         end

@@ -171,6 +171,26 @@ binary literals or documentation text.
   position, scan every non-callback argument, and bind each static element
   before classifying database calls in the callback body
 
+#### Scenario: Task stream callback receives a static element
+
+- **WHEN** `Task.async_stream` or `Task.Supervisor.async_stream` invokes a
+  literal callback over a statically resolvable repository enumerable,
+  including the `async_stream_nolink` supervisor variant
+- **THEN** the scanner MUST select the enumerable and callback according to the
+  exact Task API shape, bind each static element in the callback's isolated
+  process environment, and MUST NOT apply Task semantics to an unrelated
+  receiver
+
+#### Scenario: Receive clause consumes a statically delivered database receiver
+
+- **WHEN** repository code delivers a statically resolvable repository value
+  to `self()` with Kernel `send/2` and a subsequent `receive` clause matches
+  that value
+- **THEN** the scanner MUST preserve same-function mailbox order, bind the
+  selected message into the matching clause pattern before classifying its
+  body, and consume that selected static message before scanning a later
+  receive expression
+
 #### Scenario: Enum callback receives an implicit accumulator
 
 - **WHEN** `Enum.reduce/2` or `Enum.scan/2` receives a statically resolvable
@@ -332,6 +352,15 @@ artifacts.
 - **THEN** it MUST parse executable `create table` and `drop table` calls from
   quoted AST, including multiline calls, while ignoring comments, strings, and
   rollback-only functions
+
+#### Scenario: Migration lifecycle uses short-circuit operators
+
+- **WHEN** a migration table or foreign-key lifecycle operation appears in the
+  right operand of `&&`, `and`, `||`, or `or`
+- **THEN** conformance MUST always collect lifecycle operations from the left
+  operand, use a statically known left value to include or omit the right
+  operand, and mark right-side operations as possible when the left value is
+  unresolved so a conditional drop or removal cannot hide durable ownership
 
 #### Scenario: Raw SQL changes foreign-table ownership
 
