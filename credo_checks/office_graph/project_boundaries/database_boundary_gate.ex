@@ -49,6 +49,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       )
 
     current = DatabaseBoundaryScanner.scan_repository(root) |> Enum.map(&normalize_entry/1)
+    compiled = DatabaseBoundaryScanner.scan_compiled(root) |> Enum.map(&normalize_entry/1)
 
     approved_exceptions =
       approved_path
@@ -58,8 +59,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     case inventory_errors(approved_exceptions) do
       [] ->
         case approval_provenance_errors(root, approved_exceptions) do
-          [] -> compare_normalized(current, approved_exceptions)
-          errors -> errors
+          [] ->
+            compare_normalized(current, approved_exceptions) ++
+              compiled_diagnostics(compiled, current)
+
+          errors ->
+            errors
         end
 
       errors ->
@@ -127,6 +132,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       |> diagnostic(:stale)
       |> Map.put(:inventory, :approved_exceptions)
     end)
+  end
+
+  defp compiled_diagnostics(compiled, current) do
+    source_keys =
+      current
+      |> Enum.map(&compiled_source_key/1)
+      |> MapSet.new()
+
+    compiled
+    |> Enum.reject(&MapSet.member?(source_keys, compiled_source_key(&1)))
+    |> Enum.map(&diagnostic(&1, :compiled_reference))
+  end
+
+  defp compiled_source_key(entry) do
+    {
+      Map.get(entry, "path"),
+      Map.get(entry, "line"),
+      Map.get(entry, "class"),
+      Map.get(entry, "construct")
+    }
   end
 
   defp inventory_errors(approved_exceptions) do

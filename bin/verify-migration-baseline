@@ -11,5 +11,6 @@ mix run -e 'OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()'
 mix ecto.rollback --all --quiet
 mix ecto.migrate --quiet
 mix run -e 'OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()'
+mix run -e 'OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!()'
 
 mix test test/office_graph/release_setup_test.exs

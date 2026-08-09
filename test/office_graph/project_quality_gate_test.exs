@@ -78,7 +78,8 @@ defmodule OfficeGraph.ProjectQualityGateTest do
         env: [
           {"COMPOSE_PROJECT_NAME", ""},
           {"MIX_TEST_PARTITION", ""},
-          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""},
+          {"OFFICE_GRAPH_SKIP_COMPOSE", ""}
         ]
       )
 
@@ -87,7 +88,8 @@ defmodule OfficeGraph.ProjectQualityGateTest do
         env: [
           {"COMPOSE_PROJECT_NAME", ""},
           {"MIX_TEST_PARTITION", ""},
-          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""},
+          {"OFFICE_GRAPH_SKIP_COMPOSE", ""}
         ]
       )
 
@@ -113,6 +115,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
                 "ecto.rollback --all --quiet",
                 "ecto.migrate --quiet",
                 "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "run -e OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!()",
                 "test test/office_graph/release_setup_test.exs",
                 "verify"
               ]}
@@ -216,7 +219,8 @@ defmodule OfficeGraph.ProjectQualityGateTest do
           {"VERIFY_PORT_LOG", port_log},
           {"VERIFY_MIX_LOG", mix_log},
           {"VERIFY_POSTGRES_VERSION", postgres_version},
-          {"OFFICE_GRAPH_POSTGRES_PORT", ""}
+          {"OFFICE_GRAPH_POSTGRES_PORT", ""},
+          {"OFFICE_GRAPH_SKIP_COMPOSE", ""}
         ],
         stderr_to_stdout: true
       )
