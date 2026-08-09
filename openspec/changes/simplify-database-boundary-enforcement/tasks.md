@@ -29,4 +29,4 @@
 - [x] 5.1 Run focused project-quality, migration-conformance, and architecture tests in the Nix flake.
 - [ ] 5.2 Run canonical `./bin/verify` in the Nix flake. Current run reaches dependency audit and fails on existing `ash`/`postgrex` advisories inherited from the base branch.
 - [x] 5.3 Perform a final anti-slop diff review.
-- [ ] 5.4 Commit, push `codex/simplify-database-boundary-enforcement`, and open a stacked PR targeting `codex/remediate-quality-review`.
+- [x] 5.4 Commit, push `codex/simplify-database-boundary-enforcement`, and open a stacked PR targeting `codex/remediate-quality-review`.
