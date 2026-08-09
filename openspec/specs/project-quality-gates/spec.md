@@ -188,6 +188,15 @@ binary literals or documentation text.
   fingerprint the helper body without executing source, while bounding
   recursive helper expansion
 
+#### Scenario: Module construction returns a database receiver
+
+- **WHEN** a database operation is invoked through a receiver constructed by
+  `Module.concat/1` or `Module.concat/2`
+- **THEN** the scanner MUST resolve literal and explicitly aliased module
+  components without executing source, and MUST fail closed when a dynamic
+  component prevents proving that the constructed receiver is unrelated to
+  database access
+
 #### Scenario: Static comprehension enumerates database receivers
 
 - **WHEN** a `for` comprehension enumerates a statically resolvable list that

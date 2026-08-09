@@ -1951,6 +1951,73 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     refute Map.has_key?(occurrence, :approval)
   end
 
+  test "resolves literal Module.concat database receivers without executing source" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              repo = Module.concat(["OfficeGraph", "Repo"])
+              adapter = Module.concat(Ecto.Adapters, "SQL")
+
+              repo.query!("DELETE FROM events", [])
+              adapter.query!(repo, "DELETE FROM archived_events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "load/0", 6},
+             {:raw_sql, "Ecto.Adapters.SQL.query!", "load/0", 7}
+           ]
+  end
+
+  test "fails closed for partially dynamic Module.concat database receivers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(prefix) do
+              repo = Module.concat([prefix, "Repo"])
+              repo.query!("DELETE FROM events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/1"
+    assert occurrence.line == 4
+  end
+
+  test "does not treat source tuples as internally resolved module receivers" do
+    assert [] ==
+             DatabaseBoundaryScanner.scan_sources([
+               %{
+                 path: "lib/example.ex",
+                 source: """
+                 defmodule Example do
+                   def load do
+                     receivers = [{:resolved_module_name, "OfficeGraph.Repo"}]
+
+                     for receiver <- receivers do
+                       receiver.query!("DELETE FROM events", [])
+                     end
+                   end
+                 end
+                 """
+               }
+             ])
+  end
+
   test "uses callback argument expression results when binding literal callbacks" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

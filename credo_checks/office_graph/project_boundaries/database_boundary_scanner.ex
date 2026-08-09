@@ -2138,22 +2138,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          {:__aliases__, _metadata, _parts} = receiver,
          environment
        ) do
-    resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)
-
-    resolved_receiver in @database_alias_targets or repo_receiver?(resolved_receiver) or
-      resolved_receiver == "Multi"
+    receiver
+    |> receiver_name()
+    |> database_receiver_name?(environment)
   end
+
+  defp static_value_contains_database_receiver?(%{resolved_module_name: receiver}, environment)
+       when is_binary(receiver),
+       do: database_receiver_name?(receiver, environment)
 
   defp static_value_contains_database_receiver?(receiver, environment)
        when is_atom(receiver) do
     if receiver |> Atom.to_string() |> String.starts_with?("Elixir.") do
-      resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)
-
-      resolved_receiver in @database_alias_targets or repo_receiver?(resolved_receiver) or
-        resolved_receiver == "Multi"
+      receiver
+      |> receiver_name()
+      |> database_receiver_name?(environment)
     else
       false
     end
+  end
+
+  defp static_value_contains_database_receiver?(
+         {{:., _dot_metadata, [receiver, :concat]}, _metadata, arguments},
+         environment
+       )
+       when is_list(arguments) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Module" and
+      static_module_concat_database_receiver?(arguments, environment)
   end
 
   defp static_value_contains_database_receiver?({:{}, _metadata, values}, environment),
@@ -2182,6 +2193,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp static_value_contains_database_receiver?(_value, _environment), do: false
+
+  defp database_receiver_name?(receiver, environment) do
+    resolved_receiver = resolve_receiver(receiver, environment)
+
+    resolved_receiver in @database_alias_targets or repo_receiver?(resolved_receiver) or
+      resolved_receiver == "Multi"
+  end
+
+  defp static_module_concat_database_receiver?(arguments, environment) do
+    case static_module_concat_name(arguments, environment) do
+      {:ok, receiver} -> database_receiver_name?(receiver, environment)
+      :error -> true
+    end
+  end
 
   defp scan_generator_qualifiers(
          qualifiers,
@@ -4033,6 +4058,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: resolve_static_local_result_sequence(expressions, environment, resolving)
 
   defp resolve_static_projection(
+         {{:., _dot_metadata, [receiver, :concat]}, _metadata, arguments} = call,
+         environment
+       )
+       when is_list(arguments) do
+    if receiver |> receiver_name() |> resolve_receiver(environment) == "Module" do
+      case static_module_concat_name(arguments, environment) do
+        {:ok, module_name} -> %{resolved_module_name: module_name}
+        :error -> call
+      end
+    else
+      call
+    end
+  end
+
+  defp resolve_static_projection(
          {{:., _dot_metadata, [container, field]}, _metadata, []} = projection,
          _environment
        )
@@ -4071,6 +4111,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resolve_static_projection(node, _environment), do: node
+
+  defp static_module_concat_name([parts], environment) when is_list(parts),
+    do: join_static_module_parts(parts, environment)
+
+  defp static_module_concat_name([left, right], environment),
+    do: join_static_module_parts([left, right], environment)
+
+  defp static_module_concat_name(_arguments, _environment), do: :error
+
+  defp join_static_module_parts(parts, environment) do
+    parts
+    |> Enum.reduce_while({:ok, []}, fn part, {:ok, names} ->
+      case static_module_part_name(part, environment) do
+        {:ok, name} -> {:cont, {:ok, [name | names]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, names} -> {:ok, names |> Enum.reverse() |> Enum.join(".")}
+      :error -> :error
+    end
+  end
+
+  defp static_module_part_name(%{resolved_module_name: name}, _environment)
+       when is_binary(name),
+       do: {:ok, name}
+
+  defp static_module_part_name(part, _environment) when is_binary(part) do
+    case String.trim_leading(part, "Elixir.") do
+      "" -> :error
+      name -> {:ok, name}
+    end
+  end
+
+  defp static_module_part_name({:__aliases__, _metadata, _parts} = part, environment) do
+    case receiver_name(part) do
+      nil -> :error
+      name -> {:ok, resolve_receiver(name, environment)}
+    end
+  end
+
+  defp static_module_part_name(part, environment) when is_atom(part),
+    do: {:ok, part |> receiver_name() |> resolve_receiver(environment)}
+
+  defp static_module_part_name(_part, _environment), do: :error
 
   defp static_projection_fields({:%{}, _metadata, fields}) when is_list(fields),
     do: {:ok, fields}
@@ -4407,6 +4492,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp receiver_name({:__aliases__, _metadata, parts}) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
   end
+
+  defp receiver_name(%{resolved_module_name: receiver}) when is_binary(receiver), do: receiver
 
   defp receiver_name(receiver) when is_atom(receiver) do
     receiver
