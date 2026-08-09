@@ -1048,6 +1048,14 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   defp dataloader_call_location({:dataloader, metadata, arguments}) when is_list(arguments),
     do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
 
+  defp dataloader_call_location(
+         {{:., _dot_metadata,
+           [{:__aliases__, _alias_metadata, [:Absinthe, :Resolution, :Helpers]}, :dataloader]},
+          metadata, arguments}
+       )
+       when is_list(arguments),
+       do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+
   defp dataloader_call_location(_node), do: nil
 
   def unmodeled_uuid_identifier_fields(expected_resources) do

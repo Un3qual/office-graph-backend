@@ -256,6 +256,26 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
            ]
   end
 
+  test "dataloader resolver conformance recognizes the fully qualified helper" do
+    source = """
+    defmodule ExampleSchema do
+      field :direct, :user,
+        resolve: Absinthe.Resolution.Helpers.dataloader(Example.Source)
+
+      field :block_form, :user do
+        resolve Absinthe.Resolution.Helpers.dataloader(Example.Source)
+      end
+
+      def wrapped_resolver, do: Absinthe.Resolution.Helpers.dataloader(Example.Source)
+    end
+    """
+
+    assert dataloader_resolver_violations("lib/example_schema.ex", source) == [
+             "lib/example_schema.ex:6:41 dataloader resolver is not a direct field option",
+             "lib/example_schema.ex:9:57 dataloader resolver is not a direct field option"
+           ]
+  end
+
   test "generated Ash API declarations stay declarative" do
     forbidden_patterns = [
       "OfficeGraphWeb.",

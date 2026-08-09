@@ -431,6 +431,50 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "models static and unresolved with generator branches" do
+    in_migration_root("office_graph_with_branch_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_durable.exs"),
+        """
+        defmodule CreateDurable do
+          use Ecto.Migration
+
+          def change do
+            create table(:possibly_dropped_by_do)
+            create table(:possibly_dropped_by_else)
+            create table(:kept_by_static_mismatch)
+            create table(:dropped_by_static_match)
+            create table(:dropped_by_static_else)
+
+            with {:ok, _value} <- System.fetch_env("DROP_DURABLE") do
+              drop table(:possibly_dropped_by_do)
+            else
+              :error -> drop table(:possibly_dropped_by_else)
+            end
+
+            with :ok <- :error, do: drop(table(:kept_by_static_mismatch))
+            with :ok <- :ok, do: drop(table(:dropped_by_static_match))
+
+            with :ok <- :error do
+              :ok
+            else
+              :error -> drop table(:dropped_by_static_else)
+            end
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "kept_by_static_mismatch",
+               "possibly_dropped_by_do",
+               "possibly_dropped_by_else"
+             ]
+    end)
+  end
+
   test "ignores table drops in statically unmatched try else clauses" do
     in_migration_root("office_graph_static_try_else_conformance", fn root, migrations ->
       _ = root
@@ -513,6 +557,46 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
             create table(:children) do
               add :parent_id, references(:parents)
               System.get_env("REMOVE_PARENT_REFERENCE") && remove(:parent_id)
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "children" => {nil, OfficeGraph.Tenancy.Organization},
+        "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "keeps foreign keys removed only by an unresolved with generator" do
+    in_migration_root("office_graph_unknown_foreign_key_with", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:parents)
+
+            create table(:children) do
+              add :parent_id, references(:parents)
+            end
+
+            with {:ok, _value} <- System.fetch_env("REMOVE_PARENT_REFERENCE") do
+              alter table(:children) do
+                remove :parent_id
+              end
             end
           end
         end

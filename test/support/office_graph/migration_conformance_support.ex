@@ -1767,6 +1767,27 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  defp resolve_local_bindings({:with, _metadata, arguments} = node, bindings)
+       when is_list(arguments) do
+    case static_with_parts(arguments) do
+      {:ok, qualifiers, body, else_clauses} ->
+        case resolve_static_with_path(
+               qualifiers,
+               body,
+               else_clauses,
+               bindings,
+               bindings,
+               :definite
+             ) do
+          {:ok, bodies} -> {block(bodies), bindings}
+          :unknown -> resolve_local_binding_tuple(node, bindings)
+        end
+
+      :unknown ->
+        resolve_local_binding_tuple(node, bindings)
+    end
+  end
+
   defp resolve_local_bindings({:try, _metadata, [options]} = node, bindings)
        when is_list(options) do
     with {:ok, body} <- Keyword.fetch(options, :do),
@@ -1860,6 +1881,157 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        do: expressions |> List.last() |> migration_expression_result()
 
   defp migration_expression_result(expression), do: expression
+
+  defp static_with_parts(arguments) do
+    case Enum.split(arguments, -1) do
+      {qualifiers, [options]} when is_list(options) ->
+        if Keyword.keyword?(options) and Keyword.has_key?(options, :do) do
+          else_clauses = Keyword.get(options, :else, [])
+
+          if is_list(else_clauses),
+            do: {:ok, qualifiers, Keyword.fetch!(options, :do), else_clauses},
+            else: :unknown
+        else
+          :unknown
+        end
+
+      _invalid_with ->
+        :unknown
+    end
+  end
+
+  defp resolve_static_with_path(
+         [],
+         body,
+         _else_clauses,
+         _outer_bindings,
+         bindings,
+         certainty
+       ) do
+    {body, _body_bindings} = resolve_local_bindings(body, bindings)
+    {:ok, [with_ast_certainty(body, certainty)]}
+  end
+
+  defp resolve_static_with_path(
+         [{:<-, _metadata, [pattern, source]} | qualifiers],
+         body,
+         else_clauses,
+         outer_bindings,
+         bindings,
+         certainty
+       ) do
+    {source, _source_bindings} = resolve_local_bindings(source, bindings)
+    source = substitute_bindings(source, bindings)
+    result = migration_expression_result(source)
+    emitted_source = with_ast_certainty(source, certainty)
+
+    case static_with_pattern_match(pattern, result, bindings) do
+      {:match, pattern_bindings} ->
+        with {:ok, bodies} <-
+               resolve_static_with_path(
+                 qualifiers,
+                 body,
+                 else_clauses,
+                 outer_bindings,
+                 Map.merge(bindings, pattern_bindings),
+                 certainty
+               ),
+             do: {:ok, [emitted_source | bodies]}
+
+      {:no_match, _pattern_bindings} ->
+        {:ok,
+         [
+           emitted_source
+           | resolve_static_with_else(result, else_clauses, outer_bindings, certainty)
+         ]}
+
+      {:unknown, pattern_bindings} ->
+        possible_certainty = possible_certainty(certainty)
+
+        with {:ok, success_bodies} <-
+               resolve_static_with_path(
+                 qualifiers,
+                 body,
+                 else_clauses,
+                 outer_bindings,
+                 Map.merge(bindings, pattern_bindings),
+                 possible_certainty
+               ) do
+          failure_bodies =
+            resolve_static_with_else(
+              result,
+              else_clauses,
+              outer_bindings,
+              possible_certainty
+            )
+
+          {:ok, [emitted_source | success_bodies ++ failure_bodies]}
+        end
+
+      :unknown ->
+        :unknown
+    end
+  end
+
+  defp resolve_static_with_path(
+         [qualifier | qualifiers],
+         body,
+         else_clauses,
+         outer_bindings,
+         bindings,
+         certainty
+       ) do
+    {qualifier, bindings} = resolve_local_bindings(qualifier, bindings)
+
+    with {:ok, bodies} <-
+           resolve_static_with_path(
+             qualifiers,
+             body,
+             else_clauses,
+             outer_bindings,
+             bindings,
+             certainty
+           ),
+         do: {:ok, [with_ast_certainty(qualifier, certainty) | bodies]}
+  end
+
+  defp static_with_pattern_match(pattern, value, bindings) do
+    with {:ok, pattern, guards} <- static_case_head([pattern]) do
+      {pattern_status, pattern_bindings} = match_parameter_pattern(pattern, value, %{})
+      guard_status = guards_match(guards, Map.merge(bindings, pattern_bindings))
+
+      case {pattern_status, guard_status} do
+        {:no_match, _guard_status} -> {:no_match, pattern_bindings}
+        {_pattern_status, :no_match} -> {:no_match, pattern_bindings}
+        {:match, :match} -> {:match, pattern_bindings}
+        {_possible_pattern, _possible_guard} -> {:unknown, pattern_bindings}
+      end
+    else
+      _unsupported_pattern -> :unknown
+    end
+  end
+
+  defp resolve_static_with_else(_value, [], _bindings, _certainty), do: []
+
+  defp resolve_static_with_else(value, clauses, bindings, certainty) do
+    case resolve_static_case_bodies(clauses, value, bindings) do
+      {:ok, bodies} -> Enum.map(bodies, &with_ast_certainty(&1, certainty))
+      :unknown -> resolve_possible_with_else_bodies(clauses, bindings, certainty)
+    end
+  end
+
+  defp resolve_possible_with_else_bodies(clauses, bindings, certainty) do
+    possible_certainty = possible_certainty(certainty)
+
+    Enum.flat_map(clauses, fn
+      {:->, _metadata, [_heads, body]} ->
+        {body, _body_bindings} = resolve_local_bindings(body, bindings)
+        [with_ast_certainty(body, possible_certainty)]
+
+      _invalid_clause ->
+        []
+    end)
+  end
 
   defp resolve_try_else_bodies(options, result, bindings) do
     case Keyword.fetch(options, :else) do

@@ -453,6 +453,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          context,
          occurrences
        )
+       when operation == :zip_with and is_list(arguments) do
+    if enum_module_receiver?(receiver, environment) do
+      scan_enum_zip_with_callbacks(
+        node,
+        arguments,
+        environment,
+        context,
+        occurrences
+      )
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
        when operation in @enum_callback_operations and is_list(arguments) do
     if enum_module_receiver?(receiver, environment) do
       scan_enum_literal_callbacks(
@@ -1926,6 +1946,132 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp scan_enum_zip_with_callbacks(
+         node,
+         arguments,
+         environment,
+         context,
+         occurrences
+       ) do
+    with {:ok, callback_index, callback} <- enum_zip_with_callback(arguments, environment) do
+      {arguments_environment, occurrences} =
+        arguments
+        |> Enum.with_index()
+        |> Enum.reduce({environment, occurrences}, fn {argument, index},
+                                                      {environment, occurrences} ->
+          if index == callback_index do
+            {environment, occurrences}
+          else
+            scan_node(argument, environment, context, occurrences)
+          end
+        end)
+
+      case static_zip_with_callback_invocations(arguments, arguments_environment) do
+        {:ok, callback_invocations} ->
+          occurrences =
+            Enum.reduce(callback_invocations, occurrences, fn callback_arguments, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_invoked_literal_callback(
+                  callback,
+                  callback_arguments,
+                  arguments_environment,
+                  context,
+                  occurrences
+                )
+
+              occurrences
+            end)
+
+          {arguments_environment, occurrences}
+
+        :error ->
+          {_callback_environment, occurrences} =
+            scan_node(callback, arguments_environment, context, occurrences)
+
+          {arguments_environment, occurrences}
+      end
+    else
+      :error -> scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp enum_zip_with_callback([_left, _right, callback], environment) do
+    with {:ok, callback} <- normalize_literal_callback(callback, environment),
+         2 <- literal_callback_arity(callback),
+         do: {:ok, 2, callback}
+  end
+
+  defp enum_zip_with_callback([_enumerables, callback], environment) do
+    with {:ok, callback} <- normalize_literal_callback(callback, environment),
+         1 <- literal_callback_arity(callback),
+         do: {:ok, 1, callback}
+  end
+
+  defp enum_zip_with_callback(_arguments, _environment), do: :error
+
+  defp static_zip_with_callback_invocations([left, right, _callback], environment) do
+    [
+      static_enum_callback_elements(left, environment),
+      static_enum_callback_elements(right, environment)
+    ]
+    |> static_zip_with_partial_invocations()
+  end
+
+  defp static_zip_with_callback_invocations([enumerables, _callback], environment) do
+    with {:ok, enumerables} <- static_zip_with_enumerables(enumerables, environment),
+         true <- enumerables != [],
+         {:ok, invocations} <-
+           enumerables
+           |> Enum.map(&static_enum_callback_elements(&1, environment))
+           |> static_zip_with_partial_invocations() do
+      {:ok, Enum.map(invocations, &[&1])}
+    else
+      _unsupported_enumerables -> :error
+    end
+  end
+
+  defp static_zip_with_callback_invocations(_arguments, _environment), do: :error
+
+  defp static_zip_with_enumerables(enumerables, environment) do
+    resolved_enumerables =
+      enumerables
+      |> callback_argument_result()
+      |> resolve_attributes(environment)
+      |> resolve_bindings(environment)
+      |> resolve_struct_aliases(environment)
+
+    if is_list(resolved_enumerables), do: {:ok, resolved_enumerables}, else: :error
+  end
+
+  defp static_zip_with_partial_invocations(element_results) do
+    known_element_lists =
+      Enum.flat_map(element_results, fn
+        {:ok, elements} -> [elements]
+        :error -> []
+      end)
+
+    cond do
+      known_element_lists == [] ->
+        :error
+
+      Enum.any?(known_element_lists, &(&1 == [])) ->
+        {:ok, []}
+
+      true ->
+        invocation_count = known_element_lists |> Enum.map(&length/1) |> Enum.min()
+
+        invocations =
+          Enum.map(0..(invocation_count - 1)//1, fn index ->
+            Enum.map(element_results, fn
+              {:ok, elements} -> Enum.at(elements, index)
+              :error -> {:__unknown_zip_with_element__, [], []}
+            end)
+          end)
+
+        {:ok, invocations}
+    end
+  end
+
   defp enum_element_callback_indexes(operation, arity) do
     cond do
       arity == 2 and operation in @enum_second_argument_unary_callback_operations ->
@@ -2351,6 +2497,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp static_pattern_match?({:^, _metadata, [_pattern]}, _value), do: false
 
+  defp static_pattern_match?(_pattern, {:__unknown_zip_with_element__, [], []}), do: true
+
   defp static_pattern_match?({:=, _metadata, [left_pattern, right_pattern]}, value),
     do: static_pattern_match?(left_pattern, value) and static_pattern_match?(right_pattern, value)
 
@@ -2727,6 +2875,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_atom(value) or is_binary(value) or is_number(value),
        do: true
 
+  defp static_binding_source?({:__unknown_zip_with_element__, [], []}), do: true
+
   defp static_binding_source?(values) when is_list(values),
     do: Enum.all?(values, &static_binding_source?/1)
 
@@ -3000,7 +3150,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       receiver == "Postgrex" and operation in @postgrex_raw_sql_operations ->
         {:raw_sql, "#{receiver}.#{operation}"}
 
-      repo_receiver?(receiver) and operation in @direct_repo_operations ->
+      repo_receiver?(receiver) and direct_repo_operation?(operation) ->
         {:direct_ecto, "Repo.#{operation}"}
 
       receiver in ["Ecto.Multi", "Multi"] and operation in @direct_multi_operations ->
@@ -3015,11 +3165,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if static_value_contains_database_receiver?(receiver, environment) do
       cond do
         operation in @repo_raw_sql_operations -> {:raw_sql, "Repo.#{operation}"}
-        operation in @direct_repo_operations -> {:direct_ecto, "Repo.#{operation}"}
+        direct_repo_operation?(operation) -> {:direct_ecto, "Repo.#{operation}"}
         true -> nil
       end
     end
   end
+
+  defp direct_repo_operation?(operation),
+    do: operation in @direct_repo_operations or operation in @ecto_sql_direct_operations
 
   defp classify_remote_database_receiver_escape(receiver, operation, arguments, environment) do
     resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)

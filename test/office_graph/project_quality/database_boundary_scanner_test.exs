@@ -473,6 +473,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "classifies SQL-adapter explain calls injected into repos" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def inspect_query(query) do
+              OfficeGraph.Repo.explain(:all, query, analyze: true)
+              apply(OfficeGraph.Repo, :explain, [:all, query, [analyze: true]])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.line}) == [
+             {:direct_ecto, "Repo.explain", 3},
+             {:direct_ecto, "Repo.explain", 4}
+           ]
+  end
+
   test "classifies Ecto SQL adapter checkout as direct database access" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -2266,6 +2288,62 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"Repo.query!", "load/1", 6},
              {"Repo.query!", "load/1", 10},
              {"Repo.query!", "load/1", 13}
+           ]
+  end
+
+  test "binds static elements from every Enum.zip_with enumerable" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(values) do
+              Enum.zip_with(
+                [OfficeGraph.Repo],
+                [1],
+                fn repo, _value -> repo.query!("DELETE FROM events", []) end
+              )
+
+              Enum.zip_with(
+                [[OfficeGraph.Repo], [1]],
+                fn [repo, _value] -> repo.query!("DELETE FROM archived_events", []) end
+              )
+
+              Enum.zip_with(
+                [OfficeGraph.Repo],
+                values,
+                fn repo, _value -> repo.query!("DELETE FROM partial_left_events", []) end
+              )
+
+              Enum.zip_with(
+                values,
+                [OfficeGraph.Repo],
+                fn _value, repo -> repo.query!("DELETE FROM partial_right_events", []) end
+              )
+
+              Enum.zip_with(
+                [values, [OfficeGraph.Repo]],
+                fn [_value, repo] -> repo.query!("DELETE FROM partial_list_events", []) end
+              )
+
+              Example.Enum.zip_with(
+                [OfficeGraph.Repo],
+                [1],
+                fn repo, _value -> repo.query!("DELETE FROM unrelated_events", []) end
+              )
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/1", 6},
+             {"Repo.query!", "load/1", 11},
+             {"Repo.query!", "load/1", 17},
+             {"Repo.query!", "load/1", 23},
+             {"Repo.query!", "load/1", 28}
            ]
   end
 
