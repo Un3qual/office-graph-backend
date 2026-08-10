@@ -17,6 +17,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "grant",
     "materialized view",
     "RLS policy",
+    "RLS state",
     "routine",
     "trigger",
     "view"

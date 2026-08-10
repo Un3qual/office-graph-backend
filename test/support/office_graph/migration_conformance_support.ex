@@ -2,9 +2,60 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @moduledoc false
 
   @framework_objects %{
-    table: MapSet.new(["oban_jobs", "schema_migrations"]),
+    table: MapSet.new(["oban_jobs", "oban_peers", "schema_migrations"]),
     sequence: MapSet.new(["oban_jobs_id_seq"])
   }
+  @framework_columns MapSet.new([
+                       {"oban_jobs", "args", "jsonb DEFAULT '{}'::jsonb NOT NULL"},
+                       {"oban_jobs", "attempt", "integer DEFAULT 0 NOT NULL"},
+                       {"oban_jobs", "attempted_at", "timestamp without time zone"},
+                       {"oban_jobs", "attempted_by", "text[]"},
+                       {"oban_jobs", "cancelled_at", "timestamp without time zone"},
+                       {"oban_jobs", "completed_at", "timestamp without time zone"},
+                       {"oban_jobs", "discarded_at", "timestamp without time zone"},
+                       {"oban_jobs", "errors", "jsonb[] DEFAULT ARRAY[]::jsonb[] NOT NULL"},
+                       {"oban_jobs", "id",
+                        "bigint DEFAULT nextval('oban_jobs_id_seq'::regclass) NOT NULL"},
+                       {"oban_jobs", "inserted_at",
+                        "timestamp without time zone DEFAULT timezone('UTC'::text, now()) NOT NULL"},
+                       {"oban_jobs", "max_attempts", "integer DEFAULT 20 NOT NULL"},
+                       {"oban_jobs", "meta", "jsonb DEFAULT '{}'::jsonb"},
+                       {"oban_jobs", "priority", "integer DEFAULT 0 NOT NULL"},
+                       {"oban_jobs", "queue", "text DEFAULT 'default'::text NOT NULL"},
+                       {"oban_jobs", "scheduled_at",
+                        "timestamp without time zone DEFAULT timezone('UTC'::text, now()) NOT NULL"},
+                       {"oban_jobs", "state",
+                        "public.oban_job_state DEFAULT 'available'::public.oban_job_state NOT NULL"},
+                       {"oban_jobs", "tags", "text[] DEFAULT ARRAY[]::text[]"},
+                       {"oban_jobs", "worker", "text NOT NULL"},
+                       {"oban_peers", "expires_at", "timestamp without time zone NOT NULL"},
+                       {"oban_peers", "name", "text NOT NULL"},
+                       {"oban_peers", "node", "text NOT NULL"},
+                       {"oban_peers", "started_at", "timestamp without time zone NOT NULL"},
+                       {"schema_migrations", "inserted_at", "timestamp(0) without time zone"},
+                       {"schema_migrations", "version", "bigint NOT NULL"}
+                     ])
+  @framework_primary_keys MapSet.new([
+                            {"oban_jobs", "oban_jobs_pkey"},
+                            {"oban_peers", "oban_peers_pkey"},
+                            {"schema_migrations", "schema_migrations_pkey"}
+                          ])
+  @framework_constraints MapSet.new([
+                           {"oban_jobs", "oban_jobs_pkey", "PRIMARY KEY (id)"},
+                           {"oban_peers", "oban_peers_pkey", "PRIMARY KEY (name)"},
+                           {"schema_migrations", "schema_migrations_pkey",
+                            "PRIMARY KEY (version)"}
+                         ])
+  @framework_indexes MapSet.new([
+                       {"oban_jobs", "oban_jobs_args_index", "USING gin (args)"},
+                       {"oban_jobs", "oban_jobs_meta_index", "USING gin (meta)"},
+                       {"oban_jobs", "oban_jobs_state_cancelled_at_index",
+                        "USING btree (state, cancelled_at)"},
+                       {"oban_jobs", "oban_jobs_state_discarded_at_index",
+                        "USING btree (state, discarded_at)"},
+                       {"oban_jobs", "oban_jobs_state_queue_priority_scheduled_at_id_index",
+                        "USING btree (state, queue, priority, scheduled_at, id)"}
+                     ])
   @allowed_extensions MapSet.new(["plpgsql"])
   @approved_exceptions_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
@@ -109,6 +160,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        missing_sequences ++
        unexpected_sequences ++
        table_shape_errors(inventory, expected_resources, project_tables) ++
+       framework_table_shape_errors(inventory) ++
        prohibited_objects ++
        migration_foreign_key_relationship_errors(expected_resources, inventory))
     |> Enum.sort()
@@ -323,6 +375,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           ) ->
         {"trigger", normalize_trigger(trigger, statement)}
 
+      trigger_state = trigger_state_identity(statement) ->
+        {"trigger", trigger_state}
+
       policy = capture(statement, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/s) ->
         {"RLS policy", normalize_policy(policy, statement)}
 
@@ -361,19 +416,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp grant_identity(statement) do
-    case Regex.named_captures(
-           ~r/^GRANT (?<privileges>.+?) ON (?<object_type>.+?) (?<identity>\S+) TO (?<grantee>.+);$/s,
-           String.trim(statement)
-         ) do
-      %{
-        "privileges" => privileges,
-        "object_type" => object_type,
-        "identity" => identity,
-        "grantee" => grantee
-      } ->
-        "#{String.trim(privileges)} ON #{String.trim(object_type)} #{normalize_identity(identity)} TO #{String.trim(grantee)}"
+    statement = String.trim(statement)
 
-      nil ->
+    cond do
+      String.starts_with?(statement, "ALTER DEFAULT PRIVILEGES ") and
+          Regex.match?(~r/\s(?:GRANT|REVOKE)\s/s, statement) ->
+        normalize_definition(statement)
+
+      captures =
+          Regex.named_captures(
+            ~r/^GRANT (?<privileges>.+?) ON (?<object_type>.+?) (?<identity>\S+) TO (?<grantee>.+);$/s,
+            statement
+          ) ->
+        "#{String.trim(captures["privileges"])} ON #{String.trim(captures["object_type"])} #{normalize_identity(captures["identity"])} TO #{String.trim(captures["grantee"])}"
+
+      Regex.match?(~r/^REVOKE .+;$/s, statement) ->
+        normalize_definition(statement)
+
+      true ->
         nil
     end
   end
@@ -483,8 +543,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       nil ->
         dump_with_docker_or_raise!(config, "pg_dump is not available on PATH", :unavailable)
 
-      executable ->
-        case System.cmd(executable, args, env: env, stderr_to_stdout: true) do
+      _executable ->
+        case System.cmd("pg_dump", args, env: env, stderr_to_stdout: true) do
           {dump, 0} -> parse_dump(dump)
           {output, status} -> dump_with_docker_or_raise!(config, output, status)
         end
@@ -522,22 +582,23 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp docker_pg_dump(container, config) do
-    args =
-      [
-        "exec",
-        "-e",
-        "PGPASSWORD=#{Keyword.get(config, :password)}",
-        container,
-        "pg_dump",
-        "--schema-only",
-        "--no-owner",
-        "--username",
-        to_string(Keyword.fetch!(config, :username)),
-        "--dbname",
-        to_string(Keyword.fetch!(config, :database))
-      ]
-
-    case System.cmd("docker", args, stderr_to_stdout: true) do
+    case System.cmd(
+           "docker",
+           [
+             "exec",
+             "-e",
+             "PGPASSWORD=#{Keyword.get(config, :password)}",
+             container,
+             "pg_dump",
+             "--schema-only",
+             "--no-owner",
+             "--username",
+             to_string(Keyword.fetch!(config, :username)),
+             "--dbname",
+             to_string(Keyword.fetch!(config, :database))
+           ],
+           stderr_to_stdout: true
+         ) do
       {dump, 0} ->
         {:ok, dump}
 
@@ -548,7 +609,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp parse_dump_line(line, {inventory, current_table}) do
     cond do
-      table = capture(line, ~r/^CREATE (?:FOREIGN )?TABLE (?<identity>\S+) \($/) ->
+      table = capture(line, ~r/^CREATE (?:(?:FOREIGN|UNLOGGED) )?TABLE (?<identity>\S+) \($/) ->
         table = normalize_identity(table)
         {Map.update!(inventory, :tables, &MapSet.put(&1, table)), {:create_table, table}}
 
@@ -595,6 +656,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           capture(line, ~r/^CREATE (?:CONSTRAINT )?TRIGGER (?<name>\S+) .* ON (?<table>\S+)/) ->
         {Map.update!(inventory, :triggers, &MapSet.put(&1, normalize_trigger(trigger, line))),
          current_table}
+
+      trigger_state = trigger_state_identity(line) ->
+        {Map.update!(inventory, :triggers, &MapSet.put(&1, trigger_state)), current_table}
 
       policy = capture(line, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/) ->
         {Map.update!(inventory, :policies, &MapSet.put(&1, normalize_policy(policy, line))),
@@ -826,7 +890,22 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp table_shape_errors(inventory, expected_resources, project_tables) do
     expected_shape = expected_table_shape(expected_resources)
-    actual_columns = project_definitions(inventory.columns, project_tables)
+    shape_errors(inventory, expected_shape, project_tables, "Ash-owned")
+  end
+
+  defp framework_table_shape_errors(inventory) do
+    framework_tables =
+      inventory.tables
+      |> Enum.filter(&framework_owned?(:table, &1))
+      |> MapSet.new()
+
+    framework_tables
+    |> framework_table_shape()
+    |> then(&shape_errors(inventory, &1, framework_tables, "framework-owned"))
+  end
+
+  defp shape_errors(inventory, expected_shape, compared_tables, missing_owner) do
+    actual_columns = project_definitions(inventory.columns, compared_tables)
     expected_columns = definition_map(expected_shape.columns)
     actual_column_keys = actual_columns |> Map.keys() |> MapSet.new()
     expected_column_keys = expected_columns |> Map.keys() |> MapSet.new()
@@ -839,7 +918,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     missing_columns =
       expected_column_keys
       |> MapSet.difference(actual_column_keys)
-      |> Enum.map(fn {table, column} -> "missing Ash-owned column #{table}.#{column}" end)
+      |> Enum.map(fn {table, column} -> "missing #{missing_owner} column #{table}.#{column}" end)
 
     mismatched_columns =
       definition_mismatches(expected_columns, actual_columns, fn {table, column},
@@ -850,20 +929,20 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     actual_primary_keys =
       inventory.primary_keys
-      |> Enum.filter(fn {table, _name} -> MapSet.member?(project_tables, table) end)
+      |> Enum.filter(fn {table, _name} -> MapSet.member?(compared_tables, table) end)
       |> MapSet.new()
 
     missing_primary_keys =
       expected_shape.primary_keys
       |> MapSet.difference(actual_primary_keys)
-      |> Enum.map(fn {table, name} -> "missing Ash-owned primary key #{table}.#{name}" end)
+      |> Enum.map(fn {table, name} -> "missing #{missing_owner} primary key #{table}.#{name}" end)
 
     unexpected_primary_keys =
       actual_primary_keys
       |> MapSet.difference(expected_shape.primary_keys)
       |> Enum.map(fn {table, name} -> "unexpected project primary key #{table}.#{name}" end)
 
-    actual_constraints = project_definitions(inventory.constraints, project_tables)
+    actual_constraints = project_definitions(inventory.constraints, compared_tables)
     expected_constraints = definition_map(expected_shape.constraints)
     actual_constraint_keys = actual_constraints |> Map.keys() |> MapSet.new()
     expected_constraint_keys = expected_constraints |> Map.keys() |> MapSet.new()
@@ -871,7 +950,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     missing_constraints =
       expected_constraint_keys
       |> MapSet.difference(actual_constraint_keys)
-      |> Enum.map(fn {table, name} -> "missing Ash-owned constraint #{table}.#{name}" end)
+      |> Enum.map(fn {table, name} -> "missing #{missing_owner} constraint #{table}.#{name}" end)
 
     unexpected_constraints =
       actual_constraint_keys
@@ -887,7 +966,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         end
       )
 
-    actual_indexes = project_definitions(inventory.indexes, project_tables)
+    actual_indexes = project_definitions(inventory.indexes, compared_tables)
     expected_indexes = definition_map(expected_shape.indexes)
     actual_index_keys = actual_indexes |> Map.keys() |> MapSet.new()
     expected_index_keys = expected_indexes |> Map.keys() |> MapSet.new()
@@ -895,7 +974,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     missing_indexes =
       expected_index_keys
       |> MapSet.difference(actual_index_keys)
-      |> Enum.map(fn {table, name} -> "missing Ash-owned index #{name} ON #{table}" end)
+      |> Enum.map(fn {table, name} -> "missing #{missing_owner} index #{name} ON #{table}" end)
 
     unexpected_indexes =
       actual_index_keys
@@ -918,6 +997,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       unexpected_constraints ++
       mismatched_constraints ++
       missing_indexes ++ unexpected_indexes ++ mismatched_indexes
+  end
+
+  defp framework_table_shape(tables) do
+    %{
+      columns: filter_definitions(@framework_columns, tables),
+      constraints: filter_definitions(@framework_constraints, tables),
+      indexes: filter_definitions(@framework_indexes, tables),
+      primary_keys:
+        @framework_primary_keys
+        |> Enum.filter(fn {table, _name} -> MapSet.member?(tables, table) end)
+        |> MapSet.new()
+    }
+  end
+
+  defp filter_definitions(definitions, tables) do
+    definitions
+    |> Enum.filter(fn {table, _name, _definition} -> MapSet.member?(tables, table) end)
+    |> MapSet.new()
   end
 
   defp project_definitions(definitions, project_tables) do
@@ -1055,6 +1152,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_type(:utc_datetime), do: "timestamp without time zone"
   defp postgres_type(:utc_datetime_usec), do: "timestamp without time zone"
   defp postgres_type(:uuid), do: "uuid"
+  defp postgres_type(type) when is_atom(type), do: Atom.to_string(type)
+
+  defp postgres_type({type, size}) when is_atom(type) and is_integer(size),
+    do: "#{type}(#{size})"
+
   defp postgres_type(type), do: "unsupported(#{inspect(type)})"
 
   defp expected_default(resource, attribute, type) do
@@ -1502,6 +1604,29 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp normalize_event_trigger(name), do: "#{trim_identifier(name)} ON DATABASE"
+
+  defp trigger_state_identity(statement) do
+    statement = String.trim(statement)
+
+    cond do
+      event_trigger =
+          capture(
+            statement,
+            ~r/^ALTER EVENT TRIGGER (?<name>\S+) (?:DISABLE|ENABLE(?: REPLICA| ALWAYS)?);$/s
+          ) ->
+        normalize_event_trigger(event_trigger)
+
+      captures =
+          Regex.named_captures(
+            ~r/^ALTER TABLE (?:ONLY )?(?<table>\S+) (?:DISABLE|ENABLE(?: REPLICA| ALWAYS)?) TRIGGER (?<name>\S+);$/s,
+            statement
+          ) ->
+        "#{trim_identifier(captures["name"])} ON #{normalize_identity(captures["table"])}"
+
+      true ->
+        nil
+    end
+  end
 
   defp normalize_policy(name, line) do
     table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()

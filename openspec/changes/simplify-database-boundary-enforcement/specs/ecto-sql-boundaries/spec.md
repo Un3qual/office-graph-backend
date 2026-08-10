@@ -121,9 +121,18 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 - **WHEN** a migration uses helpers, arbitrary control flow,
   environment-dependent branches, reflection, external SQL files, raw SQL,
   procedures, functions, triggers, DO blocks, direct repository calls, or
-  unresolved database-shaped variable calls
+  unresolved database-shaped variable calls, including helper execution from
+  the migration module body or external migration execution through
+  `Ecto.Migrator`
 - **THEN** canonical verification MUST fail closed instead of interpreting the
   migration to prove terminal ownership
+
+#### Scenario: Database command execution appears
+
+- **WHEN** tracked source or compiled project code invokes a mutable PostgreSQL
+  CLI, a shell form containing that CLI, or a dynamic subprocess command
+- **THEN** canonical verification MUST reject the command as unresolved while
+  retaining only the statically visible read-only `pg_dump` inspection seam
 
 ## ADDED Requirements
 
@@ -131,9 +140,10 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 
 Office Graph SHALL prohibit project-owned database functions, procedures,
 ordinary, constraint, and event triggers, views, materialized views, RLS
-policies and table enable/force state, grants, and extensions unless an accepted
-OpenSpec change approves the exact source occurrence and terminal database
-object.
+policies and table enable/force state, direct and default-privilege grants, and
+extensions unless an accepted OpenSpec change approves the exact source
+occurrence and terminal database object. Non-default ordinary and event trigger
+firing modes SHALL be part of the exact trigger terminal fingerprint set.
 
 #### Scenario: Stored routine is introduced
 - **WHEN** canonical verification finds a project-owned terminal function,

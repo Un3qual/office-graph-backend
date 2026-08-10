@@ -105,15 +105,20 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ]
   end
 
-  test "inventories event triggers and row-level-security enforcement state" do
+  test "inventories event triggers, trigger firing modes, and row-level-security state" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
       CREATE EVENT TRIGGER audit_ddl ON ddl_command_end EXECUTE FUNCTION public.audit_ddl();
+      ALTER EVENT TRIGGER audit_ddl ENABLE ALWAYS;
+      CREATE TRIGGER touch_child BEFORE UPDATE ON public.children FOR EACH ROW EXECUTE FUNCTION public.touch_child();
+      ALTER TABLE ONLY public.children DISABLE TRIGGER touch_child;
       ALTER TABLE public.children ENABLE ROW LEVEL SECURITY;
       ALTER TABLE ONLY public.children FORCE ROW LEVEL SECURITY;
       """)
 
-    assert inventory.triggers == MapSet.new(["audit_ddl ON DATABASE"])
+    assert inventory.triggers ==
+             MapSet.new(["audit_ddl ON DATABASE", "touch_child ON children"])
+
     assert inventory.rls_states == MapSet.new(["children"])
 
     terminal_identities =
@@ -127,18 +132,39 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert terminal_identities == [
              {"RLS state", "children"},
              {"RLS state", "children"},
-             {"trigger", "audit_ddl ON DATABASE"}
+             {"trigger", "audit_ddl ON DATABASE"},
+             {"trigger", "audit_ddl ON DATABASE"},
+             {"trigger", "touch_child ON children"},
+             {"trigger", "touch_child ON children"}
            ]
+  end
+
+  test "inventories default-privilege grants" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      ALTER DEFAULT PRIVILEGES FOR ROLE app IN SCHEMA public GRANT SELECT ON TABLES TO readonly;
+      """)
+
+    identity =
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app IN SCHEMA public GRANT SELECT ON TABLES TO readonly"
+
+    assert inventory.grants == MapSet.new([identity])
+
+    assert [{"grant", ^identity, "sha256:" <> _hash}] =
+             Enum.to_list(inventory.terminal_objects)
   end
 
   test "terminal errors exempt only exact Oban-owned objects" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
       CREATE TABLE public.oban_jobs (
-          id bigint NOT NULL
+          id bigint NOT NULL,
+          injected text
       );
       CREATE SEQUENCE public.oban_jobs_id_seq
           START WITH 1;
+      CREATE INDEX injected_oban_index ON public.oban_jobs USING btree (injected);
+      ALTER TABLE ONLY public.oban_jobs ADD CONSTRAINT injected_oban_check CHECK ((injected <> ''::text));
       CREATE TABLE public.oban_shadow (
           id uuid NOT NULL
       );
@@ -147,8 +173,29 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     errors = MigrationConformanceSupport.terminal_database_errors(%{}, inventory, [])
 
     assert "unexpected project table oban_shadow" in errors
+    assert "unexpected project column oban_jobs.injected" in errors
+    assert "unexpected project constraint oban_jobs.injected_oban_check" in errors
+    assert "unexpected project index injected_oban_index ON oban_jobs" in errors
     refute "unexpected project table oban_jobs" in errors
     refute "unexpected project sequence oban_jobs_id_seq" in errors
+  end
+
+  test "terminal inventory treats unlogged tables as owned tables" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE UNLOGGED TABLE public.shadow_records (
+          id uuid NOT NULL
+      );
+      """)
+
+    assert inventory.tables == MapSet.new(["shadow_records"])
+    assert inventory.columns == MapSet.new([{"shadow_records", "id", "uuid NOT NULL"}])
+
+    assert "unexpected project table shadow_records" in MigrationConformanceSupport.terminal_database_errors(
+             %{},
+             inventory,
+             []
+           )
   end
 
   test "terminal inventory treats imported foreign tables as owned tables" do
@@ -350,6 +397,23 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              %{
                "ignored_sequence_examples" =>
                  {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource}
+             },
+             inventory
+           ) == []
+  end
+
+  test "terminal errors honor configured PostgreSQL migration types" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.network_endpoints (
+          address inet NOT NULL
+      );
+      """)
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "network_endpoints" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceNetworkResource}
              },
              inventory
            ) == []

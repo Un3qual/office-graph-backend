@@ -115,6 +115,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert diagnostic.invalid_fields == ["terminal_objects"]
   end
 
+  test "accepts exact RLS state terminal-object approval metadata" do
+    approved =
+      approved_entry("sha256:current")
+      |> Map.put("terminal_objects", [
+        %{
+          "class" => "RLS state",
+          "identity" => "children",
+          "fingerprint" =>
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ])
+
+    assert DatabaseBoundaryGate.compare([occurrence("sha256:current")], [approved]) == []
+  end
+
   test "rejects non-map approved exceptions without crashing the boundary gate" do
     [diagnostic] = DatabaseBoundaryGate.compare([], [nil])
 

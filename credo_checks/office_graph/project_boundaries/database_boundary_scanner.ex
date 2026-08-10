@@ -51,6 +51,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
   @ecto_sql_direct_operations [:checkout, :explain]
+  @ecto_migrator_operations [
+    :down,
+    :migrated_versions,
+    :migrations,
+    :run,
+    :start_link,
+    :up,
+    :with_repo
+  ]
   @db_connection_raw_sql_operations [
     :execute,
     :execute!,
@@ -99,6 +108,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update,
     :update!,
     :update_all
+    | @ecto_migrator_operations
   ]
   @postgrex_raw_sql_operations [
     :execute,
@@ -206,12 +216,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "DBConnection",
     "Ecto.Adapters.SQL",
     "Ecto.Migration",
+    "Ecto.Migrator",
     "Ecto.Multi",
     "Ecto.Query",
     "Ecto.Query.API",
     "OfficeGraph.Repo",
     "Postgrex"
   ]
+  @process_execution_modules ["System", "os"]
+  @database_cli_executables [
+    "clusterdb",
+    "createdb",
+    "createuser",
+    "dropdb",
+    "dropuser",
+    "initdb",
+    "pg_ctl",
+    "pg_restore",
+    "pgbench",
+    "postgres",
+    "psql",
+    "reindexdb",
+    "vacuumdb"
+  ]
+  @command_dispatch_executables ["bash", "docker", "env", "sh", "xargs", "zsh"]
   @dynamic_dispatch_modules ["Function"]
   @reflection_modules ["Code", "Module"]
   @reflection_operations %{
@@ -397,6 +425,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp scan_node({:@, _metadata, [{_name, _name_metadata, [value]}]}, env, occurrences) do
+    scan_node(value, env, occurrences)
+  end
+
   defp scan_node({:__block__, _metadata, expressions}, env, occurrences)
        when is_list(expressions) do
     scan_expressions(expressions, env, occurrences)
@@ -456,7 +488,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:for, metadata, arguments} = node, env, occurrences)
        when is_list(arguments) do
     occurrences =
-      if migration_entrypoint?(env) and not approved_uuidv7_loop?(node, env) do
+      if migration_execution_context?(env) and not approved_uuidv7_loop?(node, env) do
         [
           occurrence(env, line(metadata), :direct_ecto, "migration.control_flow", node,
             approval: :unresolved_sql
@@ -473,7 +505,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
        when operation in @migration_control_flow and is_list(arguments) do
     occurrences =
-      if migration_entrypoint?(env) do
+      if migration_execution_context?(env) do
         [
           occurrence(env, line(metadata), :direct_ecto, "migration.control_flow", node,
             approval: :unresolved_sql
@@ -777,6 +809,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Adapters.SQL.#{operation}", node)
   end
 
+  defp classify_operation("Ecto.Migrator", operation, _arity, node, env)
+       when operation in @ecto_migrator_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Migrator.#{operation}", node,
+      approval: :unresolved_sql
+    )
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in @process_execution_modules and
+              ((receiver == "System" and operation in [:cmd, :shell]) or
+                 (receiver == "os" and operation == :cmd)) do
+    case process_command_status(receiver, operation, node) do
+      :database_cli ->
+        occurrence(env, line_from_node(node), :raw_sql, "process.database_cli", node,
+          approval: :unresolved_sql
+        )
+
+      :dynamic ->
+        occurrence(env, line_from_node(node), :raw_sql, "process.dynamic_command", node,
+          approval: :unresolved_sql
+        )
+
+      :safe ->
+        nil
+    end
+  end
+
   defp classify_operation("Postgrex", operation, _arity, node, env)
        when operation in @postgrex_raw_sql_operations do
     construct = "Postgrex.#{operation}"
@@ -867,7 +926,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_operation(receiver, operation, _arity, node, env)
        when receiver in @database_modules and operation == :apply do
-    class = if receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+    class = dynamic_dispatch_class(receiver)
 
     occurrence(env, line_from_node(node), class, "#{receiver}.apply", node,
       approval: :unresolved_sql
@@ -886,7 +945,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     cond do
       resolved_receiver in @database_modules ->
-        class = if resolved_receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+        class = dynamic_dispatch_class(resolved_receiver)
 
         occurrence(env, line_from_node(node), class, "#{resolved_receiver}.#{kind}", node,
           approval: :unresolved_sql
@@ -922,11 +981,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_defdelegate(_arguments, _node, _env), do: nil
 
   defp migration_helper_escape?(operation, _arguments, env) do
-    migration_entrypoint?(env) and operation not in @allowed_migration_locals and
+    migration_execution_context?(env) and operation not in @allowed_migration_locals and
       operation not in @syntax_operations and
       not operator?(operation) and
       not imported?(env, operation)
   end
+
+  defp migration_execution_context?(%{migration?: true, function: nil}), do: true
+  defp migration_execution_context?(env), do: migration_entrypoint?(env)
 
   defp migration_entrypoint?(%{migration?: true, function: function}),
     do: function in ["after_begin/0", "before_commit/0", "change/0", "down/0", "up/0"]
@@ -934,17 +996,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp migration_entrypoint?(_env), do: false
 
   defp remote_migration_helper_escape?(receiver, operation, env) do
-    if migration_entrypoint?(env) do
+    if migration_execution_context?(env) do
       case receiver_name(receiver, env) do
         receiver when receiver in @database_modules ->
           false
 
         receiver when is_binary(receiver) ->
-          {env.function, operation} not in Map.get(
-            @allowed_external_migration_helpers,
-            receiver,
-            []
-          )
+          not (migration_entrypoint?(env) and
+                 {env.function, operation} in Map.get(
+                   @allowed_external_migration_helpers,
+                   receiver,
+                   []
+                 ))
 
         nil ->
           true
@@ -1082,6 +1145,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       "conn",
       "connection",
       "db",
+      "migrator",
       "multi",
       "postgrex",
       "repo",
@@ -1093,6 +1157,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         "_conn",
         "_connection",
         "_db",
+        "_migrator",
         "_multi",
         "_repo",
         "_repository",
@@ -1104,7 +1169,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do:
       raw_sql_operation?(operation) or operation in @repo_direct_operations or
         operation in @ecto_sql_direct_operations or operation in @db_connection_direct_operations or
-        operation in @postgrex_direct_operations or operation in @multi_operations
+        operation in @postgrex_direct_operations or operation in @multi_operations or
+        operation in @ecto_migrator_operations
 
   defp database_operation_arity?(operation, arity) when arity > 0,
     do: database_operation?(operation)
@@ -1120,6 +1186,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         operation in @db_connection_raw_sql_operations or
         operation in @postgrex_raw_sql_operations or operation in @migration_raw_sql_operations or
         operation in @query_fragment_operations
+
+  defp dynamic_dispatch_class(receiver)
+       when receiver in ["Ecto.Migrator", "Ecto.Multi"],
+       do: :direct_ecto
+
+  defp dynamic_dispatch_class(_receiver), do: :raw_sql
 
   defp apply_alias([target], env), do: apply_alias([target, []], env)
 
@@ -1159,7 +1231,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     module = module_name(target, env)
 
     if module in @database_modules or module in @dynamic_dispatch_modules or
-         module in @reflection_modules do
+         module in @reflection_modules or module in @process_execution_modules do
       imported = imported_operations(module, options)
 
       imports =
@@ -1242,7 +1314,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: operation in @postgrex_raw_sql_operations or operation in @postgrex_direct_operations
 
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
+  defp imported_operation?("Ecto.Migrator", operation), do: operation in @ecto_migrator_operations
   defp imported_operation?("Function", operation), do: operation == :capture
+  defp imported_operation?("System", operation), do: operation in [:cmd, :shell]
+  defp imported_operation?("os", operation), do: operation == :cmd
 
   defp imported_operation?(module, operation) when module in ["Ecto.Query", "Ecto.Query.API"],
     do:
@@ -1339,7 +1414,174 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: arguments
 
   defp call_arguments({_operation, _metadata, arguments}) when is_list(arguments), do: arguments
+
+  defp call_arguments({:call, _metadata, _callee, arguments}) when is_list(arguments),
+    do: arguments
+
   defp call_arguments(_node), do: []
+
+  defp process_command_status(receiver, operation, node) do
+    arguments = call_arguments(node)
+
+    command_arguments =
+      case {receiver, operation, arguments} do
+        {"System", :cmd, [executable, args | _options]} -> [executable, args]
+        {"System", :shell, [command | _options]} -> [command]
+        {"os", :cmd, [command | _options]} -> [command]
+        _call -> []
+      end
+
+    {literals, dynamic?} = command_literals(command_arguments)
+    executable = arguments |> List.first() |> command_literals() |> elem(0) |> List.first()
+
+    cond do
+      Enum.any?(literals, &database_cli_reference?/1) ->
+        :database_cli
+
+      read_only_pg_dump_command?(receiver, operation, node) ->
+        :safe
+
+      is_nil(executable) ->
+        :dynamic
+
+      command_dispatch_executable?(executable) and dynamic? ->
+        :dynamic
+
+      receiver == "os" and dynamic? ->
+        :dynamic
+
+      operation == :shell and dynamic? ->
+        :dynamic
+
+      true ->
+        :safe
+    end
+  end
+
+  defp command_literals(nodes) when is_list(nodes) do
+    if Enum.all?(nodes, &is_integer/1) do
+      {[List.to_string(nodes)], false}
+    else
+      Enum.reduce(nodes, {[], false}, fn node, {literals, dynamic?} ->
+        {node_literals, node_dynamic?} = command_literals(node)
+        {literals ++ node_literals, dynamic? or node_dynamic?}
+      end)
+    end
+  end
+
+  defp command_literals(value) when is_binary(value), do: {[value], false}
+  defp command_literals({nil, _metadata}), do: {[], false}
+
+  defp command_literals({:cons, _metadata, head, tail}) do
+    {head_literals, head_dynamic?} = command_literals(head)
+    {tail_literals, tail_dynamic?} = command_literals(tail)
+    {head_literals ++ tail_literals, head_dynamic? or tail_dynamic?}
+  end
+
+  defp command_literals({:string, _metadata, characters}) when is_list(characters),
+    do: {[List.to_string(characters)], false}
+
+  defp command_literals({:bin, _metadata, elements}) when is_list(elements) do
+    Enum.reduce(elements, {[], false}, fn
+      {:bin_element, _element_metadata, value, _size, _type}, {literals, dynamic?} ->
+        {element_literals, element_dynamic?} = command_literals(value)
+        {literals ++ element_literals, dynamic? or element_dynamic?}
+
+      _element, {literals, _dynamic?} ->
+        {literals, true}
+    end)
+  end
+
+  defp command_literals({:<<>>, _metadata, segments}) when is_list(segments) do
+    if static_binary_segments?(segments) do
+      value =
+        Enum.map_join(segments, fn
+          segment when is_binary(segment) -> segment
+          {:"::", _segment_metadata, [segment, _type]} -> segment
+        end)
+
+      {[value], false}
+    else
+      {[], true}
+    end
+  end
+
+  defp command_literals({:sigil_c, _metadata, [{:<<>>, _, segments}, []]}) do
+    command_literals({:<<>>, [], segments})
+  end
+
+  defp command_literals(_node), do: {[], true}
+
+  defp database_cli_reference?(literal) do
+    literal
+    |> command_words()
+    |> Enum.any?(&(&1 in @database_cli_executables))
+  end
+
+  defp read_only_pg_dump_command?("System", :cmd, node) do
+    case call_arguments(node) do
+      [executable, arguments | _options] ->
+        case static_command_literal(executable) do
+          "pg_dump" -> true
+          "docker" -> docker_pg_dump_arguments?(arguments)
+          _executable -> false
+        end
+
+      _arguments ->
+        false
+    end
+  end
+
+  defp read_only_pg_dump_command?(_receiver, _operation, _node), do: false
+
+  defp docker_pg_dump_arguments?(arguments) do
+    case command_argument_nodes(arguments) do
+      [exec, env_flag, _env, _container, pg_dump | _rest] ->
+        static_command_literal(exec) == "exec" and
+          static_command_literal(env_flag) in ["-e", "--env"] and
+          static_command_literal(pg_dump) == "pg_dump"
+
+      [exec, _container, pg_dump | _rest] ->
+        static_command_literal(exec) == "exec" and
+          static_command_literal(pg_dump) == "pg_dump"
+
+      _arguments ->
+        false
+    end
+  end
+
+  defp command_argument_nodes(arguments) when is_list(arguments), do: arguments
+  defp command_argument_nodes({nil, _metadata}), do: []
+
+  defp command_argument_nodes({:cons, _metadata, head, tail}) do
+    case command_argument_nodes(tail) do
+      :dynamic -> :dynamic
+      tail -> [head | tail]
+    end
+  end
+
+  defp command_argument_nodes(_arguments), do: :dynamic
+
+  defp static_command_literal(node) do
+    case command_literals(node) do
+      {[literal], false} -> literal |> Path.basename() |> String.downcase()
+      _literal -> nil
+    end
+  end
+
+  defp command_dispatch_executable?(literal) do
+    literal
+    |> Path.basename()
+    |> String.downcase()
+    |> then(&(&1 in @command_dispatch_executables))
+  end
+
+  defp command_words(literal) do
+    literal
+    |> String.downcase()
+    |> String.split(~r/[^a-z0-9_\.\/-]+/, trim: true)
+    |> Enum.map(&Path.basename/1)
+  end
 
   defp approval_marker(:raw_sql, construct, _arguments)
        when construct in ["migration.execute_file", "Ecto.Migration.execute_file"],
@@ -1873,7 +2115,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     cond do
       receiver in @database_modules ->
-        class = if receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+        class = dynamic_dispatch_class(receiver)
 
         [
           occurrence(source, line_from_node(node), nil, class, "#{receiver}.#{kind}", node,

@@ -51,9 +51,10 @@ construction, SQL bodies, macro output, or control flow.
 
 #### Scenario: Forbidden primitive is present
 - **WHEN** tracked source directly, fully qualified, aliased, or imported uses a
-  known repository, SQL adapter, Postgrex, Ecto.Multi, migration SQL, query
-  fragment, SQL-bearing query lock or hint, migration expression field, or
-  direct repository transaction/connection primitive
+  known repository, SQL adapter, Ecto.Migrator, Postgrex, Ecto.Multi, migration
+  SQL, query fragment, SQL-bearing query lock or hint, migration expression
+  field, direct repository transaction/connection primitive, or mutable
+  database CLI subprocess
 - **THEN** the scanner MUST emit a fingerprinted occurrence requiring exact
   approval
 
@@ -93,13 +94,15 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 
 #### Scenario: Terminal database ownership is derived
 - **WHEN** conformance compares database objects after real migrations run
-- **THEN** it MUST derive terminal tables, columns, keys, constraints, indexes,
-  sequences, views, materialized views, functions, procedures, ordinary,
-  constraint, and event triggers, RLS policies and table enable/force state,
-  grants, and extensions from the actual database and compare
+- **THEN** it MUST derive regular, foreign, and unlogged tables, columns, keys,
+  constraints, indexes, sequences, views, materialized views,
+  functions, procedures, ordinary, constraint, and event triggers and their
+  firing modes, RLS policies and table enable/force state, direct and
+  default-privilege grants, and extensions from the actual database and compare
   project-owned objects with Ash/resource ownership metadata, including
   normalized column type/default/nullability, key and constraint definitions,
-  and index uniqueness/method/fields/null semantics
+  index uniqueness/method/fields/null semantics, configured PostgreSQL
+  migration types, and exact shapes for present framework-owned tables
 
 #### Scenario: Schema-qualified resources and composite references are derived
 - **WHEN** resources use non-public schemas or references use multiple physical

@@ -70,3 +70,10 @@
 - [x] 10.2 Reject file-based runtime code loading, Postgrex transaction/connection controls, and zero-arity repository controls in source and compiled code.
 - [x] 10.3 Inventory event triggers and RLS enable/force state through exact terminal-object fingerprints.
 - [x] 10.4 Run review-focused regressions, the full test suite, canonical verification, and a final diff audit.
+
+## 11. Execution And Terminal Inventory Review Follow-Up
+
+- [x] 11.1 Audit Ecto.Migrator entrypoints, migration module-body execution, mutable database CLIs, shell dispatch, and dynamic subprocess commands in source and compiled code.
+- [x] 11.2 Compare exact subordinate definitions on present framework-owned tables and honor configured PostgreSQL migration types.
+- [x] 11.3 Inventory unlogged tables, default privileges, ordinary and event trigger firing modes, and RLS state approvals with exact terminal fingerprints.
+- [x] 11.4 Add focused regressions, run canonical verification, review the final diff, push, and reply to the review threads.

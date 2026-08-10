@@ -889,6 +889,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       ])
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "migration.remote_helper_call", nil, :unresolved_sql},
              {:direct_ecto, "migration.control_flow", "up/0", :unresolved_sql}
            ]
   end
@@ -914,6 +915,63 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "migration.remote_helper_call"
     assert occurrence.function == "down/0"
     assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects remote migration helpers executed from the migration module body" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_module_body_helper.exs",
+          source: """
+          defmodule ModuleBodyHelper do
+            use Ecto.Migration
+
+            ExternalInstaller.install()
+
+            def change, do: create(table(:items))
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :direct_ecto
+    assert occurrence.construct == "migration.remote_helper_call"
+    assert occurrence.function == nil
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects Ecto migrator entrypoints and database command subprocesses" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/database_escape_paths.ex",
+          source: """
+          defmodule DatabaseEscapePaths do
+            alias Ecto.Migrator
+            alias System, as: ProcessRunner
+
+            def migrate(path), do: Migrator.run(OfficeGraph.Repo, path, :up, all: true)
+            def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
+            def direct(sql), do: ProcessRunner.cmd("psql", ["-c", sql])
+            def shell, do: :os.cmd(~c"psql -c 'SELECT 1'")
+            def dynamic(command, args), do: System.cmd(command, args)
+            def disguised(command), do: System.cmd("sh", [command, "pg_dump"])
+            def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
+            def inspect_container(container),
+              do: System.cmd("docker", ["exec", "-e", "PGPASSWORD=secret", container, "pg_dump", "--schema-only"])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "Ecto.Migrator.run", "migrate/1", :unresolved_sql},
+             {:direct_ecto, "variable_receiver.up", "migrate_dynamic/3", :unresolved_sql},
+             {:raw_sql, "process.database_cli", "direct/1", :unresolved_sql},
+             {:raw_sql, "process.database_cli", "shell/0", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "dynamic/2", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "disguised/1", :unresolved_sql}
+           ]
   end
 
   test "tracks SQL-like files as unapproved raw SQL" do
@@ -1088,6 +1146,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def current(repo), do: repo.get_dynamic_repo()
         def stop(repo), do: repo.stop()
         def evaluate(path), do: Code.eval_file(path)
+        def migrate(path), do: Ecto.Migrator.run(OfficeGraph.Repo, path, :up, all: true)
+        def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
+        def psql(sql), do: System.cmd("psql", ["-c", sql])
+        def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
       """
     )
@@ -1116,7 +1178,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Repo.explain", nil},
                {:direct_ecto, "variable_receiver.get_dynamic_repo", :unresolved_sql},
                {:direct_ecto, "variable_receiver.stop", :unresolved_sql},
-               {:direct_ecto, "reflection.Code.eval_file", :unresolved_sql}
+               {:direct_ecto, "reflection.Code.eval_file", :unresolved_sql},
+               {:direct_ecto, "Ecto.Migrator.run", :unresolved_sql},
+               {:direct_ecto, "variable_receiver.up", :unresolved_sql},
+               {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
   end
