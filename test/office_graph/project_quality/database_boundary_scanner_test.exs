@@ -137,6 +137,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "rejects dynamic dispatch even when the receiver variable is not database-shaped" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def kernel_dispatch(sql), do: Kernel.apply(OfficeGraph.Repo, :query, [sql])
+            def local_dispatch(target, sql), do: apply(target, :query, [sql])
+            def remote_dispatch(target, sql), do: target.query(sql)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"OfficeGraph.Repo.apply", "kernel_dispatch/1", :unresolved_sql},
+             {"variable_receiver.apply", "local_dispatch/2", :unresolved_sql},
+             {"variable_receiver.query", "remote_dispatch/2", :unresolved_sql}
+           ]
+  end
+
   test "rejects database-shaped variable receivers" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -204,6 +226,86 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
              {:raw_sql, "migration.constraint.check", "change/0"},
              {:raw_sql, "migration.index.where", "change/0"}
+           ]
+  end
+
+  test "rejects SQL fragments and lock clauses inside Ecto query DSL calls" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            import Ecto.Query, only: [from: 2]
+
+            def load do
+              from row in "rows",
+                where: fragment("lower(?)", row.name),
+                lock: "FOR UPDATE"
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:raw_sql, "query.from.lock", "load/0"},
+             {:raw_sql, "fragment", "load/0"}
+           ]
+  end
+
+  test "rejects qualified migration primitives and SQL-bearing options" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_qualified_primitives.exs",
+          source: """
+          defmodule QualifiedPrimitives do
+            use Ecto.Migration
+
+            def change do
+              Ecto.Migration.fragment("now()")
+              Ecto.Migration.insert(%{id: "1"})
+              create Ecto.Migration.index(:items, [:name], where: "name IS NOT NULL")
+              create Ecto.Migration.table(:items, options: "fillfactor=70")
+              alter Ecto.Migration.table(:items) do
+                Ecto.Migration.add(:slug, :text, generated: "lower(name)")
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:raw_sql, "Ecto.Migration.fragment", "change/0"},
+             {:direct_ecto, "Ecto.Migration.insert", "change/0"},
+             {:raw_sql, "migration.index.where", "change/0"},
+             {:raw_sql, "migration.table.options", "change/0"},
+             {:raw_sql, "migration.add.generated", "change/0"}
+           ]
+  end
+
+  test "rejects short-circuit migration branches" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_short_circuit.exs",
+          source: """
+          defmodule ShortCircuit do
+            use Ecto.Migration
+            @enabled System.get_env("ENABLE_TABLE")
+
+            def up do
+              @enabled && create(table(:conditional))
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "migration.control_flow", "up/0", :unresolved_sql}
            ]
   end
 
@@ -334,6 +436,53 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "Repo.query!"
     assert occurrence.path == "lib/compiled_boundary_example.ex"
     assert occurrence.line == 3
+  end
+
+  test "compiled audit rejects dynamic database receivers and apply targets" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_compiled_dynamic_boundary_#{System.unique_integer([:positive])}"
+      )
+
+    source_path = Path.join(root, "lib/compiled_dynamic_boundary_example.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+    File.mkdir_p!(Path.dirname(source_path))
+    File.mkdir_p!(ebin)
+    on_exit(fn -> File.rm_rf!(root) end)
+    previous_options = Code.compiler_options()
+    Code.compiler_options(debug_info: true)
+    on_exit(fn -> Code.compiler_options(previous_options) end)
+
+    module =
+      Module.concat(
+        OfficeGraph,
+        "CompiledDynamicBoundaryExample#{System.unique_integer([:positive])}"
+      )
+
+    File.write!(
+      source_path,
+      """
+      defmodule #{inspect(module)} do
+        def dispatch_apply(target, sql), do: apply(target, :query, [sql])
+        def dispatch_remote(target, sql), do: target.query(sql)
+      end
+      """
+    )
+
+    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
+             Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
+               debug_info: true,
+               return_diagnostics: true
+             )
+
+    [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
+             {"variable_receiver.apply", :unresolved_sql},
+             {"variable_receiver.query", :unresolved_sql}
+           ]
   end
 
   test "compiled audit scans every project BEAM module, not only OfficeGraph-prefixed modules" do

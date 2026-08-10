@@ -76,11 +76,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_raw_sql_operations [:execute, :execute_file]
   @migration_direct_operations [:insert]
   @migration_sql_option_operations %{
+    add: [:generated],
+    add_if_not_exists: [:generated],
     constraint: [:check, :exclude, :where],
     index: [:where],
+    modify: [:generated],
+    table: [:options],
     unique_index: [:where]
   }
-  @migration_control_flow [:case, :cond, :if, :receive, :try, :with]
+  @query_sql_option_operations %{
+    from: [:hints, :lock],
+    join: [:hints],
+    lock: [:lock]
+  }
+  @migration_control_flow [:case, :cond, :if, :unless, :receive, :try, :with, :and, :or, :&&, :||]
   @allowed_external_migration_helpers %{
     "Oban.Migrations" => [:down, :up]
   }
@@ -115,6 +124,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :flush,
     :fragment,
     :index,
+    :insert,
     :modify,
     :references,
     :remove,
@@ -209,7 +219,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           function: nil,
           imports: %{},
           migration?: migration_path?(path),
-          path: path
+          path: path,
+          query_dsl?: false
         }
 
         {_env, occurrences} = scan_node(ast, env, [])
@@ -301,6 +312,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          occurrences
        )
        when is_atom(operation) and is_list(arguments) do
+    receiver_name = receiver_name(receiver, env)
+
     occurrences =
       case classify_remote_call(receiver, operation, arguments, node, env) do
         nil ->
@@ -322,6 +335,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
         occurrence ->
           [occurrence | occurrences]
+      end
+
+    occurrences =
+      if receiver_name == "Ecto.Migration" do
+        operation
+        |> migration_sql_option_occurrences(arguments, node, env)
+        |> Enum.reduce(occurrences, &[&1 | &2])
+      else
+        occurrences
+      end
+
+    occurrences =
+      if receiver_name in ["Ecto.Query", "Ecto.Query.API"] do
+        operation
+        |> query_sql_option_occurrences(arguments, node, env)
+        |> Enum.reduce(occurrences, &[&1 | &2])
+      else
+        occurrences
       end
 
     occurrences =
@@ -347,7 +378,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
-    scan_children(node, env, occurrences)
+    child_env =
+      if receiver_name in ["Ecto.Query", "Ecto.Query.API"] do
+        %{env | query_dsl?: true}
+      else
+        env
+      end
+
+    scan_children(node, child_env, occurrences)
   end
 
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
@@ -356,6 +394,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       operation
       |> migration_sql_option_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
+
+    imported_receiver = imported_receiver(env, operation, length(arguments))
+
+    occurrences =
+      if imported_receiver in ["Ecto.Query", "Ecto.Query.API"] do
+        operation
+        |> query_sql_option_occurrences(arguments, node, env)
+        |> Enum.reduce(occurrences, &[&1 | &2])
+      else
+        occurrences
+      end
 
     occurrences =
       case classify_local_call(operation, arguments, node, env) do
@@ -375,7 +424,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
-    scan_children(node, env, occurrences)
+    child_env =
+      if imported_receiver in ["Ecto.Query", "Ecto.Query.API"] do
+        %{env | query_dsl?: true}
+      else
+        env
+      end
+
+    scan_children(node, child_env, occurrences)
   end
 
   defp scan_node(nodes, env, occurrences) when is_list(nodes) do
@@ -398,6 +454,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     node
     |> Tuple.to_list()
     |> scan_node(env, occurrences)
+  end
+
+  defp classify_remote_call(receiver, :apply, arguments, node, env)
+       when length(arguments) >= 2 do
+    case receiver_name(receiver, env) do
+      receiver when receiver in ["Kernel", "erlang"] ->
+        [target, operation | _rest] = arguments
+        classify_apply(target, operation, node, env)
+
+      receiver ->
+        classify_operation(receiver, :apply, length(arguments), node, env)
+    end
   end
 
   defp classify_remote_call(receiver, operation, arguments, node, env) do
@@ -438,7 +506,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     case imported_receiver(env, operation, arity) do
       nil ->
-        if env.migration? do
+        if env.migration? or env.query_dsl? do
           approval = approval_marker(:raw_sql, to_string(operation), arguments)
 
           occurrence(env, line_from_node(node), :raw_sql, to_string(operation), node,
@@ -503,11 +571,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
   end
 
-  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
-       when operation in @migration_raw_sql_operations do
-    construct = "migration.#{operation}"
+  defp classify_operation("Ecto.Query", :lock, _arity, node, env) do
+    construct = "query.lock"
     approval = approval_marker(:raw_sql, construct, call_arguments(node))
     occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
+       when operation in @migration_raw_sql_operations do
+    construct = "Ecto.Migration.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
+       when operation in @query_fragment_operations do
+    construct = "Ecto.Migration.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
+       when operation in @migration_direct_operations do
+    occurrence(
+      env,
+      line_from_node(node),
+      :direct_ecto,
+      "Ecto.Migration.#{operation}",
+      node
+    )
   end
 
   defp classify_operation("Ecto.Migration.repo()", operation, _arity, node, env)
@@ -533,14 +625,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     operation_name = static_atom(operation)
 
     cond do
-      receiver_name in @database_modules and is_atom(operation_name) and
-          not is_nil(operation_name) ->
-        classify_operation(receiver_name, operation_name, 0, node, env)
-
       receiver_name in @database_modules ->
         class = if receiver_name == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
 
         occurrence(env, line_from_node(node), class, "#{receiver_name}.apply", node,
+          approval: :unresolved_sql
+        )
+
+      database_operation?(operation_name) ->
+        class = if raw_sql_operation?(operation_name), do: :raw_sql, else: :direct_ecto
+
+        occurrence(env, line_from_node(node), class, "variable_receiver.apply", node,
           approval: :unresolved_sql
         )
 
@@ -611,7 +706,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp dynamic_module_receiver?(_receiver, _env), do: false
 
   defp classify_variable_receiver(receiver, operation, node, env) do
-    if database_shaped_variable_receiver?(receiver, operation) do
+    if database_shaped_variable_receiver?(receiver, operation, length(call_arguments(node))) do
       class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
 
       occurrence(env, line_from_node(node), class, "variable_receiver.#{operation}", node,
@@ -620,12 +715,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp database_shaped_variable_receiver?({name, _metadata, context}, operation)
+  defp database_shaped_variable_receiver?({name, _metadata, context}, operation, arity)
        when is_atom(name) and is_atom(context) do
-    database_shaped_variable_name?(name) and database_operation?(operation)
+    database_operation?(operation) and
+      (database_shaped_variable_name?(name) or
+         (operation in @repo_raw_sql_operations and arity > 0))
   end
 
-  defp database_shaped_variable_receiver?(_receiver, _operation), do: false
+  defp database_shaped_variable_receiver?(_receiver, _operation, _arity), do: false
 
   defp database_shaped_variable_name?(name) do
     name = to_string(name)
@@ -752,6 +849,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when arguments in [[], nil],
        do: "Ecto.Migration.repo()"
 
+  defp receiver_name(
+         {{:., _dot_metadata, [module, :repo]}, _metadata, arguments},
+         %{migration?: true} = env
+       )
+       when arguments in [[], nil] do
+    if module_name(module, env) == "Ecto.Migration", do: "Ecto.Migration.repo()"
+  end
+
   defp receiver_name(receiver, env), do: module_name(receiver, env)
 
   defp module_name({:__aliases__, _metadata, parts}, env) do
@@ -856,6 +961,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     else
       []
     end
+  end
+
+  defp query_sql_option_occurrences(operation, arguments, node, env) do
+    option_keys = Map.get(@query_sql_option_operations, operation, [])
+
+    arguments
+    |> List.last()
+    |> sql_option_entries(option_keys)
+    |> Enum.map(fn {key, value} ->
+      construct = "query.#{operation}.#{key}"
+      approval = approval_marker(:raw_sql, construct, [value])
+
+      occurrence(env, line_from_node(node), :raw_sql, construct, {operation, key, value},
+        approval: approval
+      )
+    end)
   end
 
   defp sql_option_entries(options, option_keys) when is_list(options) do
@@ -1082,6 +1203,54 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_node_occurrences(
+         {:call, _line, {:atom, _fun_line, :apply}, arguments} = node,
+         source,
+         occurrences
+       ) do
+    occurrences = compiled_apply_occurrences(arguments, node, source, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, occurrences)
+  end
+
+  defp compiled_node_occurrences(
+         {:call, _line,
+          {:remote, _remote_line, {:atom, _module_line, :erlang}, {:atom, _fun_line, :apply}},
+          arguments} = node,
+         source,
+         occurrences
+       ) do
+    occurrences = compiled_apply_occurrences(arguments, node, source, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, occurrences)
+  end
+
+  defp compiled_node_occurrences(
+         {:call, _line, {:remote, _remote_line, receiver, {:atom, _fun_line, operation}},
+          _arguments} = node,
+         source,
+         occurrences
+       )
+       when not is_tuple(receiver) or elem(receiver, 0) != :atom do
+    occurrences =
+      if operation in @repo_raw_sql_operations do
+        [
+          occurrence(
+            source,
+            line_from_node(node),
+            nil,
+            :raw_sql,
+            "variable_receiver.#{operation}",
+            node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
+        occurrences
+      end
+
+    compiled_node_occurrences(Tuple.to_list(node), source, occurrences)
+  end
+
+  defp compiled_node_occurrences(
          {:call, _line,
           {:remote, _remote_line, {:atom, _module_line, module}, {:atom, _fun_line, fun}},
           arguments} = node,
@@ -1114,6 +1283,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_node_occurrences(_node, _source, occurrences), do: occurrences
+
+  defp compiled_apply_occurrences([receiver, operation | _rest], node, source, occurrences) do
+    receiver = compiled_module(receiver)
+    operation = compiled_operation(operation)
+
+    cond do
+      receiver in @database_modules ->
+        class = if receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+
+        [
+          occurrence(source, line_from_node(node), nil, class, "#{receiver}.apply", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+
+      operation in @repo_raw_sql_operations ->
+        [
+          occurrence(
+            source,
+            line_from_node(node),
+            nil,
+            :raw_sql,
+            "variable_receiver.apply",
+            node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+
+      true ->
+        occurrences
+    end
+  end
+
+  defp compiled_apply_occurrences(_arguments, _node, _source, occurrences), do: occurrences
+
+  defp compiled_module({:atom, _line, atom}) when is_atom(atom) do
+    atom |> Atom.to_string() |> String.trim_leading("Elixir.")
+  end
+
+  defp compiled_module(_node), do: nil
+
+  defp compiled_operation({:atom, _line, operation}) when is_atom(operation), do: operation
+  defp compiled_operation(_node), do: nil
 
   defp mix_env do
     if Process.whereis(Mix.State), do: Mix.env(), else: :dev
