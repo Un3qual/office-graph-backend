@@ -946,22 +946,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp migration_sql_option_occurrences(operation, arguments, node, env) do
     option_keys = Map.get(@migration_sql_option_operations, operation, [])
 
-    if env.migration? and option_keys != [] do
-      arguments
-      |> List.last()
-      |> sql_option_entries(option_keys)
-      |> Enum.map(fn {key, value} ->
-        construct = "migration.#{operation}.#{key}"
-        approval = approval_marker(:raw_sql, construct, [value])
+    if env.migration? do
+      option_occurrences =
+        arguments
+        |> List.last()
+        |> sql_option_entries(option_keys)
+        |> Enum.map(fn {key, value} ->
+          construct = "migration.#{operation}.#{key}"
+          approval = approval_marker(:raw_sql, construct, [value])
 
-        occurrence(env, line_from_node(node), :raw_sql, construct, {operation, key, value},
-          approval: approval
-        )
-      end)
+          occurrence(env, line_from_node(node), :raw_sql, construct, {operation, key, value},
+            approval: approval
+          )
+        end)
+
+      option_occurrences ++ migration_index_field_occurrences(operation, arguments, node, env)
     else
       []
     end
   end
+
+  defp migration_index_field_occurrences(operation, arguments, node, env)
+       when operation in [:index, :unique_index] do
+    arguments
+    |> Enum.at(1, [])
+    |> List.wrap()
+    |> Enum.reject(&is_atom/1)
+    |> Enum.map(fn field ->
+      construct = "migration.#{operation}.fields"
+      approval = approval_marker(:raw_sql, construct, [field])
+
+      occurrence(env, line_from_node(node), :raw_sql, construct, {operation, :fields, field},
+        approval: approval
+      )
+    end)
+  end
+
+  defp migration_index_field_occurrences(_operation, _arguments, _node, _env), do: []
 
   defp query_sql_option_occurrences(operation, arguments, node, env) do
     option_keys = Map.get(@query_sql_option_operations, operation, [])
@@ -994,6 +1015,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp repository_authored_sql_option?(value)
        when is_binary(value) or is_tuple(value),
        do: true
+
+  defp repository_authored_sql_option?(value) when is_list(value),
+    do: Enum.any?(value, &repository_authored_sql_option?/1)
 
   defp repository_authored_sql_option?(_value), do: false
 
@@ -1224,13 +1248,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp compiled_node_occurrences(
          {:call, _line, {:remote, _remote_line, receiver, {:atom, _fun_line, operation}},
-          _arguments} = node,
+          arguments} = node,
          source,
          occurrences
        )
        when not is_tuple(receiver) or elem(receiver, 0) != :atom do
     occurrences =
-      if operation in @repo_raw_sql_operations do
+      if operation in @repo_raw_sql_operations and arguments != [] do
         [
           occurrence(
             source,

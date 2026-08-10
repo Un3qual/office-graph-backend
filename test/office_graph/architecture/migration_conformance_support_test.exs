@@ -38,15 +38,20 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
     assert inventory.columns ==
              MapSet.new([
-               {"children", "id"},
-               {"children", "parent_id"},
-               {"parents", "id"},
-               {"parents", "name"}
+               {"children", "id", "uuid NOT NULL"},
+               {"children", "parent_id", "uuid NOT NULL"},
+               {"parents", "id", "uuid NOT NULL"},
+               {"parents", "name", "text NOT NULL"}
              ])
 
     assert inventory.primary_keys == MapSet.new([{"parents", "parents_pkey"}])
     assert inventory.foreign_keys == [{"children", "parent_id", "parents", "id"}]
-    assert inventory.indexes == MapSet.new(["children_parent_id_index ON children"])
+
+    assert inventory.indexes ==
+             MapSet.new([
+               {"children", "children_parent_id_index", "UNIQUE USING btree (parent_id)"}
+             ])
+
     assert inventory.sequences == MapSet.new(["unexpected_seq"])
     assert inventory.views == MapSet.new(["read_model"])
     assert inventory.materialized_views == MapSet.new(["cached_model"])
@@ -73,7 +78,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     inventory =
       MigrationConformanceSupport.parse_dump("""
       CREATE TABLE public.graph_items (
-          id uuid NOT NULL,
+          id uuid DEFAULT uuidv7() NOT NULL,
           resource_type text NOT NULL,
           resource_id uuid NOT NULL,
           title text NOT NULL,
@@ -100,6 +105,34 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              "unexpected project constraint graph_items.graph_items_rogue_check",
              "unexpected project index graph_items_rogue_index ON graph_items"
            ]
+  end
+
+  test "terminal errors reject incompatible column and index definitions" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.shapes (
+          id text NOT NULL,
+          name text DEFAULT 'wrong'::text NOT NULL
+      );
+      CREATE INDEX shapes_unique_name_index ON public.shapes USING hash (id);
+      ALTER TABLE ONLY public.shapes ADD CONSTRAINT shapes_pkey PRIMARY KEY (name);
+      """)
+
+    errors =
+      MigrationConformanceSupport.terminal_database_errors(
+        %{
+          "shapes" => {nil, OfficeGraph.TestSupport.MigrationConformanceShapeResource}
+        },
+        inventory
+      )
+
+    assert "column definition mismatch for shapes.id: expected uuid NOT NULL, got text NOT NULL" in errors
+
+    assert "column definition mismatch for shapes.name: expected text NOT NULL, got text DEFAULT 'wrong'::text NOT NULL" in errors
+
+    assert "constraint definition mismatch for shapes_pkey ON shapes: expected PRIMARY KEY (id), got PRIMARY KEY (name)" in errors
+
+    assert "index definition mismatch for shapes_unique_name_index ON shapes: expected UNIQUE USING btree (name), got USING hash (id)" in errors
   end
 
   defmodule PublicResource do

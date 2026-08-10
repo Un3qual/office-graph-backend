@@ -30,3 +30,10 @@
 - [ ] 5.2 Run canonical `./bin/verify` in the Nix flake. Current run reaches dependency audit and fails on existing `ash`/`postgrex` advisories inherited from the base branch.
 - [x] 5.3 Perform a final anti-slop diff review.
 - [x] 5.4 Commit, push `codex/simplify-database-boundary-enforcement`, and open a stacked PR targeting `codex/remediate-quality-review`.
+
+## 6. Review Follow-Up
+
+- [x] 6.1 Add regressions for dynamic dispatch, Ecto query fragments and locks, qualified migration SQL options, and short-circuit migration branches.
+- [x] 6.2 Audit dynamic database operations in both tracked source and BEAM abstract code without general dataflow analysis.
+- [x] 6.3 Preserve and compare terminal column, constraint, and index definitions against Ash/AshPostgres metadata.
+- [ ] 6.4 Run focused and canonical verification, review the final diff, and push the follow-up commits.

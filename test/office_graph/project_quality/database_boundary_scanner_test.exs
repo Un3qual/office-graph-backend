@@ -241,6 +241,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def load do
               from row in "rows",
                 where: fragment("lower(?)", row.name),
+                hints: ["TABLESAMPLE SYSTEM_ROWS(10)"],
                 lock: "FOR UPDATE"
             end
           end
@@ -249,6 +250,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       ])
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:raw_sql, "query.from.hints", "load/0"},
              {:raw_sql, "query.from.lock", "load/0"},
              {:raw_sql, "fragment", "load/0"}
            ]
@@ -267,6 +269,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               Ecto.Migration.fragment("now()")
               Ecto.Migration.insert(%{id: "1"})
               create Ecto.Migration.index(:items, [:name], where: "name IS NOT NULL")
+              create Ecto.Migration.index(:items, ["lower(name)"])
               create Ecto.Migration.table(:items, options: "fillfactor=70")
               alter Ecto.Migration.table(:items) do
                 Ecto.Migration.add(:slug, :text, generated: "lower(name)")
@@ -281,6 +284,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "Ecto.Migration.fragment", "change/0"},
              {:direct_ecto, "Ecto.Migration.insert", "change/0"},
              {:raw_sql, "migration.index.where", "change/0"},
+             {:raw_sql, "migration.index.fields", "change/0"},
              {:raw_sql, "migration.table.options", "change/0"},
              {:raw_sql, "migration.add.generated", "change/0"}
            ]

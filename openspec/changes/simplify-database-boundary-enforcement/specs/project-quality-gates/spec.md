@@ -51,9 +51,16 @@ construction, SQL bodies, macro output, or control flow.
 #### Scenario: Forbidden primitive is present
 - **WHEN** tracked source directly, fully qualified, aliased, or imported uses a
   known repository, SQL adapter, Postgrex, Ecto.Multi, migration SQL, query
-  fragment, or direct repository transaction/connection primitive
+  fragment, SQL-bearing query lock or hint, migration expression field, or
+  direct repository transaction/connection primitive
 - **THEN** the scanner MUST emit a fingerprinted occurrence requiring exact
   approval
+
+#### Scenario: Dynamic database operation survives compilation
+- **WHEN** BEAM abstract code contains `apply` or a dynamic receiver with a
+  statically visible database operation
+- **THEN** the compiled audit MUST reject the call as unresolved even when the
+  source gate already reports its exact tracked-source occurrence
 
 #### Scenario: Inert text mentions SQL
 - **WHEN** ordinary strings, comments, or documentation mention SQL phrases
@@ -78,7 +85,9 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 - **THEN** it MUST derive terminal tables, columns, keys, constraints, indexes,
   sequences, views, materialized views, functions, procedures, triggers, RLS
   policies, grants, and extensions from the actual database and compare
-  project-owned objects with Ash/resource ownership metadata
+  project-owned objects with Ash/resource ownership metadata, including
+  normalized column type/default/nullability, key and constraint definitions,
+  and index uniqueness/method/fields/null semantics
 
 #### Scenario: Raw SQL changes ownership
 - **WHEN** a migration attempts to create, alter, or drop schema ownership
