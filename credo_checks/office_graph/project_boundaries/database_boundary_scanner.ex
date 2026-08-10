@@ -206,7 +206,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     update_counter: [3],
     update_element: [2, 3]
   }
-  @ets_receiver_storage_operations Map.keys(@ets_receiver_storage_payload_indexes)
+  @database_receiver_storage_payload_indexes %{
+    "Process" => %{put: [1]},
+    "ets" => @ets_receiver_storage_payload_indexes,
+    "persistent_term" => %{put: [1]}
+  }
 
   @enum_unary_element_callback_operations [
     :all?,
@@ -312,7 +316,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                             )
   @task_stream_operations [:async_stream, :async_stream_nolink]
   @repo_raw_sql_operations [:query, :query!, :query_many, :query_many!]
-  @ecto_sql_direct_operations [:checkout, :explain]
+  @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
 
   @db_connection_raw_sql_operations [
@@ -1506,10 +1510,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp kernel_module_receiver?(receiver, environment) do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
-  end
-
-  defp process_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Process"
   end
 
   defp enum_module_receiver?(receiver, environment) do
@@ -3272,16 +3272,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_node(
-         {{:., _dot_metadata, [receiver, :put]}, _metadata, [_key, value]},
-         _context,
-         environment
-       ) do
-    if process_module_receiver?(receiver, environment) and
-         database_receiver_escape_argument?(value, environment),
-       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-  end
-
-  defp classify_node(
          {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
          _context,
          environment
@@ -3320,13 +3310,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          environment
        )
        when is_list(arguments) do
-    ets_classification =
-      classify_ets_database_receiver_storage(receiver, operation, arguments, environment)
+    storage_classification =
+      classify_database_receiver_storage(receiver, operation, arguments, environment)
 
     resolved_receiver = resolve_database_receiver_expression(receiver, environment)
     receiver = database_receiver_name(resolved_receiver, migration?, environment)
 
-    ets_classification ||
+    storage_classification ||
       classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation) ||
       classify_unresolved_database_receiver(resolved_receiver, operation, environment) ||
@@ -3518,21 +3508,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Agent"
   end
 
-  defp ets_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "ets"
+  defp classify_database_receiver_storage(receiver, operation, arguments, environment) do
+    receiver = receiver |> receiver_name() |> resolve_receiver(environment)
+
+    with operation_payload_indexes when is_map(operation_payload_indexes) <-
+           Map.get(@database_receiver_storage_payload_indexes, receiver),
+         payload_indexes when is_list(payload_indexes) <-
+           Map.get(operation_payload_indexes, operation),
+         true <-
+           storage_contains_database_receiver?(payload_indexes, arguments, environment) do
+      {:raw_sql, "database_receiver.nonlocal_control_flow"}
+    else
+      _unrecognized_or_unrelated_storage -> nil
+    end
   end
 
-  defp classify_ets_database_receiver_storage(receiver, operation, arguments, environment) do
-    if operation in @ets_receiver_storage_operations and
-         ets_module_receiver?(receiver, environment) and
-         ets_storage_contains_database_receiver?(operation, arguments, environment),
-       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-  end
-
-  defp ets_storage_contains_database_receiver?(operation, arguments, environment) do
-    @ets_receiver_storage_payload_indexes
-    |> Map.fetch!(operation)
-    |> Enum.any?(fn index ->
+  defp storage_contains_database_receiver?(payload_indexes, arguments, environment) do
+    Enum.any?(payload_indexes, fn index ->
       case Enum.fetch(arguments, index) do
         {:ok, payload} -> database_receiver_escape_argument?(payload, environment)
         :error -> false

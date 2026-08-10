@@ -1085,6 +1085,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                   body
                   |> resolve_module_attributes(attributes)
                   |> normalize_migration_calls(aliases, local_function_keys)
+                  |> normalize_resolved_migration_function_calls(
+                    kind,
+                    aliases,
+                    local_function_keys
+                  )
                 )
                 |> Enum.reduce(functions, fn definition, functions ->
                   Map.update(functions, definition.key, [definition], fn definitions ->
@@ -1104,6 +1109,26 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
   end
+
+  defp normalize_resolved_migration_function_calls(
+         body,
+         kind,
+         aliases,
+         local_function_keys
+       )
+       when kind in [:def, :defp] do
+    body
+    |> resolve_local_bindings()
+    |> normalize_migration_calls(aliases, local_function_keys)
+  end
+
+  defp normalize_resolved_migration_function_calls(
+         body,
+         _kind,
+         _aliases,
+         _local_function_keys
+       ),
+       do: body
 
   defp migration_module_body(ast) do
     case migration_module_candidates(ast) do

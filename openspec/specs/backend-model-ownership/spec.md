@@ -178,7 +178,8 @@ diverge.
 
 - **WHEN** a forward migration invokes an `Ecto.Migration` table lifecycle
   operation through a statically resolvable `Kernel.apply/3` or
-  `:erlang.apply/3` call
+  `:erlang.apply/3` call, including when the receiver or exported operation
+  name comes from a sequentially resolved local binding
 - **THEN** canonical model-ownership verification MUST normalize and inventory
   that lifecycle exactly as the equivalent direct call while leaving a matching
   shadowed local `apply/3` under ordinary local-function semantics

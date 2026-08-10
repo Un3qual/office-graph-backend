@@ -83,6 +83,13 @@ reject every unmatched occurrence or stale approved exception.
 - **THEN** the database-boundary scanner MUST classify the call as direct Ecto
   connection access
 
+#### Scenario: Ecto SQL adapter disconnects pooled connections
+
+- **WHEN** tracked code calls `Ecto.Adapters.SQL.disconnect_all/2-3` through a
+  fully qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as direct Ecto
+  connection access
+
 #### Scenario: Verification examines project scope
 
 - **WHEN** the database-boundary scan runs
@@ -171,6 +178,15 @@ binary literals or documentation text.
 - **THEN** the scanner MUST fail closed at the state-ingress boundary as
   nonlocal control flow before a later ETS lookup can expose the receiver, and
   MUST NOT apply ETS semantics to an unrelated receiver
+
+#### Scenario: Database receiver enters persistent-term state
+
+- **WHEN** `:persistent_term.put/2` receives a statically resolvable value that
+  contains a repository receiver
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later persistent-term lookup can expose the
+  receiver, and MUST NOT apply persistent-term semantics to an unrelated
+  receiver
 
 #### Scenario: Static Enum result feeds a downstream callback
 
@@ -632,6 +648,13 @@ access.
 - **THEN** the canonical Credo boundary check MUST report the call as direct
   Ecto access requiring an inventory entry or removal
 
+#### Scenario: Repository connections are disconnected
+
+- **WHEN** tracked Elixir source calls `OfficeGraph.Repo.disconnect_all/1-2`
+  directly or through an explicit repository alias
+- **THEN** the canonical Credo boundary check MUST report the call as direct
+  Ecto connection access requiring an inventory entry or removal
+
 #### Scenario: Repository transaction is rolled back
 
 - **WHEN** tracked Elixir source calls `OfficeGraph.Repo.rollback` directly or
@@ -641,8 +664,8 @@ access.
 
 #### Scenario: Unrelated connection-control function is called
 
-- **WHEN** tracked Elixir source calls `checkout` or `rollback` on a receiver
-  that does not resolve to `OfficeGraph.Repo`
+- **WHEN** tracked Elixir source calls `checkout`, `disconnect_all`, or
+  `rollback` on a receiver that does not resolve to `OfficeGraph.Repo`
 - **THEN** the database-boundary scanner MUST NOT classify the call solely from
   its function name
 

@@ -1073,8 +1073,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               Database.checkout(fun, timeout: 1_000)
               OfficeGraph.Repo.rollback(:cancelled)
               Database.rollback(:cancelled)
+              Repo.disconnect_all(1_000)
+              Database.disconnect_all(1_000, log: false)
+              Ecto.Adapters.SQL.disconnect_all(Repo, 1_000)
               OfficeGraph.Cache.checkout(fun)
               OfficeGraph.Cache.rollback(:cancelled)
+              OfficeGraph.Cache.disconnect_all(1_000)
             end
           end
           """
@@ -1085,7 +1089,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Repo.checkout", 6},
              {:direct_ecto, "Repo.checkout", 7},
              {:direct_ecto, "Repo.rollback", 8},
-             {:direct_ecto, "Repo.rollback", 9}
+             {:direct_ecto, "Repo.rollback", 9},
+             {:direct_ecto, "Repo.disconnect_all", 10},
+             {:direct_ecto, "Repo.disconnect_all", 11},
+             {:direct_ecto, "Ecto.Adapters.SQL.disconnect_all", 12}
            ]
   end
 
@@ -3200,6 +3207,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 5, :unresolved_sql},
              {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 6, :unresolved_sql},
              {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 7, :unresolved_sql}
+           ]
+  end
+
+  test "fails closed when a database receiver enters persistent-term state" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              :persistent_term.put(:repository, OfficeGraph.Repo)
+              :persistent_term.put(:tagged_repository, {:repository, OfficeGraph.Repo})
+              :persistent_term.put(:unrelated, Example.NotARepo)
+              Example.PersistentTerm.put(:repository, OfficeGraph.Repo)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 3, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 4, :unresolved_sql}
            ]
   end
 

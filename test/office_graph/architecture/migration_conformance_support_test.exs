@@ -1069,7 +1069,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
-  test "includes DDL from exported local migration helpers invoked through apply" do
+  test "includes DDL from exported local migration helpers invoked through static apply" do
     in_migration_root("office_graph_apply_helper_migration_conformance", fn root, migrations ->
       _ = root
 
@@ -1083,18 +1083,32 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
             apply(__MODULE__, :create_first, [])
             Kernel.apply(__MODULE__, :create_second, [])
             :erlang.apply(__MODULE__, :create_third, [])
+
+            receiver = __MODULE__
+            local_operation = :create_fourth
+            kernel_operation = :create_fifth
+            erlang_operation = :create_sixth
+            apply(receiver, local_operation, [])
+            Kernel.apply(receiver, kernel_operation, [])
+            :erlang.apply(receiver, erlang_operation, [])
           end
 
           def create_first, do: create(table(:apply_helper_first))
           def create_second, do: create(table(:apply_helper_second))
           def create_third, do: create(table(:apply_helper_third))
+          def create_fourth, do: create(table(:apply_helper_fourth))
+          def create_fifth, do: create(table(:apply_helper_fifth))
+          def create_sixth, do: create(table(:apply_helper_sixth))
         end
         """
       )
 
       assert MigrationConformanceSupport.migration_tables() == [
+               "apply_helper_fifth",
                "apply_helper_first",
+               "apply_helper_fourth",
                "apply_helper_second",
+               "apply_helper_sixth",
                "apply_helper_third"
              ]
     end)
