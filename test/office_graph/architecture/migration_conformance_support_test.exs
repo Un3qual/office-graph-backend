@@ -180,6 +180,20 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              Enum.to_list(inventory.terminal_objects)
   end
 
+  test "inventories grants with quoted object and role identities" do
+    inventory =
+      MigrationConformanceSupport.parse_dump(~S'''
+      GRANT SELECT ON TABLE public."review items" TO "read only";
+      ''')
+
+    identity = ~s|SELECT ON TABLE "review items" TO "read only"|
+
+    assert inventory.grants == MapSet.new([identity])
+
+    assert [{"grant", ^identity, "sha256:" <> _hash}] =
+             Enum.to_list(inventory.terminal_objects)
+  end
+
   test "terminal errors exempt only exact Oban-owned objects" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -206,6 +220,48 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     refute "unexpected project sequence oban_jobs_id_seq" in errors
   end
 
+  test "terminal errors do not exempt arbitrary triggers on framework tables" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TRIGGER injected_oban_trigger BEFORE UPDATE ON public.oban_jobs FOR EACH ROW EXECUTE FUNCTION public.injected_oban_trigger();
+      """)
+
+    assert "unexpected project trigger injected_oban_trigger ON oban_jobs" in MigrationConformanceSupport.terminal_database_errors(
+             %{},
+             inventory,
+             []
+           )
+  end
+
+  test "terminal inventory preserves quoted object identities" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE VIEW public."review view" AS SELECT 1;
+      CREATE FUNCTION public."do thing"() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;
+      CREATE POLICY "allow users" ON public."review items" USING (true);
+      CREATE TRIGGER "touch items" BEFORE UPDATE ON public."review items" FOR EACH ROW EXECUTE FUNCTION public."do thing"();
+      ALTER TABLE ONLY public."review items" DISABLE TRIGGER "touch items";
+      ALTER TABLE public."review items" ENABLE ROW LEVEL SECURITY;
+      """)
+
+    assert inventory.views == MapSet.new([~s("review view")])
+    assert inventory.routines == MapSet.new([~s|"do thing"()|])
+    assert inventory.policies == MapSet.new([~s|"allow users" ON "review items"|])
+    assert inventory.triggers == MapSet.new([~s|"touch items" ON "review items"|])
+    assert inventory.rls_states == MapSet.new([~s|"review items"|])
+
+    assert inventory.terminal_objects
+           |> Enum.map(fn {class, identity, _fingerprint} -> {class, identity} end)
+           |> Enum.sort() == [
+             {"RLS policy", ~s|"allow users" ON "review items"|},
+             {"RLS state", ~s|"review items"|},
+             {"routine", ~s|"do thing"()|},
+             {"trigger", ~s|"touch items" ON "review items"|},
+             {"trigger", ~s|"touch items" ON "review items"|},
+             {"view", ~s|"review view"|}
+           ]
+  end
+
   test "terminal inventory treats unlogged tables as owned tables" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -219,6 +275,28 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
     assert "unexpected project table shadow_records" in MigrationConformanceSupport.terminal_database_errors(
              %{},
+             inventory,
+             []
+           )
+  end
+
+  test "terminal errors reject relation-kind drift for an Ash-owned table" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE UNLOGGED TABLE public.shapes (
+          id uuid NOT NULL,
+          name text NOT NULL
+      );
+      CREATE UNIQUE INDEX shapes_unique_name_index ON public.shapes USING btree (name);
+      ALTER TABLE ONLY public.shapes ADD CONSTRAINT shapes_pkey PRIMARY KEY (id);
+      """)
+
+    assert inventory.relations == %{"shapes" => :unlogged}
+
+    assert "relation kind mismatch for Ash-owned table shapes: expected regular, got unlogged" in MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "shapes" => {nil, OfficeGraph.TestSupport.MigrationConformanceShapeResource}
+             },
              inventory,
              []
            )
@@ -366,6 +444,70 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert {"literal_examples", "unqualified_text", "text DEFAULT 'user'::text NOT NULL"} in inventory.columns
   end
 
+  test "terminal definitions preserve significant whitespace inside SQL literals" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.literal_examples (
+          label text DEFAULT 'a  b'::text NOT NULL
+      );
+      """)
+
+    assert {"literal_examples", "label", "text DEFAULT 'a  b'::text NOT NULL"} in inventory.columns
+
+    assert "column definition mismatch for literal_examples.label: expected text DEFAULT 'a b'::text NOT NULL, got text DEFAULT 'a  b'::text NOT NULL" in MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "literal_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceLiteralResource}
+             },
+             inventory,
+             []
+           )
+  end
+
+  test "terminal definitions retain named not-null constraints" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.literal_examples (
+          label text DEFAULT 'a b'::text CONSTRAINT label_required NOT NULL
+      );
+      """)
+
+    assert {"literal_examples", "label",
+            "text DEFAULT 'a b'::text CONSTRAINT label_required NOT NULL"} in inventory.columns
+
+    assert Enum.any?(
+             MigrationConformanceSupport.terminal_database_errors(
+               %{
+                 "literal_examples" =>
+                   {nil, OfficeGraph.TestSupport.MigrationConformanceLiteralResource}
+               },
+               inventory,
+               []
+             ),
+             &String.starts_with?(&1, "column definition mismatch for literal_examples.label:")
+           )
+  end
+
+  test "terminal definitions normalize only PostgreSQL-generated not-null names" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.literal_examples (
+          label text DEFAULT 'a b'::text CONSTRAINT literal_examples_label_not_null NOT NULL
+      );
+      """)
+
+    assert {"literal_examples", "label", "text DEFAULT 'a b'::text NOT NULL"} in inventory.columns
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "literal_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceLiteralResource}
+             },
+             inventory,
+             []
+           ) == []
+  end
+
   test "terminal errors accept declarative generated integer sequences" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -373,7 +515,14 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
           id bigint NOT NULL
       );
       CREATE SEQUENCE public.sequence_examples_id_seq
-          START WITH 1;
+          AS bigint
+          START WITH 1
+          INCREMENT BY 1
+          NO MINVALUE
+          NO MAXVALUE
+          CACHE 1
+          NO CYCLE;
+      ALTER SEQUENCE public.sequence_examples_id_seq OWNED BY public.sequence_examples.id;
       ALTER TABLE ONLY public.sequence_examples ALTER COLUMN id SET DEFAULT nextval('public.sequence_examples_id_seq'::regclass);
       ALTER TABLE ONLY public.sequence_examples ADD CONSTRAINT sequence_examples_pkey PRIMARY KEY (id);
       """)
@@ -388,6 +537,35 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              },
              inventory
            ) == []
+  end
+
+  test "terminal errors reject sequence definition drift" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.sequence_examples (
+          id bigint NOT NULL
+      );
+      CREATE SEQUENCE public.sequence_examples_id_seq
+          AS bigint
+          START WITH 1
+          INCREMENT BY 2
+          NO MINVALUE
+          NO MAXVALUE
+          CACHE 1
+          NO CYCLE;
+      ALTER SEQUENCE public.sequence_examples_id_seq OWNED BY public.sequence_examples.id;
+      ALTER TABLE ONLY public.sequence_examples ALTER COLUMN id SET DEFAULT nextval('public.sequence_examples_id_seq'::regclass);
+      ALTER TABLE ONLY public.sequence_examples ADD CONSTRAINT sequence_examples_pkey PRIMARY KEY (id);
+      """)
+
+    assert "sequence definition mismatch for sequence_examples_id_seq" in MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "sequence_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceSequenceResource}
+             },
+             inventory,
+             []
+           )
   end
 
   test "terminal errors reject generated integer sequences without a column default" do
@@ -459,6 +637,24 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
                  {nil, OfficeGraph.TestSupport.MigrationConformanceNetworkResource}
              },
              inventory
+           ) == []
+  end
+
+  test "terminal errors accept public-qualified custom migration types" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.review_items (
+          "status" public."review_status" NOT NULL
+      );
+      """)
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "review_items" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceCustomTypeResource}
+             },
+             inventory,
+             []
            ) == []
   end
 

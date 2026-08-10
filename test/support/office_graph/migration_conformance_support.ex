@@ -1,9 +1,16 @@
 defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @moduledoc false
 
+  alias OfficeGraph.TestSupport.PostgresDump
+
   @framework_objects %{
     table: MapSet.new(["oban_jobs", "oban_peers", "schema_migrations"]),
     sequence: MapSet.new(["oban_jobs_id_seq"])
+  }
+  @framework_relation_kinds %{
+    "oban_jobs" => :regular,
+    "oban_peers" => :unlogged,
+    "schema_migrations" => :regular
   }
   @framework_columns MapSet.new([
                        {"oban_jobs", "args", "jsonb DEFAULT '{}'::jsonb NOT NULL"},
@@ -57,6 +64,49 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
                         "USING btree (state, queue, priority, scheduled_at, id)"}
                      ])
   @allowed_extensions MapSet.new(["plpgsql"])
+  @grant_object_types [
+    "ALL FUNCTIONS IN SCHEMA",
+    "ALL PROCEDURES IN SCHEMA",
+    "ALL ROUTINES IN SCHEMA",
+    "ALL SEQUENCES IN SCHEMA",
+    "ALL TABLES IN SCHEMA",
+    "FOREIGN DATA WRAPPER",
+    "FOREIGN SERVER",
+    "LARGE OBJECT",
+    "TABLESPACE",
+    "DATABASE",
+    "FUNCTION",
+    "LANGUAGE",
+    "PARAMETER",
+    "PROCEDURE",
+    "ROUTINE",
+    "SCHEMA",
+    "SEQUENCE",
+    "TABLE",
+    "TYPE"
+  ]
+  @builtin_migration_types [
+    :bigint,
+    :binary,
+    :boolean,
+    :citext,
+    :date,
+    :decimal,
+    :float,
+    :inet,
+    :integer,
+    :jsonb,
+    :map,
+    :naive_datetime,
+    :naive_datetime_usec,
+    :string,
+    :text,
+    :time,
+    :time_usec,
+    :utc_datetime,
+    :utc_datetime_usec,
+    :uuid
+  ]
   @approved_exceptions_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   def migration_tables do
@@ -159,11 +209,76 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        unexpected_tables ++
        missing_sequences ++
        unexpected_sequences ++
+       relation_kind_errors(inventory, expected_tables) ++
+       sequence_definition_errors(inventory, expected_resources) ++
        table_shape_errors(inventory, expected_resources, project_tables) ++
        framework_table_shape_errors(inventory) ++
        prohibited_objects ++
        migration_foreign_key_relationship_errors(expected_resources, inventory))
     |> Enum.sort()
+  end
+
+  defp relation_kind_errors(inventory, expected_tables) do
+    framework_tables =
+      inventory.tables
+      |> MapSet.intersection(Map.fetch!(@framework_objects, :table))
+
+    expected_tables
+    |> MapSet.union(framework_tables)
+    |> Enum.flat_map(fn table ->
+      expected_kind =
+        if MapSet.member?(expected_tables, table),
+          do: :regular,
+          else: Map.fetch!(@framework_relation_kinds, table)
+
+      case Map.get(inventory.relations, table) do
+        ^expected_kind ->
+          []
+
+        nil ->
+          []
+
+        actual ->
+          owner = if MapSet.member?(expected_tables, table), do: "Ash-owned", else: "framework"
+
+          [
+            "relation kind mismatch for #{owner} table #{table}: expected #{expected_kind}, got #{actual}"
+          ]
+      end
+    end)
+  end
+
+  defp sequence_definition_errors(inventory, expected_resources) do
+    expected = expected_sequence_definitions(expected_resources)
+
+    expected =
+      if MapSet.member?(inventory.tables, "oban_jobs") or
+           MapSet.member?(inventory.sequences, "oban_jobs_id_seq") do
+        Map.put(
+          expected,
+          "oban_jobs_id_seq",
+          default_sequence_definition("bigint", "oban_jobs.id")
+        )
+      else
+        expected
+      end
+
+    Enum.flat_map(expected, fn {identity, expected_definition} ->
+      case Map.fetch(inventory.sequence_definitions, identity) do
+        {:ok, ^expected_definition} ->
+          []
+
+        {:ok, _actual_definition} ->
+          ["sequence definition mismatch for #{identity}"]
+
+        :error ->
+          if MapSet.member?(inventory.sequences, identity) do
+            ["sequence definition unavailable for #{identity}"]
+          else
+            []
+          end
+      end
+    end)
   end
 
   def verify_terminal_database! do
@@ -202,8 +317,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       materialized_views: MapSet.new(),
       policies: MapSet.new(),
       primary_keys: MapSet.new(),
+      relations: %{},
       rls_states: MapSet.new(),
       routines: MapSet.new(),
+      sequence_definitions: %{},
       sequences: MapSet.new(),
       tables: MapSet.new(),
       terminal_objects: MapSet.new(),
@@ -222,7 +339,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         |> Enum.sort()
       end)
 
-    Map.put(inventory, :terminal_objects, terminal_objects(dump))
+    inventory
+    |> Map.put(:sequence_definitions, sequence_definitions(dump))
+    |> Map.put(:terminal_objects, terminal_objects(dump))
   end
 
   defp terminal_object_errors(inventory, approved_terminal_objects) do
@@ -294,7 +413,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       {"materialized view", inventory.materialized_views},
       {"materialized view index", materialized_view_index_identities(inventory)},
       {"routine", inventory.routines},
-      {"trigger", reject_framework_triggers(inventory.triggers)},
+      {"trigger", inventory.triggers},
       {"RLS policy", inventory.policies},
       {"RLS state", inventory.rls_states},
       {"grant", inventory.grants},
@@ -308,13 +427,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp allowed_terminal_object?("extension", identity),
     do: MapSet.member?(@allowed_extensions, identity)
-
-  defp allowed_terminal_object?("trigger", identity) do
-    identity
-    |> String.split(" ON ", parts: 2)
-    |> List.last()
-    |> then(&framework_owned?(:table, &1))
-  end
 
   defp allowed_terminal_object?(_class, _identity), do: false
 
@@ -349,9 +461,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     materialized_views =
       statements
       |> Enum.flat_map(fn statement ->
-        case capture(statement, ~r/^CREATE MATERIALIZED VIEW (?<identity>\S+) AS/s) do
+        case prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") do
           nil -> []
-          identity -> [normalize_identity(identity)]
+          identity -> [identity]
         end
       end)
       |> MapSet.new()
@@ -366,44 +478,123 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.new()
   end
 
+  defp sequence_definitions(dump) do
+    dump
+    |> sql_statements()
+    |> Enum.reduce(%{}, fn statement, definitions ->
+      case PostgresDump.identifier_after(statement, "CREATE SEQUENCE ") do
+        {identity, rest} ->
+          Map.put(definitions, identity, sequence_definition(rest, nil))
+
+        nil ->
+          case PostgresDump.identifier_after(statement, "ALTER SEQUENCE ") do
+            {identity, rest} ->
+              case PostgresDump.identifier_after_keyword(rest, " OWNED BY ") do
+                {owner, _rest} ->
+                  Map.update(
+                    definitions,
+                    identity,
+                    sequence_definition("", owner),
+                    &put_sequence_owner(&1, owner)
+                  )
+
+                nil ->
+                  definitions
+              end
+
+            nil ->
+              definitions
+          end
+      end
+    end)
+  end
+
+  defp sequence_definition(options, owner) do
+    options = PostgresDump.normalize_definition(options)
+
+    %{
+      type: sequence_option(options, ~r/\bAS (?<value>[^ ]+)/, "bigint"),
+      start: sequence_option(options, ~r/\bSTART WITH (?<value>-?\d+)/, "1"),
+      increment: sequence_option(options, ~r/\bINCREMENT BY (?<value>-?\d+)/, "1"),
+      minimum: sequence_bound(options, "MINVALUE"),
+      maximum: sequence_bound(options, "MAXVALUE"),
+      cache: sequence_option(options, ~r/\bCACHE (?<value>\d+)/, "1"),
+      cycle: not String.contains?(options, "NO CYCLE") and Regex.match?(~r/\bCYCLE\b/, options),
+      owner: owner
+    }
+    |> format_sequence_definition()
+  end
+
+  defp sequence_option(options, regex, default) do
+    case Regex.named_captures(regex, options) do
+      %{"value" => value} -> value
+      nil -> default
+    end
+  end
+
+  defp sequence_bound(options, name) do
+    cond do
+      String.contains?(options, "NO #{name}") ->
+        "NO #{name}"
+
+      captures = Regex.named_captures(~r/\b#{name} (?<value>-?\d+)/, options) ->
+        "#{name} #{captures["value"]}"
+
+      true ->
+        "NO #{name}"
+    end
+  end
+
+  defp format_sequence_definition(config) when is_map(config) do
+    [
+      "AS #{config.type}",
+      "START WITH #{config.start}",
+      "INCREMENT BY #{config.increment}",
+      config.minimum,
+      config.maximum,
+      "CACHE #{config.cache}",
+      if(config.cycle, do: "CYCLE", else: "NO CYCLE"),
+      if(config.owner, do: "OWNED BY #{config.owner}")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp put_sequence_owner(definition, owner), do: "#{definition} OWNED BY #{owner}"
+
   defp terminal_object_identity(statement, materialized_views) do
     materialized_view_index = materialized_view_index_identity(statement, materialized_views)
 
     cond do
-      identity = capture(statement, ~r/^CREATE MATERIALIZED VIEW (?<identity>\S+) AS/s) ->
-        {"materialized view", normalize_identity(identity)}
+      identity = prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") ->
+        {"materialized view", identity}
 
       materialized_view_index ->
         {"materialized view index", materialized_view_index}
 
-      identity = capture(statement, ~r/^CREATE VIEW (?<identity>\S+) AS/s) ->
-        {"view", normalize_identity(identity)}
+      identity = prefixed_identity(statement, "CREATE VIEW ") ->
+        {"view", identity}
 
       identity = routine_identity(statement) ->
         {"routine", identity}
 
-      event_trigger = capture(statement, ~r/^CREATE EVENT TRIGGER (?<name>\S+) /s) ->
+      event_trigger = prefixed_identity(statement, "CREATE EVENT TRIGGER ") ->
         {"trigger", normalize_event_trigger(event_trigger)}
 
-      trigger =
-          capture(
-            statement,
-            ~r/^CREATE (?:CONSTRAINT )?TRIGGER (?<name>\S+) .* ON (?<table>\S+)/s
-          ) ->
-        {"trigger", normalize_trigger(trigger, statement)}
+      trigger = trigger_identity(statement) ->
+        {"trigger", trigger}
 
       trigger_state = trigger_state_identity(statement) ->
         {"trigger", trigger_state}
 
-      policy = capture(statement, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/s) ->
-        {"RLS policy", normalize_policy(policy, statement)}
+      policy = policy_identity(statement) ->
+        {"RLS policy", policy}
 
       rls_state = rls_state_identity(statement) ->
         {"RLS state", rls_state}
 
-      extension =
-          capture(statement, ~r/^CREATE EXTENSION IF NOT EXISTS (?<name>\S+)/s) ->
-        {"extension", trim_identifier(extension)}
+      extension = prefixed_identity(statement, "CREATE EXTENSION IF NOT EXISTS ") ->
+        {"extension", extension}
 
       grant = grant_identity(statement) ->
         {"grant", grant}
@@ -419,13 +610,25 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp routine_identity(statement) do
-    case Regex.named_captures(
-           ~r/^CREATE (?:OR REPLACE )?(?:FUNCTION|PROCEDURE) (?<name>[^\s\(]+)\((?<arguments>[^\n]*)\)/s,
-           String.trim(statement)
-         ) do
-      %{"name" => name, "arguments" => arguments} ->
-        arguments = arguments |> String.trim() |> String.replace(~r/\s+/, " ")
-        "#{normalize_identity(name)}(#{arguments})"
+    statement = String.trim(statement)
+
+    result =
+      Enum.find_value(
+        [
+          "CREATE FUNCTION ",
+          "CREATE OR REPLACE FUNCTION ",
+          "CREATE PROCEDURE ",
+          "CREATE OR REPLACE PROCEDURE "
+        ],
+        &PostgresDump.identifier_after(statement, &1)
+      )
+
+    case result do
+      {name, rest} ->
+        case PostgresDump.take_parenthesized(rest) do
+          {arguments, _rest} -> "#{name}(#{PostgresDump.normalize_definition(arguments)})"
+          nil -> nil
+        end
 
       nil ->
         nil
@@ -440,12 +643,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           Regex.match?(~r/\s(?:GRANT|REVOKE)\s/s, statement) ->
         normalize_definition(statement)
 
-      captures =
-          Regex.named_captures(
-            ~r/^GRANT (?<privileges>.+?) ON (?<object_type>.+?) (?<identity>\S+) TO (?<grantee>.+);$/s,
-            statement
-          ) ->
-        "#{String.trim(captures["privileges"])} ON #{String.trim(captures["object_type"])} #{normalize_identity(captures["identity"])} TO #{String.trim(captures["grantee"])}"
+      String.starts_with?(statement, "GRANT ") ->
+        parse_grant_identity(statement)
 
       Regex.match?(~r/^REVOKE .+;$/s, statement) ->
         normalize_definition(statement)
@@ -455,84 +654,53 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp sql_statements(dump), do: split_sql(dump, :plain, [], [])
+  defp parse_grant_identity(statement) do
+    body = statement |> String.trim_leading("GRANT ") |> String.trim_trailing(";")
 
-  defp split_sql(<<>>, _state, current, statements) do
-    statements
-    |> finish_statement(current)
-    |> Enum.reverse()
+    with {privileges, target_and_grantees} <-
+           PostgresDump.split_once_outside_quotes(body, " ON "),
+         {target, grantees} <-
+           PostgresDump.split_once_outside_quotes(target_and_grantees, " TO "),
+         {object_type, identity} <- split_grant_target(target) do
+      "#{normalize_definition(privileges)} ON #{object_type} #{normalize_grant_target(object_type, identity)} TO #{normalize_definition(grantees)}"
+    else
+      _unrecognized -> normalize_definition(statement)
+    end
   end
 
-  defp split_sql(<<"--", rest::binary>>, :plain, current, statements),
-    do: split_sql(rest, :line_comment, current, statements)
+  defp split_grant_target(target) do
+    Enum.find_value(@grant_object_types, fn object_type ->
+      prefix = object_type <> " "
 
-  defp split_sql(<<"/*", rest::binary>>, :plain, current, statements),
-    do: split_sql(rest, :block_comment, current, statements)
+      if String.starts_with?(target, prefix) do
+        identity = binary_part(target, byte_size(prefix), byte_size(target) - byte_size(prefix))
+        {object_type, identity}
+      end
+    end)
+  end
 
-  defp split_sql(<<"'", rest::binary>>, :plain, current, statements),
-    do: split_sql(rest, :single_quote, ["'" | current], statements)
+  defp normalize_grant_target(object_type, identity)
+       when object_type in ["FUNCTION", "PROCEDURE", "ROUTINE"] do
+    with {name, rest} <- PostgresDump.take_identifier(identity),
+         {arguments, trailing} <- PostgresDump.take_parenthesized(rest),
+         true <- String.trim(trailing) == "" do
+      "#{name}(#{normalize_definition(arguments)})"
+    else
+      _unrecognized -> normalize_definition(identity)
+    end
+  end
 
-  defp split_sql(<<"\"", rest::binary>>, :plain, current, statements),
-    do: split_sql(rest, :double_quote, ["\"" | current], statements)
-
-  defp split_sql(<<"$", _rest::binary>> = input, :plain, current, statements) do
-    case Regex.run(~r/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/, input) do
-      [delimiter] ->
-        <<^delimiter::binary, rest::binary>> = input
-        split_sql(rest, {:dollar_quote, delimiter}, [delimiter | current], statements)
+  defp normalize_grant_target(_object_type, identity) do
+    case PostgresDump.take_identifier(identity) do
+      {name, trailing} ->
+        if String.trim(trailing) == "", do: name, else: normalize_definition(identity)
 
       nil ->
-        <<character::utf8, rest::binary>> = input
-        split_sql(rest, :plain, [<<character::utf8>> | current], statements)
+        normalize_definition(identity)
     end
   end
 
-  defp split_sql(<<";", rest::binary>>, :plain, current, statements) do
-    statements = finish_statement(statements, [";" | current])
-    split_sql(rest, :plain, [], statements)
-  end
-
-  defp split_sql(<<"''", rest::binary>>, :single_quote, current, statements),
-    do: split_sql(rest, :single_quote, ["''" | current], statements)
-
-  defp split_sql(<<"'", rest::binary>>, :single_quote, current, statements),
-    do: split_sql(rest, :plain, ["'" | current], statements)
-
-  defp split_sql(<<"\"\"", rest::binary>>, :double_quote, current, statements),
-    do: split_sql(rest, :double_quote, ["\"\"" | current], statements)
-
-  defp split_sql(<<"\"", rest::binary>>, :double_quote, current, statements),
-    do: split_sql(rest, :plain, ["\"" | current], statements)
-
-  defp split_sql(<<"\n", rest::binary>>, :line_comment, current, statements),
-    do: split_sql(rest, :plain, ["\n" | current], statements)
-
-  defp split_sql(<<_character::utf8, rest::binary>>, :line_comment, current, statements),
-    do: split_sql(rest, :line_comment, current, statements)
-
-  defp split_sql(<<"*/", rest::binary>>, :block_comment, current, statements),
-    do: split_sql(rest, :plain, [" " | current], statements)
-
-  defp split_sql(<<_character::utf8, rest::binary>>, :block_comment, current, statements),
-    do: split_sql(rest, :block_comment, current, statements)
-
-  defp split_sql(input, {:dollar_quote, delimiter} = state, current, statements) do
-    if String.starts_with?(input, delimiter) do
-      rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
-      split_sql(rest, :plain, [delimiter | current], statements)
-    else
-      <<character::utf8, rest::binary>> = input
-      split_sql(rest, state, [<<character::utf8>> | current], statements)
-    end
-  end
-
-  defp split_sql(<<character::utf8, rest::binary>>, state, current, statements),
-    do: split_sql(rest, state, [<<character::utf8>> | current], statements)
-
-  defp finish_statement(statements, current) do
-    statement = current |> Enum.reverse() |> IO.iodata_to_binary() |> String.trim()
-    if statement == "", do: statements, else: [statement | statements]
-  end
+  defp sql_statements(dump), do: PostgresDump.split_statements(dump)
 
   defp dump_terminal_inventory! do
     config = OfficeGraph.Repo.config()
@@ -624,11 +792,78 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  defp relation_header(line) do
+    Enum.find_value(
+      [
+        {"CREATE TABLE ", :regular},
+        {"CREATE UNLOGGED TABLE ", :unlogged},
+        {"CREATE FOREIGN TABLE ", :foreign}
+      ],
+      fn {prefix, kind} ->
+        case PostgresDump.identifier_after(line, prefix) do
+          {identity, rest} -> if String.trim_leading(rest) == "(", do: {identity, kind}
+          nil -> nil
+        end
+      end
+    )
+  end
+
+  defp alter_table_header(line) do
+    case PostgresDump.identifier_after(line, "ALTER TABLE ONLY ") do
+      {identity, rest} -> if String.trim(rest) == "", do: identity
+      nil -> nil
+    end
+  end
+
+  defp constraint_parts(line) do
+    with {table, rest} <- PostgresDump.identifier_after(line, "ALTER TABLE ONLY "),
+         {name, definition} <- PostgresDump.identifier_after(rest, "ADD CONSTRAINT ") do
+      {table, name, definition}
+    else
+      _not_constraint -> nil
+    end
+  end
+
+  defp prefixed_identity(statement, prefix) do
+    case PostgresDump.identifier_after(statement, prefix) do
+      {identity, _rest} -> identity
+      nil -> nil
+    end
+  end
+
+  defp trigger_identity(statement) do
+    trigger =
+      PostgresDump.identifier_after(statement, "CREATE TRIGGER ") ||
+        PostgresDump.identifier_after(statement, "CREATE CONSTRAINT TRIGGER ")
+
+    with {name, rest} <- trigger,
+         {table, _rest} <- PostgresDump.identifier_after_keyword(rest, " ON ") do
+      "#{name} ON #{table}"
+    else
+      _not_trigger -> nil
+    end
+  end
+
+  defp policy_identity(statement) do
+    with {name, rest} <- PostgresDump.identifier_after(statement, "CREATE POLICY "),
+         {table, _rest} <- PostgresDump.identifier_after_keyword(rest, " ON ") do
+      "#{name} ON #{table}"
+    else
+      _not_policy -> nil
+    end
+  end
+
   defp parse_dump_line(line, {inventory, current_table}) do
     cond do
-      table = capture(line, ~r/^CREATE (?:(?:FOREIGN|UNLOGGED) )?TABLE (?<identity>\S+) \($/) ->
-        table = normalize_identity(table)
-        {Map.update!(inventory, :tables, &MapSet.put(&1, table)), {:create_table, table}}
+      relation = relation_header(line) ->
+        {table, kind} = relation
+
+        inventory =
+          inventory
+          |> Map.update!(:tables, &MapSet.put(&1, table))
+          |> Map.update!(:relations, &Map.put(&1, table, kind))
+
+        {inventory, {:create_table, table}}
 
       match?({:create_table, _table}, current_table) &&
           String.starts_with?(String.trim_leading(line), ")") ->
@@ -641,52 +876,46 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       alter_default = parse_alter_column_default(line) ->
         {put_column_default(inventory, alter_default), current_table}
 
-      constraint_table = capture(line, ~r/^ALTER TABLE ONLY (?<identity>\S+)$/) ->
-        {inventory, {:alter_table, normalize_identity(constraint_table)}}
+      constraint_table = alter_table_header(line) ->
+        {inventory, {:alter_table, constraint_table}}
 
       match?({:alter_table, _table}, current_table) ->
         {:alter_table, table} = current_table
         {parse_alter_table_line(line, table, inventory), nil}
 
-      sequence = capture(line, ~r/^CREATE SEQUENCE (?<identity>\S+)/) ->
-        {Map.update!(inventory, :sequences, &MapSet.put(&1, normalize_identity(sequence))),
-         current_table}
+      sequence = prefixed_identity(line, "CREATE SEQUENCE ") ->
+        {Map.update!(inventory, :sequences, &MapSet.put(&1, sequence)), current_table}
 
-      view = capture(line, ~r/^CREATE VIEW (?<identity>\S+) AS/) ->
-        {Map.update!(inventory, :views, &MapSet.put(&1, normalize_identity(view))), current_table}
+      view = prefixed_identity(line, "CREATE VIEW ") ->
+        {Map.update!(inventory, :views, &MapSet.put(&1, view)), current_table}
 
-      view = capture(line, ~r/^CREATE MATERIALIZED VIEW (?<identity>\S+) AS/) ->
-        {Map.update!(inventory, :materialized_views, &MapSet.put(&1, normalize_identity(view))),
-         current_table}
+      view = prefixed_identity(line, "CREATE MATERIALIZED VIEW ") ->
+        {Map.update!(inventory, :materialized_views, &MapSet.put(&1, view)), current_table}
 
       routine = routine_identity(line) ->
         {Map.update!(inventory, :routines, &MapSet.put(&1, routine)), current_table}
 
-      event_trigger = capture(line, ~r/^CREATE EVENT TRIGGER (?<name>\S+) /) ->
+      event_trigger = prefixed_identity(line, "CREATE EVENT TRIGGER ") ->
         {Map.update!(
            inventory,
            :triggers,
            &MapSet.put(&1, normalize_event_trigger(event_trigger))
          ), current_table}
 
-      trigger =
-          capture(line, ~r/^CREATE (?:CONSTRAINT )?TRIGGER (?<name>\S+) .* ON (?<table>\S+)/) ->
-        {Map.update!(inventory, :triggers, &MapSet.put(&1, normalize_trigger(trigger, line))),
-         current_table}
+      trigger = trigger_identity(line) ->
+        {Map.update!(inventory, :triggers, &MapSet.put(&1, trigger)), current_table}
 
       trigger_state = trigger_state_identity(line) ->
         {Map.update!(inventory, :triggers, &MapSet.put(&1, trigger_state)), current_table}
 
-      policy = capture(line, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/) ->
-        {Map.update!(inventory, :policies, &MapSet.put(&1, normalize_policy(policy, line))),
-         current_table}
+      policy = policy_identity(line) ->
+        {Map.update!(inventory, :policies, &MapSet.put(&1, policy)), current_table}
 
       rls_state = rls_state_identity(line) ->
         {Map.update!(inventory, :rls_states, &MapSet.put(&1, rls_state)), current_table}
 
-      extension = capture(line, ~r/^CREATE EXTENSION IF NOT EXISTS (?<name>\S+)/) ->
-        {Map.update!(inventory, :extensions, &MapSet.put(&1, trim_identifier(extension))),
-         current_table}
+      extension = prefixed_identity(line, "CREATE EXTENSION IF NOT EXISTS ") ->
+        {Map.update!(inventory, :extensions, &MapSet.put(&1, extension)), current_table}
 
       grant = grant_identity(line) ->
         {Map.update!(inventory, :grants, &MapSet.put(&1, grant)), current_table}
@@ -694,12 +923,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       index = parse_index(line) ->
         {Map.update!(inventory, :indexes, &MapSet.put(&1, index)), current_table}
 
-      constraint =
-          capture(
-            line,
-            ~r/^ALTER TABLE ONLY (?<table>\S+) ADD CONSTRAINT (?<name>\S+) (?<definition>.+);/
-          ) ->
-        {parse_constraint(line, constraint, inventory), current_table}
+      constraint = constraint_parts(line) ->
+        {parse_constraint(constraint, inventory), current_table}
 
       true ->
         {inventory, current_table}
@@ -707,9 +932,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp parse_alter_table_line(line, table, inventory) do
-    case Regex.named_captures(~r/^\s+ADD CONSTRAINT (?<name>\S+) (?<definition>.+);/, line) do
-      %{"name" => name, "definition" => definition} ->
-        parse_constraint(table, trim_identifier(name), definition, inventory)
+    case PostgresDump.identifier_after(String.trim_leading(line), "ADD CONSTRAINT ") do
+      {name, definition} ->
+        parse_constraint(table, name, definition, inventory)
 
       nil ->
         inventory
@@ -717,15 +942,14 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp parse_alter_column_default(line) do
-    case Regex.named_captures(
-           ~r/^ALTER TABLE ONLY (?<table>\S+) ALTER COLUMN (?<column>\S+) SET DEFAULT (?<default>.+);$/,
-           line
-         ) do
-      %{"table" => table, "column" => column, "default" => default} ->
-        {normalize_identity(table), trim_identifier(column), normalize_definition(default)}
-
-      nil ->
-        nil
+    with {table, rest} <- PostgresDump.identifier_after(line, "ALTER TABLE ONLY "),
+         {column, default} <- PostgresDump.identifier_after(rest, "ALTER COLUMN "),
+         default <- String.trim_leading(default),
+         true <- String.starts_with?(default, "SET DEFAULT ") do
+      default = String.replace_prefix(default, "SET DEFAULT ", "")
+      {table, column, normalize_definition(default)}
+    else
+      _not_default -> nil
     end
   end
 
@@ -756,15 +980,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp parse_table_column(line, table, inventory) do
-    case Regex.named_captures(
-           ~r/^\s{4}(?<name>"[^"]+"|[A-Za-z_][\w$]*)\s+(?<definition>.+?)(?:,)?$/,
-           line
-         ) do
-      %{"name" => "CONSTRAINT"} ->
+    case PostgresDump.take_identifier(String.trim_leading(line)) do
+      {"constraint", _definition} ->
         inventory
 
-      %{"name" => name, "definition" => definition} ->
-        column = {table, trim_identifier(name), normalize_definition(definition)}
+      {name, definition} when definition != "" ->
+        definition = normalize_column_definition(table, name, definition)
+        column = {table, name, definition}
         Map.update!(inventory, :columns, &MapSet.put(&1, column))
 
       nil ->
@@ -772,18 +994,48 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp parse_constraint(line, _constraint, inventory) do
-    %{"table" => table, "name" => name, "definition" => definition} =
-      Regex.named_captures(
-        ~r/^ALTER TABLE ONLY (?<table>\S+) ADD CONSTRAINT (?<name>\S+) (?<definition>.+);/,
-        line
-      )
-
-    table = normalize_identity(table)
-    name = trim_identifier(name)
-
+  defp parse_constraint({table, name, definition}, inventory) do
     parse_constraint(table, name, definition, inventory)
   end
+
+  defp normalize_column_definition(table, column, definition) do
+    definition = normalize_definition(definition)
+
+    case Regex.named_captures(
+           ~r/\bCONSTRAINT (?<name>[A-Za-z_][A-Za-z0-9_$]*) NOT NULL\b/,
+           definition
+         ) do
+      %{"name" => name} ->
+        if name == generated_not_null_constraint_name(table, column) do
+          String.replace(definition, "CONSTRAINT #{name} NOT NULL", "NOT NULL")
+        else
+          definition
+        end
+
+      nil ->
+        definition
+    end
+  end
+
+  defp generated_not_null_constraint_name(table, column) do
+    table = table_name(table)
+    label = "not_null"
+    available = 63 - byte_size(label) - 2
+
+    {table_size, column_size} =
+      fit_identifier_parts(byte_size(table), byte_size(column), available)
+
+    "#{binary_part(table, 0, table_size)}_#{binary_part(column, 0, column_size)}_#{label}"
+  end
+
+  defp fit_identifier_parts(left, right, available) when left + right <= available,
+    do: {left, right}
+
+  defp fit_identifier_parts(left, right, available) when left > right,
+    do: fit_identifier_parts(left - 1, right, available)
+
+  defp fit_identifier_parts(left, right, available),
+    do: fit_identifier_parts(left, right - 1, available)
 
   defp parse_constraint(table, name, definition, inventory) do
     definition = normalize_definition(definition)
@@ -1110,6 +1362,44 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.new()
   end
 
+  defp expected_sequence_definitions(expected_resources) do
+    Map.new(
+      expected_resources
+      |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+        table = resource_table_identity(resource)
+
+        resource
+        |> migrated_attributes()
+        |> Enum.flat_map(fn attribute ->
+          type = expected_migration_type(resource, attribute)
+          default = raw_expected_default(resource, attribute, type)
+
+          if sequence_backed_generated?(attribute, type, default) do
+            identity = sequence_identity(table, attribute)
+            owner = "#{table}.#{attribute_column(attribute)}"
+            [{identity, default_sequence_definition(postgres_type(type), owner)}]
+          else
+            []
+          end
+        end)
+      end)
+    )
+  end
+
+  defp default_sequence_definition(type, owner) do
+    %{
+      type: type,
+      start: "1",
+      increment: "1",
+      minimum: "NO MINVALUE",
+      maximum: "NO MAXVALUE",
+      cache: "1",
+      cycle: false,
+      owner: owner
+    }
+    |> format_sequence_definition()
+  end
+
   defp migrated_attributes(resource) do
     ignored = AshPostgres.DataLayer.Info.migration_ignore_attributes(resource) || []
 
@@ -1122,7 +1412,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     type = expected_migration_type(resource, attribute)
 
     [
-      postgres_type(type),
+      postgres_type(type, resource),
       expected_default(resource, attribute, type),
       if(attribute.allow_nil?, do: nil, else: "NOT NULL")
     ]
@@ -1175,6 +1465,22 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     do: "#{type}(#{size})"
 
   defp postgres_type(type), do: "unsupported(#{inspect(type)})"
+
+  defp postgres_type({:array, type}, resource), do: "#{postgres_type(type, resource)}[]"
+
+  defp postgres_type(type, resource)
+       when is_atom(type) and type not in @builtin_migration_types do
+    type = Atom.to_string(type)
+
+    if String.contains?(type, ".") do
+      type
+    else
+      schema = AshPostgres.DataLayer.Info.schema(resource) || "public"
+      "#{schema}.#{type}"
+    end
+  end
+
+  defp postgres_type(type, _resource), do: postgres_type(type)
 
   defp expected_default(resource, attribute, type) do
     default = raw_expected_default(resource, attribute, type)
@@ -1563,17 +1869,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.new()
   end
 
-  defp reject_framework_triggers(triggers) do
-    triggers
-    |> Enum.reject(fn trigger ->
-      trigger
-      |> String.split(" ON ", parts: 2)
-      |> List.last()
-      |> then(&framework_owned?(:table, &1))
-    end)
-    |> MapSet.new()
-  end
-
   defp framework_owned?(class, identity) when is_binary(identity),
     do: MapSet.member?(Map.get(@framework_objects, class, MapSet.new()), identity)
 
@@ -1615,64 +1910,77 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp normalize_trigger(name, line) do
-    table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()
-    "#{trim_identifier(name)} ON #{table}"
-  end
-
   defp normalize_event_trigger(name), do: "#{trim_identifier(name)} ON DATABASE"
 
   defp trigger_state_identity(statement) do
     statement = String.trim(statement)
 
-    cond do
-      event_trigger =
-          capture(
-            statement,
-            ~r/^ALTER EVENT TRIGGER (?<name>\S+) (?:DISABLE|ENABLE(?: REPLICA| ALWAYS)?);$/s
-          ) ->
-        normalize_event_trigger(event_trigger)
+    case PostgresDump.identifier_after(statement, "ALTER EVENT TRIGGER ") do
+      {name, rest} ->
+        if Regex.match?(~r/^ (?:DISABLE|ENABLE(?: REPLICA| ALWAYS)?);$/s, rest),
+          do: normalize_event_trigger(name)
 
-      captures =
-          Regex.named_captures(
-            ~r/^ALTER TABLE (?:ONLY )?(?<table>\S+) (?:DISABLE|ENABLE(?: REPLICA| ALWAYS)?) TRIGGER (?<name>\S+);$/s,
-            statement
-          ) ->
-        "#{trim_identifier(captures["name"])} ON #{normalize_identity(captures["table"])}"
-
-      true ->
-        nil
+      nil ->
+        with {table, rest} <- alter_table_statement(statement),
+             {name, _rest} <- trigger_name_after_state(rest) do
+          "#{name} ON #{table}"
+        else
+          _not_trigger_state -> nil
+        end
     end
   end
 
-  defp normalize_policy(name, line) do
-    table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()
-    "#{trim_identifier(name)} ON #{table}"
+  defp trigger_name_after_state(rest) do
+    Enum.find_value(
+      [
+        "DISABLE TRIGGER ",
+        "ENABLE TRIGGER ",
+        "ENABLE REPLICA TRIGGER ",
+        "ENABLE ALWAYS TRIGGER "
+      ],
+      &PostgresDump.identifier_after(rest, &1)
+    )
   end
 
   defp rls_state_identity(statement) do
-    case Regex.named_captures(
-           ~r/^ALTER TABLE (?:ONLY )?(?<table>\S+) (?:ENABLE|DISABLE|FORCE|NO FORCE) ROW LEVEL SECURITY;$/s,
-           String.trim(statement)
-         ) do
-      %{"table" => table} -> normalize_identity(table)
-      nil -> nil
+    with {table, rest} <- alter_table_statement(String.trim(statement)),
+         state <- PostgresDump.normalize_definition(rest),
+         true <-
+           state in [
+             "ENABLE ROW LEVEL SECURITY",
+             "DISABLE ROW LEVEL SECURITY",
+             "FORCE ROW LEVEL SECURITY",
+             "NO FORCE ROW LEVEL SECURITY"
+           ] do
+      table
+    else
+      _not_rls_state -> nil
     end
   end
 
+  defp alter_table_statement(statement) do
+    PostgresDump.identifier_after(statement, "ALTER TABLE ONLY ") ||
+      PostgresDump.identifier_after(statement, "ALTER TABLE ")
+  end
+
   defp parse_index(line) do
-    case Regex.named_captures(
-           ~r/^CREATE (?<unique>UNIQUE )?INDEX (?<name>\S+) ON (?:ONLY )?(?<table>\S+) (?<definition>.+);$/s,
-           line
-         ) do
-      %{"name" => name, "table" => table, "definition" => definition} = captures ->
-        unique = if captures["unique"] in [nil, ""], do: "", else: "UNIQUE "
+    line = String.trim(line)
 
-        {normalize_identity(table), trim_identifier(name),
-         normalize_definition(unique <> definition)}
+    {unique, index} =
+      case PostgresDump.identifier_after(line, "CREATE UNIQUE INDEX ") do
+        nil -> {false, PostgresDump.identifier_after(line, "CREATE INDEX ")}
+        index -> {true, index}
+      end
 
-      nil ->
-        nil
+    with {name, rest} <- index,
+         true <- String.starts_with?(rest, " ON "),
+         rest <- String.replace_prefix(rest, " ON ", "") |> String.trim_leading(),
+         rest <- String.replace_prefix(rest, "ONLY ", ""),
+         {table, definition} <- PostgresDump.take_identifier(rest) do
+      unique = if unique, do: "UNIQUE ", else: ""
+      {table, name, normalize_definition(unique <> definition)}
+    else
+      _not_index -> nil
     end
   end
 
@@ -1697,12 +2005,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp normalize_definition(definition) do
     definition
-    |> String.trim()
-    |> String.trim_trailing(",")
-    |> String.trim_trailing(";")
-    |> String.replace(~r/\bCONSTRAINT\s+\S+\s+(?=NOT NULL\b)/, "")
-    |> String.replace(~r/"([A-Za-z_][\w$]*)"/, "\\1")
-    |> String.replace(~r/\s+/, " ")
+    |> PostgresDump.normalize_definition()
     |> normalize_foreign_key_definition()
     |> normalize_sequence_regclass()
   end
@@ -1749,30 +2052,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> String.trim()
     |> String.trim_trailing(";")
     |> String.trim_trailing(",")
-    |> String.split(".")
-    |> Enum.map(&trim_identifier/1)
-    |> case do
-      ["public", name] -> name
-      [name] -> name
-      [schema, name] -> "#{schema}.#{name}"
-      parts -> Enum.join(parts, ".")
-    end
+    |> PostgresDump.normalize_identifier()
   end
 
   defp normalize_identity(nil), do: nil
 
-  defp trim_identifier(identifier) do
-    identifier
-    |> String.trim()
-    |> String.trim("\"")
-    |> String.trim_trailing(";")
-  end
-
-  defp capture(line, regex) do
-    case Regex.named_captures(regex, line) do
-      %{"identity" => value} -> value
-      %{"name" => value} -> value
-      nil -> nil
-    end
-  end
+  defp trim_identifier(identifier), do: normalize_identity(identifier)
 end
