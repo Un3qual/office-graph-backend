@@ -200,19 +200,20 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       end)
       |> Map.new(fn {identity, fingerprints} -> {identity, MapSet.new(fingerprints)} end)
 
+    actual_keys = actual |> Map.keys() |> MapSet.new()
+    approved_keys = approved |> Map.keys() |> MapSet.new()
+
     missing_definitions =
       inventory
       |> prohibited_terminal_identities()
-      |> MapSet.difference(actual |> Map.keys() |> MapSet.new())
+      |> MapSet.difference(actual_keys)
       |> Enum.map(fn {class, identity} ->
         "terminal definition unavailable for project #{class} #{identity}"
       end)
 
     comparison_errors =
-      actual
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.union(approved |> Map.keys() |> MapSet.new())
+      actual_keys
+      |> MapSet.union(approved_keys)
       |> Enum.flat_map(fn {class, identity} = key ->
         case {Map.fetch(actual, key), Map.fetch(approved, key)} do
           {{:ok, _actual}, :error} ->
