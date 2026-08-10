@@ -155,6 +155,15 @@ binary literals or documentation text.
   accumulator before classifying and fingerprinting database calls in the
   callback, and MUST NOT apply `List` semantics to an unrelated receiver
 
+#### Scenario: Database receiver enters Agent state
+
+- **WHEN** `Agent.start/1-2` or `Agent.start_link/1-2`, including through an
+  explicit alias, initializes process state from a literal callback whose
+  statically resolvable result contains a repository receiver
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later Agent callback can consume the receiver,
+  and MUST NOT apply `Agent` semantics to an unrelated receiver
+
 #### Scenario: Static Enum result feeds a downstream callback
 
 - **WHEN** a supported `Enum.map/2` call produces the enumerable consumed by a

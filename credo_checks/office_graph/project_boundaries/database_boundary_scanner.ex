@@ -198,6 +198,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @kernel_value_callback_operations [:tap, :then]
   @repo_supplied_callback_operations [:transact, :transaction]
   @list_fold_operations [:foldl, :foldr]
+  @agent_start_operations [:start, :start_link]
 
   @enum_unary_element_callback_operations [
     :all?,
@@ -3273,6 +3274,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
+         _context,
+         environment
+       )
+       when operation in @agent_start_operations and is_list(arguments) do
+    if agent_module_receiver?(receiver, environment) and
+         agent_initial_state_contains_database_receiver?(arguments, environment),
+       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
+  end
+
+  defp classify_node(
          {operation, _metadata, [value]},
          _context,
          environment
@@ -3476,6 +3488,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     argument
     |> resolve_static_expression(environment)
     |> static_value_contains_database_receiver?(environment)
+  end
+
+  defp agent_initial_state_contains_database_receiver?([callback | _options], environment) do
+    with {:ok, callback} <- normalize_literal_callback(callback, environment),
+         0 <- literal_callback_arity(callback),
+         {:ok, state} <- static_literal_callback_result(callback, [], environment) do
+      static_value_contains_database_receiver?(state, environment)
+    else
+      _unsupported_or_unresolved_callback -> false
+    end
+  end
+
+  defp agent_initial_state_contains_database_receiver?(_arguments, _environment), do: false
+
+  defp agent_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Agent"
   end
 
   defp classify_dynamic_database_apply(_receiver, operation) when is_atom(operation), do: nil

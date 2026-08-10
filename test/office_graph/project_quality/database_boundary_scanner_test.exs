@@ -3129,6 +3129,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "fails closed when a database receiver enters Agent state" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Agent, as: StateAgent
+
+            def load do
+              {:ok, pid} = Agent.start_link(fn -> OfficeGraph.Repo end)
+              Agent.get(pid, fn repo -> repo.query!("DELETE FROM events", []) end)
+
+              StateAgent.start(fn -> {:repository, OfficeGraph.Repo} end)
+              Agent.start_link(fn -> Example.NotARepo end)
+              Example.Agent.start_link(fn -> OfficeGraph.Repo end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 5, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 8, :unresolved_sql}
+           ]
+  end
+
   test "fails closed when an ordinary remote helper receives a database receiver" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
