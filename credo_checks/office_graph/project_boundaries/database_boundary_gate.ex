@@ -16,6 +16,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "extension",
     "grant",
     "materialized view",
+    "materialized view index",
     "RLS policy",
     "RLS state",
     "routine",
@@ -146,7 +147,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   end
 
   defp compiled_diagnostics(compiled, current) do
-    source_counts = Enum.frequencies_by(current, &compiled_source_key/1)
+    source_counts =
+      current
+      |> Enum.reject(&(Map.get(&1, "compiled_match?", true) == false))
+      |> Enum.frequencies_by(&compiled_source_key/1)
 
     compiled
     |> Enum.map_reduce(source_counts, fn occurrence, remaining ->
@@ -169,7 +173,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       Map.get(entry, "path"),
       Map.get(entry, "line"),
       Map.get(entry, "class"),
-      Map.get(entry, "construct")
+      Map.get(entry, "construct"),
+      Map.get(entry, "function")
     }
   end
 

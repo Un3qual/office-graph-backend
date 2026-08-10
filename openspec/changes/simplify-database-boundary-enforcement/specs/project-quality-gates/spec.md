@@ -59,15 +59,18 @@ construction, SQL bodies, macro output, or control flow.
   approval
 
 #### Scenario: Dynamic database operation survives compilation
-- **WHEN** BEAM abstract code contains `apply` or a dynamic receiver with a
-  statically visible database operation
+- **WHEN** BEAM abstract code contains `apply`, module-function-argument
+  process/task dispatch, or a dynamic receiver with a statically visible
+  database operation
 - **THEN** the compiled audit MUST reject the call as unresolved even when the
   source gate already reports its exact tracked-source occurrence
 
 #### Scenario: Compiled environments are audited
 - **WHEN** canonical verification reaches the compiled database-boundary audit
-- **THEN** production output MUST already exist and the audit MUST inspect both
-  test and production BEAMs whose compiler-recorded source remains tracked
+- **THEN** current, test, and production output MUST already exist and the audit
+  MUST inspect their BEAMs when compiler-recorded source remains tracked
+- **THEN** the audit MUST fail closed when any required environment has no
+  project BEAM output
 
 #### Scenario: Compiled metadata is unavailable
 - **WHEN** a current tracked-source BEAM lacks auditable abstract code
@@ -150,6 +153,12 @@ those paths are outside Credo's configured Elixir source list.
 #### Scenario: A compiled violation is found
 - **WHEN** a compiled project module imports or depends on a low-level database primitive without an approved source occurrence
 - **THEN** the Credo issue MUST identify the module and imported or referenced primitive
+
+#### Scenario: Quoted source and compiled execution collide
+- **WHEN** quoted source data and a live compiled primitive share a source line,
+  class, and construct
+- **THEN** the quoted occurrence MUST NOT suppress the compiled diagnostic, and
+  source-to-BEAM matching MUST retain enclosing function provenance
 
 #### Scenario: An inventory violation is found
 - **WHEN** a database-access entry is stale or malformed

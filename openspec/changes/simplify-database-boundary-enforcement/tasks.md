@@ -77,3 +77,10 @@
 - [x] 11.2 Compare exact subordinate definitions on present framework-owned tables and honor configured PostgreSQL migration types.
 - [x] 11.3 Inventory unlogged tables, default privileges, ordinary and event trigger firing modes, and RLS state approvals with exact terminal fingerprints.
 - [x] 11.4 Add focused regressions, run canonical verification, review the final diff, push, and reply to the review threads.
+
+## 12. Dispatch, Provenance, And Subordinate Object Review Follow-Up
+
+- [x] 12.1 Reject database-targeting MFA process/task dispatch and local query primitives injected by `use` macros.
+- [x] 12.2 Fail closed when required current, test, or production BEAM output is absent and preserve function/quoted-source provenance during compiled reconciliation.
+- [x] 12.3 Derive primary keys only from migration-visible attributes and fingerprint materialized-view indexes as independent terminal approval objects.
+- [x] 12.4 Run focused and canonical verification, review the final diff, push, and reply to the review threads.

@@ -175,6 +175,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "audits local query fragments when use macros provide the import" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule QueryDSL do
+            defmacro __using__(_options) do
+              quote do
+                import Ecto.Query
+              end
+            end
+          end
+
+          defmodule Example do
+            use QueryDSL
+
+            def delayed, do: fragment("pg_sleep(1)")
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "fragment"
+    assert occurrence.function == "delayed/0"
+  end
+
   test "does not classify inert strings and comments" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{
@@ -228,6 +256,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "variable_receiver.apply"
     assert occurrence.function == "dispatch/3"
     assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects module-function-argument process dispatch to database operations" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/spawned_repo.exs",
+          source: """
+          defmodule SpawnedRepoScript do
+            def local(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
+            def linked(sql), do: Kernel.spawn_link(OfficeGraph.Repo, :query!, [sql, []])
+            def tasked(sql), do: Task.start(OfficeGraph.Repo, :query!, [sql, []])
+
+            def supervised(supervisor, sql),
+              do: Task.Supervisor.start_child(supervisor, OfficeGraph.Repo, :query!, [sql, []])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"OfficeGraph.Repo.spawn", "local/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn_link", "linked/1", :unresolved_sql},
+             {"OfficeGraph.Repo.start", "tasked/1", :unresolved_sql},
+             {"OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql}
+           ]
   end
 
   test "rejects function captures that target database dispatch" do
@@ -1148,6 +1202,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def evaluate(path), do: Code.eval_file(path)
         def migrate(path), do: Ecto.Migrator.run(OfficeGraph.Repo, path, :up, all: true)
         def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
+        def spawn_query(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
         def psql(sql), do: System.cmd("psql", ["-c", sql])
         def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
@@ -1181,6 +1236,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "reflection.Code.eval_file", :unresolved_sql},
                {:direct_ecto, "Ecto.Migrator.run", :unresolved_sql},
                {:direct_ecto, "variable_receiver.up", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
@@ -1265,10 +1321,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     end
     """)
 
-    [first, second] = DatabaseBoundaryScanner.scan_compiled(root)
+    [first, second] =
+      DatabaseBoundaryScanner.scan_compiled(root,
+        paths: Path.wildcard(Path.join(ebin, "*.beam"))
+      )
 
-    assert {first.line, first.construct, first.ordinal} == {2, "Repo.query!", 1}
-    assert {second.line, second.construct, second.ordinal} == {2, "Repo.query!", 2}
+    assert {first.line, first.construct, first.function, first.ordinal} ==
+             {2, "Repo.query!", "load/0", 1}
+
+    assert {second.line, second.construct, second.function, second.ordinal} ==
+             {2, "Repo.query!", "load/0", 2}
   end
 
   test "compiled audit scans every project BEAM module, not only OfficeGraph-prefixed modules" do
@@ -1304,11 +1366,62 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                return_diagnostics: true
              )
 
-    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root)
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_compiled(root,
+        paths: Path.wildcard(Path.join(ebin, "*.beam"))
+      )
 
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "Repo.query!"
     assert occurrence.path == "lib/legacy_importer.ex"
+    assert occurrence.function == "load/0"
+  end
+
+  test "compiled audit fails closed when a required environment has no BEAM output" do
+    root = temporary_root("compiled_boundary_missing_environment")
+    source_path = Path.join(root, "lib/current_environment_boundary.ex")
+    current_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    module =
+      Module.concat(
+        OfficeGraph,
+        "CurrentEnvironmentBoundary#{System.unique_integer([:positive])}"
+      )
+
+    init_git_repo!(root)
+
+    compile_source!(source_path, current_ebin, """
+    defmodule #{inspect(module)} do
+      def load, do: :ok
+    end
+    """)
+
+    git!(root, ["add", "lib/current_environment_boundary.ex"])
+
+    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root)
+
+    assert occurrence.class == :direct_ecto
+    assert occurrence.construct == "compiled.environment_missing"
+    assert occurrence.approval == :unresolved_sql
+    assert occurrence.path == "mix.exs"
+  end
+
+  test "compiled audit does not count its excluded scanner BEAM as environment output" do
+    root = temporary_root("compiled_boundary_scanner_only_environment")
+    scanner_beam = :code.which(DatabaseBoundaryScanner) |> List.to_string()
+
+    init_git_repo!(root)
+
+    for env <- [Mix.env(), :prod] |> Enum.uniq() do
+      ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
+      File.mkdir_p!(ebin)
+      File.cp!(scanner_beam, Path.join(ebin, Path.basename(scanner_beam)))
+    end
+
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root)
+
+    assert occurrences != []
+    assert Enum.all?(occurrences, &(&1.construct == "compiled.environment_missing"))
   end
 
   test "compiled audit includes production BEAM output" do
@@ -1345,16 +1458,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   test "compiled audit ignores stale BEAMs whose source is no longer tracked" do
     root = temporary_root("compiled_boundary_stale")
     source_path = Path.join(root, "lib/stale_boundary.ex")
-    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
     module = Module.concat(OfficeGraph, "StaleBoundary#{System.unique_integer([:positive])}")
 
     init_git_repo!(root)
 
-    compile_source!(source_path, ebin, """
+    source = """
     defmodule #{inspect(module)} do
       def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
     end
-    """)
+    """
+
+    for env <- [Mix.env(), :prod] |> Enum.uniq() do
+      ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
+      compile_source!(source_path, ebin, source)
+    end
 
     git!(root, ["add", "lib/stale_boundary.ex"])
     git!(root, ["mv", "lib/stale_boundary.ex", "lib/current_boundary.ex"])

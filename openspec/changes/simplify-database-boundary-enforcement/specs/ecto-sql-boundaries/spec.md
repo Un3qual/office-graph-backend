@@ -144,6 +144,8 @@ policies and table enable/force state, direct and default-privilege grants, and
 extensions unless an accepted OpenSpec change approves the exact source
 occurrence and terminal database object. Non-default ordinary and event trigger
 firing modes SHALL be part of the exact trigger terminal fingerprint set.
+Indexes on materialized views SHALL require their own exact terminal object
+approval.
 
 #### Scenario: Stored routine is introduced
 - **WHEN** canonical verification finds a project-owned terminal function,

@@ -105,6 +105,32 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ]
   end
 
+  test "materialized-view indexes require independent exact terminal approval" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE MATERIALIZED VIEW public.cached_children AS
+       SELECT children.id
+         FROM public.children;
+      CREATE UNIQUE INDEX cached_children_id_index ON public.cached_children USING btree (id);
+      """)
+
+    approvals =
+      inventory.terminal_objects
+      |> Enum.map(fn {class, identity, fingerprint} ->
+        %{"class" => class, "identity" => identity, "fingerprint" => fingerprint}
+      end)
+
+    view_approval = Enum.find(approvals, &(&1["class"] == "materialized view"))
+
+    assert "unexpected project materialized view index cached_children_id_index ON cached_children" in MigrationConformanceSupport.terminal_database_errors(
+             %{},
+             inventory,
+             [view_approval]
+           )
+
+    assert MigrationConformanceSupport.terminal_database_errors(%{}, inventory, approvals) == []
+  end
+
   test "inventories event triggers, trigger firing modes, and row-level-security state" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -397,6 +423,23 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              %{
                "ignored_sequence_examples" =>
                  {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource}
+             },
+             inventory
+           ) == []
+  end
+
+  test "terminal errors omit migration-ignored primary-key attributes" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.ignored_primary_key_examples (
+          name text NOT NULL
+      );
+      """)
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "ignored_primary_key_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredPrimaryKeyResource}
              },
              inventory
            ) == []

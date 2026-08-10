@@ -319,9 +319,22 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     {_output, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
 
     write_tracked!(root, "lib/sentinel.ex", "defmodule Sentinel do\nend\n")
+    prepare_compiled_environments!(root)
     write_approved!(root, [])
 
     test.(root)
+  end
+
+  defp prepare_compiled_environments!(root) do
+    source_path = Path.join(root, "lib/sentinel.ex")
+
+    for env <- [:dev, :test, :prod] do
+      ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
+      File.mkdir_p!(ebin)
+
+      assert {_output, 0} =
+               System.cmd("elixirc", ["-o", ebin, source_path], stderr_to_stdout: true)
+    end
   end
 
   defp write_approved!(root, entries) do

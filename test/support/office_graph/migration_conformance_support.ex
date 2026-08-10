@@ -292,6 +292,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     [
       {"view", inventory.views},
       {"materialized view", inventory.materialized_views},
+      {"materialized view index", materialized_view_index_identities(inventory)},
       {"routine", inventory.routines},
       {"trigger", reject_framework_triggers(inventory.triggers)},
       {"RLS policy", inventory.policies},
@@ -343,10 +344,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp terminal_objects(dump) do
-    dump
-    |> sql_statements()
+    statements = sql_statements(dump)
+
+    materialized_views =
+      statements
+      |> Enum.flat_map(fn statement ->
+        case capture(statement, ~r/^CREATE MATERIALIZED VIEW (?<identity>\S+) AS/s) do
+          nil -> []
+          identity -> [normalize_identity(identity)]
+        end
+      end)
+      |> MapSet.new()
+
+    statements
     |> Enum.flat_map(fn statement ->
-      case terminal_object_identity(statement) do
+      case terminal_object_identity(statement, materialized_views) do
         nil -> []
         {class, identity} -> [{class, identity, fingerprint_statement(statement)}]
       end
@@ -354,10 +366,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.new()
   end
 
-  defp terminal_object_identity(statement) do
+  defp terminal_object_identity(statement, materialized_views) do
+    materialized_view_index = materialized_view_index_identity(statement, materialized_views)
+
     cond do
       identity = capture(statement, ~r/^CREATE MATERIALIZED VIEW (?<identity>\S+) AS/s) ->
         {"materialized view", normalize_identity(identity)}
+
+      materialized_view_index ->
+        {"materialized view index", materialized_view_index}
 
       identity = capture(statement, ~r/^CREATE VIEW (?<identity>\S+) AS/s) ->
         {"view", normalize_identity(identity)}
@@ -1234,7 +1251,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp expected_primary_keys(table, resource) do
     resource
-    |> Ash.Resource.Info.attributes()
+    |> migrated_attributes()
     |> Enum.filter(& &1.primary_key?)
     |> case do
       [] -> MapSet.new()
@@ -1255,7 +1272,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp expected_primary_key_constraints(table, resource) do
     attributes =
       resource
-      |> Ash.Resource.Info.attributes()
+      |> migrated_attributes()
       |> Enum.filter(& &1.primary_key?)
 
     case attributes do
@@ -1645,7 +1662,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp parse_index(line) do
     case Regex.named_captures(
-           ~r/^CREATE (?<unique>UNIQUE )?INDEX (?<name>\S+) ON (?:ONLY )?(?<table>\S+) (?<definition>.+);$/,
+           ~r/^CREATE (?<unique>UNIQUE )?INDEX (?<name>\S+) ON (?:ONLY )?(?<table>\S+) (?<definition>.+);$/s,
            line
          ) do
       %{"name" => name, "table" => table, "definition" => definition} = captures ->
@@ -1657,6 +1674,25 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       nil ->
         nil
     end
+  end
+
+  defp materialized_view_index_identity(statement, materialized_views) do
+    case parse_index(statement) do
+      {table, name, _definition} ->
+        if MapSet.member?(materialized_views, table), do: "#{name} ON #{table}"
+
+      nil ->
+        nil
+    end
+  end
+
+  defp materialized_view_index_identities(inventory) do
+    inventory.indexes
+    |> Enum.filter(fn {table, _name, _definition} ->
+      MapSet.member?(inventory.materialized_views, table)
+    end)
+    |> Enum.map(fn {table, name, _definition} -> "#{name} ON #{table}" end)
+    |> MapSet.new()
   end
 
   defp normalize_definition(definition) do

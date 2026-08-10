@@ -36,6 +36,23 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredPrimaryKeyResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_primary_key_examples"
+    repo OfficeGraph.Repo
+    migration_ignore_attributes [:id]
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :name, :string, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceNetworkResource do
   @moduledoc false
 
