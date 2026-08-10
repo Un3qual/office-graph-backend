@@ -50,6 +50,58 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 3
   end
 
+  test "resolves database receivers built by literal String atom conversions" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias String, as: AtomParser
+
+            def load do
+              String.to_existing_atom("Elixir.OfficeGraph.Repo").query!("DELETE FROM events", [])
+
+              AtomParser.to_atom("Elixir.Ecto.Adapters.SQL").query!(
+                OfficeGraph.Repo,
+                "DELETE FROM archived_events",
+                []
+              )
+
+              String.to_existing_atom("Elixir.Example.NotARepo").query!("not database SQL", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.line}) == [
+             {:raw_sql, "Repo.query!", "load/0", 5},
+             {:raw_sql, "Ecto.Adapters.SQL.query!", "load/0", 7}
+           ]
+  end
+
+  test "fails closed for runtime String atom conversion receivers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(module_name) do
+              String.to_existing_atom(module_name).query!("DELETE FROM events", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/1"
+    assert occurrence.line == 3
+  end
+
   test "recognizes database module atoms in static helper and generator values" do
     [
       """

@@ -276,6 +276,34 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "keeps tables dropped only by an alternative receive clause" do
+    in_migration_root("office_graph_receive_table_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:durable)
+
+            send(self(), :keep)
+
+            receive do
+              :keep -> :ok
+              :drop -> drop table(:durable)
+            end
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == ["durable"]
+    end)
+  end
+
   test "executes only statically selected foreign-key branches" do
     in_migration_root("office_graph_static_foreign_key_branch", fn root, migrations ->
       _ = root
@@ -294,6 +322,49 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
                 add :parent_id, references(:parents)
               else
                 remove :parent_id
+              end
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "children" => {nil, OfficeGraph.Tenancy.Organization},
+        "parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "children.parent_id references parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "keeps foreign keys removed only by an alternative receive clause" do
+    in_migration_root("office_graph_receive_foreign_key_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:parents)
+
+            create table(:children) do
+              add :parent_id, references(:parents)
+            end
+
+            send(self(), :keep)
+
+            alter table(:children) do
+              receive do
+                :keep -> :ok
+                :drop -> remove :parent_id
               end
             end
           end

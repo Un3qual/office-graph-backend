@@ -2840,6 +2840,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       static_module_concat_database_receiver?(arguments, environment)
   end
 
+  defp static_value_contains_database_receiver?(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
+         environment
+       )
+       when operation in [:to_atom, :to_existing_atom] and is_list(arguments) do
+    if receiver |> receiver_name() |> resolve_receiver(environment) == "String" do
+      case static_string_atom_module_name(arguments) do
+        {:ok, module_name} -> database_receiver_name?(module_name, environment)
+        :not_a_module -> false
+        :unknown -> true
+      end
+    else
+      static_value_contains_database_receiver?(receiver, environment) or
+        Enum.any?(arguments, &static_value_contains_database_receiver?(&1, environment))
+    end
+  end
+
   defp static_value_contains_database_receiver?({:{}, _metadata, values}, environment),
     do: Enum.any?(values, &static_value_contains_database_receiver?(&1, environment))
 
@@ -4953,6 +4970,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resolve_static_projection(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = call,
+         environment
+       )
+       when operation in [:to_atom, :to_existing_atom] and is_list(arguments) do
+    if receiver |> receiver_name() |> resolve_receiver(environment) == "String" do
+      case static_string_atom_module_name(arguments) do
+        {:ok, module_name} -> %{resolved_module_name: module_name}
+        _unresolved_or_nonmodule -> call
+      end
+    else
+      call
+    end
+  end
+
+  defp resolve_static_projection(
          {{:., _dot_metadata, [container, field]}, _metadata, []} = projection,
          _environment
        )
@@ -4999,6 +5031,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: join_static_module_parts([left, right], environment)
 
   defp static_module_concat_name(_arguments, _environment), do: :error
+
+  defp static_string_atom_module_name(["Elixir." <> module_name]) when module_name != "",
+    do: {:ok, module_name}
+
+  defp static_string_atom_module_name([module_name]) when is_binary(module_name),
+    do: :not_a_module
+
+  defp static_string_atom_module_name(_arguments), do: :unknown
 
   defp join_static_module_parts(parts, environment) do
     parts

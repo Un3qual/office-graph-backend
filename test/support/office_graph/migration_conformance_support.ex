@@ -2452,6 +2452,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp collect_foreign_key_operations(
+         {:receive, _metadata, [options]},
+         table,
+         certainty
+       )
+       when is_list(options) do
+    collect_receive_operations(options, certainty, fn expression, branch_certainty ->
+      collect_foreign_key_operations(expression, table, branch_certainty)
+    end)
+  end
+
+  defp collect_foreign_key_operations(
          {operator, _metadata, [condition, options]},
          table,
          certainty
@@ -2650,6 +2661,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     collect_cond_operations(clauses, certainty, &collect_table_operations/2)
   end
 
+  defp collect_table_operations({:receive, _metadata, [options]}, certainty)
+       when is_list(options) do
+    collect_receive_operations(options, certainty, &collect_table_operations/2)
+  end
+
   defp collect_table_operations(
          {operator, _metadata, [condition, options]},
          certainty
@@ -2743,6 +2759,49 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     operation_chunks |> Enum.reverse() |> List.flatten()
   end
+
+  defp collect_receive_operations(options, certainty, collect_operations) do
+    possible_certainty = possible_certainty(certainty)
+
+    message_branch_operations =
+      options
+      |> Keyword.get(:do, [])
+      |> collect_possible_clause_bodies(possible_certainty, collect_operations)
+
+    {timeout_operations, timeout_branch_operations} =
+      options
+      |> Keyword.get(:after, [])
+      |> Enum.reduce({[], []}, fn
+        {:->, _metadata, [timeout_expressions, body]}, {timeout_operations, branch_operations}
+        when is_list(timeout_expressions) ->
+          {
+            [collect_operations.(timeout_expressions, certainty) | timeout_operations],
+            [collect_operations.(body, possible_certainty) | branch_operations]
+          }
+
+        clause, {timeout_operations, branch_operations} ->
+          {
+            timeout_operations,
+            [collect_operations.(clause, possible_certainty) | branch_operations]
+          }
+      end)
+
+    timeout_operations = timeout_operations |> Enum.reverse() |> List.flatten()
+    timeout_branch_operations = timeout_branch_operations |> Enum.reverse() |> List.flatten()
+
+    timeout_operations ++ message_branch_operations ++ timeout_branch_operations
+  end
+
+  defp collect_possible_clause_bodies(clauses, certainty, collect_operations)
+       when is_list(clauses) do
+    Enum.flat_map(clauses, fn
+      {:->, _metadata, [_heads, body]} -> collect_operations.(body, certainty)
+      clause -> collect_operations.(clause, certainty)
+    end)
+  end
+
+  defp collect_possible_clause_bodies(clause, certainty, collect_operations),
+    do: collect_operations.(clause, certainty)
 
   defp collect_short_circuit_operations(
          operator,
