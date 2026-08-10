@@ -133,8 +133,28 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       end
 
     forward_ast
+    |> reject_unmodeled_migration_enum_calls!()
     |> reject_schema_ownership_sql!()
     |> reject_repository_migration_helpers!(repository_helpers, repository_helper_imports)
+  end
+
+  defp reject_unmodeled_migration_enum_calls!(ast) do
+    Macro.prewalk(ast, fn
+      {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node
+      when is_atom(operation) and is_list(arguments) ->
+        if receiver == "Enum" or module_name(receiver) == "Enum" do
+          raise ArgumentError,
+                "cannot statically verify migration Enum.#{operation}/#{length(arguments)}; " <>
+                  "use direct declarative Ecto migration constructs"
+        end
+
+        node
+
+      node ->
+        node
+    end)
+
+    ast
   end
 
   defp reject_schema_ownership_sql!(ast) do
@@ -952,21 +972,40 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp migration_module_body(ast) do
-    case find_migration_module_body(ast) do
-      nil -> reject_unrecognized_migration_module!(ast)
-      body -> body
+    case migration_module_candidates(ast) do
+      [{_module, body}] ->
+        body
+
+      [] ->
+        reject_unrecognized_migration_module!(ast)
+
+      candidates ->
+        modules = candidates |> Enum.map(&elem(&1, 0)) |> Enum.intersperse(", ")
+
+        raise ArgumentError,
+              IO.iodata_to_binary([
+                "cannot statically verify migration file: expected exactly one recognized migration module, found ",
+                modules
+              ])
     end
   end
 
-  defp find_migration_module_body({:__block__, _metadata, expressions}) do
-    Enum.find_value(expressions, &find_migration_module_body/1)
+  defp migration_module_candidates({:__block__, _metadata, expressions}) do
+    Enum.flat_map(expressions, &migration_module_candidates/1)
   end
 
-  defp find_migration_module_body({:defmodule, _metadata, [_module, [do: body]]}) do
-    if uses_ecto_migration?(body), do: body
+  defp migration_module_candidates({:defmodule, _metadata, [module, [do: body]]}) do
+    candidates = migration_module_candidates(body)
+
+    if uses_ecto_migration?(body) do
+      module = module_name(module) || Macro.to_string(module)
+      [{module, body} | candidates]
+    else
+      candidates
+    end
   end
 
-  defp find_migration_module_body(_ast), do: nil
+  defp migration_module_candidates(_ast), do: []
 
   defp reject_unrecognized_migration_module!(ast) do
     case unrecognized_migration_module(ast) do
@@ -997,6 +1036,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp unrecognized_migration_module({:defmodule, _metadata, [module, [do: body]]}) do
     if migration_entrypoint_module?(body) do
       {module_name(module) || Macro.to_string(module), migration_use_targets(body)}
+    else
+      unrecognized_migration_module(body)
     end
   end
 

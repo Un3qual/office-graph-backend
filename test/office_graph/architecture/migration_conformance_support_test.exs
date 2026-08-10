@@ -2444,6 +2444,103 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "discovers a single migration module nested under a namespace" do
+    in_migration_root("office_graph_nested_migration_module_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_nested_examples.exs"),
+        """
+        defmodule OfficeGraph.Migrations do
+          defmodule CreateNestedExamples do
+            use Ecto.Migration
+
+            def change do
+              create table(:nested_parents)
+
+              create table(:nested_children) do
+                add :parent_id, references(:nested_parents)
+              end
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "nested_children" => {nil, OfficeGraph.Tenancy.Organization},
+        "nested_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "nested_children",
+               "nested_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "nested_children.parent_id references nested_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
+  test "rejects migration files with multiple recognized migration modules" do
+    in_migration_root("office_graph_multiple_migration_module_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_ambiguous_examples.exs"),
+        """
+        defmodule CreateFirstExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:first_examples)
+          end
+        end
+
+        defmodule CreateSecondExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:second_examples)
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/exactly one recognized migration module/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
+  end
+
+  test "rejects unsupported Enum control flow in migration entrypoints" do
+    in_migration_root("office_graph_enum_callback_migration_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260809000000_create_enum_examples.exs"),
+        """
+        defmodule CreateEnumExamples do
+          use Ecto.Migration
+
+          def change do
+            Enum.each([:enum_parents, :enum_children], fn name ->
+              create table(name)
+            end)
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/cannot statically verify migration Enum.each\/2/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
+  end
+
   test "fails closed when a migration-like module uses an unrecognized wrapper" do
     in_migration_root("office_graph_wrapped_migration_conformance", fn root, migrations ->
       wrapper = Path.join(root, "lib/my_app/migration.ex")

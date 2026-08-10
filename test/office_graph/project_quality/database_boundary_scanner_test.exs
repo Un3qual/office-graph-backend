@@ -2347,6 +2347,73 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "binds static Enum.sort_by mapper results into comparator callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.sort_by(
+                [OfficeGraph.Repo, OfficeGraph.Repo],
+                & &1,
+                fn repo, _other ->
+                  repo.query!("DELETE FROM events", [])
+                  true
+                end
+              )
+
+              Enum.sort_by(
+                [:archived, :retained],
+                fn _event -> OfficeGraph.Repo end,
+                fn _left, repo ->
+                  repo.query!("DELETE FROM archived_events", [])
+                  false
+                end
+              )
+
+              Enum.sort_by(
+                [OfficeGraph.Repo, OfficeGraph.Repo],
+                fn _repo -> Example.NotARepo end,
+                fn value, _other -> value.query!("DELETE FROM unrelated_events", []) end
+              )
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/0", 7},
+             {"Repo.query!", "load/0", 16}
+           ]
+  end
+
+  test "keeps Enum.sort_by mapper analysis when the sorter is not a callback" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              Enum.sort_by(
+                [OfficeGraph.Repo],
+                fn repo -> repo.query!("DELETE FROM events", []) end,
+                :asc
+              )
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 5
+  end
+
   test "propagates static Enum map results into downstream callbacks" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -2831,6 +2898,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            end) == [
              {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 3, :unresolved_sql},
              {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 4, :unresolved_sql}
+           ]
+  end
+
+  test "fails closed when a database receiver is stored in the process dictionary" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Process, as: RuntimeProcess
+
+            def load do
+              Process.put(:repo, OfficeGraph.Repo)
+              RuntimeProcess.put(:tagged_repo, {:repository, OfficeGraph.Repo})
+              Process.put(:unrelated, Example.NotARepo)
+              Example.Process.put(:repo, OfficeGraph.Repo)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 5, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 6, :unresolved_sql}
            ]
   end
 

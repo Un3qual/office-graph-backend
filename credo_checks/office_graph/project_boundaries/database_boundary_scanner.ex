@@ -473,6 +473,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          context,
          occurrences
        )
+       when operation == :sort_by and length(arguments) == 3 do
+    if enum_module_receiver?(receiver, environment) do
+      scan_enum_sort_by_callbacks(
+        node,
+        arguments,
+        environment,
+        context,
+        occurrences
+      )
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
        when operation in @enum_callback_operations and is_list(arguments) do
     if enum_module_receiver?(receiver, environment) do
       scan_enum_literal_callbacks(
@@ -1400,6 +1420,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
   end
 
+  defp process_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "Process"
+  end
+
   defp enum_module_receiver?(receiver, environment) do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Enum"
   end
@@ -1879,6 +1903,103 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp bind_static_callback_patterns(_environment, _patterns, _arguments), do: :no_match
+
+  defp scan_enum_sort_by_callbacks(
+         node,
+         [enumerable, mapper_argument, comparator_argument],
+         environment,
+         context,
+         occurrences
+       ) do
+    with {:ok, mapper} <- normalize_literal_callback(mapper_argument, environment),
+         1 <- literal_callback_arity(mapper),
+         {:ok, comparator} <- normalize_literal_callback(comparator_argument, environment),
+         2 <- literal_callback_arity(comparator) do
+      {arguments_environment, occurrences} =
+        scan_node(enumerable, environment, context, occurrences)
+
+      case static_enum_callback_elements(enumerable, arguments_environment) do
+        {:ok, elements} ->
+          occurrences =
+            elements
+            |> Enum.uniq_by(&Macro.to_string/1)
+            |> Enum.reduce(occurrences, fn element, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_invoked_literal_callback(
+                  mapper,
+                  [element],
+                  arguments_environment,
+                  context,
+                  occurrences
+                )
+
+              occurrences
+            end)
+
+          mapped_results =
+            Enum.map(elements, fn element ->
+              case static_literal_callback_result(mapper, [element], arguments_environment) do
+                {:ok, result} ->
+                  result
+
+                :error ->
+                  {:__unresolved_sort_by_mapper_result__, [], [element, mapper]}
+              end
+            end)
+
+          occurrences =
+            mapped_results
+            |> sort_by_comparator_invocations()
+            |> Enum.reduce(occurrences, fn callback_arguments, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_invoked_literal_callback(
+                  comparator,
+                  callback_arguments,
+                  arguments_environment,
+                  context,
+                  occurrences
+                )
+
+              occurrences
+            end)
+
+          {arguments_environment, occurrences}
+
+        :error ->
+          occurrences =
+            Enum.reduce([mapper, comparator], occurrences, fn callback, occurrences ->
+              {_callback_environment, occurrences} =
+                scan_node(callback, arguments_environment, context, occurrences)
+
+              occurrences
+            end)
+
+          {arguments_environment, occurrences}
+      end
+    else
+      _unsupported_comparator ->
+        scan_enum_literal_callbacks(
+          node,
+          :sort_by,
+          [enumerable, mapper_argument, comparator_argument],
+          environment,
+          context,
+          occurrences
+        )
+    end
+  end
+
+  defp sort_by_comparator_invocations(mapped_results) do
+    if length(mapped_results) < 2 do
+      []
+    else
+      mapped_results = Enum.uniq_by(mapped_results, &Macro.to_string/1)
+
+      for left <- mapped_results,
+          right <- mapped_results,
+          do: [left, right]
+    end
+  end
 
   defp scan_enum_literal_callbacks(
          node,
@@ -3039,6 +3160,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        ) do
     if kernel_module_receiver?(receiver, environment),
       do: classify_nonself_database_receiver_send(target, message, environment)
+  end
+
+  defp classify_node(
+         {{:., _dot_metadata, [receiver, :put]}, _metadata, [_key, value]},
+         _context,
+         environment
+       ) do
+    if process_module_receiver?(receiver, environment) and
+         database_receiver_escape_argument?(value, environment),
+       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
   end
 
   defp classify_node(
