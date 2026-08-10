@@ -74,15 +74,21 @@ defmodule OfficeGraph.ProjectQualityGateTest do
 
   test "production BEAMs are built before the compiled boundary audit" do
     verify = Mix.Project.config()[:aliases][:verify]
+    build_index = Enum.find_index(verify, &(&1 == "production.build"))
+    analysis_index = Enum.find_index(verify, &(&1 == "static.analysis"))
 
-    assert Enum.find_index(verify, &(&1 == "production.build")) <
-             Enum.find_index(verify, &(&1 == "static.analysis"))
+    assert is_integer(build_index)
+    assert is_integer(analysis_index)
+    assert build_index < analysis_index
   end
 
   test "Nix shell pins the PostgreSQL 18 client used by terminal verification" do
     flake = File.read!("flake.nix")
 
     assert flake =~ "postgresql = pkgs.postgresql_18"
+
+    assert System.find_executable("pg_dump"),
+           "pg_dump is not on PATH; enter the Nix development shell"
 
     assert {version, 0} = System.cmd("pg_dump", ["--version"])
     assert version =~ ~r/pg_dump \(PostgreSQL\) 18\./

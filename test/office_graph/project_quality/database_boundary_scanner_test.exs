@@ -252,6 +252,106 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "rejects runtime source evaluation as an unresolved reflection boundary" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/evaluate.exs",
+          source: """
+          alias Code, as: RuntimeCode
+
+          RuntimeCode.eval_string(source)
+          """
+        }
+      ])
+
+    assert occurrence.class == :direct_ecto
+    assert occurrence.construct == "reflection.Code.eval_string"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects aliased dynamic module receivers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/dynamic_repo.exs",
+          source: """
+          alias Module, as: M
+
+          M.concat([OfficeGraph, Repo]).query!(sql, [])
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "dynamic_receiver"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "tracks use Ecto.Migration outside the migration directory" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "test/support/runtime_migration.exs",
+          source: """
+          defmodule RuntimeMigration do
+            use Ecto.Migration
+
+            def change do
+              execute("SELECT 1")
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "migration.execute"
+    assert occurrence.function == "change/0"
+    refute Map.has_key?(occurrence, :approval)
+  end
+
+  test "allows the declarative migration timestamps helper" do
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "priv/repo/migrations/20260801000000_timestamps.exs",
+               source: """
+               defmodule TimestampsMigration do
+                 use Ecto.Migration
+
+                 def change do
+                   create table(:examples) do
+                     timestamps()
+                   end
+                 end
+               end
+               """
+             }
+           ]) == []
+  end
+
+  test "selects static SQL payloads from adapter-specific argument positions" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def adapter_query, do: Ecto.Adapters.SQL.query(OfficeGraph.Repo, "SELECT 1", [])
+            def postgrex_query(conn), do: Postgrex.query(conn, "SELECT 2", [])
+            def postgrex_prepare(conn), do: Postgrex.prepare(conn, "example", "SELECT 3")
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, Map.get(&1, :approval)}) == [
+             {"Ecto.Adapters.SQL.query", nil},
+             {"Postgrex.query", nil},
+             {"Postgrex.prepare", nil}
+           ]
+  end
+
   test "rejects complex migration control flow except the preserved UUIDv7 loop" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -562,6 +662,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       """
       defmodule #{inspect(module)} do
         def dispatch_apply(target, sql), do: apply(target, :query, [sql])
+        def dispatch_insert_apply(target, changeset), do: apply(target, :insert, [changeset])
         def dispatch_remote(target, sql), do: target.query(sql)
         def persist(target, changeset), do: target.insert(changeset)
         def transact(target, fun), do: target.transaction(fun)
@@ -580,6 +681,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.approval}) == [
              {:raw_sql, "variable_receiver.apply", :unresolved_sql},
+             {:direct_ecto, "variable_receiver.apply", :unresolved_sql},
              {:raw_sql, "variable_receiver.query", :unresolved_sql},
              {:direct_ecto, "variable_receiver.insert", :unresolved_sql},
              {:direct_ecto, "variable_receiver.transaction", :unresolved_sql}

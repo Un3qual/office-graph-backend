@@ -131,6 +131,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :remove_if_exists,
     :rename,
     :table,
+    :timestamps,
     :unique_index
   ]
   @database_modules [
@@ -142,6 +143,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "OfficeGraph.Repo",
     "Postgrex"
   ]
+  @reflection_modules ["Code", "Module"]
+  @reflection_operations %{
+    "Code" => [
+      :compile_quoted,
+      :compile_string,
+      :eval_quoted,
+      :eval_string
+    ],
+    "Module" => [:create, :eval_quoted]
+  }
+  @sql_payload_positions %{
+    "Ecto.Adapters.SQL.execute" => [],
+    "Ecto.Adapters.SQL.query" => [1],
+    "Ecto.Adapters.SQL.query!" => [1],
+    "Ecto.Adapters.SQL.query_many" => [1],
+    "Ecto.Adapters.SQL.query_many!" => [1],
+    "Ecto.Adapters.SQL.stream" => [1],
+    "Postgrex.execute" => [],
+    "Postgrex.execute!" => [],
+    "Postgrex.prepare" => [2],
+    "Postgrex.prepare!" => [2],
+    "Postgrex.prepare_execute" => [2],
+    "Postgrex.prepare_execute!" => [2],
+    "Postgrex.query" => [1],
+    "Postgrex.query!" => [1],
+    "Postgrex.stream" => []
+  }
   @sql_file_extensions [".pgsql", ".psql", ".sql"]
   @source_extensions [".ex", ".exs" | @sql_file_extensions]
 
@@ -241,7 +269,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node({:defmodule, _metadata, [_module, [do: body]]}, env, occurrences) do
-    {_module_env, occurrences} = scan_node(body, %{env | aliases: %{}, imports: %{}}, occurrences)
+    module_env = %{
+      env
+      | aliases: %{},
+        imports: %{},
+        migration?: migration_path?(env.path)
+    }
+
+    {_module_env, occurrences} = scan_node(body, module_env, occurrences)
     {env, occurrences}
   end
 
@@ -275,6 +310,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:import, metadata, arguments}, env, occurrences) do
     {env, import_occurrences} = apply_import(arguments, metadata, env)
     {env, occurrences ++ import_occurrences}
+  end
+
+  defp scan_node({:use, _metadata, [target | _options]} = node, env, occurrences) do
+    if module_name(target, env) == "Ecto.Migration" do
+      {%{env | migration?: true}, occurrences}
+    else
+      scan_children(node, env, occurrences)
+    end
   end
 
   defp scan_node({:for, metadata, arguments} = node, env, occurrences)
@@ -618,6 +661,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in @reflection_modules do
+    if operation in Map.fetch!(@reflection_operations, receiver) do
+      occurrence(
+        env,
+        line_from_node(node),
+        :direct_ecto,
+        "reflection.#{receiver}.#{operation}",
+        node,
+        approval: :unresolved_sql
+      )
+    end
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
        when receiver in @database_modules and operation == :apply do
     class = if receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
 
@@ -699,17 +756,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp contains_uuidv7_fragment?(_node), do: false
 
-  defp dynamic_module_receiver?(
-         {{:., _metadata, [{:__aliases__, _, [:Module]}, :concat]}, _, _},
-         _env
-       ),
-       do: true
-
-  defp dynamic_module_receiver?(
-         {{:., _metadata, [{:__aliases__, _, [:Module]}, :safe_concat]}, _, _},
-         _env
-       ),
-       do: true
+  defp dynamic_module_receiver?({{:., _metadata, [module, operation]}, _, _}, env)
+       when operation in [:concat, :safe_concat],
+       do: module_name(module, env) == "Module"
 
   defp dynamic_module_receiver?(_receiver, _env), do: false
 
@@ -806,7 +855,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp apply_import([target, options], metadata, env) do
     module = module_name(target, env)
 
-    if module in @database_modules do
+    if module in @database_modules or module in @reflection_modules do
       imported = imported_operations(module, options)
 
       imports =
@@ -891,6 +940,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do:
       operation in @migration_raw_sql_operations or operation in @migration_direct_operations or
         operation in @query_fragment_operations
+
+  defp imported_operation?(module, operation) when module in @reflection_modules,
+    do: operation in Map.fetch!(@reflection_operations, module)
 
   defp imported_operation?(_module, _operation), do: false
 
@@ -977,7 +1029,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when construct in ["migration.execute", "Ecto.Migration.execute"],
        do: arguments
 
-  defp sql_payload_arguments(_construct, arguments), do: Enum.take(arguments, 1)
+  defp sql_payload_arguments(construct, arguments) do
+    case Map.fetch(@sql_payload_positions, construct) do
+      {:ok, positions} -> Enum.map(positions, &Enum.at(arguments, &1))
+      :error -> Enum.take(arguments, 1)
+    end
+  end
 
   defp static_sql_payload?(payload) do
     case payload do
@@ -1434,13 +1491,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           | occurrences
         ]
 
-      operation in @repo_raw_sql_operations ->
+      database_operation?(operation) ->
+        class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
+
         [
           occurrence(
             source,
             line_from_node(node),
             nil,
-            :raw_sql,
+            class,
             "variable_receiver.apply",
             node,
             approval: :unresolved_sql

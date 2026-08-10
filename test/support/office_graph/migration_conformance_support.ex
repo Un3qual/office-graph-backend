@@ -280,6 +280,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         {:create_table, table} = current_table
         {parse_table_column(line, table, inventory), current_table}
 
+      alter_default = parse_alter_column_default(line) ->
+        {put_column_default(inventory, alter_default), current_table}
+
       constraint_table = capture(line, ~r/^ALTER TABLE ONLY (?<identity>\S+)$/) ->
         {inventory, {:alter_table, normalize_identity(constraint_table)}}
 
@@ -341,6 +344,45 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       nil ->
         inventory
+    end
+  end
+
+  defp parse_alter_column_default(line) do
+    case Regex.named_captures(
+           ~r/^ALTER TABLE ONLY (?<table>\S+) ALTER COLUMN (?<column>\S+) SET DEFAULT (?<default>.+);$/,
+           line
+         ) do
+      %{"table" => table, "column" => column, "default" => default} ->
+        {normalize_identity(table), trim_identifier(column), normalize_definition(default)}
+
+      nil ->
+        nil
+    end
+  end
+
+  defp put_column_default(inventory, {table, column, default}) do
+    Map.update!(inventory, :columns, fn columns ->
+      case Enum.find(columns, fn
+             {^table, ^column, _definition} -> true
+             _column -> false
+           end) do
+        {^table, ^column, definition} = existing ->
+          columns
+          |> MapSet.delete(existing)
+          |> MapSet.put({table, column, insert_column_default(definition, default)})
+
+        nil ->
+          MapSet.put(columns, {table, column, "DEFAULT #{default}"})
+      end
+    end)
+  end
+
+  defp insert_column_default(definition, default) do
+    if String.ends_with?(definition, " NOT NULL") do
+      base = String.trim_trailing(definition, " NOT NULL")
+      "#{base} DEFAULT #{default} NOT NULL"
+    else
+      "#{definition} DEFAULT #{default}"
     end
   end
 
@@ -660,9 +702,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> Ash.Resource.Info.attributes()
       |> Enum.filter(fn attribute ->
         type = expected_migration_type(resource, attribute)
+        default = raw_expected_default(resource, attribute, type)
 
-        attribute.generated? and type in [:bigint, :integer] and
-          is_nil(expected_default(resource, attribute, type))
+        sequence_backed_generated?(attribute, type, default)
       end)
       |> Enum.map(&sequence_identity(table, &1))
     end)
@@ -723,15 +765,31 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_type(type), do: "unsupported(#{inspect(type)})"
 
   defp expected_default(resource, attribute, type) do
-    case configured_migration_default(resource, attribute.name) do
-      {:ok, default} -> format_configured_default(default)
-      :error -> format_resource_default(resource, attribute, type)
-    end
-    |> case do
+    default = raw_expected_default(resource, attribute, type)
+
+    default =
+      if sequence_backed_generated?(attribute, type, default) do
+        table = resource_table_identity(resource)
+        "nextval('#{sequence_identity(table, attribute)}'::regclass)"
+      else
+        default
+      end
+
+    case default do
       nil -> nil
       default -> "DEFAULT #{default}"
     end
   end
+
+  defp raw_expected_default(resource, attribute, type) do
+    case configured_migration_default(resource, attribute.name) do
+      {:ok, default} -> format_configured_default(default)
+      :error -> format_resource_default(resource, attribute, type)
+    end
+  end
+
+  defp sequence_backed_generated?(attribute, type, default),
+    do: attribute.generated? and type in [:bigint, :integer] and is_nil(default)
 
   defp configured_migration_default(resource, attribute) do
     defaults = AshPostgres.DataLayer.Info.migration_defaults(resource) || []
@@ -1182,6 +1240,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> String.replace(~r/"([A-Za-z_][\w$]*)"/, "\\1")
     |> String.replace(~r/\s+/, " ")
     |> normalize_foreign_key_definition()
+    |> normalize_sequence_regclass()
+  end
+
+  defp normalize_sequence_regclass(definition) do
+    Regex.replace(
+      ~r/nextval\('(?<identity>[^']+)'::regclass\)/,
+      definition,
+      fn _match, identity -> "nextval('#{normalize_identity(identity)}'::regclass)" end
+    )
   end
 
   defp normalize_foreign_key_definition(definition) do

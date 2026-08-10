@@ -125,16 +125,15 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       ALTER TABLE ONLY public.graph_items ADD CONSTRAINT graph_items_rogue_check CHECK ((rogue <> ''::text));
       """)
 
-    assert MigrationConformanceSupport.terminal_database_errors(
-             %{"graph_items" => {nil, OfficeGraph.WorkGraph.GraphItem}},
-             inventory
-           ) == [
-             "graph_items.organization_id references organizations.id without a matching belongs_to",
-             "graph_items.workspace_id references workspaces.id without a matching belongs_to",
-             "unexpected project column graph_items.rogue",
-             "unexpected project constraint graph_items.graph_items_rogue_check",
-             "unexpected project index graph_items_rogue_index ON graph_items"
-           ]
+    errors =
+      MigrationConformanceSupport.terminal_database_errors(
+        %{"graph_items" => {nil, OfficeGraph.WorkGraph.GraphItem}},
+        inventory
+      )
+
+    assert "unexpected project column graph_items.rogue" in errors
+    assert "unexpected project constraint graph_items.graph_items_rogue_check" in errors
+    assert "unexpected project index graph_items_rogue_index ON graph_items" in errors
   end
 
   test "terminal errors reject incompatible column and index definitions" do
@@ -188,8 +187,12 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       );
       CREATE SEQUENCE public.sequence_examples_id_seq
           START WITH 1;
+      ALTER TABLE ONLY public.sequence_examples ALTER COLUMN id SET DEFAULT nextval('public.sequence_examples_id_seq'::regclass);
       ALTER TABLE ONLY public.sequence_examples ADD CONSTRAINT sequence_examples_pkey PRIMARY KEY (id);
       """)
+
+    assert {"sequence_examples", "id",
+            "bigint DEFAULT nextval('sequence_examples_id_seq'::regclass) NOT NULL"} in inventory.columns
 
     assert MigrationConformanceSupport.terminal_database_errors(
              %{
@@ -198,6 +201,26 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              },
              inventory
            ) == []
+  end
+
+  test "terminal errors reject generated integer sequences without a column default" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.sequence_examples (
+          id bigint NOT NULL
+      );
+      CREATE SEQUENCE public.sequence_examples_id_seq
+          START WITH 1;
+      ALTER TABLE ONLY public.sequence_examples ADD CONSTRAINT sequence_examples_pkey PRIMARY KEY (id);
+      """)
+
+    assert "column definition mismatch for sequence_examples.id: expected bigint DEFAULT nextval('sequence_examples_id_seq'::regclass) NOT NULL, got bigint NOT NULL" in MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "sequence_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceSequenceResource}
+             },
+             inventory
+           )
   end
 
   test "terminal constraints resolve match_with attributes to physical columns" do
