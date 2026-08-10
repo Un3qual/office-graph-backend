@@ -94,8 +94,9 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 #### Scenario: Terminal database ownership is derived
 - **WHEN** conformance compares database objects after real migrations run
 - **THEN** it MUST derive terminal tables, columns, keys, constraints, indexes,
-  sequences, views, materialized views, functions, procedures, triggers, RLS
-  policies, grants, and extensions from the actual database and compare
+  sequences, views, materialized views, functions, procedures, ordinary,
+  constraint, and event triggers, RLS policies and table enable/force state,
+  grants, and extensions from the actual database and compare
   project-owned objects with Ash/resource ownership metadata, including
   normalized column type/default/nullability, key and constraint definitions,
   and index uniqueness/method/fields/null semantics

@@ -63,3 +63,10 @@
 - [x] 9.2 Reject database-targeting function captures, database-shaped fully dynamic apply calls, and database defdelegates without adding dataflow analysis.
 - [x] 9.3 Inventory ordinary and constraint triggers through the same exact terminal-object approval path.
 - [x] 9.4 Run focused and canonical verification and review the final diff before publication.
+
+## 10. Runtime Loading And Terminal State Review Follow-Up
+
+- [x] 10.1 Treat migration transaction hooks as entrypoints and audit authored canonical Repo macro expansions without scanning framework-generated definitions.
+- [x] 10.2 Reject file-based runtime code loading, Postgrex transaction/connection controls, and zero-arity repository controls in source and compiled code.
+- [x] 10.3 Inventory event triggers and RLS enable/force state through exact terminal-object fingerprints.
+- [x] 10.4 Run review-focused regressions, the full test suite, canonical verification, and a final diff audit.

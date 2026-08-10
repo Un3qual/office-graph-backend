@@ -107,7 +107,7 @@ defmodule OfficeGraph.BoundaryLayoutTest do
   end
 
   test "architecture layers name only loadable concrete modules" do
-    {reach_config, _bindings} = Code.eval_file(".reach.exs")
+    reach_config = ".reach.exs" |> File.read!() |> Code.string_to_quoted!()
     layers = Keyword.fetch!(reach_config, :layers)
 
     assert "OfficeGraph.Verification.*" in Keyword.fetch!(layers, :domain)

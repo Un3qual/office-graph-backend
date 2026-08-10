@@ -130,9 +130,10 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 ### Requirement: Stored database behavior is prohibited by default
 
 Office Graph SHALL prohibit project-owned database functions, procedures,
-triggers, views, materialized views, RLS policies, grants, and extensions unless
-an accepted OpenSpec change approves the exact source occurrence and terminal
-database object.
+ordinary, constraint, and event triggers, views, materialized views, RLS
+policies and table enable/force state, grants, and extensions unless an accepted
+OpenSpec change approves the exact source occurrence and terminal database
+object.
 
 #### Scenario: Stored routine is introduced
 - **WHEN** canonical verification finds a project-owned terminal function,

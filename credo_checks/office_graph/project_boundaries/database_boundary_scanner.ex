@@ -111,6 +111,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :query!,
     :stream
   ]
+  @postgrex_direct_operations [
+    :child_spec,
+    :close,
+    :close!,
+    :parameters,
+    :rollback,
+    :start_link,
+    :transaction
+  ]
+  @zero_arity_variable_operations [:checked_out?, :get_dynamic_repo, :in_transaction?, :stop]
   @multi_operations [
     :all,
     :delete,
@@ -148,7 +158,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   }
   @migration_control_flow [:case, :cond, :if, :unless, :receive, :try, :with, :and, :or, :&&, :||]
   @allowed_external_migration_helpers %{
-    "Oban.Migrations" => [:down, :up]
+    "Oban.Migrations" => [{"down/0", :down}, {"up/0", :up}]
   }
   @repository_use_modules ["AshPostgres.Repo", "Ecto.Repo"]
   @syntax_operations [
@@ -206,10 +216,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @reflection_modules ["Code", "Module"]
   @reflection_operations %{
     "Code" => [
+      :compile_file,
       :compile_quoted,
       :compile_string,
+      :eval_file,
       :eval_quoted,
-      :eval_string
+      :eval_string,
+      :require_file
     ],
     "Module" => [:create, :eval_quoted]
   }
@@ -771,6 +784,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
   end
 
+  defp classify_operation("Postgrex", operation, _arity, node, env)
+       when operation in @postgrex_direct_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "Postgrex.#{operation}", node)
+  end
+
   defp classify_operation("Ecto.Multi", operation, _arity, node, env)
        when operation in @multi_operations do
     occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Multi.#{operation}", node)
@@ -911,7 +929,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp migration_entrypoint?(%{migration?: true, function: function}),
-    do: function in ["change/0", "down/0", "up/0"]
+    do: function in ["after_begin/0", "before_commit/0", "change/0", "down/0", "up/0"]
 
   defp migration_entrypoint?(_env), do: false
 
@@ -922,7 +940,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           false
 
         receiver when is_binary(receiver) ->
-          operation not in Map.get(@allowed_external_migration_helpers, receiver, [])
+          {env.function, operation} not in Map.get(
+            @allowed_external_migration_helpers,
+            receiver,
+            []
+          )
 
         nil ->
           true
@@ -1039,10 +1061,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp uncompiled_elixir_source?(path), do: Path.extname(path) == ".exs"
 
   defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
-       when is_atom(name) and is_atom(context) and arity > 0 do
-    operation in @repo_raw_sql_operations or
-      operation in @repo_direct_operations or
-      (database_shaped_variable_name?(name) and database_operation?(operation))
+       when is_atom(name) and is_atom(context) do
+    (arity > 0 and
+       (operation in @repo_raw_sql_operations or operation in @repo_direct_operations)) or
+      (database_shaped_variable_name?(name) and database_operation_arity?(operation, arity))
   end
 
   defp variable_receiver_database_operation?(_receiver, _operation, _arity), do: false
@@ -1082,7 +1104,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do:
       raw_sql_operation?(operation) or operation in @repo_direct_operations or
         operation in @ecto_sql_direct_operations or operation in @db_connection_direct_operations or
-        operation in @multi_operations
+        operation in @postgrex_direct_operations or operation in @multi_operations
+
+  defp database_operation_arity?(operation, arity) when arity > 0,
+    do: database_operation?(operation)
+
+  defp database_operation_arity?(operation, 0),
+    do: operation in @zero_arity_variable_operations
+
+  defp database_operation_arity?(_operation, _arity), do: false
 
   defp raw_sql_operation?(operation),
     do:
@@ -1208,7 +1238,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       operation in @db_connection_raw_sql_operations or
         operation in @db_connection_direct_operations
 
-  defp imported_operation?("Postgrex", operation), do: operation in @postgrex_raw_sql_operations
+  defp imported_operation?("Postgrex", operation),
+    do: operation in @postgrex_raw_sql_operations or operation in @postgrex_direct_operations
+
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
   defp imported_operation?("Function", operation), do: operation == :capture
 
@@ -1542,16 +1574,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp line_from_node({:call, metadata, _callee, _arguments}), do: line(metadata)
   defp line_from_node({_operation, metadata, _arguments}), do: line(metadata)
-  defp line_from_node(_node), do: 1
 
   defp line({line, _column}) when is_integer(line), do: line
   defp line(metadata) when is_list(metadata), do: Keyword.get(metadata, :line)
   defp line(line) when is_integer(line), do: line
   defp line(_metadata), do: nil
 
-  defp error_line({line, _column}), do: line
-  defp error_line(metadata) when is_list(metadata), do: Keyword.get(metadata, :line, 1)
-  defp error_line(_location), do: 1
+  defp error_line(metadata), do: Keyword.get(metadata, :line, 1)
 
   defp tracked_sources(root) do
     {output, 0} = System.cmd("git", ["ls-files", "-z"], cd: root)
@@ -1592,9 +1621,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     cond do
       tracked_paths && not MapSet.member?(tracked_paths, source) ->
-        []
-
-      compiled_framework_source?(source) ->
         []
 
       true ->
@@ -1660,9 +1686,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     )
   end
 
-  defp compiled_framework_source?("lib/office_graph/repo.ex"), do: true
-  defp compiled_framework_source?(_source), do: false
-
   defp compiled_source(path, root) do
     with {:ok, {_module, [compile_info: compile_info]}} <-
            :beam_lib.chunks(String.to_charlist(path), [:compile_info]),
@@ -1683,10 +1706,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_form_occurrences(form, source) do
-    form
-    |> compiled_node_occurrences(source, [])
-    |> Enum.reverse()
+    if generated_canonical_repo_form?(form, source) do
+      []
+    else
+      form
+      |> compiled_node_occurrences(source, [])
+      |> Enum.reverse()
+    end
   end
+
+  defp generated_canonical_repo_form?(
+         {:function, annotation, _name, _arity, _clauses},
+         "lib/office_graph/repo.ex"
+       ),
+       do: :erl_anno.generated(annotation)
+
+  defp generated_canonical_repo_form?(_form, _source), do: false
 
   defp compiled_node_occurrences(
          {:call, _line, {:atom, _fun_line, :apply}, arguments} = node,
@@ -1787,9 +1822,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp compiled_node_occurrences(_node, _source, occurrences), do: occurrences
 
   defp compiled_unresolved_receiver_operation?(receiver, operation, arguments) do
-    arguments != [] and
-      (raw_sql_operation?(operation) or
-         (compiled_variable_receiver?(receiver) and database_operation?(operation)) or
+    arity = length(arguments)
+
+    database_operation_arity?(operation, arity) and
+      (raw_sql_operation?(operation) or compiled_variable_receiver?(receiver) or
          operation in @expression_receiver_direct_operations)
   end
 

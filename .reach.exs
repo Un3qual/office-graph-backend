@@ -96,6 +96,7 @@
   ],
   smells: [
     strict: true,
+    ignore: [paths: ["credo_checks/**"]],
     fixed_shape_map: [
       min_keys: 3,
       min_occurrences: 5,

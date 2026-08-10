@@ -150,6 +150,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       materialized_views: MapSet.new(),
       policies: MapSet.new(),
       primary_keys: MapSet.new(),
+      rls_states: MapSet.new(),
       routines: MapSet.new(),
       sequences: MapSet.new(),
       tables: MapSet.new(),
@@ -242,6 +243,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       {"routine", inventory.routines},
       {"trigger", reject_framework_triggers(inventory.triggers)},
       {"RLS policy", inventory.policies},
+      {"RLS state", inventory.rls_states},
       {"grant", inventory.grants},
       {"extension", MapSet.difference(inventory.extensions, @allowed_extensions)}
     ]
@@ -311,6 +313,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       identity = routine_identity(statement) ->
         {"routine", identity}
 
+      event_trigger = capture(statement, ~r/^CREATE EVENT TRIGGER (?<name>\S+) /s) ->
+        {"trigger", normalize_event_trigger(event_trigger)}
+
       trigger =
           capture(
             statement,
@@ -320,6 +325,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       policy = capture(statement, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/s) ->
         {"RLS policy", normalize_policy(policy, statement)}
+
+      rls_state = rls_state_identity(statement) ->
+        {"RLS state", rls_state}
 
       extension =
           capture(statement, ~r/^CREATE EXTENSION IF NOT EXISTS (?<name>\S+)/s) ->
@@ -576,6 +584,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       routine = routine_identity(line) ->
         {Map.update!(inventory, :routines, &MapSet.put(&1, routine)), current_table}
 
+      event_trigger = capture(line, ~r/^CREATE EVENT TRIGGER (?<name>\S+) /) ->
+        {Map.update!(
+           inventory,
+           :triggers,
+           &MapSet.put(&1, normalize_event_trigger(event_trigger))
+         ), current_table}
+
       trigger =
           capture(line, ~r/^CREATE (?:CONSTRAINT )?TRIGGER (?<name>\S+) .* ON (?<table>\S+)/) ->
         {Map.update!(inventory, :triggers, &MapSet.put(&1, normalize_trigger(trigger, line))),
@@ -584,6 +599,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       policy = capture(line, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/) ->
         {Map.update!(inventory, :policies, &MapSet.put(&1, normalize_policy(policy, line))),
          current_table}
+
+      rls_state = rls_state_identity(line) ->
+        {Map.update!(inventory, :rls_states, &MapSet.put(&1, rls_state)), current_table}
 
       extension = capture(line, ~r/^CREATE EXTENSION IF NOT EXISTS (?<name>\S+)/) ->
         {Map.update!(inventory, :extensions, &MapSet.put(&1, trim_identifier(extension))),
@@ -1483,9 +1501,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     "#{trim_identifier(name)} ON #{table}"
   end
 
+  defp normalize_event_trigger(name), do: "#{trim_identifier(name)} ON DATABASE"
+
   defp normalize_policy(name, line) do
     table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()
     "#{trim_identifier(name)} ON #{table}"
+  end
+
+  defp rls_state_identity(statement) do
+    case Regex.named_captures(
+           ~r/^ALTER TABLE (?:ONLY )?(?<table>\S+) (?:ENABLE|DISABLE|FORCE|NO FORCE) ROW LEVEL SECURITY;$/s,
+           String.trim(statement)
+         ) do
+      %{"table" => table} -> normalize_identity(table)
+      nil -> nil
+    end
   end
 
   defp parse_index(line) do

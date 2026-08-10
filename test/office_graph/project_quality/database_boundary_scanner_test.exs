@@ -426,6 +426,48 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "rejects file-based runtime code loading as an unresolved reflection boundary" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/load_runtime_code.exs",
+          source: """
+          defmodule RuntimeCodeLoader do
+            alias Code, as: RuntimeCode
+            import Code, only: [compile_file: 1]
+
+            def evaluate(path), do: RuntimeCode.eval_file(path)
+            def require_runtime(path), do: Code.require_file(path)
+            def compile_runtime(path), do: compile_file(path)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.Code.eval_file", "evaluate/1", :unresolved_sql},
+             {"reflection.Code.require_file", "require_runtime/1", :unresolved_sql},
+             {"reflection.Code.compile_file", "compile_runtime/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects file loading even when the target source is independently scanned" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "test/test_helper.exs",
+          source: ~S|Code.require_file("credo_checks/project_boundary.ex")|
+        },
+        %{
+          path: "credo_checks/project_boundary.ex",
+          source: "defmodule ProjectBoundary do\nend"
+        }
+      ])
+
+    assert occurrence.construct == "reflection.Code.require_file"
+    assert occurrence.approval == :unresolved_sql
+  end
+
   test "rejects aliased dynamic module receivers" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -577,6 +619,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "treats migration transaction hooks as persistence-sensitive entrypoints" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_transaction_hooks.exs",
+          source: """
+          defmodule TransactionHooks do
+            use Ecto.Migration
+
+            @install_more true
+
+            def after_begin, do: Oban.Migrations.up()
+
+            def before_commit do
+              if @install_more do
+                MigrationHelpers.install_more()
+              end
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"migration.remote_helper_call", "after_begin/0", :unresolved_sql},
+             {"migration.control_flow", "before_commit/0", :unresolved_sql},
+             {"migration.remote_helper_call", "before_commit/0", :unresolved_sql}
+           ]
+  end
+
   test "audits DBConnection execution and connection-control primitives" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -597,6 +669,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ) == [
              {:raw_sql, "DBConnection.prepare_execute", "execute/2", :unresolved_sql},
              {:direct_ecto, "DBConnection.transaction", "transact/2", nil}
+           ]
+  end
+
+  test "audits Postgrex transaction and connection-control primitives" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/postgrex_boundary.ex",
+          source: """
+          defmodule PostgrexBoundary do
+            def start(options), do: Postgrex.start_link(options)
+            def transact(conn, fun), do: Postgrex.transaction(conn, fun)
+            def rollback(conn, reason), do: Postgrex.rollback(conn, reason)
+            def parameters(conn), do: Postgrex.parameters(conn)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:direct_ecto, "Postgrex.start_link", "start/1"},
+             {:direct_ecto, "Postgrex.transaction", "transact/2"},
+             {:direct_ecto, "Postgrex.rollback", "rollback/2"},
+             {:direct_ecto, "Postgrex.parameters", "parameters/1"}
+           ]
+  end
+
+  test "audits zero-arity repository controls on database-shaped variables" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/repository_controls.ex",
+          source: """
+          defmodule RepositoryControls do
+            def current(repo), do: repo.get_dynamic_repo()
+            def stop(repo), do: repo.stop()
+            def stop_worker(worker), do: worker.stop()
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:direct_ecto, "variable_receiver.get_dynamic_repo", "current/1"},
+             {:direct_ecto, "variable_receiver.stop", "stop/1"}
            ]
   end
 
@@ -940,7 +1057,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         "office_graph_compiled_dynamic_boundary_#{System.unique_integer([:positive])}"
       )
 
-    source_path = Path.join(root, "lib/compiled_dynamic_boundary_example.ex")
+    source_path = Path.join(root, "lib/compiled_dynamic_boundary_example.exs")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
     File.mkdir_p!(Path.dirname(source_path))
     File.mkdir_p!(ebin)
@@ -968,6 +1085,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def persist(target, changeset), do: target.insert(changeset)
         def transact(target, fun), do: target.transaction(fun)
         def explain(query), do: OfficeGraph.Repo.explain(:all, query, [])
+        def current(repo), do: repo.get_dynamic_repo()
+        def stop(repo), do: repo.stop()
+        def evaluate(path), do: Code.eval_file(path)
       end
       """
     )
@@ -981,17 +1101,56 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
     occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
 
-    assert Enum.map(occurrences, &{&1.class, &1.construct, Map.get(&1, :approval)}) == [
-             {:raw_sql, "variable_receiver.apply", :unresolved_sql},
-             {:direct_ecto, "variable_receiver.apply", :unresolved_sql},
-             {:raw_sql, "variable_receiver.apply", :unresolved_sql},
-             {:raw_sql, "OfficeGraph.Repo.capture", :unresolved_sql},
-             {:raw_sql, "variable_receiver.capture", :unresolved_sql},
-             {:raw_sql, "variable_receiver.query", :unresolved_sql},
-             {:direct_ecto, "variable_receiver.insert", :unresolved_sql},
-             {:direct_ecto, "variable_receiver.transaction", :unresolved_sql},
-             {:direct_ecto, "Repo.explain", nil}
-           ]
+    assert occurrences
+           |> Enum.map(&{&1.class, &1.construct, Map.get(&1, :approval)})
+           |> Enum.sort() ==
+             [
+               {:raw_sql, "variable_receiver.apply", :unresolved_sql},
+               {:direct_ecto, "variable_receiver.apply", :unresolved_sql},
+               {:raw_sql, "variable_receiver.apply", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.capture", :unresolved_sql},
+               {:raw_sql, "variable_receiver.capture", :unresolved_sql},
+               {:raw_sql, "variable_receiver.query", :unresolved_sql},
+               {:direct_ecto, "variable_receiver.insert", :unresolved_sql},
+               {:direct_ecto, "variable_receiver.transaction", :unresolved_sql},
+               {:direct_ecto, "Repo.explain", nil},
+               {:direct_ecto, "variable_receiver.get_dynamic_repo", :unresolved_sql},
+               {:direct_ecto, "variable_receiver.stop", :unresolved_sql},
+               {:direct_ecto, "reflection.Code.eval_file", :unresolved_sql}
+             ]
+             |> Enum.sort()
+  end
+
+  test "compiled audit scans macro expansions inside authored canonical Repo definitions" do
+    root = temporary_root("compiled_canonical_repo_macro")
+    source_path = Path.join(root, "lib/office_graph/repo.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+    suffix = System.unique_integer([:positive])
+    macro_module = Module.concat(OfficeGraph, "RepoBoundaryMacro#{suffix}")
+    repo_module = Module.concat(OfficeGraph, "CanonicalRepoBoundary#{suffix}")
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(macro_module)} do
+      defmacro query(sql) do
+        quote do
+          OfficeGraph.Repo.query!(unquote(sql), [])
+        end
+      end
+    end
+
+    defmodule #{inspect(repo_module)} do
+      require #{inspect(macro_module)}
+
+      def unsafe(sql), do: #{inspect(macro_module)}.query(sql)
+    end
+    """)
+
+    beam_path = Path.join(ebin, "#{repo_module}.beam")
+    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.path == "lib/office_graph/repo.ex"
   end
 
   test "compiled audit rejects persistence operations on expression receivers" do
@@ -1009,6 +1168,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     defmodule #{inspect(module)} do
       def persist(changeset), do: lookup_repo().insert(changeset)
       def transact(conn, fun), do: DBConnection.transaction(conn, fun)
+      def postgrex_transact(conn, fun), do: Postgrex.transaction(conn, fun)
       defp lookup_repo, do: OfficeGraph.Repo
     end
     """)
@@ -1018,7 +1178,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, Map.get(&1, :approval)}) == [
              {:direct_ecto, "expression_receiver.insert", :unresolved_sql},
-             {:direct_ecto, "DBConnection.transaction", nil}
+             {:direct_ecto, "DBConnection.transaction", nil},
+             {:direct_ecto, "Postgrex.transaction", nil}
            ]
   end
 

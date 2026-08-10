@@ -1,3 +1,16 @@
+boundary_check_requirements = [
+  Path.join(
+    __DIR__,
+    "credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex"
+  ),
+  Path.join(
+    __DIR__,
+    "credo_checks/office_graph/project_boundaries/database_boundary_gate.ex"
+  ),
+  Path.join(__DIR__, "credo_checks/office_graph/project_boundaries/planning_boundary.ex"),
+  Path.join(__DIR__, "credo_checks/office_graph/project_boundaries/check.ex")
+]
+
 %{
   configs: [
     %{
@@ -9,21 +22,11 @@
           ~r"/deps/"
         ]
       },
-      requires: [
-        Path.join(
-          __DIR__,
-          "credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex"
+      requires:
+        if(Code.ensure_loaded?(OfficeGraph.Credo.Check.ProjectBoundaries),
+          do: [],
+          else: boundary_check_requirements
         ),
-        Path.join(
-          __DIR__,
-          "credo_checks/office_graph/project_boundaries/database_boundary_gate.ex"
-        ),
-        Path.join(
-          __DIR__,
-          "credo_checks/office_graph/project_boundaries/planning_boundary.ex"
-        ),
-        Path.join(__DIR__, "credo_checks/office_graph/project_boundaries/check.ex")
-      ],
       plugins: [
         {ExSlop, []},
         {ExDNA.Credo,

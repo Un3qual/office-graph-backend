@@ -105,6 +105,32 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ]
   end
 
+  test "inventories event triggers and row-level-security enforcement state" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE EVENT TRIGGER audit_ddl ON ddl_command_end EXECUTE FUNCTION public.audit_ddl();
+      ALTER TABLE public.children ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE ONLY public.children FORCE ROW LEVEL SECURITY;
+      """)
+
+    assert inventory.triggers == MapSet.new(["audit_ddl ON DATABASE"])
+    assert inventory.rls_states == MapSet.new(["children"])
+
+    terminal_identities =
+      inventory.terminal_objects
+      |> Enum.map(fn {class, identity, fingerprint} ->
+        assert String.starts_with?(fingerprint, "sha256:")
+        {class, identity}
+      end)
+      |> Enum.sort()
+
+    assert terminal_identities == [
+             {"RLS state", "children"},
+             {"RLS state", "children"},
+             {"trigger", "audit_ddl ON DATABASE"}
+           ]
+  end
+
   test "terminal errors exempt only exact Oban-owned objects" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

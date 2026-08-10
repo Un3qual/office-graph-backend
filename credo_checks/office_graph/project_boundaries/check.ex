@@ -8,6 +8,9 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
   properties rather than per-Elixir-file concerns.
   """
 
+  # Credo deliberately generates a raising per-file callback for run-on-all checks.
+  @dialyzer {:nowarn_function, run: 2}
+
   use Credo.Check,
     id: "OG1001",
     run_on_all: true,

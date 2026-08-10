@@ -13,7 +13,7 @@ defmodule OfficeGraph.MixProject do
       deps: deps(),
       dialyzer: [
         plt_add_deps: :app_tree,
-        plt_add_apps: [:ex_unit],
+        plt_add_apps: [:credo, :ex_unit, :mix],
         flags: [:error_handling, :underspecs]
       ],
       listeners: [Phoenix.CodeReloader]
@@ -47,7 +47,7 @@ defmodule OfficeGraph.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(:test), do: ["lib", "test/support", "credo_checks"]
   defp elixirc_paths(_), do: ["lib"]
 
   # Specifies your project dependencies.
