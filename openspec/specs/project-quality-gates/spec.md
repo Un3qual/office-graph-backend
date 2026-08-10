@@ -146,6 +146,15 @@ binary literals or documentation text.
   NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
   an unrelated local, imported, or qualified function
 
+#### Scenario: Static List fold receives a database receiver
+
+- **WHEN** `List.foldl/3` or `List.foldr/3`, including through an explicit
+  alias, folds a statically resolvable list containing a repository receiver
+  through a literal callback
+- **THEN** the scanner MUST bind the list element and independently known
+  accumulator before classifying and fingerprinting database calls in the
+  callback, and MUST NOT apply `List` semantics to an unrelated receiver
+
 #### Scenario: Static Enum result feeds a downstream callback
 
 - **WHEN** a supported `Enum.map/2` call produces the enumerable consumed by a
@@ -371,6 +380,14 @@ artifacts.
   operand, use a statically known left value to include or omit the right
   operand, and mark right-side operations as possible when the left value is
   unresolved so a conditional drop or removal cannot hide durable ownership
+
+#### Scenario: Migration table identity cannot be resolved
+
+- **WHEN** a declarative table lifecycle, rename, table block, constraint, or
+  reference construct retains a table identity that cannot be resolved
+  statically after local binding and helper expansion
+- **THEN** conformance MUST fail closed instead of omitting the table or
+  foreign-key operation from the canonical ownership inventory
 
 #### Scenario: Raw SQL changes foreign-table ownership
 

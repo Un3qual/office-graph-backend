@@ -2570,9 +2570,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           ]},
          _table,
          certainty
-       )
-       when (is_atom(old_table) or is_binary(old_table)) and
-              (is_atom(new_table) or is_binary(new_table)) do
+       ) do
     operation =
       {:rename_table, table_identity(old_table, old_table_options),
        table_identity(new_table, new_table_options)}
@@ -2590,8 +2588,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _table,
          certainty
        )
-       when (is_atom(table) or is_binary(table)) and is_atom(old_column) and
-              is_atom(new_column) do
+       when is_atom(old_column) and is_atom(new_column) do
     operation =
       {:rename_column, table_identity(table, table_options), Atom.to_string(old_column),
        Atom.to_string(new_column)}
@@ -2605,8 +2602,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _current_table,
          certainty
        )
-       when operation in @table_definition_operations and
-              (is_atom(table) or is_binary(table)) do
+       when operation in @table_definition_operations do
     collect_foreign_key_operations(block, table_identity(table, table_options), certainty)
   end
 
@@ -2617,7 +2613,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          certainty
        )
        when operation in @table_drop_operations and
-              (is_atom(table) or is_binary(table)) and
               (is_atom(name) or is_binary(name)) do
     operation = {:drop_constraint, table_identity(table, constraint_options), to_string(name)}
     [with_certainty(operation, certainty)]
@@ -2629,8 +2624,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          _current_table,
          certainty
        )
-       when operation in @table_drop_operations and
-              (is_atom(table) or is_binary(table)) do
+       when operation in @table_drop_operations do
     operation =
       {:drop_table, table_identity(table, table_options), cascading_drop?(drop_options)}
 
@@ -2648,17 +2642,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
          certainty
        )
        when operation in @foreign_key_definition_operations and is_binary(table) and
-              is_atom(column) and
-              (is_atom(destination) or is_binary(destination)) do
+              is_atom(column) do
     reference_options = List.flatten(reference_options)
-
-    destination_prefix =
-      migration_table_prefix(reference_options, table_prefix_from_identity(table))
 
     foreign_key = {
       table,
       Atom.to_string(column),
-      schema_table_identity(destination, destination_prefix),
+      table_identity(destination, reference_options, table_prefix_from_identity(table)),
       reference_options |> Keyword.get(:column, :id) |> Atom.to_string(),
       foreign_key_constraint_name(table, column, reference_options)
     }
@@ -2942,9 +2932,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
             {:table, _old_table_metadata, [old_table | old_table_options]},
             [to: {:table, _new_table_metadata, [new_table | new_table_options]}]
           ]}
-       )
-       when (is_atom(old_table) or is_binary(old_table)) and
-              (is_atom(new_table) or is_binary(new_table)) do
+       ) do
     {:rename, table_identity(old_table, old_table_options),
      table_identity(new_table, new_table_options)}
   end
@@ -2952,19 +2940,26 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp table_operation(
          {operation, _metadata, [{:table, _table_metadata, [table | table_options]} | _options]}
        )
-       when operation in @table_lifecycle_operations and
-              (is_atom(table) or is_binary(table)) do
+       when operation in @table_lifecycle_operations do
     lifecycle_operation = if operation in @table_create_operations, do: :create, else: :drop
     {lifecycle_operation, table_identity(table, table_options)}
   end
 
   defp table_operation(_node), do: nil
 
-  defp table_identity(table, options) do
+  defp table_identity(table, options, fallback_prefix \\ nil)
+
+  defp table_identity(table, options, fallback_prefix)
+       when is_atom(table) or is_binary(table) do
     options = List.flatten(options)
-    prefix = migration_table_prefix(options, nil)
+    prefix = migration_table_prefix(options, fallback_prefix)
 
     schema_table_identity(table, prefix)
+  end
+
+  defp table_identity(table, _options, _fallback_prefix) do
+    raise ArgumentError,
+          "cannot statically resolve migration table identity: #{Macro.to_string(table)}"
   end
 
   defp migration_table_prefix(options, fallback) do

@@ -197,6 +197,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
   @kernel_value_callback_operations [:tap, :then]
   @repo_supplied_callback_operations [:transact, :transaction]
+  @list_fold_operations [:foldl, :foldr]
 
   @enum_unary_element_callback_operations [
     :all?,
@@ -505,9 +506,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          context,
          occurrences
        )
+       when operation in @list_fold_operations and length(arguments) == 3 do
+    if list_module_receiver?(receiver, environment) do
+      scan_literal_collection_callbacks(
+        node,
+        :reduce,
+        arguments,
+        environment,
+        context,
+        occurrences
+      )
+    else
+      scan_executable_node(node, environment, context, occurrences)
+    end
+  end
+
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         environment,
+         context,
+         occurrences
+       )
        when operation in @enum_callback_operations and is_list(arguments) do
     if enum_module_receiver?(receiver, environment) do
-      scan_enum_literal_callbacks(
+      scan_literal_collection_callbacks(
         node,
         operation,
         arguments,
@@ -1485,6 +1507,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Enum"
   end
 
+  defp list_module_receiver?(receiver, environment) do
+    receiver |> receiver_name() |> resolve_receiver(environment) == "List"
+  end
+
   defp stream_module_receiver?(receiver, environment) do
     receiver |> receiver_name() |> resolve_receiver(environment) == "Stream"
   end
@@ -2035,7 +2061,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       end
     else
       _unsupported_comparator ->
-        scan_enum_literal_callbacks(
+        scan_literal_collection_callbacks(
           node,
           :sort_by,
           [enumerable, mapper_argument, comparator_argument],
@@ -2058,7 +2084,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_enum_literal_callbacks(
+  defp scan_literal_collection_callbacks(
          node,
          operation,
          arguments,

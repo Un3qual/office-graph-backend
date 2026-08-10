@@ -2966,6 +2966,79 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "rejects table identities that cannot be resolved statically" do
+    in_migration_root("office_graph_dynamic_table_identity_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260731000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            name = System.get_env("TABLE", "durable")
+            create table(name)
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/cannot statically resolve migration table identity/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
+  end
+
+  test "rejects unresolved table identities in foreign-key inventory" do
+    [
+      {"source",
+       """
+       alter table(configured_table()) do
+         add :parent_id, references(:parents)
+       end
+       """},
+      {"destination",
+       """
+       create table(:children) do
+         add :parent_id, references(configured_table())
+       end
+       """}
+    ]
+    |> Enum.each(fn {identity_position, migration_operation} ->
+      in_migration_root(
+        "office_graph_dynamic_#{identity_position}_identity_conformance",
+        fn root, migrations ->
+          _ = root
+
+          File.write!(
+            Path.join(migrations, "20260731000000_create_examples.exs"),
+            """
+            defmodule CreateExamples do
+              use Ecto.Migration
+
+              def change do
+                create table(:parents)
+                #{migration_operation}
+              end
+
+              defp configured_table, do: System.get_env("TABLE", "children")
+            end
+            """
+          )
+
+          assert_raise ArgumentError,
+                       ~r/cannot statically resolve migration table identity/,
+                       fn ->
+                         MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+                           %{}
+                         )
+                       end
+        end
+      )
+    end)
+  end
+
   test "rejects reference prefixes that cannot be resolved statically" do
     in_migration_root("office_graph_dynamic_reference_prefix", fn root, migrations ->
       _ = root

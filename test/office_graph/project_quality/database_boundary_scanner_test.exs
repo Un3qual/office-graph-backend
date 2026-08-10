@@ -2448,6 +2448,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "binds static list elements in List fold callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias List, as: CoreList
+
+            def load(initial) do
+              List.foldl([OfficeGraph.Repo], initial, fn repo, accumulator ->
+                repo.query!("DELETE FROM events", [])
+                accumulator
+              end)
+
+              [OfficeGraph.Repo]
+              |> CoreList.foldr(initial, fn repo, accumulator ->
+                repo.query!("DELETE FROM archived_events", [])
+                accumulator
+              end)
+
+              Example.List.foldl([OfficeGraph.Repo], initial, fn repo, accumulator ->
+                repo.query!("DELETE FROM unrelated_events", [])
+                accumulator
+              end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.line}) == [
+             {"Repo.query!", "load/1", 6},
+             {"Repo.query!", "load/1", 12}
+           ]
+  end
+
   test "binds static elements from every Enum.zip_with enumerable" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
