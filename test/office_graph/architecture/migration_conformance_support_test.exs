@@ -223,6 +223,24 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            )
   end
 
+  test "terminal errors ignore sequences for migration-ignored generated attributes" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.ignored_sequence_examples (
+          id uuid NOT NULL
+      );
+      ALTER TABLE ONLY public.ignored_sequence_examples ADD CONSTRAINT ignored_sequence_examples_pkey PRIMARY KEY (id);
+      """)
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "ignored_sequence_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource}
+             },
+             inventory
+           ) == []
+  end
+
   test "terminal constraints resolve match_with attributes to physical columns" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

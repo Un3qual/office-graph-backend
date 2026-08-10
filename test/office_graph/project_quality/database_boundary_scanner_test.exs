@@ -252,6 +252,45 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "rejects direct operations on generic variable receivers in source" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/persist.exs",
+          source: """
+          defmodule PersistScript do
+            def persist(target, changeset), do: target.insert(changeset)
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :direct_ecto
+    assert occurrence.construct == "variable_receiver.insert"
+    assert occurrence.function == "persist/2"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "audits unqualified repository calls authored inside a Repo module" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/repo.ex",
+          source: """
+          defmodule OfficeGraph.Repo do
+            use AshPostgres.Repo, otp_app: :office_graph
+
+            def unsafe(sql), do: query!(sql, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "Repo.query!", "unsafe/1", :unresolved_sql}
+           ]
+  end
+
   test "rejects runtime source evaluation as an unresolved reflection boundary" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -377,6 +416,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "rejects guarded migration callbacks as control flow and audits their bodies" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_guarded_callback.exs",
+          source: """
+          defmodule GuardedCallback do
+            use Ecto.Migration
+
+            def up() when @enabled, do: MigrationHelpers.install()
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"migration.control_flow", "up/0", :unresolved_sql},
+             {"migration.remote_helper_call", "up/0", :unresolved_sql}
+           ]
+  end
+
   test "rejects SQL-bearing migration options" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -483,6 +543,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "keeps qualified and aliased execute_file calls unresolved" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_external_sql.exs",
+          source: """
+          defmodule ExternalSql do
+            use Ecto.Migration
+            alias Ecto.Migration, as: Migration
+
+            def up do
+              Ecto.Migration.execute_file("priv/repo/install.sql")
+              Migration.execute_file("priv/repo/upgrade.sql")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
+             {"Ecto.Migration.execute_file", :unresolved_sql},
+             {"Ecto.Migration.execute_file", :unresolved_sql}
+           ]
+  end
+
   test "rejects short-circuit migration branches" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -585,6 +670,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     refute occurrence.fingerprint ==
              "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b"
+  end
+
+  test "invalidates the UUIDv7 loop exemption when its approved iterable changes" do
+    path = "priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs"
+
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: path,
+          source:
+            path
+            |> File.read!()
+            |> String.replace(
+              "    :enterprise_directory_sync_events\n",
+              "    :unapproved_table\n",
+              global: false
+            )
+        }
+      ])
+
+    assert Enum.any?(occurrences, &(&1.construct == "migration.control_flow"))
+
+    assert Enum.any?(
+             occurrences,
+             &(&1.construct == "fragment" and
+                 &1.fingerprint ==
+                   "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8")
+           )
   end
 
   test "compiled audit reports low-level database calls from BEAM abstract code" do

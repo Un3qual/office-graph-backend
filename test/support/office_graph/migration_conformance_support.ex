@@ -681,11 +681,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp expected_columns(table, resource) do
-    ignored = AshPostgres.DataLayer.Info.migration_ignore_attributes(resource) || []
-
     resource
-    |> Ash.Resource.Info.attributes()
-    |> Enum.reject(&(&1.name in ignored))
+    |> migrated_attributes()
     |> Enum.map(fn attribute ->
       {table, to_string(attribute.source || attribute.name),
        expected_column_definition(resource, attribute)}
@@ -699,7 +696,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       table = resource_table_identity(resource)
 
       resource
-      |> Ash.Resource.Info.attributes()
+      |> migrated_attributes()
       |> Enum.filter(fn attribute ->
         type = expected_migration_type(resource, attribute)
         default = raw_expected_default(resource, attribute, type)
@@ -709,6 +706,14 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> Enum.map(&sequence_identity(table, &1))
     end)
     |> MapSet.new()
+  end
+
+  defp migrated_attributes(resource) do
+    ignored = AshPostgres.DataLayer.Info.migration_ignore_attributes(resource) || []
+
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.reject(&(&1.name in ignored))
   end
 
   defp expected_column_definition(resource, attribute) do

@@ -16,6 +16,26 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSequenceResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_sequence_examples"
+    repo OfficeGraph.Repo
+    migration_ignore_attributes [:ignored_counter]
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+
+    attribute :ignored_counter, :integer,
+      allow_nil?: false,
+      generated?: true
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceCompositeParentResource do
   @moduledoc false
 

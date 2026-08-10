@@ -186,6 +186,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     }
   }
 
+  @approved_uuidv7_loops %{
+    "priv/repo/migrations/20260729233957_initial.exs" => %{
+      attribute: :uuid_v7_primary_keys,
+      fingerprint: "sha256:3d364d9192867f0617ae65e12790893e1b49b57e1a4d9bb8d8e2b8133c72c41d"
+    },
+    "priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs" => %{
+      attribute: :uuid_v7_primary_key_tables,
+      fingerprint: "sha256:bc9767a4f23cb90fcf3812abc2df4971b150500ae0c913b96dbd3173e7e93827"
+    }
+  }
+
   @spec scan_repository(Path.t()) :: [map()]
   def scan_repository(root \\ File.cwd!()) do
     root
@@ -249,11 +260,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       {:ok, ast} ->
         env = %{
           aliases: %{},
+          approved_migration_loops: approved_migration_loops(path, ast),
           function: nil,
           imports: %{},
           migration?: migration_path?(path),
           path: path,
-          query_dsl?: false
+          query_dsl?: false,
+          repository_module?: false
         }
 
         {_env, occurrences} = scan_node(ast, env, [])
@@ -268,12 +281,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_node({:defmodule, _metadata, [_module, [do: body]]}, env, occurrences) do
+  defp scan_node({:defmodule, _metadata, [module, [do: body]]}, env, occurrences) do
     module_env = %{
       env
       | aliases: %{},
         imports: %{},
-        migration?: migration_path?(env.path)
+        migration?: migration_path?(env.path),
+        repository_module?: module_name(module, env) == "OfficeGraph.Repo"
     }
 
     {_module_env, occurrences} = scan_node(body, module_env, occurrences)
@@ -282,11 +296,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({kind, metadata, arguments} = node, env, occurrences)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(arguments) do
-    {name, arity} = function_identity(arguments)
+    {name, arity, guarded?} = function_identity(arguments)
     function = if name, do: "#{name}/#{arity}"
     body = function_body(arguments)
 
     child_env = %{env | function: function}
+
+    occurrences =
+      if guarded? and migration_entrypoint?(child_env) do
+        [
+          occurrence(child_env, line(metadata), :direct_ecto, "migration.control_flow", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
+        occurrences
+      end
+
     {_child_env, occurrences} = scan_node(body, child_env, occurrences)
 
     if body == nil do
@@ -533,10 +560,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     arity = length(arguments)
 
     with nil <- classify_migration_local(operation, arguments, node, env),
-         receiver when not is_nil(receiver) <- imported_receiver(env, operation, arity) do
+         receiver when not is_nil(receiver) <- local_database_receiver(env, operation, arity) do
       classify_operation(receiver, operation, arity, node, env)
     end
   end
+
+  defp local_database_receiver(%{repository_module?: true}, operation, _arity)
+       when operation in @repo_raw_sql_operations or operation in @repo_direct_operations,
+       do: "OfficeGraph.Repo"
+
+  defp local_database_receiver(env, operation, arity),
+    do: imported_receiver(env, operation, arity)
 
   defp classify_migration_local(operation, arguments, node, env)
        when operation in @migration_raw_sql_operations and env.migration? do
@@ -738,23 +772,64 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp approved_uuidv7_loop?({:for, _metadata, arguments}, env) do
-    env.path in [
-      "priv/repo/migrations/20260729233957_initial.exs",
-      "priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs"
-    ] and Enum.any?(arguments, &contains_uuidv7_fragment?/1)
+  defp approved_uuidv7_loop?(node, env),
+    do: MapSet.member?(env.approved_migration_loops, printable_node(node))
+
+  defp approved_migration_loops(path, ast) do
+    case Map.fetch(@approved_uuidv7_loops, path) do
+      {:ok, %{attribute: attribute, fingerprint: expected_fingerprint}} ->
+        {attribute_node, loops} = migration_attribute_and_loops(ast, attribute)
+
+        loops
+        |> Enum.filter(fn loop ->
+          uuidv7_loop_fingerprint(attribute_node, loop) == expected_fingerprint
+        end)
+        |> Enum.map(&printable_node/1)
+        |> MapSet.new()
+
+      :error ->
+        MapSet.new()
+    end
   end
 
-  defp contains_uuidv7_fragment?({:fragment, _metadata, ["uuidv7()"]}), do: true
+  defp migration_attribute_and_loops(ast, attribute) do
+    {_ast, result} =
+      Macro.prewalk(ast, {nil, []}, fn
+        {:@, _metadata, [{name, _name_metadata, arguments}]} = node, {_attribute_node, loops}
+        when name == attribute and is_list(arguments) and length(arguments) == 1 ->
+          {node, {node, loops}}
 
-  defp contains_uuidv7_fragment?(node) when is_tuple(node) do
-    node |> Tuple.to_list() |> Enum.any?(&contains_uuidv7_fragment?/1)
+        {:for, _metadata, _arguments} = node, {attribute_node, loops} ->
+          loops = if references_attribute?(node, attribute), do: [node | loops], else: loops
+          {node, {attribute_node, loops}}
+
+        node, result ->
+          {node, result}
+      end)
+
+    result
   end
 
-  defp contains_uuidv7_fragment?(nodes) when is_list(nodes),
-    do: Enum.any?(nodes, &contains_uuidv7_fragment?/1)
+  defp references_attribute?(node, attribute) do
+    {_node, found?} =
+      Macro.prewalk(node, false, fn
+        {:@, _metadata, [{name, _name_metadata, context}]} = child, _found?
+        when name == attribute and is_atom(context) ->
+          {child, true}
 
-  defp contains_uuidv7_fragment?(_node), do: false
+        child, found? ->
+          {child, found?}
+      end)
+
+    found?
+  end
+
+  defp uuidv7_loop_fingerprint(attribute_node, loop) do
+    payload = {printable_node(attribute_node), printable_node(loop)}
+
+    "sha256:" <>
+      Base.encode16(:crypto.hash(:sha256, :erlang.term_to_binary(payload)), case: :lower)
+  end
 
   defp dynamic_module_receiver?({{:., _metadata, [module, operation]}, _, _}, env)
        when operation in [:concat, :safe_concat],
@@ -763,7 +838,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp dynamic_module_receiver?(_receiver, _env), do: false
 
   defp classify_variable_receiver(receiver, operation, node, env) do
-    if database_shaped_variable_receiver?(receiver, operation, length(call_arguments(node))) do
+    if variable_receiver_database_operation?(
+         receiver,
+         operation,
+         length(call_arguments(node))
+       ) do
       class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
 
       occurrence(env, line_from_node(node), class, "variable_receiver.#{operation}", node,
@@ -772,14 +851,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp database_shaped_variable_receiver?({name, _metadata, context}, operation, arity)
-       when is_atom(name) and is_atom(context) do
-    database_operation?(operation) and
-      (database_shaped_variable_name?(name) or
-         (operation in @repo_raw_sql_operations and arity > 0))
+  defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
+       when is_atom(name) and is_atom(context) and arity > 0 do
+    operation in @repo_raw_sql_operations or
+      operation in @repo_direct_operations or
+      (database_shaped_variable_name?(name) and database_operation?(operation))
   end
 
-  defp database_shaped_variable_receiver?(_receiver, _operation, _arity), do: false
+  defp variable_receiver_database_operation?(_receiver, _operation, _arity), do: false
 
   defp database_shaped_variable_name?(name) do
     name = to_string(name)
@@ -991,12 +1070,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp function_identity([{name, _metadata, arguments} | _rest]) when is_atom(name) do
-    {name, length(arguments || [])}
+  defp function_identity([{:when, _metadata, [head | _guards]} | _rest]) do
+    {name, arity, _guarded?} = function_identity([head])
+    {name, arity, true}
   end
 
-  defp function_identity([{name, _metadata, _context} | _rest]) when is_atom(name), do: {name, 0}
-  defp function_identity(_arguments), do: {nil, 0}
+  defp function_identity([{name, _metadata, arguments} | _rest])
+       when is_atom(name) and is_list(arguments),
+       do: {name, length(arguments), false}
+
+  defp function_identity([{name, _metadata, context} | _rest])
+       when is_atom(name) and is_atom(context),
+       do: {name, 0, false}
+
+  defp function_identity(_arguments), do: {nil, 0, false}
 
   defp function_body(arguments) do
     arguments
@@ -1013,7 +1100,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp call_arguments({_operation, _metadata, arguments}) when is_list(arguments), do: arguments
   defp call_arguments(_node), do: []
 
-  defp approval_marker(:raw_sql, "migration.execute_file", _arguments), do: :unresolved_sql
+  defp approval_marker(:raw_sql, construct, _arguments)
+       when construct in ["migration.execute_file", "Ecto.Migration.execute_file"],
+       do: :unresolved_sql
 
   defp approval_marker(:raw_sql, construct, arguments) do
     payloads = sql_payload_arguments(construct, arguments)
