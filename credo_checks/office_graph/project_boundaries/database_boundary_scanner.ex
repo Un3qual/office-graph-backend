@@ -24,9 +24,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :insert,
     :insert!,
     :insert_all,
+    :insert_or_update,
+    :insert_or_update!,
     :one,
     :one!,
     :preload,
+    :preload!,
+    :reload,
+    :reload!,
     :rollback,
     :stream,
     :transaction,
@@ -42,6 +47,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :execute!,
     :prepare,
     :prepare!,
+    :prepare_execute,
+    :prepare_execute!,
     :query,
     :query!,
     :stream
@@ -50,11 +57,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :all,
     :delete,
     :delete_all,
+    :error,
     :exists?,
     :insert,
     :insert_all,
+    :insert_or_update,
     :merge,
     :one,
+    :append,
+    :prepend,
+    :put,
     :run,
     :update,
     :update_all
@@ -62,7 +74,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @query_fragment_operations [:fragment, :unsafe_fragment]
   @migration_raw_sql_operations [:execute, :execute_file]
   @migration_direct_operations [:insert]
+  @migration_sql_option_operations %{
+    constraint: [:check, :exclude, :where],
+    index: [:where],
+    unique_index: [:where]
+  }
   @migration_control_flow [:case, :cond, :if, :receive, :try, :with]
+  @allowed_external_migration_helpers %{
+    "Oban.Migrations" => [:down, :up]
+  }
   @syntax_operations [
     :%,
     :%{},
@@ -106,6 +126,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Ecto.Adapters.SQL",
     "Ecto.Migration",
     "Ecto.Multi",
+    "Ecto.Query",
     "Ecto.Query.API",
     "OfficeGraph.Repo",
     "Postgrex"
@@ -115,10 +136,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
-      "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b",
+      %{
+        fingerprint: "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b",
+        payload: ~S|fragment("uuidv7()")|
+      },
     {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
-     "raw_sql", "fragment", "up/0", 1} =>
-      "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"
+     "raw_sql", "fragment", "up/0", 1} => %{
+      fingerprint: "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8",
+      payload: ~S|fragment("uuidv7()")|
+    }
   }
 
   @spec scan_repository(Path.t()) :: [map()]
@@ -276,6 +302,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_atom(operation) and is_list(arguments) do
     occurrences =
       case classify_remote_call(receiver, operation, arguments, node, env) do
+        nil ->
+          if remote_migration_helper_escape?(receiver, operation, env) do
+            [
+              occurrence(
+                env,
+                line(dot_metadata) || line(metadata),
+                :direct_ecto,
+                "migration.remote_helper_call",
+                node,
+                approval: :unresolved_sql
+              )
+              | occurrences
+            ]
+          else
+            occurrences
+          end
+
+        occurrence ->
+          [occurrence | occurrences]
+      end
+
+    occurrences =
+      case classify_variable_receiver(receiver, operation, node, env) do
         nil -> occurrences
         occurrence -> [occurrence | occurrences]
       end
@@ -302,6 +351,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
        when is_atom(operation) and is_list(arguments) do
+    occurrences =
+      operation
+      |> migration_sql_option_occurrences(arguments, node, env)
+      |> Enum.reduce(occurrences, &[&1 | &2])
+
     occurrences =
       case classify_local_call(operation, arguments, node, env) do
         nil -> occurrences
@@ -441,6 +495,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
   end
 
+  defp classify_operation("Ecto.Query", operation, _arity, node, env)
+       when operation in @query_fragment_operations do
+    construct = to_string(operation)
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
   defp classify_operation("Ecto.Migration", operation, _arity, node, env)
        when operation in @migration_raw_sql_operations do
     construct = "migration.#{operation}"
@@ -471,9 +532,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     operation_name = static_atom(operation)
 
     cond do
-      receiver_name == "Ecto.Query" ->
-        nil
-
       receiver_name in @database_modules and is_atom(operation_name) and
           not is_nil(operation_name) ->
         classify_operation(receiver_name, operation_name, 0, node, env)
@@ -498,9 +556,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp migration_entrypoint?(%{migration?: true, function: function}),
-    do: function in ["change/0", "up/0"]
+    do: function in ["change/0", "down/0", "up/0"]
 
   defp migration_entrypoint?(_env), do: false
+
+  defp remote_migration_helper_escape?(receiver, operation, env) do
+    if migration_entrypoint?(env) do
+      case receiver_name(receiver, env) do
+        receiver when receiver in @database_modules ->
+          false
+
+        receiver when is_binary(receiver) ->
+          operation not in Map.get(@allowed_external_migration_helpers, receiver, [])
+
+        nil ->
+          true
+      end
+    else
+      false
+    end
+  end
 
   defp approved_uuidv7_loop?({:for, _metadata, arguments}, env) do
     env.path in [
@@ -534,7 +609,78 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp dynamic_module_receiver?(_receiver, _env), do: false
 
+  defp classify_variable_receiver(receiver, operation, node, env) do
+    if database_shaped_variable_receiver?(receiver, operation) do
+      class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
+
+      occurrence(env, line_from_node(node), class, "variable_receiver.#{operation}", node,
+        approval: :unresolved_sql
+      )
+    end
+  end
+
+  defp database_shaped_variable_receiver?({name, _metadata, context}, operation)
+       when is_atom(name) and is_atom(context) do
+    database_shaped_variable_name?(name) and database_operation?(operation)
+  end
+
+  defp database_shaped_variable_receiver?(_receiver, _operation), do: false
+
+  defp database_shaped_variable_name?(name) do
+    name = to_string(name)
+
+    name in [
+      "adapter",
+      "conn",
+      "connection",
+      "db",
+      "multi",
+      "postgrex",
+      "repo",
+      "repository",
+      "sql"
+    ] or
+      String.ends_with?(name, [
+        "_adapter",
+        "_conn",
+        "_connection",
+        "_db",
+        "_multi",
+        "_repo",
+        "_repository",
+        "_sql"
+      ])
+  end
+
+  defp database_operation?(operation),
+    do:
+      raw_sql_operation?(operation) or operation in @repo_direct_operations or
+        operation in @ecto_sql_direct_operations or operation in @multi_operations
+
+  defp raw_sql_operation?(operation),
+    do:
+      operation in @repo_raw_sql_operations or operation in @ecto_sql_raw_sql_operations or
+        operation in @postgrex_raw_sql_operations or operation in @migration_raw_sql_operations or
+        operation in @query_fragment_operations
+
   defp apply_alias([target], env), do: apply_alias([target, []], env)
+
+  defp apply_alias([{{:., _dot_metadata, [prefix, :{}]}, _metadata, aliases}, _options], env)
+       when is_list(aliases) do
+    prefix = module_name(prefix, env)
+
+    aliases
+    |> Enum.reduce(env.aliases, fn alias_ast, aliases ->
+      with prefix when is_binary(prefix) <- prefix,
+           suffix when is_binary(suffix) <- module_name(alias_ast, env) do
+        module = prefix <> "." <> suffix
+        Map.put(aliases, module |> String.split(".") |> List.last(), module)
+      else
+        _value -> aliases
+      end
+    end)
+    |> then(&{%{env | aliases: &1}, []})
+  end
 
   defp apply_alias([target, options], env) do
     with module when not is_nil(module) <- module_name(target, env),
@@ -559,7 +705,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       imports = Enum.reduce(imported, env.imports, &Map.put(&2, &1, module))
 
       occurrences =
-        if imported == [:all] do
+        if imported == [:all] and module != "Ecto.Query" do
           [
             occurrence(env, line(metadata), :direct_ecto, "#{module}.import", target,
               approval: :unresolved_sql
@@ -691,6 +837,44 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp keyword_option(_options, _key), do: nil
 
+  defp migration_sql_option_occurrences(operation, arguments, node, env) do
+    option_keys = Map.get(@migration_sql_option_operations, operation, [])
+
+    if env.migration? and option_keys != [] do
+      arguments
+      |> List.last()
+      |> sql_option_entries(option_keys)
+      |> Enum.map(fn {key, value} ->
+        construct = "migration.#{operation}.#{key}"
+        approval = approval_marker(:raw_sql, construct, [value])
+
+        occurrence(env, line_from_node(node), :raw_sql, construct, {operation, key, value},
+          approval: approval
+        )
+      end)
+    else
+      []
+    end
+  end
+
+  defp sql_option_entries(options, option_keys) when is_list(options) do
+    if Keyword.keyword?(options) do
+      options
+      |> Enum.filter(fn {key, _value} -> key in option_keys end)
+      |> Enum.filter(fn {_key, value} -> repository_authored_sql_option?(value) end)
+    else
+      []
+    end
+  end
+
+  defp sql_option_entries(_options, _option_keys), do: []
+
+  defp repository_authored_sql_option?(value)
+       when is_binary(value) or is_tuple(value),
+       do: true
+
+  defp repository_authored_sql_option?(_value), do: false
+
   defp occurrence(env, line, class, construct, node, opts \\ []) do
     occurrence(env.path, line, env.function, class, construct, node, opts)
   end
@@ -703,11 +887,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       function: function,
       line: line || 1,
       ordinal: 1,
-      path: path
+      path: path,
+      fingerprint_input: printable_node(node)
     }
 
     base
-    |> Map.put(:fingerprint, fingerprint(base, node))
+    |> Map.put(:fingerprint, fingerprint(base, base.fingerprint_input))
     |> maybe_put_approval(Keyword.get(opts, :approval))
   end
 
@@ -727,7 +912,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       ordinal = Map.get(counts, key, 0) + 1
       occurrence = %{occurrence | ordinal: ordinal}
-      occurrence = %{occurrence | fingerprint: fingerprint(occurrence, occurrence.fingerprint)}
+
+      occurrence = %{
+        occurrence
+        | fingerprint: fingerprint(occurrence, occurrence.fingerprint_input)
+      }
+
+      occurrence = Map.delete(occurrence, :fingerprint_input)
 
       {Map.put(counts, key, ordinal), [occurrence | occurrences]}
     end)
@@ -745,20 +936,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       occurrence.ordinal
     }
 
-    Map.get_lazy(@preserved_fingerprints, key, fn ->
-      payload =
-        :erlang.term_to_binary({
-          occurrence.path,
-          occurrence.line,
-          occurrence.class,
-          occurrence.construct,
-          occurrence.function,
-          occurrence.ordinal,
-          printable_node(node)
-        })
+    case Map.get(@preserved_fingerprints, key) do
+      %{payload: ^node, fingerprint: fingerprint} ->
+        fingerprint
 
-      "sha256:" <> Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
-    end)
+      _other ->
+        payload =
+          :erlang.term_to_binary({
+            occurrence.path,
+            occurrence.line,
+            occurrence.class,
+            occurrence.construct,
+            occurrence.function,
+            occurrence.ordinal,
+            node
+          })
+
+        "sha256:" <> Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
+    end
   end
 
   defp printable_node("sha256:" <> _rest = value), do: value
@@ -822,13 +1017,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     active_paths =
       root
-      |> Path.join("_build/#{env}/lib/office_graph/ebin/Elixir.OfficeGraph*.beam")
+      |> Path.join("_build/#{env}/lib/office_graph/ebin/*.beam")
       |> Path.wildcard()
 
     paths =
       if active_paths == [] do
         root
-        |> Path.join("_build/*/lib/office_graph/ebin/Elixir.OfficeGraph*.beam")
+        |> Path.join("_build/*/lib/office_graph/ebin/*.beam")
         |> Path.wildcard()
       else
         active_paths
@@ -852,8 +1047,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         end)
       end
     else
-      _error -> []
+      error -> [compiled_metadata_unavailable_occurrence(path, root, error)]
     end
+  end
+
+  defp compiled_metadata_unavailable_occurrence(path, root, error) do
+    path = Path.relative_to(path, root)
+
+    occurrence(path, 1, nil, :direct_ecto, "compiled.abstract_code_unavailable", inspect(error),
+      approval: :unresolved_sql
+    )
   end
 
   defp compiled_framework_source?("lib/office_graph/repo.ex"), do: true

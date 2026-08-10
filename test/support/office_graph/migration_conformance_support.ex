@@ -17,20 +17,23 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.sort()
   end
 
-  def migration_foreign_key_relationship_errors(expected_resources) do
+  def migration_foreign_key_relationship_errors(
+        expected_resources,
+        inventory \\ terminal_inventory()
+      ) do
     resources_by_table =
       Map.new(expected_resources, fn {table, {_domain, resource}} ->
         {resource_table_identity(table, resource), resource}
       end)
 
-    terminal_inventory().foreign_keys
+    inventory.foreign_keys
     |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
       with true <- Map.has_key?(resources_by_table, source_table),
            true <- Map.has_key?(resources_by_table, destination_table),
            source <- Map.fetch!(resources_by_table, source_table),
            destination <- Map.fetch!(resources_by_table, destination_table),
-           source_attribute <- String.to_existing_atom(source_attribute),
-           destination_attribute <- String.to_existing_atom(destination_attribute),
+           {:ok, source_attribute} <- single_existing_atom(source_attribute),
+           {:ok, destination_attribute} <- single_existing_atom(destination_attribute),
            nil <-
              Enum.find(Ash.Resource.Info.relationships(source), fn relationship ->
                match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
@@ -50,8 +53,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.sort()
   end
 
-  def terminal_database_errors(expected_resources \\ expected_resource_map()) do
-    inventory = terminal_inventory()
+  def terminal_database_errors(
+        expected_resources \\ expected_resource_map(),
+        inventory \\ terminal_inventory()
+      ) do
     expected_tables = expected_resources |> resource_table_identities() |> MapSet.new()
     project_tables = inventory.tables |> reject_framework_objects() |> MapSet.new()
 
@@ -89,7 +94,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     (missing_tables ++
        unexpected_tables ++
        unexpected_sequences ++
-       prohibited_objects ++ migration_foreign_key_relationship_errors(expected_resources))
+       table_shape_errors(inventory, expected_resources, project_tables) ++
+       prohibited_objects ++
+       migration_foreign_key_relationship_errors(expected_resources, inventory))
     |> Enum.sort()
   end
 
@@ -153,7 +160,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     args = [
       "--schema-only",
       "--no-owner",
-      "--no-privileges",
       "--host",
       to_string(Keyword.fetch!(config, :hostname)),
       "--port",
@@ -216,7 +222,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         "pg_dump",
         "--schema-only",
         "--no-owner",
-        "--no-privileges",
         "--username",
         to_string(Keyword.fetch!(config, :username)),
         "--dbname",
@@ -236,13 +241,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     cond do
       table = capture(line, ~r/^CREATE TABLE (?<identity>\S+) \($/) ->
         table = normalize_identity(table)
-        {Map.update!(inventory, :tables, &MapSet.put(&1, table)), table}
+        {Map.update!(inventory, :tables, &MapSet.put(&1, table)), {:create_table, table}}
 
-      current_table && String.starts_with?(line, ");") ->
+      match?({:create_table, _table}, current_table) && String.starts_with?(line, ");") ->
         {inventory, nil}
 
-      current_table ->
-        {parse_table_column(line, current_table, inventory), current_table}
+      match?({:create_table, _table}, current_table) ->
+        {:create_table, table} = current_table
+        {parse_table_column(line, table, inventory), current_table}
+
+      constraint_table = capture(line, ~r/^ALTER TABLE ONLY (?<identity>\S+)$/) ->
+        {inventory, {:alter_table, normalize_identity(constraint_table)}}
+
+      match?({:alter_table, _table}, current_table) ->
+        {:alter_table, table} = current_table
+        {parse_alter_table_line(line, table, inventory), nil}
 
       sequence = capture(line, ~r/^CREATE SEQUENCE (?<identity>\S+)/) ->
         {Map.update!(inventory, :sequences, &MapSet.put(&1, normalize_identity(sequence))),
@@ -292,6 +305,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  defp parse_alter_table_line(line, table, inventory) do
+    case Regex.named_captures(~r/^\s+ADD CONSTRAINT (?<name>\S+) (?<definition>.+);/, line) do
+      %{"name" => name, "definition" => definition} ->
+        parse_constraint(table, trim_identifier(name), definition, inventory)
+
+      nil ->
+        inventory
+    end
+  end
+
   defp parse_table_column(line, table, inventory) do
     case Regex.named_captures(~r/^\s{4}(?<name>"[^"]+"|[A-Za-z_][\w$]*)\s+/, line) do
       %{"name" => "CONSTRAINT"} ->
@@ -315,6 +338,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     table = normalize_identity(table)
     name = trim_identifier(name)
 
+    parse_constraint(table, name, definition, inventory)
+  end
+
+  defp parse_constraint(table, name, definition, inventory) do
     inventory =
       Map.update!(inventory, :constraints, &MapSet.put(&1, {table, name, definition}))
 
@@ -359,6 +386,250 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end)
   end
 
+  defp single_existing_atom(attributes) do
+    case attributes |> String.split(",") |> Enum.map(&String.trim/1) do
+      [attribute] ->
+        {:ok, String.to_existing_atom(attribute)}
+
+      _composite ->
+        :composite
+    end
+  rescue
+    ArgumentError -> :unknown
+  end
+
+  defp table_shape_errors(inventory, expected_resources, project_tables) do
+    expected_shape = expected_table_shape(expected_resources)
+
+    unexpected_columns =
+      inventory.columns
+      |> MapSet.difference(expected_shape.columns)
+      |> Enum.filter(fn {table, _column} -> MapSet.member?(project_tables, table) end)
+      |> Enum.map(fn {table, column} -> "unexpected project column #{table}.#{column}" end)
+
+    missing_columns =
+      expected_shape.columns
+      |> MapSet.difference(inventory.columns)
+      |> Enum.map(fn {table, column} -> "missing Ash-owned column #{table}.#{column}" end)
+
+    actual_primary_keys =
+      inventory.primary_keys
+      |> Enum.filter(fn {table, _name} -> MapSet.member?(project_tables, table) end)
+      |> MapSet.new()
+
+    missing_primary_keys =
+      expected_shape.primary_keys
+      |> MapSet.difference(actual_primary_keys)
+      |> Enum.map(fn {table, name} -> "missing Ash-owned primary key #{table}.#{name}" end)
+
+    unexpected_primary_keys =
+      actual_primary_keys
+      |> MapSet.difference(expected_shape.primary_keys)
+      |> Enum.map(fn {table, name} -> "unexpected project primary key #{table}.#{name}" end)
+
+    actual_constraints =
+      inventory.constraints
+      |> Enum.map(fn {table, name, _definition} -> {table, name} end)
+      |> Enum.filter(fn {table, _name} -> MapSet.member?(project_tables, table) end)
+      |> MapSet.new()
+
+    missing_constraints =
+      expected_shape.constraints
+      |> MapSet.difference(actual_constraints)
+      |> Enum.map(fn {table, name} -> "missing Ash-owned constraint #{table}.#{name}" end)
+
+    unexpected_constraints =
+      actual_constraints
+      |> MapSet.difference(expected_shape.constraints)
+      |> Enum.map(fn {table, name} -> "unexpected project constraint #{table}.#{name}" end)
+
+    actual_indexes =
+      inventory.indexes
+      |> Enum.map(&index_tuple/1)
+      |> Enum.filter(fn {table, _name, _identity} -> MapSet.member?(project_tables, table) end)
+      |> MapSet.new()
+
+    missing_indexes =
+      expected_shape.indexes
+      |> MapSet.difference(actual_indexes)
+      |> Enum.map(fn {_table, _name, identity} -> "missing Ash-owned index #{identity}" end)
+
+    unexpected_indexes =
+      actual_indexes
+      |> MapSet.difference(expected_shape.indexes)
+      |> Enum.map(fn {_table, _name, identity} -> "unexpected project index #{identity}" end)
+
+    missing_columns ++
+      unexpected_columns ++
+      missing_primary_keys ++
+      unexpected_primary_keys ++
+      missing_constraints ++
+      unexpected_constraints ++
+      missing_indexes ++ unexpected_indexes
+  end
+
+  defp expected_table_shape(expected_resources) do
+    expected_resources
+    |> Enum.reduce(
+      %{
+        columns: MapSet.new(),
+        constraints: MapSet.new(),
+        indexes: MapSet.new(),
+        primary_keys: MapSet.new()
+      },
+      fn {table, {_domain, resource}}, shape ->
+        table = resource_table_identity(table, resource)
+
+        shape
+        |> Map.update!(:columns, &MapSet.union(&1, expected_columns(table, resource)))
+        |> Map.update!(:primary_keys, &MapSet.union(&1, expected_primary_keys(table, resource)))
+        |> Map.update!(:constraints, &MapSet.union(&1, expected_constraints(table, resource)))
+        |> Map.update!(:indexes, &MapSet.union(&1, expected_indexes(table, resource)))
+      end
+    )
+  end
+
+  defp expected_columns(table, resource) do
+    ignored = AshPostgres.DataLayer.Info.migration_ignore_attributes(resource) || []
+
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.reject(&(&1.name in ignored))
+    |> Enum.map(&{table, to_string(&1.source || &1.name)})
+    |> MapSet.new()
+  end
+
+  defp expected_primary_keys(table, resource) do
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.filter(& &1.primary_key?)
+    |> case do
+      [] -> MapSet.new()
+      _attributes -> MapSet.new([{table, postgres_identifier("#{table_name(table)}_pkey")}])
+    end
+  end
+
+  defp expected_constraints(table, resource) do
+    MapSet.union(
+      expected_primary_keys(table, resource),
+      MapSet.union(
+        expected_foreign_key_constraints(table, resource),
+        expected_check_constraints(table, resource)
+      )
+    )
+  end
+
+  defp expected_foreign_key_constraints(table, resource) do
+    resource
+    |> Ash.Resource.Info.relationships()
+    |> Enum.filter(&match?(%Ash.Resource.Relationships.BelongsTo{}, &1))
+    |> Enum.flat_map(fn relationship ->
+      with false <- ignored_reference?(resource, relationship),
+           %Ash.Resource.Attribute{} = source_attribute <-
+             Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
+        [{table, reference_name(table, source_attribute, resource, relationship)}]
+      else
+        _value -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_check_constraints(table, resource) do
+    resource
+    |> AshPostgres.DataLayer.Info.check_constraints()
+    |> Enum.filter(& &1.check)
+    |> Enum.map(&{table, postgres_identifier(&1.name)})
+    |> MapSet.new()
+  end
+
+  defp expected_indexes(table, resource) do
+    MapSet.union(
+      expected_identity_indexes(table, resource),
+      MapSet.union(
+        expected_custom_indexes(table, resource),
+        expected_reference_indexes(table, resource)
+      )
+    )
+  end
+
+  defp expected_identity_indexes(table, resource) do
+    identity_index_names = AshPostgres.DataLayer.Info.identity_index_names(resource)
+    skipped = AshPostgres.DataLayer.Info.skip_unique_indexes(resource)
+
+    resource
+    |> Ash.Resource.Info.identities()
+    |> Enum.reject(&(&1.name in skipped))
+    |> Enum.map(fn identity ->
+      name = identity_index_names[identity.name] || "#{table_name(table)}_#{identity.name}_index"
+      name = postgres_identifier(name)
+      {table, name, "#{name} ON #{table}"}
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_custom_indexes(table, resource) do
+    schema = AshPostgres.DataLayer.Info.schema(resource)
+
+    resource
+    |> AshPostgres.DataLayer.Info.custom_indexes()
+    |> Enum.map(fn index ->
+      table = schema_table_identity(index.table || table_name(table), index.prefix || schema)
+
+      name =
+        index.name || AshPostgres.CustomIndex.name(table_name(table), %{fields: index.fields})
+
+      name = name |> to_string() |> postgres_identifier()
+      {table, name, "#{name} ON #{table}"}
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_reference_indexes(table, resource) do
+    resource
+    |> Ash.Resource.Info.relationships()
+    |> Enum.filter(&match?(%Ash.Resource.Relationships.BelongsTo{}, &1))
+    |> Enum.flat_map(fn relationship ->
+      with false <- ignored_reference?(resource, relationship),
+           true <- reference_index?(resource, relationship),
+           %Ash.Resource.Attribute{} = source_attribute <-
+             Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
+        source = to_string(source_attribute.source || source_attribute.name)
+        name = postgres_identifier("#{table_name(table)}_#{source}_index")
+        [{table, name, "#{name} ON #{table}"}]
+      else
+        _value -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp ignored_reference?(resource, relationship) do
+    case AshPostgres.DataLayer.Info.reference(resource, relationship.name) do
+      nil -> false
+      reference -> reference.ignore?
+    end
+  end
+
+  defp reference_index?(resource, relationship) do
+    case AshPostgres.DataLayer.Info.reference(resource, relationship.name) do
+      nil -> false
+      reference -> reference.index?
+    end
+  end
+
+  defp reference_name(table, source_attribute, resource, relationship) do
+    case AshPostgres.DataLayer.Info.reference(resource, relationship.name) do
+      %{name: name} when is_binary(name) ->
+        postgres_identifier(name)
+
+      _reference ->
+        postgres_identifier(
+          "#{table_name(table)}_#{source_attribute.source || source_attribute.name}_fkey"
+        )
+    end
+  end
+
   defp migration_authoritative?(resource) do
     Ash.Resource.Info.data_layer(resource) == AshPostgres.DataLayer and
       AshPostgres.DataLayer.Info.migrate?(resource)
@@ -397,6 +668,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp schema_table_identity(table, schema) when is_atom(schema) or is_binary(schema),
     do: "#{schema}.#{table}"
 
+  defp table_name(table) do
+    table
+    |> to_string()
+    |> String.split(".")
+    |> List.last()
+  end
+
+  defp postgres_identifier(name) do
+    name
+    |> to_string()
+    |> String.slice(0, 63)
+  end
+
   defp normalize_trigger(name, line) do
     table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()
     "#{trim_identifier(name)} ON #{table}"
@@ -410,6 +694,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp normalize_index(name, line) do
     table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()
     "#{trim_identifier(name)} ON #{table}"
+  end
+
+  defp index_tuple(identity) do
+    [name, table] = String.split(identity, " ON ", parts: 2)
+    {table, name, identity}
   end
 
   defp normalize_identity(identity) when is_binary(identity) do

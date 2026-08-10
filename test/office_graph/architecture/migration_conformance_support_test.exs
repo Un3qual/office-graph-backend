@@ -69,6 +69,39 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            ]
   end
 
+  test "terminal errors reject unexpected project columns constraints and indexes" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.graph_items (
+          id uuid NOT NULL,
+          resource_type text NOT NULL,
+          resource_id uuid NOT NULL,
+          title text NOT NULL,
+          inserted_at timestamp without time zone NOT NULL,
+          updated_at timestamp without time zone NOT NULL,
+          organization_id uuid NOT NULL,
+          workspace_id uuid NOT NULL,
+          rogue text
+      );
+      CREATE UNIQUE INDEX graph_items_unique_resource_index ON public.graph_items USING btree (resource_type, resource_id);
+      CREATE INDEX graph_items_scope_id_index ON public.graph_items USING btree (organization_id, workspace_id, id);
+      CREATE INDEX graph_items_rogue_index ON public.graph_items USING btree (rogue);
+      ALTER TABLE ONLY public.graph_items ADD CONSTRAINT graph_items_pkey PRIMARY KEY (id);
+      ALTER TABLE ONLY public.graph_items ADD CONSTRAINT graph_items_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+      ALTER TABLE ONLY public.graph_items ADD CONSTRAINT graph_items_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
+      ALTER TABLE ONLY public.graph_items ADD CONSTRAINT graph_items_rogue_check CHECK ((rogue <> ''::text));
+      """)
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{"graph_items" => {nil, OfficeGraph.WorkGraph.GraphItem}},
+             inventory
+           ) == [
+             "unexpected project column graph_items.rogue",
+             "unexpected project constraint graph_items.graph_items_rogue_check",
+             "unexpected project index graph_items_rogue_index ON graph_items"
+           ]
+  end
+
   defmodule PublicResource do
     use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
 
