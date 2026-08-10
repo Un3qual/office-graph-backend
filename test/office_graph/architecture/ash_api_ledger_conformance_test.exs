@@ -276,6 +276,36 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
            ]
   end
 
+  test "dataloader resolver conformance resolves helper aliases" do
+    source = """
+    defmodule ExampleSchema do
+      alias Absinthe.Resolution.Helpers
+      alias Absinthe.Resolution.Helpers, as: Loader
+
+      field :direct, :user, resolve: Helpers.dataloader(Example.Source)
+
+      field :block_form, :user do
+        resolve Helpers.dataloader(Example.Source)
+      end
+
+      field :direct_loader, :user, resolve: Loader.dataloader(Example.Source)
+
+      field :loader_block_form, :user do
+        resolve Loader.dataloader(Example.Source)
+      end
+
+      def wrapped_resolver, do: Helpers.dataloader(Example.Source)
+      def wrapped_loader_resolver, do: Loader.dataloader(Example.Source)
+    end
+    """
+
+    violations = dataloader_resolver_violations("lib/example_schema.ex", source)
+
+    assert Enum.map(violations, fn violation ->
+             Regex.run(~r/:(\d+):/, violation, capture: :all_but_first)
+           end) == [["8"], ["14"], ["17"], ["18"]]
+  end
+
   test "generated Ash API declarations stay declarative" do
     forbidden_patterns = [
       "OfficeGraphWeb.",

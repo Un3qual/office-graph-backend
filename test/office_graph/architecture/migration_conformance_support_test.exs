@@ -56,6 +56,63 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end)
   end
 
+  test "ignores inert quoted and anonymous-function migration bodies" do
+    in_migration_root("office_graph_inert_ast_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260731000000_create_examples.exs"),
+        """
+        defmodule CreateExamples do
+          use Ecto.Migration
+
+          def change do
+            create table(:durable_parents)
+
+            create table(:durable_children) do
+              add :parent_id, references(:durable_parents)
+            end
+
+            quote do
+              unquote(create table(:created_while_quoting))
+              drop table(:durable_parents)
+
+              alter table(:durable_children) do
+                remove :parent_id
+              end
+            end
+
+            fn ->
+              drop table(:durable_parents)
+
+              alter table(:durable_children) do
+                remove :parent_id
+              end
+            end
+          end
+        end
+        """
+      )
+
+      expected_resources = %{
+        "durable_children" => {nil, OfficeGraph.Tenancy.Organization},
+        "durable_parents" => {nil, OfficeGraph.Tenancy.Workspace}
+      }
+
+      assert MigrationConformanceSupport.migration_tables() == [
+               "created_while_quoting",
+               "durable_children",
+               "durable_parents"
+             ]
+
+      assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+               expected_resources
+             ) == [
+               "durable_children.parent_id references durable_parents.id without a matching belongs_to"
+             ]
+    end)
+  end
+
   test "includes conditional create and drop operations in the table lifecycle" do
     in_migration_root("office_graph_conditional_migration_conformance", fn root, migrations ->
       _ = root

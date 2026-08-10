@@ -1808,6 +1808,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  defp resolve_local_bindings({:quote, _metadata, arguments}, bindings)
+       when is_list(arguments) do
+    {expressions, bindings} =
+      arguments
+      |> quote_runtime_expressions()
+      |> Enum.map_reduce(bindings, &resolve_local_bindings/2)
+
+    {block(expressions), bindings}
+  end
+
+  defp resolve_local_bindings({:fn, _metadata, clauses}, bindings) when is_list(clauses),
+    do: {{:__block__, [], []}, bindings}
+
   defp resolve_local_bindings({:with, _metadata, arguments} = node, bindings)
        when is_list(arguments) do
     case static_with_parts(arguments) do
@@ -1916,6 +1929,53 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     do: {:__migration_closure__, metadata, [clauses, bindings]}
 
   defp resolve_assignment_value(value, bindings), do: substitute_bindings(value, bindings)
+
+  defp quote_runtime_expressions(arguments) do
+    options = quote_options(arguments)
+
+    option_expressions =
+      Enum.flat_map(options, fn
+        {:do, _body} ->
+          []
+
+        {:bind_quoted, quoted_bindings} when is_list(quoted_bindings) ->
+          Enum.flat_map(quoted_bindings, fn
+            {_name, expression} -> [expression]
+            _invalid_binding -> []
+          end)
+
+        {_option, expression} ->
+          [expression]
+      end)
+
+    unquoted_expressions =
+      if quote_unquotes?(options) do
+        options
+        |> Keyword.get(:do)
+        |> quote_unquoted_expressions()
+      else
+        []
+      end
+
+    option_expressions ++ unquoted_expressions
+  end
+
+  defp quote_unquoted_expressions({:quote, _metadata, _arguments}), do: []
+
+  defp quote_unquoted_expressions({operation, _metadata, [expression]})
+       when operation in [:unquote, :unquote_splicing],
+       do: [expression]
+
+  defp quote_unquoted_expressions(nodes) when is_list(nodes),
+    do: Enum.flat_map(nodes, &quote_unquoted_expressions/1)
+
+  defp quote_unquoted_expressions(node) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> Enum.flat_map(&quote_unquoted_expressions/1)
+  end
+
+  defp quote_unquoted_expressions(_node), do: []
 
   defp migration_expression_result({:__block__, _metadata, expressions})
        when is_list(expressions) and expressions != [],

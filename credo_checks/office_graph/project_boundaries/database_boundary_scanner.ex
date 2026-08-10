@@ -170,6 +170,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
 
   @database_alias_targets [
+    "DBConnection",
     "Ecto.Adapters.SQL",
     "Ecto.Migration",
     "Ecto.Multi",
@@ -303,6 +304,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @repo_raw_sql_operations [:query, :query!, :query_many, :query_many!]
   @ecto_sql_direct_operations [:checkout, :explain]
   @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
+
+  @db_connection_raw_sql_operations [
+    :execute,
+    :execute!,
+    :prepare,
+    :prepare!,
+    :prepare_execute,
+    :prepare_execute!,
+    :prepare_stream,
+    :stream
+  ]
 
   @postgrex_raw_sql_operations [
     :execute,
@@ -1042,9 +1054,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp record_executable_occurrence(node, environment, context, occurrences) do
     resolved_node = resolve_attributes(node, environment)
-    fingerprint_node = resolve_bindings(resolved_node, environment)
+
+    fingerprint_node =
+      resolved_node
+      |> resolve_bindings(environment)
+      |> resolve_struct_aliases(environment)
+
     classification_node = normalize_static_apply(fingerprint_node, environment)
-    occurrence_node = normalized_occurrence_node(classification_node, fingerprint_node)
+
+    occurrence_node =
+      normalized_occurrence_node(classification_node, fingerprint_node, environment)
 
     occurrences =
       classify_query_sql_options(classification_node, environment, context, occurrences)
@@ -1370,11 +1389,49 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp normalized_occurrence_node(
          {:unresolved_database_apply, _receiver, _operation, _arguments},
-         original_node
+         original_node,
+         _environment
        ),
        do: original_node
 
-  defp normalized_occurrence_node(normalized_node, _original_node), do: normalized_node
+  defp normalized_occurrence_node(
+         {{:., dot_metadata, [receiver, operation]}, metadata, arguments},
+         _original_node,
+         environment
+       )
+       when is_atom(operation) and is_list(arguments) do
+    receiver = normalized_occurrence_receiver(receiver, environment)
+    {{:., dot_metadata, [receiver, operation]}, metadata, arguments}
+  end
+
+  defp normalized_occurrence_node(normalized_node, _original_node, _environment),
+    do: normalized_node
+
+  defp normalized_occurrence_receiver(
+         {:__aliases__, metadata, parts} = receiver,
+         environment
+       )
+       when is_list(parts) do
+    if Enum.all?(parts, &is_atom/1) do
+      receiver_name = Enum.join(parts, ".")
+      resolved_receiver = resolve_receiver(receiver_name, environment)
+
+      if resolved_receiver == receiver_name do
+        receiver
+      else
+        resolved_parts =
+          resolved_receiver
+          |> String.split(".")
+          |> Enum.map(&String.to_existing_atom/1)
+
+        {:__aliases__, metadata, resolved_parts}
+      end
+    else
+      receiver
+    end
+  end
+
+  defp normalized_occurrence_receiver(receiver, _environment), do: receiver
 
   defp static_applied_call(receiver, operation, arguments, metadata, _fallback)
        when is_atom(operation) and is_list(arguments),
@@ -3304,6 +3361,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       receiver == "Ecto.Query.API" and operation in [:fragment, :unsafe_fragment] ->
         {:raw_sql, "#{receiver}.#{operation}"}
 
+      receiver == "DBConnection" and operation in @db_connection_raw_sql_operations ->
+        {:raw_sql, "#{receiver}.#{operation}"}
+
       receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_direct_operations ->
         {:direct_ecto, "#{receiver}.#{operation}"}
 
@@ -3399,7 +3459,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       repo_receiver?(receiver) ->
         {:raw_sql, "Repo.apply"}
 
-      receiver in ["Ecto.Adapters.SQL", "Ecto.Migration", "Ecto.Query.API", "Postgrex"] ->
+      receiver in [
+        "DBConnection",
+        "Ecto.Adapters.SQL",
+        "Ecto.Migration",
+        "Ecto.Query.API",
+        "Postgrex"
+      ] ->
         {:raw_sql, "#{receiver}.apply"}
 
       receiver == "Ecto.Multi" ->
@@ -4486,6 +4552,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp fetch_sql_argument(arguments, "Ecto.Adapters.SQL." <> _operation),
     do: fetch_argument(arguments, 1)
 
+  defp fetch_sql_argument(arguments, "DBConnection." <> _operation) do
+    with {:ok, query} <- fetch_argument(arguments, 1),
+         {:ok, statement} <- db_connection_query_statement(query) do
+      {:ok, statement}
+    end
+  end
+
   defp fetch_sql_argument(arguments, "Postgrex." <> operation)
        when operation in ["prepare", "prepare!", "prepare_execute", "prepare_execute!"],
        do: fetch_argument(arguments, 2)
@@ -4494,6 +4567,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: fetch_argument(arguments, 1)
 
   defp fetch_sql_argument(arguments, _construct), do: fetch_argument(arguments, 0)
+
+  defp db_connection_query_statement(
+         {:%, _metadata,
+          [
+            {:__aliases__, _alias_metadata, module_parts},
+            {:%{}, _map_metadata, fields}
+          ]}
+       )
+       when is_list(module_parts) and is_list(fields) do
+    if Enum.join(module_parts, ".") in ["Postgrex.Query", "Postgrex.TextQuery"] do
+      case List.keyfind(fields, :statement, 0) do
+        {:statement, statement} -> {:ok, statement}
+        nil -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp db_connection_query_statement(_query), do: :error
 
   defp fetch_argument(arguments, index) do
     case Enum.fetch(arguments, index) do

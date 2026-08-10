@@ -29,6 +29,111 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     refute Map.has_key?(occurrence, :approval)
   end
 
+  test "binds approval fingerprints to the resolved database receiver" do
+    fingerprint = fn module_setup, call ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              #{module_setup}
+
+              def load, do: #{call}("SELECT 1", [])
+            end
+            """
+          }
+        ])
+
+      occurrence.fingerprint
+    end
+
+    office_graph_alias =
+      fingerprint.("alias OfficeGraph.Repo, as: Target", "Target.query!")
+
+    top_level_alias = fingerprint.("alias Repo, as: Target", "Target.query!")
+    fully_qualified = fingerprint.("", "OfficeGraph.Repo.query!")
+
+    assert office_graph_alias == fully_qualified
+    refute office_graph_alias == top_level_alias
+  end
+
+  test "classifies SQL embedded in DBConnection query structs" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias DBConnection, as: Connection
+            alias Postgrex.Query, as: Query
+            import DBConnection, only: [prepare_execute: 4]
+
+            def run(connection, dynamic_statement, prepared_query) do
+              DBConnection.execute(
+                connection,
+                %Postgrex.Query{statement: "SELECT 1"},
+                [],
+                []
+              )
+
+              Connection.prepare_execute(
+                connection,
+                %Query{statement: "SELECT 2"},
+                [],
+                []
+              )
+
+              prepare_execute(
+                connection,
+                %Postgrex.TextQuery{statement: dynamic_statement},
+                [],
+                []
+              )
+
+              DBConnection.execute(connection, prepared_query, [], [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {occurrence.construct, Map.get(occurrence, :approval)}
+           end) == [
+             {"DBConnection.execute", nil},
+             {"DBConnection.prepare_execute", nil},
+             {"DBConnection.prepare_execute", :unresolved_sql},
+             {"DBConnection.execute", :unresolved_sql}
+           ]
+
+    fingerprints =
+      Enum.map(["SELECT 1", "SELECT 2"], fn statement ->
+        [occurrence] =
+          DatabaseBoundaryScanner.scan_sources([
+            %{
+              path: "lib/example.ex",
+              source: """
+              defmodule Example do
+                def run(connection) do
+                  DBConnection.execute(
+                    connection,
+                    %Postgrex.Query{statement: #{inspect(statement)}},
+                    [],
+                    []
+                  )
+                end
+              end
+              """
+            }
+          ])
+
+        occurrence.fingerprint
+      end)
+
+    assert Enum.uniq(fingerprints) == fingerprints
+  end
+
   test "classifies repository SQL calls through module-atom receivers" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
