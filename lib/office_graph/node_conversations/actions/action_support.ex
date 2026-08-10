@@ -25,5 +25,8 @@ defmodule OfficeGraph.NodeConversations.ActionSupport do
     end
   rescue
     _error in @storage_exceptions -> {:error, :integration_storage_unavailable}
+  catch
+    :exit, {_reason, {DBConnection.Holder, :checkout, [_pool, _opts]}} ->
+      {:error, :integration_storage_unavailable}
   end
 end
