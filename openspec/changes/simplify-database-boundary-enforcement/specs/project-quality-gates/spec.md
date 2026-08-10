@@ -65,6 +65,26 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the compiled audit MUST reject the call as unresolved even when the
   source gate already reports its exact tracked-source occurrence
 
+#### Scenario: Dispatch target and operation are both unresolved
+- **WHEN** tracked source or BEAM abstract code invokes `apply`, function
+  capture, or module-function-argument process/task dispatch with unresolved
+  target and operation expressions
+- **THEN** the scanner MUST reject the dispatch primitive without relying on
+  database-shaped variable names or dataflow interpretation
+
+#### Scenario: Private persistence execution namespace is called
+- **WHEN** repository-authored source or non-generated BEAM code directly calls
+  a private Ecto repository or PostgreSQL adapter execution namespace
+- **THEN** the scanner MUST classify the call as a low-level persistence
+  primitive regardless of its function name
+
+#### Scenario: Process launcher can conceal database execution
+- **WHEN** tracked source or compiled code uses a dynamic executable, shell or
+  interpreter wrapper, unknown command dispatcher, or process port
+- **THEN** the scanner MUST reject the launcher without interpreting the
+  command body while preserving only statically identified non-dispatch tools
+  and the approved read-only `pg_dump` seam
+
 #### Scenario: Compiled environments are audited
 - **WHEN** canonical verification reaches the compiled database-boundary audit
 - **THEN** current, test, and production output MUST already exist and the audit
@@ -81,6 +101,13 @@ construction, SQL bodies, macro output, or control flow.
 - **WHEN** ordinary strings, comments, or documentation mention SQL phrases
   without being an argument or option to a classified executable primitive
 - **THEN** the scanner MUST NOT report an occurrence solely from that inert text
+
+#### Scenario: Local function shares a query primitive name
+- **WHEN** a module defines and calls a local function or macro whose name and
+  arity match an Ecto query primitive without importing or using the Ecto query
+  context
+- **THEN** the source scanner MUST treat the call as local and leave ordinary
+  compiled dependency detection to the compiled audit
 
 #### Scenario: Complex source requires interpretation
 - **WHEN** proving safety would require evaluating helpers, callbacks, arbitrary
@@ -106,6 +133,19 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   normalized column type/default/nullability, key and constraint definitions,
   index uniqueness/method/fields/null semantics, configured PostgreSQL
   migration types, and exact shapes for present framework-owned tables
+
+#### Scenario: Terminal definitions use quoted identifiers and literals
+- **WHEN** `pg_dump` emits quoted schema or object identifiers, string or
+  dollar-quoted payloads, named constraints, or schema-qualified custom types
+- **THEN** conformance MUST preserve identifier and literal semantics while
+  normalizing only database-equivalent spelling outside quoted payloads
+
+#### Scenario: Relation and sequence definitions drift
+- **WHEN** an owned relation changes between regular, unlogged, or foreign kind,
+  or an owned sequence changes type, range, start, increment, min/max, cache,
+  cycle, or column ownership
+- **THEN** terminal conformance MUST report the definition mismatch even when
+  the object identity is unchanged
 
 #### Scenario: Schema-qualified resources and composite references are derived
 - **WHEN** resources use non-public schemas or references use multiple physical

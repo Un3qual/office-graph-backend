@@ -84,3 +84,12 @@
 - [x] 12.2 Fail closed when required current, test, or production BEAM output is absent and preserve function/quoted-source provenance during compiled reconciliation.
 - [x] 12.3 Derive primary keys only from migration-visible attributes and fingerprint materialized-view indexes as independent terminal approval objects.
 - [x] 12.4 Run focused and canonical verification, review the final diff, push, and reply to the review threads.
+
+## 13. Strict Review And Maintainability Follow-Up
+
+- [ ] 13.1 Reject fully unresolved dispatch, private persistence execution namespaces, and concealed subprocess launchers in source and compiled code.
+- [ ] 13.2 Preserve unrelated local function calls that share Ecto primitive names without weakening explicit Ecto query contexts.
+- [ ] 13.3 Parse quoted terminal identities and preserve quoted payload semantics while comparing relation kinds, sequence definitions, and schema-qualified custom types.
+- [ ] 13.4 Remove framework-table trigger exemptions and require exact dependency-owned or approved trigger definitions.
+- [ ] 13.5 Remove the blanket Reach exclusion, address substantive findings, and keep modules split only along approved enforcement responsibilities.
+- [ ] 13.6 Run focused and canonical verification, perform a final anti-slop diff review, commit, and push the branch.

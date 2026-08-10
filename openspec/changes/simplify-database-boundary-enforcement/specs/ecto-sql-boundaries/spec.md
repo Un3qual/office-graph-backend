@@ -134,6 +134,14 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 - **THEN** canonical verification MUST reject the command as unresolved while
   retaining only the statically visible read-only `pg_dump` inspection seam
 
+#### Scenario: Low-level execution is hidden behind private APIs or ports
+
+- **WHEN** tracked source or compiled project code calls a private Ecto
+  repository execution namespace, PostgreSQL adapter execution namespace, or
+  opens a process port that can execute an external command
+- **THEN** canonical verification MUST treat the exact occurrence as an
+  unapproved low-level persistence path without interpreting its implementation
+
 ## ADDED Requirements
 
 ### Requirement: Stored database behavior is prohibited by default

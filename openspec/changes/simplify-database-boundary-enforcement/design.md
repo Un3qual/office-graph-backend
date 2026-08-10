@@ -70,6 +70,31 @@ Approved low-level exceptions must continue to match the occurrence locator and 
 
 Alternative considered: approving terminal schema equivalence. Rejected because schema comparison does not prove data-plane, lock/session, notification, branch, or transient behavior.
 
+### 6. Review hardening remains lexical and responsibility-bound
+
+The source and compiled layers reject fully unresolved dispatch primitives even
+when neither the target nor operation has a database-shaped variable name.
+Repository-authored calls into private Ecto repository and PostgreSQL adapter
+execution namespaces are low-level persistence primitives regardless of the
+particular function name. Subprocess enforcement classifies launch mechanisms
+and statically visible executable capabilities; it rejects dynamic executables,
+shell and interpreter wrappers, and process ports instead of interpreting
+command bodies or argument dataflow. A shallow module-local name/arity inventory
+prevents unrelated local functions such as `fragment/1` from being classified as
+Ecto calls without weakening explicit Ecto import and `use` contexts.
+
+Terminal dump parsing uses a PostgreSQL-aware lexical layer only for statement
+boundaries, quoted identifiers, and quote-preserving definition normalization.
+It does not evaluate SQL expressions or stored-routine bodies. Relation
+persistence kind and sequence configuration/ownership remain part of the
+terminal object definition, and normalization never changes bytes inside string
+or dollar-quoted payloads.
+
+Alternative considered: expand the scanner into a general Elixir or SQL
+evaluator. Rejected because the approved architecture requires unresolved
+execution paths to fail closed and terminal parsing to stay bounded to
+database-owned `pg_dump` output.
+
 ## Risks / Trade-offs
 
 - **Risk: simpler source scanning may report more violations than the old evaluator** -> Mitigation: this is intentional at persistence boundaries; dynamic or complex shapes must be rewritten to declarative Ash/AshPostgres/Ecto migration constructs or receive exact approval.
