@@ -92,4 +92,4 @@
 - [x] 13.3 Parse quoted terminal identities and preserve quoted payload semantics while comparing relation kinds, sequence definitions, and schema-qualified custom types.
 - [x] 13.4 Remove framework-table trigger exemptions and require exact dependency-owned or approved trigger definitions.
 - [x] 13.5 Remove the blanket Reach exclusion, address substantive findings, and keep modules split only along approved enforcement responsibilities.
-- [ ] 13.6 Run focused and canonical verification, perform a final anti-slop diff review, commit, and push the branch.
+- [x] 13.6 Run focused and canonical verification, perform a final anti-slop diff review, commit, and push the branch.

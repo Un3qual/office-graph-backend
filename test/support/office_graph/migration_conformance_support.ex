@@ -220,8 +220,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp relation_kind_errors(inventory, expected_tables) do
     framework_tables =
-      inventory.tables
-      |> MapSet.intersection(Map.fetch!(@framework_objects, :table))
+      Enum.reduce(@framework_relation_kinds, MapSet.new(), fn {table, _kind}, tables ->
+        if Map.has_key?(inventory.relations, table), do: MapSet.put(tables, table), else: tables
+      end)
 
     expected_tables
     |> MapSet.union(framework_tables)
