@@ -19,6 +19,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :delete!,
     :delete_all,
     :disconnect_all,
+    :explain,
     :exists?,
     :get,
     :get!,
@@ -201,6 +202,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "OfficeGraph.Repo",
     "Postgrex"
   ]
+  @dynamic_dispatch_modules ["Function"]
   @reflection_modules ["Code", "Module"]
   @reflection_operations %{
     "Code" => [
@@ -395,6 +397,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:import, metadata, arguments}, env, occurrences) do
     {env, import_occurrences} = apply_import(arguments, metadata, env)
     {env, occurrences ++ import_occurrences}
+  end
+
+  defp scan_node({:defdelegate, _metadata, arguments} = node, env, occurrences)
+       when is_list(arguments) do
+    occurrences =
+      case classify_defdelegate(arguments, node, env) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
+
+    scan_children(node, env, occurrences)
   end
 
   defp scan_node({:use, _metadata, [target | _options]} = node, env, occurrences) do
@@ -632,6 +645,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp classify_remote_call(receiver, :capture, [target, operation, _arity], node, env) do
+    if receiver_name(receiver, env) == "Function" do
+      classify_dynamic_dispatch(target, operation, :capture, node, env)
+    end
+  end
+
+  defp classify_remote_call(receiver, :make_fun, [target, operation, _arity], node, env) do
+    if receiver_name(receiver, env) == "erlang" do
+      classify_dynamic_dispatch(target, operation, :capture, node, env)
+    end
+  end
+
   defp classify_remote_call(receiver, operation, arguments, node, env) do
     receiver
     |> receiver_name(env)
@@ -640,6 +665,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_local_call(:apply, [receiver, operation | _rest], node, env) do
     classify_apply(receiver, operation, node, env)
+  end
+
+  defp classify_local_call(:capture, [receiver, operation, _arity], node, env) do
+    if imported_receiver(env, :capture, 3) == "Function" do
+      classify_dynamic_dispatch(receiver, operation, :capture, node, env)
+    end
   end
 
   defp classify_local_call(operation, arguments, node, env) do
@@ -828,21 +859,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_operation(_receiver, _operation, _arity, _node, _env), do: nil
 
   defp classify_apply(receiver, operation, node, env) do
-    receiver_name = receiver_name(receiver, env)
-    operation_name = static_atom(operation)
+    classify_dynamic_dispatch(receiver, operation, :apply, node, env)
+  end
+
+  defp classify_dynamic_dispatch(receiver, operation, kind, node, env) do
+    resolved_receiver = receiver_name(receiver, env)
+    resolved_operation = static_atom(operation)
 
     cond do
-      receiver_name in @database_modules ->
-        class = if receiver_name == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+      resolved_receiver in @database_modules ->
+        class = if resolved_receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
 
-        occurrence(env, line_from_node(node), class, "#{receiver_name}.apply", node,
+        occurrence(env, line_from_node(node), class, "#{resolved_receiver}.#{kind}", node,
           approval: :unresolved_sql
         )
 
-      database_operation?(operation_name) ->
-        class = if raw_sql_operation?(operation_name), do: :raw_sql, else: :direct_ecto
+      database_operation?(resolved_operation) ->
+        class = if raw_sql_operation?(resolved_operation), do: :raw_sql, else: :direct_ecto
 
-        occurrence(env, line_from_node(node), class, "variable_receiver.apply", node,
+        occurrence(env, line_from_node(node), class, "variable_receiver.#{kind}", node,
+          approval: :unresolved_sql
+        )
+
+      database_shaped_variable_receiver?(receiver) ->
+        occurrence(env, line_from_node(node), :raw_sql, "variable_receiver.#{kind}", node,
           approval: :unresolved_sql
         )
 
@@ -850,6 +890,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         nil
     end
   end
+
+  defp classify_defdelegate([head, options], node, env) when is_list(options) do
+    {name, arity, _guarded?} = function_identity([head])
+    operation = keyword_option(options, :as) || name
+
+    with operation when is_atom(operation) <- operation,
+         target when not is_nil(target) <- options |> keyword_option(:to) |> module_name(env) do
+      classify_operation(target, operation, arity, node, env)
+    end
+  end
+
+  defp classify_defdelegate(_arguments, _node, _env), do: nil
 
   defp migration_helper_escape?(operation, _arguments, env) do
     migration_entrypoint?(env) and operation not in @allowed_migration_locals and
@@ -978,6 +1030,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp variable_receiver?(_receiver), do: false
 
+  defp database_shaped_variable_receiver?({name, _metadata, context})
+       when is_atom(name) and is_atom(context),
+       do: database_shaped_variable_name?(name)
+
+  defp database_shaped_variable_receiver?(_receiver), do: false
+
   defp uncompiled_elixir_source?(path), do: Path.extname(path) == ".exs"
 
   defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
@@ -990,7 +1048,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp variable_receiver_database_operation?(_receiver, _operation, _arity), do: false
 
   defp database_shaped_variable_name?(name) do
-    name = to_string(name)
+    name =
+      name
+      |> to_string()
+      |> String.trim_leading("_")
+      |> String.split("@", parts: 2)
+      |> hd()
 
     name in [
       "adapter",
@@ -1065,7 +1128,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp apply_import([target, options], metadata, env) do
     module = module_name(target, env)
 
-    if module in @database_modules or module in @reflection_modules do
+    if module in @database_modules or module in @dynamic_dispatch_modules or
+         module in @reflection_modules do
       imported = imported_operations(module, options)
 
       imports =
@@ -1075,7 +1139,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         end)
 
       occurrences =
-        if imported == [:all] and module != "Ecto.Query" do
+        if imported == [:all] and module != "Ecto.Query" and
+             module not in @dynamic_dispatch_modules do
           [
             occurrence(env, line(metadata), :direct_ecto, "#{module}.import", target,
               approval: :unresolved_sql
@@ -1145,6 +1210,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp imported_operation?("Postgrex", operation), do: operation in @postgrex_raw_sql_operations
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
+  defp imported_operation?("Function", operation), do: operation == :capture
 
   defp imported_operation?(module, operation) when module in ["Ecto.Query", "Ecto.Query.API"],
     do:
@@ -1643,6 +1709,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_node_occurrences(
+         {:call, _line,
+          {:remote, _remote_line, {:atom, _module_line, :erlang}, {:atom, _fun_line, :make_fun}},
+          arguments} = node,
+         source,
+         occurrences
+       ) do
+    occurrences = compiled_capture_occurrences(arguments, node, source, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, occurrences)
+  end
+
+  defp compiled_node_occurrences(
          {:call, _line, {:remote, _remote_line, receiver, {:atom, _fun_line, operation}},
           arguments} = node,
          source,
@@ -1717,15 +1794,53 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_apply_occurrences([receiver, operation | _rest], node, source, occurrences) do
-    receiver = compiled_module(receiver)
-    operation = compiled_operation(operation)
+    compiled_dynamic_dispatch_occurrences(
+      receiver,
+      operation,
+      :apply,
+      node,
+      source,
+      occurrences
+    )
+  end
+
+  defp compiled_apply_occurrences(_arguments, _node, _source, occurrences), do: occurrences
+
+  defp compiled_capture_occurrences(
+         [receiver, operation, _arity],
+         node,
+         source,
+         occurrences
+       ) do
+    compiled_dynamic_dispatch_occurrences(
+      receiver,
+      operation,
+      :capture,
+      node,
+      source,
+      occurrences
+    )
+  end
+
+  defp compiled_capture_occurrences(_arguments, _node, _source, occurrences), do: occurrences
+
+  defp compiled_dynamic_dispatch_occurrences(
+         receiver_node,
+         operation_node,
+         kind,
+         node,
+         source,
+         occurrences
+       ) do
+    receiver = compiled_module(receiver_node)
+    operation = compiled_operation(operation_node)
 
     cond do
       receiver in @database_modules ->
         class = if receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
 
         [
-          occurrence(source, line_from_node(node), nil, class, "#{receiver}.apply", node,
+          occurrence(source, line_from_node(node), nil, class, "#{receiver}.#{kind}", node,
             approval: :unresolved_sql
           )
           | occurrences
@@ -1740,7 +1855,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
             line_from_node(node),
             nil,
             class,
-            "variable_receiver.apply",
+            "variable_receiver.#{kind}",
+            node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+
+      compiled_database_shaped_variable?(receiver_node) ->
+        [
+          occurrence(
+            source,
+            line_from_node(node),
+            nil,
+            :raw_sql,
+            "variable_receiver.#{kind}",
             node,
             approval: :unresolved_sql
           )
@@ -1752,8 +1881,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp compiled_apply_occurrences(_arguments, _node, _source, occurrences), do: occurrences
-
   defp compiled_module({:atom, _line, atom}) when is_atom(atom) do
     atom |> Atom.to_string() |> String.trim_leading("Elixir.")
   end
@@ -1762,6 +1889,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp compiled_variable_receiver?({:var, _line, name}) when is_atom(name), do: true
   defp compiled_variable_receiver?(_receiver), do: false
+
+  defp compiled_database_shaped_variable?({:var, _line, name}) when is_atom(name),
+    do: database_shaped_variable_name?(name)
+
+  defp compiled_database_shaped_variable?(_receiver), do: false
 
   defp compiled_operation({:atom, _line, operation}) when is_atom(operation), do: operation
   defp compiled_operation(_node), do: nil

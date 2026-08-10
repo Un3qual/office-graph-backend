@@ -87,6 +87,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def list_by(id), do: Repo.all_by(Example, id: id)
             def persist(changeset), do: Repo.insert_or_update(changeset)
             def reload_record(record), do: Repo.reload(record)
+            def explain(query), do: Repo.explain(:all, query, [])
             def prepare(conn), do: Postgrex.prepare_execute(conn, "example", "SELECT 1", [])
           end
           """
@@ -97,6 +98,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Repo.all_by", "list_by/1"},
              {:direct_ecto, "Repo.insert_or_update", "persist/1"},
              {:direct_ecto, "Repo.reload", "reload_record/1"},
+             {:direct_ecto, "Repo.explain", "explain/1"},
              {:raw_sql, "Postgrex.prepare_execute", "prepare/1"}
            ]
   end
@@ -206,6 +208,68 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "OfficeGraph.Repo.apply"
     assert occurrence.function == "dispatch/2"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects fully dynamic apply on database-shaped receivers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/dynamic_repo.exs",
+          source: """
+          defmodule DynamicRepoScript do
+            def dispatch(repo, operation, arguments), do: apply(repo, operation, arguments)
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "variable_receiver.apply"
+    assert occurrence.function == "dispatch/3"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects function captures that target database dispatch" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/captured_repo.exs",
+          source: """
+          defmodule CapturedRepoScript do
+            import Function, only: [capture: 3]
+
+            def direct, do: Function.capture(OfficeGraph.Repo, :query!, 2)
+            def dynamic(repo, operation), do: Function.capture(repo, operation, 2)
+            def imported, do: capture(OfficeGraph.Repo, :query!, 2)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "OfficeGraph.Repo.capture", "direct/0", :unresolved_sql},
+             {:raw_sql, "variable_receiver.capture", "dynamic/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.capture", "imported/0", :unresolved_sql}
+           ]
+  end
+
+  test "rejects database defdelegates in uncompiled sources" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/delegated_repo.exs",
+          source: """
+          defmodule DelegatedRepoScript do
+            defdelegate query!(sql, params), to: OfficeGraph.Repo
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == nil
     assert occurrence.approval == :unresolved_sql
   end
 
@@ -897,9 +961,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       defmodule #{inspect(module)} do
         def dispatch_apply(target, sql), do: apply(target, :query, [sql])
         def dispatch_insert_apply(target, changeset), do: apply(target, :insert, [changeset])
+        def dispatch_dynamic(repo, operation, arguments), do: apply(repo, operation, arguments)
+        def capture_direct, do: Function.capture(OfficeGraph.Repo, :query!, 2)
+        def capture_dynamic(repo, operation), do: Function.capture(repo, operation, 2)
         def dispatch_remote(target, sql), do: target.query(sql)
         def persist(target, changeset), do: target.insert(changeset)
         def transact(target, fun), do: target.transaction(fun)
+        def explain(query), do: OfficeGraph.Repo.explain(:all, query, [])
       end
       """
     )
@@ -913,12 +981,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
     occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
 
-    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.approval}) == [
+    assert Enum.map(occurrences, &{&1.class, &1.construct, Map.get(&1, :approval)}) == [
              {:raw_sql, "variable_receiver.apply", :unresolved_sql},
              {:direct_ecto, "variable_receiver.apply", :unresolved_sql},
+             {:raw_sql, "variable_receiver.apply", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.capture", :unresolved_sql},
+             {:raw_sql, "variable_receiver.capture", :unresolved_sql},
              {:raw_sql, "variable_receiver.query", :unresolved_sql},
              {:direct_ecto, "variable_receiver.insert", :unresolved_sql},
-             {:direct_ecto, "variable_receiver.transaction", :unresolved_sql}
+             {:direct_ecto, "variable_receiver.transaction", :unresolved_sql},
+             {:direct_ecto, "Repo.explain", nil}
            ]
   end
 

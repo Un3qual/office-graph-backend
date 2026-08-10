@@ -311,7 +311,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       identity = routine_identity(statement) ->
         {"routine", identity}
 
-      trigger = capture(statement, ~r/^CREATE TRIGGER (?<name>\S+) .* ON (?<table>\S+)/s) ->
+      trigger =
+          capture(
+            statement,
+            ~r/^CREATE (?:CONSTRAINT )?TRIGGER (?<name>\S+) .* ON (?<table>\S+)/s
+          ) ->
         {"trigger", normalize_trigger(trigger, statement)}
 
       policy = capture(statement, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/s) ->
@@ -572,7 +576,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       routine = routine_identity(line) ->
         {Map.update!(inventory, :routines, &MapSet.put(&1, routine)), current_table}
 
-      trigger = capture(line, ~r/^CREATE TRIGGER (?<name>\S+) .* ON (?<table>\S+)/) ->
+      trigger =
+          capture(line, ~r/^CREATE (?:CONSTRAINT )?TRIGGER (?<name>\S+) .* ON (?<table>\S+)/) ->
         {Map.update!(inventory, :triggers, &MapSet.put(&1, normalize_trigger(trigger, line))),
          current_table}
 

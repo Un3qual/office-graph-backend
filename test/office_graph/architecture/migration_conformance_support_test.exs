@@ -27,6 +27,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
           LANGUAGE plpgsql
           AS $$ BEGIN RETURN NEW; END $$;
       CREATE TRIGGER touch_child BEFORE UPDATE ON public.children FOR EACH ROW EXECUTE FUNCTION public.touch_child();
+      CREATE CONSTRAINT TRIGGER deferred_touch_child AFTER UPDATE ON public.children DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.touch_child();
       CREATE POLICY child_policy ON public.children USING (true);
       GRANT SELECT ON TABLE public.children TO readonly;
       CREATE UNIQUE INDEX children_parent_id_index ON public.children USING btree (parent_id);
@@ -56,7 +57,15 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert inventory.views == MapSet.new(["read_model"])
     assert inventory.materialized_views == MapSet.new(["cached_model"])
     assert inventory.routines == MapSet.new(["touch_child()"])
-    assert inventory.triggers == MapSet.new(["touch_child ON children"])
+
+    assert inventory.triggers ==
+             MapSet.new(["deferred_touch_child ON children", "touch_child ON children"])
+
+    assert inventory.terminal_objects
+           |> Enum.filter(&(elem(&1, 0) == "trigger"))
+           |> Enum.map(&elem(&1, 1))
+           |> Enum.sort() == ["deferred_touch_child ON children", "touch_child ON children"]
+
     assert inventory.policies == MapSet.new(["child_policy ON children"])
     assert inventory.grants == MapSet.new(["SELECT ON TABLE children TO readonly"])
     assert inventory.extensions == MapSet.new(["plpgsql"])

@@ -55,4 +55,11 @@
 - [x] 8.5 Match approved stored objects by exact terminal identity and dump-statement fingerprint.
 - [x] 8.6 Replace blanket Oban-prefix ownership with exact framework table and sequence identities.
 - [x] 8.7 Preserve terminal ownership detection for foreign tables without reintroducing SQL-body evaluation.
-- [ ] 8.8 Run focused and canonical verification, review the final diff, push, and reply to the review threads.
+- [x] 8.8 Run focused and canonical verification, review the final diff, push, and reply to the review threads.
+
+## 9. Dynamic Dispatch And Trigger Review Follow-Up
+
+- [x] 9.1 Add source and compiled regressions for repository function captures, fully dynamic apply calls, database defdelegates, and `Repo.explain`.
+- [x] 9.2 Reject database-targeting function captures, database-shaped fully dynamic apply calls, and database defdelegates without adding dataflow analysis.
+- [x] 9.3 Inventory ordinary and constraint triggers through the same exact terminal-object approval path.
+- [x] 9.4 Run focused and canonical verification and review the final diff before publication.
