@@ -55,11 +55,90 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert inventory.sequences == MapSet.new(["unexpected_seq"])
     assert inventory.views == MapSet.new(["read_model"])
     assert inventory.materialized_views == MapSet.new(["cached_model"])
-    assert inventory.routines == MapSet.new(["touch_child"])
+    assert inventory.routines == MapSet.new(["touch_child()"])
     assert inventory.triggers == MapSet.new(["touch_child ON children"])
     assert inventory.policies == MapSet.new(["child_policy ON children"])
-    assert inventory.grants == MapSet.new(["children"])
+    assert inventory.grants == MapSet.new(["SELECT ON TABLE children TO readonly"])
     assert inventory.extensions == MapSet.new(["plpgsql"])
+  end
+
+  test "terminal approvals match exact stored-object definitions" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE FUNCTION public.touch_child() RETURNS trigger
+          LANGUAGE plpgsql
+          AS $$ BEGIN
+        PERFORM pg_notify('children', 'changed');
+        RETURN NEW;
+      END $$;
+      """)
+
+    [{"routine", "touch_child()", fingerprint}] = Enum.to_list(inventory.terminal_objects)
+
+    approval = %{
+      "class" => "routine",
+      "identity" => "touch_child()",
+      "fingerprint" => fingerprint
+    }
+
+    assert MigrationConformanceSupport.terminal_database_errors(%{}, inventory, [approval]) == []
+
+    changed_approval =
+      Map.put(
+        approval,
+        "fingerprint",
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      )
+
+    assert MigrationConformanceSupport.terminal_database_errors(%{}, inventory, [changed_approval]) ==
+             [
+               "terminal definition mismatch for approved project routine touch_child()"
+             ]
+  end
+
+  test "terminal errors exempt only exact Oban-owned objects" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.oban_jobs (
+          id bigint NOT NULL
+      );
+      CREATE SEQUENCE public.oban_jobs_id_seq
+          START WITH 1;
+      CREATE TABLE public.oban_shadow (
+          id uuid NOT NULL
+      );
+      """)
+
+    errors = MigrationConformanceSupport.terminal_database_errors(%{}, inventory, [])
+
+    assert "unexpected project table oban_shadow" in errors
+    refute "unexpected project table oban_jobs" in errors
+    refute "unexpected project sequence oban_jobs_id_seq" in errors
+  end
+
+  test "terminal inventory treats imported foreign tables as owned tables" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE FOREIGN TABLE public.imported_accounts (
+          id uuid NOT NULL,
+          email text
+      )
+      SERVER upstream;
+      """)
+
+    assert inventory.tables == MapSet.new(["imported_accounts"])
+
+    assert inventory.columns ==
+             MapSet.new([
+               {"imported_accounts", "email", "text"},
+               {"imported_accounts", "id", "uuid NOT NULL"}
+             ])
+
+    assert "unexpected project table imported_accounts" in MigrationConformanceSupport.terminal_database_errors(
+             %{},
+             inventory,
+             []
+           )
   end
 
   test "resource table identities preserve non-public schema prefixes" do

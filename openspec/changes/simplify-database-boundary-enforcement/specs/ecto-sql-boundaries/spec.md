@@ -142,6 +142,7 @@ database object.
 
 #### Scenario: Approved stored behavior exists
 - **WHEN** an approved stored database behavior exists
-- **THEN** its source occurrence fingerprint, terminal object identity,
+- **THEN** its source occurrence fingerprint, terminal object identity and
+  definition fingerprint,
   behavior tests, owner, reason, verification, and retirement condition MUST
   all remain current

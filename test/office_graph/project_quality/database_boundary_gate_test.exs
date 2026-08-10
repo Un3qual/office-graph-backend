@@ -100,6 +100,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
            }
   end
 
+  test "rejects incomplete terminal-object approval metadata" do
+    approved =
+      approved_entry("sha256:current")
+      |> Map.put("terminal_objects", [
+        %{"class" => "routine", "identity" => "touch_child()"}
+      ])
+
+    [diagnostic] = DatabaseBoundaryGate.compare([occurrence("sha256:current")], [approved])
+
+    assert diagnostic.kind == :invalid_inventory
+    assert diagnostic.inventory == :approved_exceptions
+    assert diagnostic.entry == 1
+    assert diagnostic.invalid_fields == ["terminal_objects"]
+  end
+
   test "rejects non-map approved exceptions without crashing the boundary gate" do
     [diagnostic] = DatabaseBoundaryGate.compare([], [nil])
 

@@ -1,13 +1,16 @@
 defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @moduledoc false
 
-  @framework_tables MapSet.new(["oban_jobs", "schema_migrations"])
-  @framework_prefixes ["oban_"]
+  @framework_objects %{
+    table: MapSet.new(["oban_jobs", "schema_migrations"]),
+    sequence: MapSet.new(["oban_jobs_id_seq"])
+  }
   @allowed_extensions MapSet.new(["plpgsql"])
+  @approved_exceptions_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   def migration_tables do
     terminal_inventory().tables
-    |> Enum.reject(&framework_owned?/1)
+    |> reject_framework_objects(:table)
     |> Enum.sort()
   end
 
@@ -70,10 +73,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   def terminal_database_errors(
         expected_resources \\ expected_resource_map(),
-        inventory \\ terminal_inventory()
+        inventory \\ terminal_inventory(),
+        approved_terminal_objects \\ approved_terminal_objects()
       ) do
     expected_tables = expected_resources |> resource_table_identities() |> MapSet.new()
-    project_tables = inventory.tables |> reject_framework_objects() |> MapSet.new()
+    project_tables = reject_framework_objects(inventory.tables, :table)
 
     missing_tables =
       expected_tables
@@ -86,7 +90,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> Enum.map(&"unexpected project table #{&1}")
 
     expected_sequences = expected_sequences(expected_resources)
-    project_sequences = reject_framework_objects(inventory.sequences)
+    project_sequences = reject_framework_objects(inventory.sequences, :sequence)
 
     missing_sequences =
       expected_sequences
@@ -98,21 +102,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> MapSet.difference(expected_sequences)
       |> Enum.map(&"unexpected project sequence #{&1}")
 
-    prohibited_objects =
-      [
-        {"view", inventory.views},
-        {"materialized view", inventory.materialized_views},
-        {"routine", inventory.routines},
-        {"trigger", reject_framework_triggers(inventory.triggers)},
-        {"RLS policy", inventory.policies},
-        {"grant", inventory.grants},
-        {"extension", MapSet.difference(inventory.extensions, @allowed_extensions)}
-      ]
-      |> Enum.flat_map(fn {label, values} ->
-        values
-        |> Enum.sort()
-        |> Enum.map(&"unexpected project #{label} #{&1}")
-      end)
+    prohibited_objects = terminal_object_errors(inventory, approved_terminal_objects)
 
     (missing_tables ++
        unexpected_tables ++
@@ -163,19 +153,295 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       routines: MapSet.new(),
       sequences: MapSet.new(),
       tables: MapSet.new(),
+      terminal_objects: MapSet.new(),
       triggers: MapSet.new(),
       views: MapSet.new()
     }
 
-    dump
-    |> String.split("\n")
-    |> Enum.reduce({initial, nil}, &parse_dump_line/2)
-    |> elem(0)
-    |> Map.update!(:foreign_keys, fn keys ->
-      keys
-      |> MapSet.to_list()
-      |> Enum.sort()
+    inventory =
+      dump
+      |> String.split("\n")
+      |> Enum.reduce({initial, nil}, &parse_dump_line/2)
+      |> elem(0)
+      |> Map.update!(:foreign_keys, fn keys ->
+        keys
+        |> MapSet.to_list()
+        |> Enum.sort()
+      end)
+
+    Map.put(inventory, :terminal_objects, terminal_objects(dump))
+  end
+
+  defp terminal_object_errors(inventory, approved_terminal_objects) do
+    actual =
+      inventory
+      |> Map.get(:terminal_objects, MapSet.new())
+      |> Enum.reject(fn {class, identity, _fingerprint} ->
+        allowed_terminal_object?(class, identity)
+      end)
+      |> Enum.group_by(fn {class, identity, _fingerprint} -> {class, identity} end, fn {
+                                                                                         _class,
+                                                                                         _identity,
+                                                                                         fingerprint
+                                                                                       } ->
+        fingerprint
+      end)
+      |> Map.new(fn {identity, fingerprints} -> {identity, MapSet.new(fingerprints)} end)
+
+    approved =
+      approved_terminal_objects
+      |> Enum.map(&normalize_terminal_approval!/1)
+      |> Enum.group_by(fn {class, identity, _fingerprint} -> {class, identity} end, fn {
+                                                                                         _class,
+                                                                                         _identity,
+                                                                                         fingerprint
+                                                                                       } ->
+        fingerprint
+      end)
+      |> Map.new(fn {identity, fingerprints} -> {identity, MapSet.new(fingerprints)} end)
+
+    missing_definitions =
+      inventory
+      |> prohibited_terminal_identities()
+      |> MapSet.difference(actual |> Map.keys() |> MapSet.new())
+      |> Enum.map(fn {class, identity} ->
+        "terminal definition unavailable for project #{class} #{identity}"
+      end)
+
+    comparison_errors =
+      actual
+      |> Map.keys()
+      |> MapSet.new()
+      |> MapSet.union(approved |> Map.keys() |> MapSet.new())
+      |> Enum.flat_map(fn {class, identity} = key ->
+        case {Map.fetch(actual, key), Map.fetch(approved, key)} do
+          {{:ok, _actual}, :error} ->
+            ["unexpected project #{class} #{identity}"]
+
+          {:error, {:ok, _approved}} ->
+            ["missing approved project #{class} #{identity}"]
+
+          {{:ok, fingerprints}, {:ok, fingerprints}} ->
+            []
+
+          {{:ok, _actual}, {:ok, _approved}} ->
+            ["terminal definition mismatch for approved project #{class} #{identity}"]
+        end
+      end)
+
+    (missing_definitions ++ comparison_errors)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp prohibited_terminal_identities(inventory) do
+    [
+      {"view", inventory.views},
+      {"materialized view", inventory.materialized_views},
+      {"routine", inventory.routines},
+      {"trigger", reject_framework_triggers(inventory.triggers)},
+      {"RLS policy", inventory.policies},
+      {"grant", inventory.grants},
+      {"extension", MapSet.difference(inventory.extensions, @allowed_extensions)}
+    ]
+    |> Enum.flat_map(fn {class, identities} ->
+      Enum.map(identities, &{class, &1})
     end)
+    |> MapSet.new()
+  end
+
+  defp allowed_terminal_object?("extension", identity),
+    do: MapSet.member?(@allowed_extensions, identity)
+
+  defp allowed_terminal_object?("trigger", identity) do
+    identity
+    |> String.split(" ON ", parts: 2)
+    |> List.last()
+    |> then(&framework_owned?(:table, &1))
+  end
+
+  defp allowed_terminal_object?(_class, _identity), do: false
+
+  defp approved_terminal_objects do
+    @approved_exceptions_path
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.fetch!("exceptions")
+    |> Enum.flat_map(&Map.get(&1, "terminal_objects", []))
+  end
+
+  defp normalize_terminal_approval!(%{
+         "class" => class,
+         "identity" => identity,
+         "fingerprint" => fingerprint
+       })
+       when is_binary(class) and class != "" and is_binary(identity) and identity != "" and
+              is_binary(fingerprint) and fingerprint != "",
+       do: {class, identity, fingerprint}
+
+  defp normalize_terminal_approval!({class, identity, fingerprint})
+       when is_binary(class) and is_binary(identity) and is_binary(fingerprint),
+       do: {class, identity, fingerprint}
+
+  defp normalize_terminal_approval!(approval) do
+    raise ArgumentError, "invalid approved terminal database object: #{inspect(approval)}"
+  end
+
+  defp terminal_objects(dump) do
+    dump
+    |> sql_statements()
+    |> Enum.flat_map(fn statement ->
+      case terminal_object_identity(statement) do
+        nil -> []
+        {class, identity} -> [{class, identity, fingerprint_statement(statement)}]
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp terminal_object_identity(statement) do
+    cond do
+      identity = capture(statement, ~r/^CREATE MATERIALIZED VIEW (?<identity>\S+) AS/s) ->
+        {"materialized view", normalize_identity(identity)}
+
+      identity = capture(statement, ~r/^CREATE VIEW (?<identity>\S+) AS/s) ->
+        {"view", normalize_identity(identity)}
+
+      identity = routine_identity(statement) ->
+        {"routine", identity}
+
+      trigger = capture(statement, ~r/^CREATE TRIGGER (?<name>\S+) .* ON (?<table>\S+)/s) ->
+        {"trigger", normalize_trigger(trigger, statement)}
+
+      policy = capture(statement, ~r/^CREATE POLICY (?<name>\S+) ON (?<table>\S+)/s) ->
+        {"RLS policy", normalize_policy(policy, statement)}
+
+      extension =
+          capture(statement, ~r/^CREATE EXTENSION IF NOT EXISTS (?<name>\S+)/s) ->
+        {"extension", trim_identifier(extension)}
+
+      grant = grant_identity(statement) ->
+        {"grant", grant}
+
+      true ->
+        nil
+    end
+  end
+
+  defp fingerprint_statement(statement) do
+    "sha256:" <>
+      Base.encode16(:crypto.hash(:sha256, String.trim(statement)), case: :lower)
+  end
+
+  defp routine_identity(statement) do
+    case Regex.named_captures(
+           ~r/^CREATE (?:OR REPLACE )?(?:FUNCTION|PROCEDURE) (?<name>[^\s\(]+)\((?<arguments>[^\n]*)\)/s,
+           String.trim(statement)
+         ) do
+      %{"name" => name, "arguments" => arguments} ->
+        arguments = arguments |> String.trim() |> String.replace(~r/\s+/, " ")
+        "#{normalize_identity(name)}(#{arguments})"
+
+      nil ->
+        nil
+    end
+  end
+
+  defp grant_identity(statement) do
+    case Regex.named_captures(
+           ~r/^GRANT (?<privileges>.+?) ON (?<object_type>.+?) (?<identity>\S+) TO (?<grantee>.+);$/s,
+           String.trim(statement)
+         ) do
+      %{
+        "privileges" => privileges,
+        "object_type" => object_type,
+        "identity" => identity,
+        "grantee" => grantee
+      } ->
+        "#{String.trim(privileges)} ON #{String.trim(object_type)} #{normalize_identity(identity)} TO #{String.trim(grantee)}"
+
+      nil ->
+        nil
+    end
+  end
+
+  defp sql_statements(dump), do: split_sql(dump, :plain, [], [])
+
+  defp split_sql(<<>>, _state, current, statements) do
+    statements
+    |> finish_statement(current)
+    |> Enum.reverse()
+  end
+
+  defp split_sql(<<"--", rest::binary>>, :plain, current, statements),
+    do: split_sql(rest, :line_comment, current, statements)
+
+  defp split_sql(<<"/*", rest::binary>>, :plain, current, statements),
+    do: split_sql(rest, :block_comment, current, statements)
+
+  defp split_sql(<<"'", rest::binary>>, :plain, current, statements),
+    do: split_sql(rest, :single_quote, ["'" | current], statements)
+
+  defp split_sql(<<"\"", rest::binary>>, :plain, current, statements),
+    do: split_sql(rest, :double_quote, ["\"" | current], statements)
+
+  defp split_sql(<<"$", _rest::binary>> = input, :plain, current, statements) do
+    case Regex.run(~r/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/, input) do
+      [delimiter] ->
+        <<^delimiter::binary, rest::binary>> = input
+        split_sql(rest, {:dollar_quote, delimiter}, [delimiter | current], statements)
+
+      nil ->
+        <<character::utf8, rest::binary>> = input
+        split_sql(rest, :plain, [<<character::utf8>> | current], statements)
+    end
+  end
+
+  defp split_sql(<<";", rest::binary>>, :plain, current, statements) do
+    statements = finish_statement(statements, [";" | current])
+    split_sql(rest, :plain, [], statements)
+  end
+
+  defp split_sql(<<"''", rest::binary>>, :single_quote, current, statements),
+    do: split_sql(rest, :single_quote, ["''" | current], statements)
+
+  defp split_sql(<<"'", rest::binary>>, :single_quote, current, statements),
+    do: split_sql(rest, :plain, ["'" | current], statements)
+
+  defp split_sql(<<"\"\"", rest::binary>>, :double_quote, current, statements),
+    do: split_sql(rest, :double_quote, ["\"\"" | current], statements)
+
+  defp split_sql(<<"\"", rest::binary>>, :double_quote, current, statements),
+    do: split_sql(rest, :plain, ["\"" | current], statements)
+
+  defp split_sql(<<"\n", rest::binary>>, :line_comment, current, statements),
+    do: split_sql(rest, :plain, ["\n" | current], statements)
+
+  defp split_sql(<<_character::utf8, rest::binary>>, :line_comment, current, statements),
+    do: split_sql(rest, :line_comment, current, statements)
+
+  defp split_sql(<<"*/", rest::binary>>, :block_comment, current, statements),
+    do: split_sql(rest, :plain, [" " | current], statements)
+
+  defp split_sql(<<_character::utf8, rest::binary>>, :block_comment, current, statements),
+    do: split_sql(rest, :block_comment, current, statements)
+
+  defp split_sql(input, {:dollar_quote, delimiter} = state, current, statements) do
+    if String.starts_with?(input, delimiter) do
+      rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
+      split_sql(rest, :plain, [delimiter | current], statements)
+    else
+      <<character::utf8, rest::binary>> = input
+      split_sql(rest, state, [<<character::utf8>> | current], statements)
+    end
+  end
+
+  defp split_sql(<<character::utf8, rest::binary>>, state, current, statements),
+    do: split_sql(rest, state, [<<character::utf8>> | current], statements)
+
+  defp finish_statement(statements, current) do
+    statement = current |> Enum.reverse() |> IO.iodata_to_binary() |> String.trim()
+    if statement == "", do: statements, else: [statement | statements]
   end
 
   defp dump_terminal_inventory! do
@@ -269,11 +535,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp parse_dump_line(line, {inventory, current_table}) do
     cond do
-      table = capture(line, ~r/^CREATE TABLE (?<identity>\S+) \($/) ->
+      table = capture(line, ~r/^CREATE (?:FOREIGN )?TABLE (?<identity>\S+) \($/) ->
         table = normalize_identity(table)
         {Map.update!(inventory, :tables, &MapSet.put(&1, table)), {:create_table, table}}
 
-      match?({:create_table, _table}, current_table) && String.starts_with?(line, ");") ->
+      match?({:create_table, _table}, current_table) &&
+          String.starts_with?(String.trim_leading(line), ")") ->
         {inventory, nil}
 
       match?({:create_table, _table}, current_table) ->
@@ -301,10 +568,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         {Map.update!(inventory, :materialized_views, &MapSet.put(&1, normalize_identity(view))),
          current_table}
 
-      routine =
-          capture(line, ~r/^CREATE (?:OR REPLACE )?(?:FUNCTION|PROCEDURE) (?<identity>[^\(]+)\(/) ->
-        {Map.update!(inventory, :routines, &MapSet.put(&1, normalize_identity(routine))),
-         current_table}
+      routine = routine_identity(line) ->
+        {Map.update!(inventory, :routines, &MapSet.put(&1, routine)), current_table}
 
       trigger = capture(line, ~r/^CREATE TRIGGER (?<name>\S+) .* ON (?<table>\S+)/) ->
         {Map.update!(inventory, :triggers, &MapSet.put(&1, normalize_trigger(trigger, line))),
@@ -318,9 +583,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         {Map.update!(inventory, :extensions, &MapSet.put(&1, trim_identifier(extension))),
          current_table}
 
-      grant = capture(line, ~r/^GRANT .+ ON .+ (?<identity>\S+) TO /) ->
-        {Map.update!(inventory, :grants, &MapSet.put(&1, normalize_identity(grant))),
-         current_table}
+      grant = grant_identity(line) ->
+        {Map.update!(inventory, :grants, &MapSet.put(&1, grant)), current_table}
 
       index = parse_index(line) ->
         {Map.update!(inventory, :indexes, &MapSet.put(&1, index)), current_table}
@@ -1150,9 +1414,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       AshPostgres.DataLayer.Info.migrate?(resource)
   end
 
-  defp reject_framework_objects(objects) do
+  defp reject_framework_objects(objects, class) do
     objects
-    |> Enum.reject(&framework_owned?/1)
+    |> Enum.reject(&framework_owned?(class, &1))
     |> MapSet.new()
   end
 
@@ -1162,17 +1426,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       trigger
       |> String.split(" ON ", parts: 2)
       |> List.last()
-      |> framework_owned?()
+      |> then(&framework_owned?(:table, &1))
     end)
     |> MapSet.new()
   end
 
-  defp framework_owned?(identity) when is_binary(identity) do
-    MapSet.member?(@framework_tables, identity) or
-      Enum.any?(@framework_prefixes, &String.starts_with?(identity, &1))
-  end
+  defp framework_owned?(class, identity) when is_binary(identity),
+    do: MapSet.member?(Map.get(@framework_objects, class, MapSet.new()), identity)
 
-  defp framework_owned?(_identity), do: false
+  defp framework_owned?(_class, _identity), do: false
 
   defp resource_table_identity(resource) do
     schema_table_identity(

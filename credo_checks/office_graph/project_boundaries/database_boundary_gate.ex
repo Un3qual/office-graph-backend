@@ -12,9 +12,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "retirement_condition",
     "verification"
   ]
+  @terminal_object_classes [
+    "extension",
+    "grant",
+    "materialized view",
+    "RLS policy",
+    "routine",
+    "trigger",
+    "view"
+  ]
   @required_string_fields ["class", "construct", "fingerprint", "path"] ++
                             @approved_metadata_fields
-  @approval_evidence_fields @locator_fields ++ ["fingerprint"] ++ @approved_metadata_fields
+  @approval_evidence_fields @locator_fields ++
+                              ["fingerprint", "terminal_objects"] ++ @approved_metadata_fields
   @approval_evidence_file "database-exception-approvals.json"
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
@@ -391,11 +401,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
           []
       end
 
+    invalid_terminal_objects =
+      case Map.get(entry, "terminal_objects") do
+        nil ->
+          []
+
+        terminal_objects when is_list(terminal_objects) ->
+          if Enum.all?(terminal_objects, &valid_terminal_object?/1),
+            do: [],
+            else: ["terminal_objects"]
+
+        _terminal_objects ->
+          ["terminal_objects"]
+      end
+
     (invalid_strings ++
-       invalid_function ++ invalid_line ++ invalid_ordinal ++ invalid_approving_change)
+       invalid_function ++
+       invalid_line ++
+       invalid_ordinal ++ invalid_approving_change ++ invalid_terminal_objects)
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  defp valid_terminal_object?(%{
+         "class" => class,
+         "identity" => identity,
+         "fingerprint" => "sha256:" <> hash
+       }) do
+    class in @terminal_object_classes and is_binary(identity) and identity != "" and
+      Regex.match?(~r/\A[0-9a-f]{64}\z/, hash)
+  end
+
+  defp valid_terminal_object?(_terminal_object), do: false
 
   defp valid_locator?(entry) do
     is_binary(entry["path"]) and entry["path"] != "" and
