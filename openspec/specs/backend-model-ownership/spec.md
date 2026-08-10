@@ -66,15 +66,18 @@ Office Graph SHALL avoid parallel model definitions for the same durable table.
 ### Requirement: Direct Ecto Exception Control
 
 Office Graph SHALL treat direct Ecto outside Ash-managed domain actions as
-unapproved removal debt unless an accepted OpenSpec change documents the exact
-missing Ash capability and bounded typed-Ecto exception. Repository-authored
-raw SQL is prohibited unless the user explicitly approves the exact occurrence
-in an accepted OpenSpec change.
+prohibited unless an accepted OpenSpec change documents the exact missing Ash
+capability and bounded typed-Ecto exception. Repository-authored raw SQL is
+prohibited unless the user explicitly approves the exact occurrence in an
+accepted OpenSpec change.
 
-#### Scenario: Existing direct database access remains
+#### Scenario: Current direct database access is scanned
 
-- **WHEN** a current direct-Ecto or raw-SQL occurrence has not received exact approval under the new boundary
-- **THEN** it MUST appear only in the machine-readable removal-debt inventory with an owner and remediation change
+- **WHEN** canonical verification finds a current direct-Ecto or raw-SQL
+  occurrence
+- **THEN** the occurrence MUST exactly match an approved-exception entry with
+  its fingerprint, owner, reason, verification, and retirement condition or
+  verification MUST fail
 
 #### Scenario: A normal mutation is implemented
 
@@ -84,13 +87,15 @@ in an accepted OpenSpec change.
 ### Requirement: Architecture Gate Covers Model Ownership
 
 The backend verification gate SHALL fail when implementation, model ownership,
-the database-access debt inventory, or the exact approved-exception inventory
-diverge.
+or the exact approved-exception inventory diverge.
 
 #### Scenario: Backend verification runs
 
 - **WHEN** canonical project verification runs
-- **THEN** it MUST verify table inventory, Ash domain and resource registration, absence of duplicate table-backed Ecto schemas, planned resource coverage, and exact non-growth of database-access debt
+- **THEN** it MUST verify table inventory, Ash domain and resource registration,
+  absence of duplicate table-backed Ecto schemas, planned resource coverage,
+  and an exact bidirectional match between current database-access occurrences
+  and approved exceptions
 
 #### Scenario: Migration lifecycle uses qualified Ecto calls
 
@@ -178,10 +183,20 @@ diverge.
 
 - **WHEN** a forward migration invokes an `Ecto.Migration` table lifecycle
   operation through a statically resolvable `Kernel.apply/3` or
-  `:erlang.apply/3` call
+  `:erlang.apply/3` call, including when the receiver or exported operation
+  name comes from a sequentially resolved local binding
 - **THEN** canonical model-ownership verification MUST normalize and inventory
   that lifecycle exactly as the equivalent direct call while leaving a matching
   shadowed local `apply/3` under ordinary local-function semantics
+
+#### Scenario: Guarded migration entrypoint selects a lifecycle clause
+
+- **WHEN** a public zero-arity `up` or `change` entrypoint has multiple clauses
+  with guards
+- **THEN** canonical model-ownership verification MUST inventory only the first
+  statically matching clause and MUST fail closed when an earlier guard cannot
+  be resolved statically or no entrypoint clause matches, instead of treating
+  every clause body or a lower-precedence `change/0` entrypoint as definite
 
 #### Scenario: Ownership DDL is loaded from a migration file
 
@@ -202,25 +217,28 @@ diverge.
 #### Scenario: Migration delegates lifecycle work to a repository helper
 
 - **WHEN** a forward migration invokes an imported, aliased, or fully
-  qualified repository-authored helper whose lifecycle effects cannot be
-  inventoried from the migration module
+  qualified repository-authored helper, including a sibling module defined in
+  the same migration file, whose lifecycle effects cannot be inventoried from
+  the recognized migration module
 - **THEN** canonical model-ownership verification MUST fail closed and require
   the declarative lifecycle constructs to remain visible to the migration
   inventory, while leaving dependency-owned migration entrypoints outside this
   repository-helper rule
 
-### Requirement: Exception Ledger Is A Burn-Down Contract
+### Requirement: Exception Ledger Is An Exact Contract
 
-Office Graph SHALL distinguish unapproved database-access removal debt from
-accepted non-SQL architecture exceptions and explicitly approved raw-SQL
-occurrences.
+Office Graph SHALL distinguish exact approved database-access occurrences from
+accepted non-SQL architecture exceptions.
 
-#### Scenario: Existing database debt is touched
+#### Scenario: Approved database occurrence is touched
 
-- **WHEN** code covered by a database-access debt entry is moved, rewritten, broadened, or removed
-- **THEN** verification MUST reject the stale or changed fingerprint until the same change removes or updates the debt through its owning remediation
+- **WHEN** code covered by an exact approved exception is moved, rewritten,
+  broadened, or removed
+- **THEN** verification MUST reject the stale or changed fingerprint until the
+  occurrence is removed or receives a new exact approval through an accepted
+  OpenSpec change
 
-#### Scenario: Database debt is retired
+#### Scenario: Direct database access is retired
 
 - **WHEN** a direct database, raw SQL, broad `authorize?: false`, or manual transaction path is replaced
 - **THEN** tests MUST prove the replacement preserves or strengthens authorization, idempotency, concurrency, operation correlation, audit and revision behavior, and partial-commit safety

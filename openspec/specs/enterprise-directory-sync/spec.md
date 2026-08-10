@@ -199,8 +199,9 @@ provisioning policy.
 
 Office Graph SHALL restore a retained directory identity after a newer active
 event only when the provider tenant, provider subject, provider identity,
-verified email, linked principal, and lifecycle state still identify the same
-accepted basis.
+verified email, and linked principal still identify the same accepted basis,
+and the retained link is disabled only because of the matching deprovisioning
+event that the newer active event supersedes.
 
 #### Scenario: Exact directory-created identity is reprovisioned
 
@@ -214,7 +215,8 @@ accepted basis.
 
 - **WHEN** a newer active event changes the provider tenant, provider subject,
   provider identity, verified email, retained principal, or conflicts with
-  another email-linked identity
+  another email-linked identity, or the retained lifecycle history does not
+  prove the matching disabled-to-active transition
 - **THEN** Office Graph MUST retain deterministic review-required behavior and
   MUST NOT reactivate the retained principal or disabled link
 

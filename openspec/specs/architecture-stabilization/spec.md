@@ -66,10 +66,13 @@ OpenSpec documentation.
 - **WHEN** implementation proposes a SQL query, fragment, unsafe fragment, migration execution, SQL-bearing DDL option, or tracked SQL file
 - **THEN** the exact occurrence MUST receive explicit user approval in an accepted OpenSpec change before implementation
 
-#### Scenario: Existing database debt remains
+#### Scenario: Unapproved database access remains
 
-- **WHEN** an existing raw-SQL or direct-Ecto occurrence has not yet been removed
-- **THEN** it MUST remain in the temporary debt inventory with an owning remediation change and MUST NOT be represented as an approved exception
+- **WHEN** a current raw-SQL or direct-Ecto occurrence does not exactly match an
+  approved exception
+- **THEN** verification MUST fail until the occurrence is removed or receives
+  the required exact approval through an accepted OpenSpec change, without
+  consulting or rewriting a temporary debt inventory
 
 #### Scenario: Non-SQL architecture exception is required
 

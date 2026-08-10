@@ -50,7 +50,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update_all
   ]
   @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
-  @ecto_sql_direct_operations [:checkout, :explain]
+  @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
   @ecto_migrator_operations [
     :down,
     :migrated_versions,

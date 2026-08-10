@@ -771,7 +771,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "audits dynamic-repo and repository connection-control operations" do
+  test "audits adapter and repository connection-control operations" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{
@@ -781,6 +781,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def select(repo), do: OfficeGraph.Repo.put_dynamic_repo(repo)
             def current, do: OfficeGraph.Repo.get_dynamic_repo()
             def disconnect, do: OfficeGraph.Repo.disconnect_all(1_000)
+            def disconnect_adapter, do: Ecto.Adapters.SQL.disconnect_all(OfficeGraph.Repo, 1_000)
           end
           """
         }
@@ -789,7 +790,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
              {:direct_ecto, "Repo.put_dynamic_repo", "select/1"},
              {:direct_ecto, "Repo.get_dynamic_repo", "current/0"},
-             {:direct_ecto, "Repo.disconnect_all", "disconnect/0"}
+             {:direct_ecto, "Repo.disconnect_all", "disconnect/0"},
+             {:direct_ecto, "Ecto.Adapters.SQL.disconnect_all", "disconnect_adapter/0"}
            ]
   end
 

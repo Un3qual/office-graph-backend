@@ -256,6 +256,18 @@ defmodule OfficeGraph.Architecture.AshApiLedgerConformanceTest do
            ]
   end
 
+  test "dataloader resolver conformance recognizes field options before a trailing block" do
+    source = """
+    defmodule ExampleSchema do
+      field :direct_with_block, :user, resolve: dataloader(Example.Source) do
+        description "A direct resolver with additional field metadata"
+      end
+    end
+    """
+
+    assert dataloader_resolver_violations("lib/example_schema.ex", source) == []
+  end
+
   test "dataloader resolver conformance recognizes the fully qualified helper" do
     source = """
     defmodule ExampleSchema do

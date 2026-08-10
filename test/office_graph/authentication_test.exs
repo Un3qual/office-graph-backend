@@ -507,6 +507,22 @@ defmodule OfficeGraph.AuthenticationTest do
       assert completed.session.authentication_method == "local_development"
       assert completed.session.purpose == "human_web"
 
+      assert completed.session_context.authentication_basis == %{
+               provider:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.provider,
+               provider_tenant:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.provider_tenant,
+               subject:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.subject,
+               verified_email:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.verified_email,
+               principal_email: seeded.fixtures["workspace_admin"].identity.principal.email,
+               principal_kind: "human",
+               principal_status: "active",
+               link_status: "active",
+               linking_state: "linked"
+             }
+
       assert {:ok, resolved} =
                Authentication.resolve_session(completed.session.id,
                  trace_id: "local-resolve",
