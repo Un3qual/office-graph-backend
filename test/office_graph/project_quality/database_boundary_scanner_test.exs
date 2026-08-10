@@ -3394,6 +3394,109 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 4
   end
 
+  test "fails closed when a database receiver enters a callback-bearing Map operation" do
+    callback_calls = [
+      ~s|Map.filter(%{repo: OfficeGraph.Repo}, fn {_key, repo} -> repo end)|,
+      ~s|Map.get_and_update(%{repo: OfficeGraph.Repo}, :repo, fn repo -> {repo, repo} end)|,
+      ~s|Map.get_and_update!(Map.put(%{}, :repo, OfficeGraph.Repo), :repo, fn repo -> {repo.query!("SELECT 1", []), repo} end)|,
+      ~s|Map.intersect(%{repo: OfficeGraph.Repo}, %{repo: Example.Cache}, fn _key, repo, _other -> repo end)|,
+      ~s|Map.map(%{repo: OfficeGraph.Repo}, fn {_key, repo} -> repo end)|,
+      ~s|Map.merge(%{repo: OfficeGraph.Repo}, %{repo: Example.Cache}, fn _key, repo, _other -> repo end)|,
+      ~s|Map.new([repo: OfficeGraph.Repo], fn entry -> entry end)|,
+      ~s|Map.reject(%{repo: OfficeGraph.Repo}, fn {_key, repo} -> repo end)|,
+      ~s|Map.replace_lazy(%{repo: OfficeGraph.Repo}, :repo, fn repo -> repo end)|,
+      ~s|Map.split_with(%{repo: OfficeGraph.Repo}, fn {_key, repo} -> repo end)|,
+      ~s|Map.update(%{repo: OfficeGraph.Repo}, :repo, :default, fn repo -> repo end)|,
+      ~s|Map.update!(%{repo: OfficeGraph.Repo}, :repo, fn repo -> repo end)|
+    ]
+
+    Enum.each(callback_calls, fn callback_call ->
+      [occurrence] =
+        DatabaseBoundaryScanner.scan_sources([
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule Example do
+              def load do
+                #{callback_call}
+              end
+            end
+            """
+          }
+        ])
+
+      assert occurrence.class == :raw_sql
+      assert occurrence.construct == "database_receiver.nonlocal_control_flow"
+      assert occurrence.approval == :unresolved_sql
+      assert occurrence.function == "load/0"
+      assert occurrence.line == 3
+    end)
+  end
+
+  test "fails closed for imported callback-bearing Map operations" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            import Map, only: [get_and_update!: 3]
+
+            def load do
+              get_and_update!(%{repo: OfficeGraph.Repo}, :repo, fn repo -> {repo, repo} end)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "database_receiver.nonlocal_control_flow"
+    assert occurrence.approval == :unresolved_sql
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 5
+  end
+
+  test "scans executable expressions in both positions of two-element tuples" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              (fn repo -> {repo.query!("SELECT 1", []), repo} end).(OfficeGraph.Repo)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+  end
+
+  test "does not apply Map callback semantics to an unrelated receiver" do
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "lib/example.ex",
+               source: """
+               defmodule Example do
+                 alias Example.Map
+
+                 def load do
+                   Map.get_and_update!(%{repo: OfficeGraph.Repo}, :repo, fn repo ->
+                     {repo.query!("SELECT 1", []), repo}
+                   end)
+                 end
+               end
+               """
+             }
+           ]) == []
+  end
+
   test "binds statically failed with values into else clauses" do
     [":error", "repo when false"]
     |> Enum.each(fn generator_pattern ->

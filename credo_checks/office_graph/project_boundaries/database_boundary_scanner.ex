@@ -211,6 +211,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "ets" => @ets_receiver_storage_payload_indexes,
     "persistent_term" => %{put: [1]}
   }
+  @map_database_receiver_callback_input_indexes %{
+    {:filter, 2} => [0],
+    {:get_and_update, 3} => [0],
+    {:get_and_update!, 3} => [0],
+    {:intersect, 3} => [0, 1],
+    {:map, 2} => [0],
+    {:merge, 3} => [0, 1],
+    {:new, 2} => [0],
+    {:reject, 2} => [0],
+    {:replace_lazy, 3} => [0],
+    {:split_with, 2} => [0],
+    {:update, 4} => [0],
+    {:update!, 3} => [0]
+  }
 
   @enum_unary_element_callback_operations [
     :all?,
@@ -3231,10 +3245,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_isolated_children(arguments, environment, context, occurrences)
   end
 
-  defp scan_children({_key, value}, environment, context, occurrences) do
-    {_child_environment, occurrences} = scan_node(value, environment, context, occurrences)
-    {environment, occurrences}
-  end
+  defp scan_children({left, right}, environment, context, occurrences),
+    do: scan_isolated_children([left, right], environment, context, occurrences)
 
   defp scan_children(values, environment, context, occurrences) when is_list(values) do
     scan_isolated_children(values, environment, context, occurrences)
@@ -3313,10 +3325,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     storage_classification =
       classify_database_receiver_storage(receiver, operation, arguments, environment)
 
+    map_callback_classification =
+      classify_map_database_receiver_callback(receiver, operation, arguments, environment)
+
     resolved_receiver = resolve_database_receiver_expression(receiver, environment)
     receiver = database_receiver_name(resolved_receiver, migration?, environment)
 
     storage_classification ||
+      map_callback_classification ||
       classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation) ||
       classify_unresolved_database_receiver(resolved_receiver, operation, environment) ||
@@ -3371,7 +3387,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_atom(operation) and is_list(arguments) do
     receiver = imported_receiver(environment, operation, length(arguments))
 
-    classify_migration_operation(receiver, operation) ||
+    classify_map_database_receiver_callback(receiver, operation, arguments, environment) ||
+      classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation)
   end
 
@@ -3522,6 +3539,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _unrecognized_or_unrelated_storage -> nil
     end
   end
+
+  defp classify_map_database_receiver_callback(receiver, operation, arguments, environment) do
+    with "Map" <- map_callback_receiver_name(receiver, environment),
+         input_indexes when is_list(input_indexes) <-
+           Map.get(
+             @map_database_receiver_callback_input_indexes,
+             {operation, length(arguments)}
+           ),
+         true <- storage_contains_database_receiver?(input_indexes, arguments, environment) do
+      {:raw_sql, "database_receiver.nonlocal_control_flow"}
+    else
+      _unrelated_or_safe_callback -> nil
+    end
+  end
+
+  defp map_callback_receiver_name(receiver, environment) when is_binary(receiver),
+    do: resolve_receiver(receiver, environment)
+
+  defp map_callback_receiver_name(receiver, environment),
+    do: receiver |> receiver_name() |> resolve_receiver(environment)
 
   defp storage_contains_database_receiver?(payload_indexes, arguments, environment) do
     Enum.any?(payload_indexes, fn index ->

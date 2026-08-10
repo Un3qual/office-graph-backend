@@ -153,6 +153,24 @@ binary literals or documentation text.
   NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
   an unrelated local, imported, or qualified function
 
+#### Scenario: Static Map callback receives a database receiver
+
+- **WHEN** an entry, key, or conflict callback-bearing `Map` operation is called
+  through a fully qualified, aliased, or imported receiver and receives an input
+  that is statically known to contain a repository receiver, including through
+  a compound input expression
+- **THEN** the scanner MUST fail closed at the `Map` call as nonlocal control
+  flow before the callback can consume the receiver, and MUST NOT apply this
+  rule when the local, imported, or qualified receiver resolves to an unrelated
+  function or module
+
+#### Scenario: Tuple callback result contains an executable expression
+
+- **WHEN** a statically invoked callback returns a two-element tuple whose
+  first or second position contains a database operation
+- **THEN** the scanner MUST inspect both tuple positions and classify the
+  operation before fingerprinting the occurrence
+
 #### Scenario: Static List fold receives a database receiver
 
 - **WHEN** `List.foldl/3` or `List.foldr/3`, including through an explicit
