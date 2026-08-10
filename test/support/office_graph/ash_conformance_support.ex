@@ -993,10 +993,9 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   @spec dataloader_resolver_violations(Path.t(), String.t()) :: [String.t()]
   def dataloader_resolver_violations(path, source) do
     ast = Code.string_to_quoted!(source, file: path, columns: true)
-    direct_locations = direct_dataloader_resolver_locations(ast)
+    {locations, direct_locations} = dataloader_resolver_locations(ast)
 
-    ast
-    |> dataloader_call_locations()
+    locations
     |> Enum.reject(&MapSet.member?(direct_locations, &1))
     |> Enum.sort()
     |> Enum.map(fn {line, column} ->
@@ -1004,51 +1003,167 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     end)
   end
 
-  defp direct_dataloader_resolver_locations(ast) do
-    {_ast, locations} =
-      Macro.prewalk(ast, MapSet.new(), fn
-        {:field, _metadata, arguments} = node, locations when is_list(arguments) ->
-          location =
-            arguments
-            |> List.last()
-            |> case do
-              options when is_list(options) ->
-                if Keyword.keyword?(options) do
-                  options
-                  |> Keyword.get(:resolve)
-                  |> dataloader_call_location()
-                end
+  defp dataloader_resolver_locations(ast) do
+    {_aliases, locations, direct_locations} =
+      walk_dataloader_resolvers(ast, %{}, [], MapSet.new())
 
-              _not_options ->
-                nil
-            end
-
-          locations = if location, do: MapSet.put(locations, location), else: locations
-          {node, locations}
-
-        node, locations ->
-          {node, locations}
-      end)
-
-    locations
+    {Enum.reverse(locations), direct_locations}
   end
 
-  defp dataloader_call_locations(ast) do
-    {_ast, locations} =
-      Macro.prewalk(ast, [], fn node, locations ->
-        case dataloader_call_location(node) do
-          nil -> {node, locations}
-          location -> {node, [location | locations]}
+  defp walk_dataloader_resolvers(
+         {:__block__, _metadata, expressions},
+         aliases,
+         locations,
+         direct_locations
+       )
+       when is_list(expressions) do
+    Enum.reduce(expressions, {aliases, locations, direct_locations}, fn expression,
+                                                                        {aliases, locations,
+                                                                         direct_locations} ->
+      walk_dataloader_resolvers(expression, aliases, locations, direct_locations)
+    end)
+  end
+
+  defp walk_dataloader_resolvers(
+         {:alias, _metadata, arguments},
+         aliases,
+         locations,
+         direct_locations
+       )
+       when is_list(arguments) do
+    {put_dataloader_alias(aliases, arguments), locations, direct_locations}
+  end
+
+  defp walk_dataloader_resolvers(nodes, aliases, locations, direct_locations)
+       when is_list(nodes) do
+    Enum.reduce(nodes, {aliases, locations, direct_locations}, fn node,
+                                                                  {aliases, locations,
+                                                                   direct_locations} ->
+      walk_dataloader_resolvers(node, aliases, locations, direct_locations)
+    end)
+  end
+
+  defp walk_dataloader_resolvers(node, aliases, locations, direct_locations)
+       when is_tuple(node) do
+    locations =
+      case dataloader_call_location(node, aliases) do
+        nil -> locations
+        location -> [location | locations]
+      end
+
+    direct_locations =
+      case direct_dataloader_resolver_location(node, aliases) do
+        nil -> direct_locations
+        location -> MapSet.put(direct_locations, location)
+      end
+
+    {_child_aliases, locations, direct_locations} =
+      node
+      |> Tuple.to_list()
+      |> Enum.reduce({aliases, locations, direct_locations}, fn child,
+                                                                {_child_aliases, locations,
+                                                                 direct_locations} ->
+        {_scoped_aliases, locations, direct_locations} =
+          walk_dataloader_resolvers(child, aliases, locations, direct_locations)
+
+        {aliases, locations, direct_locations}
+      end)
+
+    {aliases, locations, direct_locations}
+  end
+
+  defp walk_dataloader_resolvers(_node, aliases, locations, direct_locations),
+    do: {aliases, locations, direct_locations}
+
+  defp direct_dataloader_resolver_location({:field, _metadata, arguments}, aliases)
+       when is_list(arguments) do
+    case List.last(arguments) do
+      options when is_list(options) ->
+        if Keyword.keyword?(options) do
+          options
+          |> Keyword.get(:resolve)
+          |> dataloader_call_location(aliases)
         end
-      end)
 
-    Enum.reverse(locations)
+      _not_options ->
+        nil
+    end
   end
 
-  defp dataloader_call_location({:dataloader, metadata, arguments}) when is_list(arguments),
-    do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+  defp direct_dataloader_resolver_location(_node, _aliases), do: nil
 
-  defp dataloader_call_location(_node), do: nil
+  defp dataloader_call_location({:dataloader, metadata, arguments}, _aliases)
+       when is_list(arguments),
+       do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+
+  defp dataloader_call_location(
+         {{:., _dot_metadata, [{:__aliases__, _alias_metadata, receiver_parts}, :dataloader]},
+          metadata, arguments},
+         aliases
+       )
+       when is_list(receiver_parts) and is_list(arguments) do
+    if resolve_dataloader_alias(Enum.join(receiver_parts, "."), aliases) ==
+         "Absinthe.Resolution.Helpers",
+       do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+  end
+
+  defp dataloader_call_location(_node, _aliases), do: nil
+
+  defp put_dataloader_alias(aliases, [target | options]) do
+    options = if is_list(options), do: List.first(options, []), else: []
+
+    Enum.reduce(dataloader_alias_target_names(target), aliases, fn target_name, aliases ->
+      resolved_target = resolve_dataloader_alias(target_name, aliases)
+
+      alias_name =
+        case Keyword.get(options, :as) do
+          nil -> target_name |> String.split(".") |> List.last()
+          explicit_alias -> dataloader_module_name(explicit_alias)
+        end
+
+      if is_binary(alias_name),
+        do: Map.put(aliases, alias_name, resolved_target),
+        else: aliases
+    end)
+  end
+
+  defp put_dataloader_alias(aliases, _arguments), do: aliases
+
+  defp dataloader_alias_target_names({{:., _dot_metadata, [prefix, :{}]}, _metadata, suffixes})
+       when is_list(suffixes) do
+    case dataloader_module_name(prefix) do
+      nil ->
+        []
+
+      prefix_name ->
+        Enum.flat_map(suffixes, fn suffix ->
+          case dataloader_module_name(suffix) do
+            nil -> []
+            suffix_name -> ["#{prefix_name}.#{suffix_name}"]
+          end
+        end)
+    end
+  end
+
+  defp dataloader_alias_target_names(target) do
+    case dataloader_module_name(target) do
+      nil -> []
+      target_name -> [target_name]
+    end
+  end
+
+  defp dataloader_module_name({:__aliases__, _metadata, parts}) do
+    if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
+  end
+
+  defp dataloader_module_name(_target), do: nil
+
+  defp resolve_dataloader_alias(target, aliases) do
+    case String.split(target, ".", parts: 2) do
+      [alias_name] -> Map.get(aliases, alias_name, target)
+      [alias_name, rest] -> "#{Map.get(aliases, alias_name, alias_name)}.#{rest}"
+    end
+  end
 
   def unmodeled_uuid_identifier_fields(expected_resources) do
     expected_resources
