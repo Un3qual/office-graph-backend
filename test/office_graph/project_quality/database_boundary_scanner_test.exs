@@ -698,8 +698,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     File.write!(source_path, source)
 
     assert {_output, 0} =
-             System.cmd("elixirc", ["-o", ebin, source_path],
-               stderr_to_stdout: true
-             )
+             System.cmd("elixirc", ["-o", ebin, source_path], stderr_to_stdout: true)
   end
 end
