@@ -2804,6 +2804,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "fails closed when a database receiver is sent to another process" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(pid) do
+              send(pid, OfficeGraph.Repo)
+              Kernel.send(Process.whereis(:worker), {:repository, OfficeGraph.Repo})
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 3, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 4, :unresolved_sql}
+           ]
+  end
+
   test "fails closed when an ordinary remote helper receives a database receiver" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -2846,6 +2876,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                """
              }
            ]) == []
+  end
+
+  test "fails closed when a tracked remote helper is a repository operation receiver" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load do
+              SqlTarget.repo().query!("DELETE FROM events", [])
+            end
+          end
+          """
+        },
+        %{
+          path: "lib/sql_target.ex",
+          source: """
+          defmodule SqlTarget do
+            def repo, do: OfficeGraph.Repo
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "database_receiver.remote_helper"
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 3
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "binds statically delivered self messages into receive clauses" do

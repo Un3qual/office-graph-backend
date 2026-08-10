@@ -3024,6 +3024,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_node(
+         {:send, _metadata, [target, message]},
+         _context,
+         environment
+       ) do
+    if kernel_local_call?(:send, 2, environment),
+      do: classify_nonself_database_receiver_send(target, message, environment)
+  end
+
+  defp classify_node(
+         {{:., _dot_metadata, [receiver, :send]}, _metadata, [target, message]},
+         _context,
+         environment
+       ) do
+    if kernel_module_receiver?(receiver, environment),
+      do: classify_nonself_database_receiver_send(target, message, environment)
+  end
+
+  defp classify_node(
          {operation, _metadata, [value]},
          _context,
          environment
@@ -3162,13 +3180,48 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_unresolved_database_receiver(receiver, operation, environment) do
-    if static_value_contains_database_receiver?(receiver, environment) do
-      cond do
-        operation in @repo_raw_sql_operations -> {:raw_sql, "Repo.#{operation}"}
-        direct_repo_operation?(operation) -> {:direct_ecto, "Repo.#{operation}"}
-        true -> nil
-      end
+    cond do
+      static_value_contains_database_receiver?(receiver, environment) ->
+        classify_repo_operation(operation)
+
+      tracked_remote_function_call?(receiver, environment) ->
+        classify_opaque_remote_receiver_operation(operation)
+
+      true ->
+        nil
     end
+  end
+
+  defp classify_repo_operation(operation) do
+    cond do
+      operation in @repo_raw_sql_operations -> {:raw_sql, "Repo.#{operation}"}
+      direct_repo_operation?(operation) -> {:direct_ecto, "Repo.#{operation}"}
+      true -> nil
+    end
+  end
+
+  defp classify_opaque_remote_receiver_operation(operation) do
+    if operation in @repo_raw_sql_operations or direct_repo_operation?(operation),
+      do: {:raw_sql, "database_receiver.remote_helper"}
+  end
+
+  defp tracked_remote_function_call?(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
+         environment
+       )
+       when is_atom(operation) and is_list(arguments) do
+    receiver = receiver |> receiver_name() |> resolve_receiver(environment)
+    MapSet.member?(environment.remote_functions, {receiver, operation, length(arguments)})
+  end
+
+  defp tracked_remote_function_call?(_receiver, _environment), do: false
+
+  defp classify_nonself_database_receiver_send(target, message, environment) do
+    resolved_target = resolve_static_expression(target, environment)
+
+    if not static_self_call?(resolved_target, environment) and
+         database_receiver_escape_argument?(message, environment),
+       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
   end
 
   defp direct_repo_operation?(operation),
