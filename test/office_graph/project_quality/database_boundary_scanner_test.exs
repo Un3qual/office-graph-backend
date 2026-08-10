@@ -122,6 +122,57 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.function == "load/0"
   end
 
+  test "keeps aliases in nested lexical scopes from replacing outer aliases" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "test/example_test.exs",
+          source: """
+          defmodule ExampleTest do
+            alias OfficeGraph.Repo
+
+            def load(enabled?) do
+              if enabled? do
+                alias Example.NotARepo, as: Repo
+                :ok
+              end
+
+              Repo.query!("SELECT 1", [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/1"
+  end
+
+  test "supports atom import modes while auditing database imports" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            import Ecto.Query, only: :macros
+            import Ecto.Adapters.SQL, only: :functions
+
+            def fragment_query, do: fragment("pg_sleep(1)")
+            def adapter_query, do: query(OfficeGraph.Repo, "SELECT 1", [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function}) == [
+             {"Ecto.Adapters.SQL.import", nil},
+             {"fragment", "fragment_query/0"},
+             {"Ecto.Adapters.SQL.query", "adapter_query/0"}
+           ]
+  end
+
   test "does not classify inert strings and comments" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{
@@ -248,6 +299,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "migration.constraint.check", "change/0"},
              {:raw_sql, "migration.index.where", "change/0"}
            ]
+  end
+
+  test "rejects a reversible migration when either SQL payload is dynamic" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_dynamic_rollback.exs",
+          source: """
+          defmodule DynamicRollback do
+            use Ecto.Migration
+
+            def change do
+              execute("CREATE TABLE examples (id uuid)", @rollback_sql)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "migration.execute"
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "rejects SQL fragments and lock clauses inside Ecto query DSL calls" do
@@ -491,6 +563,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       defmodule #{inspect(module)} do
         def dispatch_apply(target, sql), do: apply(target, :query, [sql])
         def dispatch_remote(target, sql), do: target.query(sql)
+        def persist(target, changeset), do: target.insert(changeset)
+        def transact(target, fun), do: target.transaction(fun)
       end
       """
     )
@@ -504,10 +578,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
     occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
 
-    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
-             {"variable_receiver.apply", :unresolved_sql},
-             {"variable_receiver.query", :unresolved_sql}
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.approval}) == [
+             {:raw_sql, "variable_receiver.apply", :unresolved_sql},
+             {:raw_sql, "variable_receiver.query", :unresolved_sql},
+             {:direct_ecto, "variable_receiver.insert", :unresolved_sql},
+             {:direct_ecto, "variable_receiver.transaction", :unresolved_sql}
            ]
+  end
+
+  test "compiled audit preserves duplicate occurrences on the same source line" do
+    root = temporary_root("compiled_boundary_multiplicity")
+    source_path = Path.join(root, "lib/compiled_boundary_multiplicity.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    module =
+      Module.concat(
+        OfficeGraph,
+        "CompiledBoundaryMultiplicity#{System.unique_integer([:positive])}"
+      )
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def load, do: (OfficeGraph.Repo.query!("SELECT 1", []); OfficeGraph.Repo.query!("SELECT 2", []))
+    end
+    """)
+
+    [first, second] = DatabaseBoundaryScanner.scan_compiled(root)
+
+    assert {first.line, first.construct, first.ordinal} == {2, "Repo.query!", 1}
+    assert {second.line, second.construct, second.ordinal} == {2, "Repo.query!", 2}
   end
 
   test "compiled audit scans every project BEAM module, not only OfficeGraph-prefixed modules" do
@@ -663,6 +762,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert DatabaseBoundaryScanner.scan_repository(root)
            |> Enum.map(& &1.path) == expected_paths
+  end
+
+  test "repository scan skips tracked sources deleted from the worktree" do
+    root = temporary_root("database_boundary_deleted_source")
+    init_git_repo!(root)
+    path = "scripts/deleted.exs"
+    full_path = Path.join(root, path)
+
+    File.mkdir_p!(Path.dirname(full_path))
+    File.write!(full_path, ~S|OfficeGraph.Repo.query!("SELECT 1", [])|)
+    git!(root, ["add", path])
+    File.rm!(full_path)
+
+    assert DatabaseBoundaryScanner.scan_repository(root) == []
   end
 
   test "current repository scan only reports approved UUIDv7 fragments" do

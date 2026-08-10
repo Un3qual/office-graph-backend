@@ -183,7 +183,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       end
 
     paths
-    |> Enum.flat_map(&scan_beam(&1, root, tracked_paths))
+    |> Enum.map(fn path -> {Path.basename(path), scan_beam(path, root, tracked_paths)} end)
+    |> merge_compiled_beam_scans()
     |> assign_ordinals()
   end
 
@@ -455,9 +456,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_children(node, env, occurrences) do
-    node
-    |> Tuple.to_list()
-    |> scan_node(env, occurrences)
+    {_child_env, occurrences} =
+      node
+      |> Tuple.to_list()
+      |> scan_node(env, occurrences)
+
+    {env, occurrences}
   end
 
   defp classify_remote_call(receiver, :apply, arguments, node, env)
@@ -804,7 +808,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     if module in @database_modules do
       imported = imported_operations(module, options)
-      imports = Enum.reduce(imported, env.imports, &Map.put(&2, &1, module))
+
+      imports =
+        Enum.reduce(imported, env.imports, fn
+          :all, imports -> Map.put(imports, {:all, module}, module)
+          operation, imports -> Map.put(imports, operation, module)
+        end)
 
       occurrences =
         if imported == [:all] and module != "Ecto.Query" do
@@ -832,22 +841,58 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       nil ->
         [:all]
 
+      mode when mode in [:functions, :macros] ->
+        [:all]
+
       operations ->
         Enum.map(operations, fn {operation, arity} -> {operation, arity} end)
     end
   end
 
   defp imported_receiver(env, operation, arity) do
-    Map.get(env.imports, {operation, arity}) || Map.get(env.imports, :all)
+    Map.get(env.imports, {operation, arity}) ||
+      Enum.find_value(env.imports, fn
+        {{:all, module}, imported_module} when imported_module == module ->
+          if imported_operation?(module, operation), do: module
+
+        _entry ->
+          nil
+      end)
   end
 
   defp imported?(env, operation) do
     Enum.any?(env.imports, fn
-      {{^operation, _arity}, _module} -> true
-      {:all, _module} -> true
-      _entry -> false
+      {{^operation, _arity}, _module} ->
+        true
+
+      {{:all, module}, imported_module} when imported_module == module ->
+        imported_operation?(module, operation)
+
+      _entry ->
+        false
     end)
   end
+
+  defp imported_operation?("OfficeGraph.Repo", operation),
+    do: operation in @repo_raw_sql_operations or operation in @repo_direct_operations
+
+  defp imported_operation?("Ecto.Adapters.SQL", operation),
+    do: operation in @ecto_sql_raw_sql_operations or operation in @ecto_sql_direct_operations
+
+  defp imported_operation?("Postgrex", operation), do: operation in @postgrex_raw_sql_operations
+  defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
+
+  defp imported_operation?(module, operation) when module in ["Ecto.Query", "Ecto.Query.API"],
+    do:
+      operation in @query_fragment_operations or
+        Map.has_key?(@query_sql_option_operations, operation)
+
+  defp imported_operation?("Ecto.Migration", operation),
+    do:
+      operation in @migration_raw_sql_operations or operation in @migration_direct_operations or
+        operation in @query_fragment_operations
+
+  defp imported_operation?(_module, _operation), do: false
 
   defp receiver_name({:repo, _metadata, arguments}, %{migration?: true})
        when arguments in [[], nil],
@@ -918,16 +963,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp approval_marker(:raw_sql, "migration.execute_file", _arguments), do: :unresolved_sql
 
-  defp approval_marker(:raw_sql, _construct, arguments) do
-    case List.first(arguments) do
+  defp approval_marker(:raw_sql, construct, arguments) do
+    payloads = sql_payload_arguments(construct, arguments)
+
+    if payloads != [] and Enum.all?(payloads, &static_sql_payload?/1) do
+      nil
+    else
+      :unresolved_sql
+    end
+  end
+
+  defp sql_payload_arguments(construct, arguments)
+       when construct in ["migration.execute", "Ecto.Migration.execute"],
+       do: arguments
+
+  defp sql_payload_arguments(_construct, arguments), do: Enum.take(arguments, 1)
+
+  defp static_sql_payload?(payload) do
+    case payload do
       value when is_binary(value) ->
-        nil
+        true
 
       {:<<>>, _metadata, segments} ->
-        if static_binary_segments?(segments), do: nil, else: :unresolved_sql
+        static_binary_segments?(segments)
 
       _value ->
-        :unresolved_sql
+        false
     end
   end
 
@@ -1143,7 +1204,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     output
     |> String.split(<<0>>, trim: true)
     |> Enum.filter(&boundary_source?/1)
-    |> Enum.map(fn path -> %{path: path, source: File.read!(Path.join(root, path))} end)
+    |> Enum.flat_map(fn path ->
+      case File.read(Path.join(root, path)) do
+        {:ok, source} -> [%{path: path, source: source}]
+        {:error, :enoent} -> []
+        {:error, reason} -> raise File.Error, reason: reason, action: "read file", path: path
+      end
+    end)
   end
 
   defp boundary_source?(path) do
@@ -1183,15 +1250,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_beam_abstract_code(path, source, root) do
     case :beam_lib.chunks(String.to_charlist(path), [:abstract_code]) do
       {:ok, {_module, [abstract_code: {:raw_abstract_v1, forms}]}} ->
-        forms
-        |> Enum.flat_map(&compiled_form_occurrences(&1, source))
-        |> Enum.uniq_by(fn occurrence ->
-          {occurrence.path, occurrence.line, occurrence.class, occurrence.construct}
-        end)
+        Enum.flat_map(forms, &compiled_form_occurrences(&1, source))
 
       error ->
         [compiled_metadata_unavailable_occurrence(path, source, root, error)]
     end
+  end
+
+  defp merge_compiled_beam_scans(beam_scans) do
+    beam_scans
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.flat_map(fn {_beam, environment_scans} ->
+      environment_scans
+      |> Enum.reduce(%{}, fn occurrences, maximums ->
+        occurrences
+        |> Enum.group_by(&compiled_occurrence_identity/1)
+        |> Enum.reduce(maximums, fn {identity, occurrences}, maximums ->
+          count = length(occurrences)
+          representative = hd(occurrences)
+
+          Map.update(maximums, identity, {count, representative}, fn
+            {existing_count, _existing} when count > existing_count ->
+              {count, representative}
+
+            existing ->
+              existing
+          end)
+        end)
+      end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.flat_map(fn {_identity, {count, occurrence}} ->
+        List.duplicate(occurrence, count)
+      end)
+    end)
+  end
+
+  defp compiled_occurrence_identity(occurrence) do
+    {
+      occurrence.path,
+      occurrence.line,
+      occurrence.class,
+      occurrence.construct,
+      occurrence.fingerprint_input,
+      Map.get(occurrence, :approval)
+    }
   end
 
   defp compiled_metadata_unavailable_occurrence(beam_path, source, root, error) do
@@ -1258,13 +1361,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when not is_tuple(receiver) or elem(receiver, 0) != :atom do
     occurrences =
-      if operation in @repo_raw_sql_operations and arguments != [] do
+      if arguments != [] and
+           (raw_sql_operation?(operation) or
+              (compiled_variable_receiver?(receiver) and database_operation?(operation))) do
+        class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
+
         [
           occurrence(
             source,
             line_from_node(node),
             nil,
-            :raw_sql,
+            class,
             "variable_receiver.#{operation}",
             node,
             approval: :unresolved_sql
@@ -1353,6 +1460,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_module(_node), do: nil
+
+  defp compiled_variable_receiver?({:var, _line, name}) when is_atom(name), do: true
+  defp compiled_variable_receiver?(_receiver), do: false
 
   defp compiled_operation({:atom, _line, operation}) when is_atom(operation), do: operation
   defp compiled_operation(_node), do: nil

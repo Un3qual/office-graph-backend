@@ -135,14 +135,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   end
 
   defp compiled_diagnostics(compiled, current) do
-    source_keys =
-      current
-      |> Enum.map(&compiled_source_key/1)
-      |> MapSet.new()
+    source_counts = Enum.frequencies_by(current, &compiled_source_key/1)
 
     compiled
-    |> Enum.reject(&MapSet.member?(source_keys, compiled_source_key(&1)))
-    |> Enum.map(&diagnostic(&1, :compiled_reference))
+    |> Enum.map_reduce(source_counts, fn occurrence, remaining ->
+      key = compiled_source_key(occurrence)
+
+      case Map.get(remaining, key, 0) do
+        count when count > 0 ->
+          {nil, Map.put(remaining, key, count - 1)}
+
+        _count ->
+          {diagnostic(occurrence, :compiled_reference), remaining}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp compiled_source_key(entry) do

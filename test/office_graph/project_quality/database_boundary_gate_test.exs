@@ -225,6 +225,86 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     end)
   end
 
+  test "compiled suppression preserves unmatched occurrence multiplicity" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "office_graph_database_boundary_multiplicity_#{System.unique_integer([:positive])}"
+      )
+
+    suffix = System.unique_integer([:positive])
+    macro_module = Module.concat(OfficeGraph, "BoundaryMacro#{suffix}")
+    target_module = Module.concat(OfficeGraph, "BoundaryTarget#{suffix}")
+    macro_path = Path.join(System.tmp_dir!(), "office_graph_boundary_macro_#{suffix}.ex")
+    source_path = Path.join(root, "lib/example.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> File.rm(macro_path) end)
+    {_output, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
+
+    File.write!(macro_path, """
+    defmodule #{inspect(macro_module)} do
+      defmacro persist(value) do
+        line = __CALLER__.line
+
+        quote line: line do
+          OfficeGraph.Repo.transaction(fn -> unquote(value) end)
+        end
+      end
+    end
+    """)
+
+    macro_ebin = Path.join(System.tmp_dir!(), "office_graph_boundary_macro_ebin_#{suffix}")
+    File.mkdir_p!(macro_ebin)
+    on_exit(fn -> File.rm_rf!(macro_ebin) end)
+
+    assert {_output, 0} =
+             System.cmd("elixirc", ["-o", macro_ebin, macro_path], stderr_to_stdout: true)
+
+    source = """
+    defmodule #{inspect(target_module)} do
+      require #{inspect(macro_module)}
+      def persist(value), do: (OfficeGraph.Repo.transaction(fn -> value end); #{inspect(macro_module)}.persist(value))
+    end
+    """
+
+    File.mkdir_p!(Path.dirname(source_path))
+    File.mkdir_p!(ebin)
+    File.write!(source_path, source)
+
+    assert {_output, 0} =
+             System.cmd(
+               "elixirc",
+               ["-pa", macro_ebin, "-o", ebin, source_path],
+               stderr_to_stdout: true
+             )
+
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+
+    approved = approved_entry(occurrence)
+
+    inventory_path =
+      Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+
+    evidence_path =
+      Path.join(root, "openspec/changes/approved-change/database-exception-approvals.json")
+
+    File.mkdir_p!(Path.dirname(inventory_path))
+    File.mkdir_p!(Path.dirname(evidence_path))
+    File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
+    File.write!(evidence_path, Jason.encode!(%{"version" => 1, "approvals" => [approved]}))
+    {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+    [diagnostic] = DatabaseBoundaryGate.check_repository(root)
+
+    assert diagnostic.kind == :compiled_reference
+    assert diagnostic.construct == "Repo.transaction"
+    assert diagnostic.ordinal == 2
+  end
+
   test "accepts exact approval evidence from the active OpenSpec change before archival" do
     with_boundary_repository(fn root, source, occurrence ->
       approved = approved_entry(occurrence)

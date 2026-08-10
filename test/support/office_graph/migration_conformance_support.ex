@@ -85,9 +85,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> MapSet.difference(expected_tables)
       |> Enum.map(&"unexpected project table #{&1}")
 
+    expected_sequences = expected_sequences(expected_resources)
+    project_sequences = reject_framework_objects(inventory.sequences)
+
+    missing_sequences =
+      expected_sequences
+      |> MapSet.difference(project_sequences)
+      |> Enum.map(&"missing Ash-owned sequence #{&1}")
+
     unexpected_sequences =
-      inventory.sequences
-      |> reject_framework_objects()
+      project_sequences
+      |> MapSet.difference(expected_sequences)
       |> Enum.map(&"unexpected project sequence #{&1}")
 
     prohibited_objects =
@@ -108,6 +116,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     (missing_tables ++
        unexpected_tables ++
+       missing_sequences ++
        unexpected_sequences ++
        table_shape_errors(inventory, expected_resources, project_tables) ++
        prohibited_objects ++
@@ -642,6 +651,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.new()
   end
 
+  defp expected_sequences(expected_resources) do
+    expected_resources
+    |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+      table = resource_table_identity(resource)
+
+      resource
+      |> Ash.Resource.Info.attributes()
+      |> Enum.filter(fn attribute ->
+        type = expected_migration_type(resource, attribute)
+
+        attribute.generated? and type in [:bigint, :integer] and
+          is_nil(expected_default(resource, attribute, type))
+      end)
+      |> Enum.map(&sequence_identity(table, &1))
+    end)
+    |> MapSet.new()
+  end
+
   defp expected_column_definition(resource, attribute) do
     type = expected_migration_type(resource, attribute)
 
@@ -830,8 +857,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     {matched_sources, matched_destinations} =
       ((reference && reference.match_with) || %{})
-      |> Enum.map(fn {source, destination} ->
-        {to_string(source), to_string(destination)}
+      |> Enum.map(fn {source_name, destination_name} ->
+        {
+          resource |> Ash.Resource.Info.attribute(source_name) |> attribute_column(),
+          relationship.destination
+          |> Ash.Resource.Info.attribute(destination_name)
+          |> attribute_column()
+        }
       end)
       |> Enum.unzip()
 
@@ -1105,6 +1137,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> String.slice(0, 63)
   end
 
+  defp sequence_identity(table, attribute) do
+    sequence =
+      postgres_identifier("#{table_name(table)}_#{attribute.source || attribute.name}_seq")
+
+    case String.split(table, ".", parts: 2) do
+      [schema, _table] -> "#{schema}.#{sequence}"
+      [_table] -> sequence
+    end
+  end
+
   defp normalize_trigger(name, line) do
     table = line |> capture(~r/\sON (?<identity>\S+)/) |> normalize_identity()
     "#{trim_identifier(name)} ON #{table}"
@@ -1136,7 +1178,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> String.trim()
     |> String.trim_trailing(",")
     |> String.trim_trailing(";")
-    |> String.replace(~r/\bpublic\./, "")
     |> String.replace(~r/\bCONSTRAINT\s+\S+\s+(?=NOT NULL\b)/, "")
     |> String.replace(~r/"([A-Za-z_][\w$]*)"/, "\\1")
     |> String.replace(~r/\s+/, " ")
@@ -1163,7 +1204,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
         {sources, destinations} = Enum.unzip(pairs)
 
-        "FOREIGN KEY (#{Enum.join(sources, ", ")}) REFERENCES #{String.trim(table)}(#{Enum.join(destinations, ", ")})#{suffix}"
+        table = table |> String.trim() |> normalize_identity()
+
+        "FOREIGN KEY (#{Enum.join(sources, ", ")}) REFERENCES #{table}(#{Enum.join(destinations, ", ")})#{suffix}"
 
       nil ->
         definition

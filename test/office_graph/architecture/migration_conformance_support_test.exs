@@ -165,6 +165,73 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert "index definition mismatch for shapes_unique_name_index ON shapes: expected UNIQUE USING btree (name), got USING hash (id)" in errors
   end
 
+  test "terminal definitions preserve schema-like text inside SQL literals" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.literal_examples (
+          id uuid NOT NULL,
+          qualified_text text DEFAULT 'public.user'::text NOT NULL,
+          unqualified_text text DEFAULT 'user'::text NOT NULL
+      );
+      """)
+
+    assert {"literal_examples", "qualified_text", "text DEFAULT 'public.user'::text NOT NULL"} in inventory.columns
+
+    assert {"literal_examples", "unqualified_text", "text DEFAULT 'user'::text NOT NULL"} in inventory.columns
+  end
+
+  test "terminal errors accept declarative generated integer sequences" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.sequence_examples (
+          id bigint NOT NULL
+      );
+      CREATE SEQUENCE public.sequence_examples_id_seq
+          START WITH 1;
+      ALTER TABLE ONLY public.sequence_examples ADD CONSTRAINT sequence_examples_pkey PRIMARY KEY (id);
+      """)
+
+    assert MigrationConformanceSupport.terminal_database_errors(
+             %{
+               "sequence_examples" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceSequenceResource}
+             },
+             inventory
+           ) == []
+  end
+
+  test "terminal constraints resolve match_with attributes to physical columns" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.composite_parents (
+          parent_id uuid NOT NULL,
+          parent_scope uuid NOT NULL
+      );
+      CREATE TABLE public.composite_children (
+          id uuid NOT NULL,
+          linked_parent_id uuid NOT NULL,
+          child_scope uuid NOT NULL
+      );
+      ALTER TABLE ONLY public.composite_parents ADD CONSTRAINT composite_parents_pkey PRIMARY KEY (parent_id);
+      ALTER TABLE ONLY public.composite_children ADD CONSTRAINT composite_children_pkey PRIMARY KEY (id);
+      ALTER TABLE ONLY public.composite_children ADD CONSTRAINT composite_children_parent_fkey FOREIGN KEY (linked_parent_id, child_scope) REFERENCES public.composite_parents(parent_id, parent_scope);
+      """)
+
+    errors =
+      MigrationConformanceSupport.terminal_database_errors(
+        %{
+          "composite_children" =>
+            {nil, OfficeGraph.TestSupport.MigrationConformanceCompositeChildResource},
+          "composite_parents" =>
+            {nil, OfficeGraph.TestSupport.MigrationConformanceCompositeParentResource}
+        },
+        inventory
+      )
+
+    refute Enum.any?(errors, &String.contains?(&1, "composite_children_parent_fkey"))
+    refute Enum.any?(errors, &String.contains?(&1, "without a matching belongs_to"))
+  end
+
   defmodule PublicResource do
     use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
 
