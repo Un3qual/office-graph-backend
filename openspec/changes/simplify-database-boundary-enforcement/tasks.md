@@ -87,8 +87,8 @@
 
 ## 13. Strict Review And Maintainability Follow-Up
 
-- [ ] 13.1 Reject fully unresolved dispatch, private persistence execution namespaces, and concealed subprocess launchers in source and compiled code.
-- [ ] 13.2 Preserve unrelated local function calls that share Ecto primitive names without weakening explicit Ecto query contexts.
+- [x] 13.1 Reject fully unresolved dispatch, private persistence execution namespaces, and concealed subprocess launchers in source and compiled code.
+- [x] 13.2 Preserve unrelated local function calls that share Ecto primitive names without weakening explicit Ecto query contexts.
 - [ ] 13.3 Parse quoted terminal identities and preserve quoted payload semantics while comparing relation kinds, sequence definitions, and schema-qualified custom types.
 - [ ] 13.4 Remove framework-table trigger exemptions and require exact dependency-owned or approved trigger definitions.
 - [ ] 13.5 Remove the blanket Reach exclusion, address substantive findings, and keep modules split only along approved enforcement responsibilities.

@@ -49,6 +49,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update!,
     :update_all
   ]
+  @repo_operation_names Enum.map(
+                          @repo_raw_sql_operations ++ @repo_direct_operations,
+                          &to_string/1
+                        )
   @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
   @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
   @ecto_migrator_operations [
@@ -223,7 +227,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "OfficeGraph.Repo",
     "Postgrex"
   ]
-  @process_execution_modules ["System", "os"]
+  @private_persistence_modules [
+    "Ecto.Adapters.Postgres.Connection",
+    "Ecto.Repo.Queryable",
+    "Ecto.Repo.Schema",
+    "Ecto.Repo.Transaction"
+  ]
+  @process_execution_modules ["Port", "System", "erlang", "os"]
   @database_cli_executables [
     "clusterdb",
     "createdb",
@@ -239,7 +249,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "reindexdb",
     "vacuumdb"
   ]
-  @command_dispatch_executables ["bash", "docker", "env", "sh", "xargs", "zsh"]
+  @command_dispatch_executables [
+    "bash",
+    "busybox",
+    "docker",
+    "elixir",
+    "erl",
+    "env",
+    "node",
+    "perl",
+    "python",
+    "python3",
+    "ruby",
+    "sh",
+    "xargs",
+    "zsh"
+  ]
   @dynamic_dispatch_modules ["Function", "Task", "Task.Supervisor"]
   @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
   @mfa_task_operations [:async, :async_stream, :start, :start_link]
@@ -386,7 +411,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           approved_migration_loops: approved_migration_loops(path, ast),
           function: nil,
           imports: %{},
+          local_definitions: MapSet.new(),
           migration?: migration_path?(path),
+          module: nil,
           path: path,
           quote_depth: 0,
           query_dsl?: false,
@@ -406,12 +433,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node({:defmodule, _metadata, [module, [do: body]]}, env, occurrences) do
+    module = module_name(module, env)
+
     module_env = %{
       env
       | aliases: %{},
         imports: %{},
+        local_definitions: local_definitions(body),
         migration?: migration_path?(env.path),
-        repository_module?: module_name(module, env) == "OfficeGraph.Repo"
+        module: module,
+        repository_module?: module == "OfficeGraph.Repo"
     }
 
     {_module_env, occurrences} = scan_node(body, module_env, occurrences)
@@ -810,11 +841,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     case imported_receiver(env, operation, arity) do
       nil ->
-        approval = approval_marker(:raw_sql, to_string(operation), arguments)
+        if MapSet.member?(env.local_definitions, {operation, arity}) do
+          nil
+        else
+          approval = approval_marker(:raw_sql, to_string(operation), arguments)
 
-        occurrence(env, line_from_node(node), :raw_sql, to_string(operation), node,
-          approval: approval
-        )
+          occurrence(env, line_from_node(node), :raw_sql, to_string(operation), node,
+            approval: approval
+          )
+        end
 
       receiver ->
         classify_operation(receiver, operation, arity, node, env)
@@ -874,7 +909,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_operation(receiver, operation, _arity, node, env)
        when receiver in @process_execution_modules and
               ((receiver == "System" and operation in [:cmd, :shell]) or
-                 (receiver == "os" and operation == :cmd)) do
+                 (receiver == "os" and operation == :cmd) or
+                 (receiver == "Port" and operation == :open) or
+                 (receiver == "erlang" and operation == :open_port)) do
     case process_command_status(receiver, operation, node) do
       :database_cli ->
         occurrence(env, line_from_node(node), :raw_sql, "process.database_cli", node,
@@ -988,7 +1025,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     )
   end
 
-  defp classify_operation(_receiver, _operation, _arity, _node, _env), do: nil
+  defp classify_operation(receiver, operation, _arity, node, env) do
+    if private_persistence_module?(receiver) do
+      occurrence(
+        env,
+        line_from_node(node),
+        :direct_ecto,
+        "#{receiver}.#{operation}",
+        node,
+        approval: :unresolved_sql
+      )
+    end
+  end
 
   defp classify_apply(receiver, operation, node, env) do
     classify_dynamic_dispatch(receiver, operation, :apply, node, env)
@@ -1081,6 +1129,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       database_shaped_variable_receiver?(receiver) ->
         occurrence(env, line_from_node(node), :raw_sql, "variable_receiver.#{kind}", node,
+          approval: :unresolved_sql
+        )
+
+      is_nil(resolved_receiver) and is_nil(resolved_operation) ->
+        occurrence(env, line_from_node(node), :raw_sql, "dynamic_dispatch.#{kind}", node,
           approval: :unresolved_sql
         )
 
@@ -1351,7 +1404,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp apply_import([target, options], metadata, env) do
     module = module_name(target, env)
 
-    if module in @database_modules or module in @dynamic_dispatch_modules or
+    if module in @database_modules or private_persistence_module?(module) or
+         module in @dynamic_dispatch_modules or
          module in @reflection_modules or module in @process_execution_modules do
       imported = imported_operations(module, options)
 
@@ -1437,7 +1491,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
   defp imported_operation?("Ecto.Migrator", operation), do: operation in @ecto_migrator_operations
   defp imported_operation?("Function", operation), do: operation == :capture
+  defp imported_operation?("Port", operation), do: operation == :open
   defp imported_operation?("System", operation), do: operation in [:cmd, :shell]
+  defp imported_operation?("erlang", operation), do: operation == :open_port
   defp imported_operation?("os", operation), do: operation == :cmd
 
   defp imported_operation?(module, operation) when module in ["Ecto.Query", "Ecto.Query.API"],
@@ -1453,7 +1509,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp imported_operation?(module, operation) when module in @reflection_modules,
     do: operation in Map.fetch!(@reflection_operations, module)
 
-  defp imported_operation?(_module, _operation), do: false
+  defp imported_operation?(module, _operation), do: private_persistence_module?(module)
 
   defp receiver_name({:repo, _metadata, arguments}, %{migration?: true})
        when arguments in [[], nil],
@@ -1477,7 +1533,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp module_name({:__MODULE__, _metadata, _context}, _env), do: nil
+  defp module_name({:__MODULE__, _metadata, _context}, env), do: env.module
 
   defp module_name(atom, _env) when is_atom(atom) do
     atom
@@ -1544,6 +1600,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp process_command_status(receiver, operation, node) do
     arguments = call_arguments(node)
 
+    if (receiver == "Port" and operation == :open) or
+         (receiver == "erlang" and operation == :open_port) do
+      :dynamic
+    else
+      process_command_status(receiver, operation, arguments, node)
+    end
+  end
+
+  defp process_command_status(receiver, operation, arguments, node) do
     command_arguments =
       case {receiver, operation, arguments} do
         {"System", :cmd, [executable, args | _options]} -> [executable, args]
@@ -1696,6 +1761,50 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> String.downcase()
     |> then(&(&1 in @command_dispatch_executables))
   end
+
+  defp private_persistence_module?(module), do: module in @private_persistence_modules
+
+  defp local_definitions(body), do: collect_local_definitions(body, MapSet.new())
+
+  defp collect_local_definitions({:defmodule, _metadata, _arguments}, definitions),
+    do: definitions
+
+  defp collect_local_definitions({kind, _metadata, arguments} = node, definitions)
+       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(arguments) do
+    definitions =
+      arguments
+      |> function_signatures()
+      |> Enum.reduce(definitions, &MapSet.put(&2, &1))
+
+    node
+    |> Tuple.to_list()
+    |> collect_local_definitions(definitions)
+  end
+
+  defp collect_local_definitions(nodes, definitions) when is_list(nodes),
+    do: Enum.reduce(nodes, definitions, &collect_local_definitions/2)
+
+  defp collect_local_definitions(node, definitions) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> collect_local_definitions(definitions)
+  end
+
+  defp collect_local_definitions(_node, definitions), do: definitions
+
+  defp function_signatures([{:when, _metadata, [head | _guards]} | _rest]),
+    do: function_signatures([head])
+
+  defp function_signatures([{name, _metadata, arguments} | _rest])
+       when is_atom(name) and is_list(arguments) do
+    for arity <- minimum_arity(arguments)..length(arguments), do: {name, arity}
+  end
+
+  defp function_signatures([{name, _metadata, context} | _rest])
+       when is_atom(name) and is_atom(context),
+       do: [{name, 0}]
+
+  defp function_signatures(_arguments), do: []
 
   defp command_words(literal) do
     literal
@@ -2123,7 +2232,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          function,
          occurrences
        ) do
-    occurrences = compiled_apply_occurrences(arguments, node, source, function, occurrences)
+    occurrences =
+      if compiled_generated_node?(node) do
+        occurrences
+      else
+        compiled_apply_occurrences(arguments, node, source, function, occurrences)
+      end
+
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
   end
 
@@ -2135,7 +2250,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          function,
          occurrences
        ) do
-    occurrences = compiled_apply_occurrences(arguments, node, source, function, occurrences)
+    occurrences =
+      if compiled_generated_node?(node) do
+        occurrences
+      else
+        compiled_apply_occurrences(arguments, node, source, function, occurrences)
+      end
+
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
   end
 
@@ -2147,7 +2268,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          function,
          occurrences
        ) do
-    occurrences = compiled_capture_occurrences(arguments, node, source, function, occurrences)
+    occurrences =
+      if compiled_generated_node?(node) do
+        occurrences
+      else
+        compiled_capture_occurrences(arguments, node, source, function, occurrences)
+      end
+
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
   end
 
@@ -2207,13 +2334,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       )
 
     occurrence =
-      classify_operation(
-        module,
-        fun,
-        length(arguments),
-        node,
-        %{path: source, function: function, migration?: false}
-      )
+      if (private_persistence_module?(module) and compiled_generated_node?(node)) or
+           generated_canonical_repo_api?(source, function, module) do
+        nil
+      else
+        classify_operation(
+          module,
+          fun,
+          length(arguments),
+          node,
+          %{path: source, function: function, migration?: false}
+        )
+      end
 
     occurrences = if occurrence, do: [occurrence | occurrences], else: occurrences
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
@@ -2358,6 +2490,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           | occurrences
         ]
 
+      is_nil(receiver) and is_nil(operation) ->
+        [
+          occurrence(
+            source,
+            line_from_node(node),
+            function,
+            :raw_sql,
+            "dynamic_dispatch.#{kind}",
+            node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+
       true ->
         occurrences
     end
@@ -2379,6 +2525,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp compiled_operation({:atom, _line, operation}) when is_atom(operation), do: operation
   defp compiled_operation(_node), do: nil
+
+  defp compiled_generated_node?({:call, annotation, _callee, _arguments}),
+    do: :erl_anno.generated(annotation)
+
+  defp generated_canonical_repo_api?("lib/office_graph/repo.ex", function, module)
+       when module in @private_persistence_modules and is_binary(function) do
+    operation = function |> String.split("/", parts: 2) |> hd()
+    operation in @repo_operation_names
+  end
+
+  defp generated_canonical_repo_api?(_source, _function, _module), do: false
 
   defp mix_env do
     if Process.whereis(Mix.State), do: Mix.env(), else: :dev

@@ -258,6 +258,91 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "rejects fully unresolved dispatch without variable-name heuristics" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/dynamic_dispatch.exs",
+          source: """
+          defmodule DynamicDispatchScript do
+            def apply_call(target, operation, arguments), do: apply(target, operation, arguments)
+            def capture_call(target, operation), do: Function.capture(target, operation, 1)
+            def spawn_call(target, operation, arguments), do: spawn(target, operation, arguments)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"dynamic_dispatch.apply", "apply_call/3", :unresolved_sql},
+             {"dynamic_dispatch.capture", "capture_call/2", :unresolved_sql},
+             {"dynamic_dispatch.spawn", "spawn_call/3", :unresolved_sql}
+           ]
+  end
+
+  test "rejects private Ecto persistence execution namespaces" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/private_ecto_escape.ex",
+          source: """
+          defmodule PrivateEctoEscape do
+            alias Ecto.Repo.Queryable, as: Queryable
+
+            def load(repo, query), do: Queryable.all(repo, query, [])
+            def insert(repo, schema, fields), do: Ecto.Repo.Schema.insert_all(repo, schema, fields, [])
+            def execute(connection, query), do: Ecto.Adapters.Postgres.Connection.execute(connection, query, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:direct_ecto, "Ecto.Repo.Queryable.all", "load/2"},
+             {:direct_ecto, "Ecto.Repo.Schema.insert_all", "insert/3"},
+             {:direct_ecto, "Ecto.Adapters.Postgres.Connection.execute", "execute/2"}
+           ]
+
+    assert Enum.all?(occurrences, &(&1.approval == :unresolved_sql))
+  end
+
+  test "rejects process ports and dynamic arguments to unknown command wrappers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/process_escape.exs",
+          source: """
+          defmodule ProcessEscapeScript do
+            def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
+            def port(command), do: Port.open({:spawn, command}, [])
+            def erlang_port(command), do: :erlang.open_port({:spawn, command}, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"process.dynamic_command", "busybox/1", :unresolved_sql},
+             {"process.dynamic_command", "port/1", :unresolved_sql},
+             {"process.dynamic_command", "erlang_port/1", :unresolved_sql}
+           ]
+  end
+
+  test "does not classify an unrelated local fragment function" do
+    assert DatabaseBoundaryScanner.scan_sources([
+             %{
+               path: "lib/text_formatter.ex",
+               source: """
+               defmodule TextFormatter do
+                 def fragment(value \\\\ :empty), do: {:text, value}
+                 def format, do: fragment()
+                 def format(value), do: fragment(value)
+               end
+               """
+             }
+           ]) == []
+  end
+
   test "rejects module-function-argument process dispatch to database operations" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -1242,6 +1327,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
+  end
+
+  test "compiled audit rejects unresolved dispatch, private Ecto execution, and process ports" do
+    root = temporary_root("compiled_strict_boundary")
+    source_path = Path.join(root, "lib/compiled_strict_boundary.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    module =
+      Module.concat(OfficeGraph, "CompiledStrictBoundary#{System.unique_integer([:positive])}")
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def apply_call(target, operation, arguments), do: apply(target, operation, arguments)
+      def capture_call(target, operation), do: Function.capture(target, operation, 1)
+      def spawn_call(target, operation, arguments), do: spawn(target, operation, arguments)
+      def private_load(repo, query), do: Ecto.Repo.Queryable.all(repo, query, [])
+      def private_insert(repo, schema, fields), do: Ecto.Repo.Schema.insert_all(repo, schema, fields, [])
+      def port(command), do: Port.open({:spawn, command}, [])
+      def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
+    end
+    """)
+
+    beam_path = Path.join(ebin, "#{module}.beam")
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "dynamic_dispatch.apply", "apply_call/3", :unresolved_sql},
+             {:raw_sql, "dynamic_dispatch.capture", "capture_call/2", :unresolved_sql},
+             {:raw_sql, "dynamic_dispatch.spawn", "spawn_call/3", :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Queryable.all", "private_load/2", :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Schema.insert_all", "private_insert/3", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "port/1", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "busybox/1", :unresolved_sql}
+           ]
   end
 
   test "compiled audit scans macro expansions inside authored canonical Repo definitions" do
