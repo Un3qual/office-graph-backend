@@ -369,6 +369,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects RPC module-function-argument dispatch to database operations" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/rpc_repo.exs",
+          source: """
+          defmodule RpcRepoScript do
+            def call(sql), do: :rpc.call(node(), OfficeGraph.Repo, :query!, [sql, []])
+            def cast(sql), do: :erpc.cast(node(), OfficeGraph.Repo, :query!, [sql, []])
+            def multicall(nodes, sql), do: :erpc.multicall(nodes, OfficeGraph.Repo, :query!, [sql, []])
+            def request(sql), do: :erpc.send_request(node(), OfficeGraph.Repo, :query!, [sql, []])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"OfficeGraph.Repo.call", "call/1", :unresolved_sql},
+             {"OfficeGraph.Repo.cast", "cast/1", :unresolved_sql},
+             {"OfficeGraph.Repo.multicall", "multicall/2", :unresolved_sql},
+             {"OfficeGraph.Repo.send_request", "request/1", :unresolved_sql}
+           ]
+  end
+
   test "rejects function captures that target database dispatch" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -756,6 +780,76 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "migration.remote_helper_call"
     assert occurrence.function == "up/0"
     assert occurrence.approval == :unresolved_sql
+  end
+
+  test "scans database calls in migration default expressions" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_default_expression.exs",
+          source: """
+          defmodule DefaultExpressionMigration do
+            use Ecto.Migration
+
+            def up(value \\\\ OfficeGraph.Repo.query!("SELECT 1", [])), do: value
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "up/0"
+  end
+
+  test "rejects dependency use macros in migration modules" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_use_macro.exs",
+          source: """
+          defmodule UseMacroMigration do
+            use Ecto.Migration
+            use ExternalInstaller
+
+            def change, do: create(table(:items))
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :direct_ecto
+    assert occurrence.construct == "migration.use_macro"
+    assert occurrence.function == nil
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects migration compile and load callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_compile_callbacks.exs",
+          source: """
+          defmodule CompileCallbackMigration do
+            use Ecto.Migration
+
+            @before_compile ExternalInstaller
+            @after_compile ExternalInstaller
+            @on_definition ExternalInstaller
+            @on_load :install
+
+            def change, do: create(table(:items))
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"migration.compile_callback", nil, :unresolved_sql},
+             {"migration.compile_callback", nil, :unresolved_sql},
+             {"migration.compile_callback", nil, :unresolved_sql},
+             {"migration.compile_callback", nil, :unresolved_sql}
+           ]
   end
 
   test "treats migration transaction hooks as persistence-sensitive entrypoints" do
@@ -1290,6 +1384,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def migrate(path), do: Ecto.Migrator.run(OfficeGraph.Repo, path, :up, all: true)
         def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
         def spawn_query(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
+        def rpc_query(sql), do: :rpc.call(node(), OfficeGraph.Repo, :query!, [sql, []])
         def psql(sql), do: System.cmd("psql", ["-c", sql])
         def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
@@ -1324,6 +1419,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Ecto.Migrator.run", :unresolved_sql},
                {:direct_ecto, "variable_receiver.up", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.call", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()

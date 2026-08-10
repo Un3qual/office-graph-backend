@@ -272,8 +272,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "xargs",
     "zsh"
   ]
-  @dynamic_dispatch_modules ["Function", "Task", "Task.Supervisor"]
+  @dynamic_dispatch_modules ["Function", "Task", "Task.Supervisor", "erpc", "rpc"]
   @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
+  @mfa_rpc_operations [:block_call, :call, :cast, :multicall]
+  @mfa_erpc_operations [:call, :cast, :multicall, :send_request]
   @mfa_task_operations [:async, :async_stream, :start, :start_link]
   @mfa_task_supervisor_operations [
     :async,
@@ -284,9 +286,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @mfa_dispatch_operations Enum.uniq(
                              @mfa_process_operations ++
+                               @mfa_rpc_operations ++
+                               @mfa_erpc_operations ++
                                @mfa_task_operations ++
                                @mfa_task_supervisor_operations
                            )
+  @migration_callback_attributes [:after_compile, :before_compile, :on_definition, :on_load]
   @reflection_modules ["Code", "Module"]
   @reflection_operations %{
     "Code" => [
@@ -476,6 +481,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
+    {_child_env, occurrences} =
+      arguments
+      |> function_default_expressions()
+      |> scan_node(child_env, occurrences)
+
     {_child_env, occurrences} = scan_node(body, child_env, occurrences)
 
     if body == nil do
@@ -486,7 +496,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_node({:@, _metadata, [{_name, _name_metadata, [value]}]}, env, occurrences) do
+  defp scan_node({:@, metadata, [{name, _name_metadata, [value]}]} = node, env, occurrences) do
+    occurrences =
+      if name in @migration_callback_attributes and migration_execution_context?(env) do
+        [
+          occurrence(env, line(metadata), :direct_ecto, "migration.compile_callback", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
+        occurrences
+      end
+
     scan_node(value, env, occurrences)
   end
 
@@ -556,6 +578,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         {%{env | repository_module?: true}, occurrences}
 
       _module ->
+        occurrences =
+          if migration_execution_context?(env) do
+            [
+              occurrence(env, line_from_node(node), :direct_ecto, "migration.use_macro", node,
+                approval: :unresolved_sql
+              )
+              | occurrences
+            ]
+          else
+            occurrences
+          end
+
         scan_children(node, env, occurrences)
     end
   end
@@ -1107,6 +1141,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp mfa_dispatch_targets("rpc", operation, arguments)
+       when operation in @mfa_rpc_operations do
+    case {operation, arguments} do
+      {operation, [_node, target, target_operation, _arguments | _options]}
+      when operation in [:block_call, :call, :cast] ->
+        [{target, target_operation}]
+
+      {:multicall, [target, target_operation, _arguments]} ->
+        [{target, target_operation}]
+
+      {:multicall, [first, second, third, _fourth]} ->
+        [{first, second}, {second, third}]
+
+      {:multicall, [_nodes, target, target_operation, _arguments, _timeout]} ->
+        [{target, target_operation}]
+
+      _other ->
+        []
+    end
+  end
+
+  defp mfa_dispatch_targets("erpc", operation, arguments)
+       when operation in @mfa_erpc_operations do
+    case {operation, arguments} do
+      {operation, [_node, target, target_operation, _arguments | _options]}
+      when operation in [:call, :cast, :multicall, :send_request] ->
+        [{target, target_operation}]
+
+      {operation, [_node, function | _options]}
+      when operation in [:call, :cast, :multicall, :send_request] ->
+        [{function, nil}]
+
+      _other ->
+        []
+    end
+  end
+
   defp mfa_dispatch_targets(_receiver, _operation, _arguments), do: []
 
   defp classify_dynamic_dispatch(receiver, operation, kind, node, env) do
@@ -1587,6 +1658,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _other -> nil
     end
   end
+
+  defp function_default_expressions([{:when, _metadata, [head | _guards]} | _rest]),
+    do: function_default_expressions([head])
+
+  defp function_default_expressions([{_name, _metadata, arguments} | _rest])
+       when is_list(arguments) do
+    Enum.flat_map(arguments, fn
+      {:\\, _metadata, [_argument, default]} -> [default]
+      _argument -> []
+    end)
+  end
+
+  defp function_default_expressions(_arguments), do: []
 
   defp call_arguments({{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments}),
     do: arguments

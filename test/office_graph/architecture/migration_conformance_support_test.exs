@@ -2,6 +2,15 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
   use ExUnit.Case, async: true
 
   alias OfficeGraph.TestSupport.MigrationConformanceSupport
+  alias OfficeGraph.TestSupport.PostgresDump
+
+  test "parenthesized SQL keeps parentheses inside dollar-quoted strings" do
+    assert PostgresDump.take_parenthesized(~S|($$text ) and ($$) trailing|) ==
+             {~S|$$text ) and ($$|, " trailing"}
+
+    assert PostgresDump.take_parenthesized(~S|($body$text ) and ($body$) trailing|) ==
+             {~S|$body$text ) and ($body$|, " trailing"}
+  end
 
   test "parses terminal schema dump object classes" do
     inventory =
@@ -337,6 +346,26 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              "audit.events",
              "children"
            ]
+  end
+
+  test "terminal comparison canonicalizes configured quoted resource identities" do
+    inventory =
+      MigrationConformanceSupport.parse_dump(~S'''
+      CREATE TABLE "Audit Space"."Review Items" (
+          id uuid NOT NULL
+      );
+      ALTER TABLE ONLY "Audit Space"."Review Items" ADD CONSTRAINT "Review Items_pkey" PRIMARY KEY (id);
+      ''')
+
+    resources = %{
+      "Review Items" => {nil, OfficeGraph.TestSupport.MigrationConformanceQuotedResource}
+    }
+
+    assert MigrationConformanceSupport.resource_table_identities(resources) == [
+             ~s|"Audit Space"."Review Items"|
+           ]
+
+    assert MigrationConformanceSupport.terminal_database_errors(resources, inventory, []) == []
   end
 
   test "foreign-key conformance rejects unresolved project attributes" do

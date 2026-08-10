@@ -23,10 +23,35 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
   def take_identifier(input) when is_binary(input) do
     input = String.trim_leading(input)
 
-    with {:ok, part, rest} <- take_identifier_part(input) do
-      take_identifier_parts(rest, [part])
+    with {:ok, part, rest} <- take_identifier_part(input),
+         {:ok, parts, rest} <- take_identifier_parts(rest, [part]) do
+      {parts |> normalize_public_prefix() |> Enum.join("."), rest}
     else
       :error -> nil
+    end
+  end
+
+  def identifier_parts(input) when is_binary(input) do
+    input = String.trim(input)
+
+    with {:ok, part, rest} <- take_identifier_part(input),
+         {:ok, parts, rest} <- take_identifier_parts(rest, [part]),
+         true <- String.trim(rest, " ;") == "" do
+      normalize_public_prefix(parts)
+    else
+      _invalid -> nil
+    end
+  end
+
+  def configured_identifier(input) when is_atom(input),
+    do: input |> Atom.to_string() |> configured_identifier()
+
+  def configured_identifier(input) when is_binary(input), do: canonical_identifier(input)
+
+  def unqualified_identifier_value(input) when is_binary(input) do
+    case identifier_parts(input) do
+      nil -> nil
+      parts -> parts |> List.last() |> identifier_value()
     end
   end
 
@@ -72,23 +97,14 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
     with {:ok, part, rest} <- take_identifier_part(rest) do
       take_identifier_parts(rest, [part | parts])
     else
-      :error -> finish_identifier(parts, "." <> rest)
+      :error -> {:ok, Enum.reverse(parts), "." <> rest}
     end
   end
 
-  defp take_identifier_parts(rest, parts), do: finish_identifier(parts, rest)
+  defp take_identifier_parts(rest, parts), do: {:ok, Enum.reverse(parts), rest}
 
-  defp finish_identifier(parts, rest) do
-    parts = Enum.reverse(parts)
-
-    parts =
-      case parts do
-        ["public" | remaining] when remaining != [] -> remaining
-        parts -> parts
-      end
-
-    {Enum.join(parts, "."), rest}
-  end
+  defp normalize_public_prefix(["public" | remaining]) when remaining != [], do: remaining
+  defp normalize_public_prefix(parts), do: parts
 
   defp take_identifier_part(<<"\"", rest::binary>>),
     do: take_quoted_identifier(rest, [])
@@ -124,6 +140,14 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
       "\"#{String.replace(value, "\"", "\"\"")}\""
     end
   end
+
+  defp identifier_value(<<?\", rest::binary>>) do
+    rest
+    |> binary_part(0, byte_size(rest) - 1)
+    |> String.replace("\"\"", "\"")
+  end
+
+  defp identifier_value(value), do: value
 
   defp find_keyword(<<>>, _keyword, _state), do: nil
 
@@ -291,6 +315,18 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
   defp take_parenthesized(<<"\"", rest::binary>>, depth, :plain, current),
     do: take_parenthesized(rest, depth, :double_quote, ["\"" | current])
 
+  defp take_parenthesized(<<"$", _rest::binary>> = input, depth, :plain, current) do
+    case dollar_delimiter(input) do
+      nil ->
+        <<character::utf8, rest::binary>> = input
+        take_parenthesized(rest, depth, :plain, [<<character::utf8>> | current])
+
+      delimiter ->
+        rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
+        take_parenthesized(rest, depth, {:dollar_quote, delimiter}, [delimiter | current])
+    end
+  end
+
   defp take_parenthesized(<<"''", rest::binary>>, depth, :single_quote, current),
     do: take_parenthesized(rest, depth, :single_quote, ["''" | current])
 
@@ -302,6 +338,16 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
 
   defp take_parenthesized(<<"\"", rest::binary>>, depth, :double_quote, current),
     do: take_parenthesized(rest, depth, :plain, ["\"" | current])
+
+  defp take_parenthesized(input, depth, {:dollar_quote, delimiter} = state, current) do
+    if String.starts_with?(input, delimiter) do
+      rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
+      take_parenthesized(rest, depth, :plain, [delimiter | current])
+    else
+      <<character::utf8, rest::binary>> = input
+      take_parenthesized(rest, depth, state, [<<character::utf8>> | current])
+    end
+  end
 
   defp take_parenthesized(<<character::utf8, rest::binary>>, depth, state, current),
     do: take_parenthesized(rest, depth, state, [<<character::utf8>> | current])

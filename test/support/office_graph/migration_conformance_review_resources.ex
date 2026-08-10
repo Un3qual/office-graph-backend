@@ -146,6 +146,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceCompositeChildResource do
       reference :parent do
         name "composite_children_parent_fkey"
         match_with scope_id: :scope_id
+        match_type :simple
       end
     end
   end
@@ -163,5 +164,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceCompositeChildResource do
       define_attribute? false
       allow_nil? false
     end
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "Review Items"
+    schema "Audit Space"
+    repo OfficeGraph.Repo
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
   end
 end

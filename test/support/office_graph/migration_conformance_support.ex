@@ -1668,7 +1668,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> normalize_definition()
   end
 
-  defp reference_match_type(%{match_type: type}) when type in [:full, :partial, :simple],
+  defp reference_match_type(%{match_type: :simple}), do: nil
+
+  defp reference_match_type(%{match_type: type}) when type in [:full, :partial],
     do: "MATCH #{type |> to_string() |> String.upcase()}"
 
   defp reference_match_type(_reference), do: nil
@@ -1883,29 +1885,29 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp schema_table_identity(table, schema) when schema in [nil, :public, "public"],
-    do: to_string(table)
+    do: PostgresDump.configured_identifier(table)
 
   defp schema_table_identity(table, schema) when is_atom(schema) or is_binary(schema),
-    do: "#{schema}.#{table}"
+    do:
+      "#{PostgresDump.configured_identifier(schema)}.#{PostgresDump.configured_identifier(table)}"
 
   defp table_name(table) do
-    table
-    |> to_string()
-    |> String.split(".")
-    |> List.last()
+    table = to_string(table)
+    PostgresDump.unqualified_identifier_value(table) || table
   end
 
   defp postgres_identifier(name) do
     name
     |> to_string()
     |> String.slice(0, 63)
+    |> PostgresDump.configured_identifier()
   end
 
   defp sequence_identity(table, attribute) do
     sequence =
       postgres_identifier("#{table_name(table)}_#{attribute.source || attribute.name}_seq")
 
-    case String.split(table, ".", parts: 2) do
+    case PostgresDump.identifier_parts(table) do
       [schema, _table] -> "#{schema}.#{sequence}"
       [_table] -> sequence
     end
