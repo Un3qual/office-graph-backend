@@ -32,9 +32,10 @@ escape path, or stale approved exception.
 #### Scenario: Verification examines project scope
 
 - **WHEN** the database-boundary scan runs
-- **THEN** it MUST include tracked runtime code, tests, test support, Mix tasks,
-  seeds, migrations, and SQL-like files while excluding dependency source and
-  untracked build artifacts
+- **THEN** it MUST include every tracked Elixir and SQL-like source regardless
+  of directory, including runtime code, tests, test support, Mix tasks,
+  configuration, seeds, migrations, and scripts, while excluding dependency
+  source and untracked build artifacts
 
 #### Scenario: Verification runs from a clean checkout
 
@@ -62,6 +63,16 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the compiled audit MUST reject the call as unresolved even when the
   source gate already reports its exact tracked-source occurrence
 
+#### Scenario: Compiled environments are audited
+- **WHEN** canonical verification reaches the compiled database-boundary audit
+- **THEN** production output MUST already exist and the audit MUST inspect both
+  test and production BEAMs whose compiler-recorded source remains tracked
+
+#### Scenario: Compiled metadata is unavailable
+- **WHEN** a current tracked-source BEAM lacks auditable abstract code
+- **THEN** the audit MUST fail closed with a diagnostic attached to the
+  compiler-recorded Elixir source path rather than the binary artifact
+
 #### Scenario: Inert text mentions SQL
 - **WHEN** ordinary strings, comments, or documentation mention SQL phrases
   without being an argument or option to a classified executable primitive
@@ -88,6 +99,13 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   project-owned objects with Ash/resource ownership metadata, including
   normalized column type/default/nullability, key and constraint definitions,
   and index uniqueness/method/fields/null semantics
+
+#### Scenario: Schema-qualified resources and composite references are derived
+- **WHEN** resources use non-public schemas or references use multiple physical
+  column pairs
+- **THEN** conformance MUST key resources by schema-qualified table identity and
+  require every terminal foreign-key pair to match the owning Ash `belongs_to`
+  metadata, including configured `match_with` pairs
 
 #### Scenario: Raw SQL changes ownership
 - **WHEN** a migration attempts to create, alter, or drop schema ownership

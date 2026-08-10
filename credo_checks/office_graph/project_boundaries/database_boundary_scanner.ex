@@ -176,10 +176,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   @spec scan_compiled(Path.t(), keyword()) :: [map()]
   def scan_compiled(root \\ File.cwd!(), opts \\ []) do
-    paths = Keyword.get_lazy(opts, :paths, fn -> compiled_beam_paths(root) end)
+    {paths, tracked_paths} =
+      case Keyword.fetch(opts, :paths) do
+        {:ok, paths} -> {paths, nil}
+        :error -> {compiled_beam_paths(root), tracked_path_set(root)}
+      end
 
     paths
-    |> Enum.flat_map(&scan_beam(&1, root))
+    |> Enum.flat_map(&scan_beam(&1, root, tracked_paths))
     |> assign_ordinals()
   end
 
@@ -861,7 +865,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp module_name({:__aliases__, _metadata, parts}, env) do
     if Enum.all?(parts, &is_atom/1) do
-      name = Enum.map_join(parts, ".", &to_string/1)
+      [first | rest] = Enum.map(parts, &to_string/1)
+      name = Enum.join([Map.get(env.aliases, first, first) | rest], ".")
       Map.get(env.aliases, name, name)
     end
   end
@@ -1142,16 +1147,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp boundary_source?(path) do
-    extension = Path.extname(path)
-
-    extension in @source_extensions and
-      (String.starts_with?(path, "lib/") or
-         String.starts_with?(path, "test/") or
-         String.starts_with?(path, "credo_checks/") or
-         String.starts_with?(path, "priv/repo/migrations/") or
-         path == "priv/repo/seeds.exs" or
-         path == "mix.exs" or
-         String.starts_with?(path, "scripts/") or sql_file?(path))
+    Path.extname(path) in @source_extensions
   end
 
   defp elixir_source?(path), do: Path.extname(path) in [".ex", ".exs"]
@@ -1159,48 +1155,49 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
 
   defp compiled_beam_paths(root) do
-    env = mix_env()
-
-    active_paths =
+    [mix_env(), "prod"]
+    |> Enum.uniq()
+    |> Enum.flat_map(fn env ->
       root
       |> Path.join("_build/#{env}/lib/office_graph/ebin/*.beam")
       |> Path.wildcard()
-
-    paths =
-      if active_paths == [] do
-        root
-        |> Path.join("_build/*/lib/office_graph/ebin/*.beam")
-        |> Path.wildcard()
-      else
-        active_paths
-      end
-
-    Enum.reject(paths, &String.contains?(&1, "ProjectQuality.DatabaseBoundaryScanner"))
+    end)
+    |> Enum.reject(&String.contains?(&1, "ProjectQuality.DatabaseBoundaryScanner"))
   end
 
-  defp scan_beam(path, root) do
-    with {:ok, {_module, [abstract_code: {:raw_abstract_v1, forms}]}} <-
-           :beam_lib.chunks(String.to_charlist(path), [:abstract_code]) do
-      source = abstract_source(forms, root)
+  defp scan_beam(path, root, tracked_paths) do
+    source = compiled_source(path, root)
 
-      if compiled_framework_source?(source) do
+    cond do
+      tracked_paths && not MapSet.member?(tracked_paths, source) ->
         []
-      else
+
+      compiled_framework_source?(source) ->
+        []
+
+      true ->
+        scan_beam_abstract_code(path, source, root)
+    end
+  end
+
+  defp scan_beam_abstract_code(path, source, root) do
+    case :beam_lib.chunks(String.to_charlist(path), [:abstract_code]) do
+      {:ok, {_module, [abstract_code: {:raw_abstract_v1, forms}]}} ->
         forms
         |> Enum.flat_map(&compiled_form_occurrences(&1, source))
         |> Enum.uniq_by(fn occurrence ->
           {occurrence.path, occurrence.line, occurrence.class, occurrence.construct}
         end)
-      end
-    else
-      error -> [compiled_metadata_unavailable_occurrence(path, root, error)]
+
+      error ->
+        [compiled_metadata_unavailable_occurrence(path, source, root, error)]
     end
   end
 
-  defp compiled_metadata_unavailable_occurrence(path, root, error) do
-    path = Path.relative_to(path, root)
+  defp compiled_metadata_unavailable_occurrence(beam_path, source, root, error) do
+    payload = {Path.relative_to(beam_path, root), error}
 
-    occurrence(path, 1, nil, :direct_ecto, "compiled.abstract_code_unavailable", inspect(error),
+    occurrence(source, 1, nil, :direct_ecto, "compiled.abstract_code_unavailable", payload,
       approval: :unresolved_sql
     )
   end
@@ -1208,15 +1205,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp compiled_framework_source?("lib/office_graph/repo.ex"), do: true
   defp compiled_framework_source?(_source), do: false
 
-  defp abstract_source(forms, root) do
-    forms
-    |> Enum.find_value(fn
-      {:attribute, _line, :file, {source, _source_line}} -> List.to_string(source)
-      _form -> nil
-    end)
-    |> case do
-      nil -> "compiled"
-      source -> Path.relative_to(source, root)
+  defp compiled_source(path, root) do
+    with {:ok, {_module, [compile_info: compile_info]}} <-
+           :beam_lib.chunks(String.to_charlist(path), [:compile_info]),
+         source when is_list(source) <- Keyword.get(compile_info, :source) do
+      source
+      |> List.to_string()
+      |> Path.relative_to(root)
+    else
+      _unavailable -> "mix.exs"
+    end
+  end
+
+  defp tracked_path_set(root) do
+    case System.cmd("git", ["ls-files", "-z"], cd: root, stderr_to_stdout: true) do
+      {output, 0} -> output |> String.split(<<0>>, trim: true) |> MapSet.new()
+      {_output, _status} -> nil
     end
   end
 

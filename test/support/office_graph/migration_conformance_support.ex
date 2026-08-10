@@ -13,7 +13,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   def resource_table_identities(expected_resources) do
     expected_resources
-    |> Enum.map(fn {table, {_domain, resource}} -> resource_table_identity(table, resource) end)
+    |> Enum.map(fn {_table, {_domain, resource}} -> resource_table_identity(resource) end)
     |> Enum.sort()
   end
 
@@ -22,32 +22,47 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         inventory \\ terminal_inventory()
       ) do
     resources_by_table =
-      Map.new(expected_resources, fn {table, {_domain, resource}} ->
-        {resource_table_identity(table, resource), resource}
+      Map.new(expected_resources, fn {_table, {_domain, resource}} ->
+        {resource_table_identity(resource), resource}
       end)
 
     inventory.foreign_keys
     |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
-      with true <- Map.has_key?(resources_by_table, source_table),
-           true <- Map.has_key?(resources_by_table, destination_table),
-           source <- Map.fetch!(resources_by_table, source_table),
-           destination <- Map.fetch!(resources_by_table, destination_table),
-           {:ok, source_attribute} <- single_existing_atom(source_attribute),
-           {:ok, destination_attribute} <- single_existing_atom(destination_attribute),
-           nil <-
-             Enum.find(Ash.Resource.Info.relationships(source), fn relationship ->
-               match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
-                 relationship.source_attribute == source_attribute and
-                 relationship.destination == destination and
-                 relationship.destination_attribute == destination_attribute
-             end) do
-        [
-          "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
-        ]
-      else
-        %Ash.Resource.Relationships.BelongsTo{} -> []
-        false -> []
-        _unknown_attribute_or_table -> []
+      case Map.fetch(resources_by_table, source_table) do
+        :error ->
+          []
+
+        {:ok, source} ->
+          case Map.fetch(resources_by_table, destination_table) do
+            :error ->
+              foreign_key_relationship_error(
+                source_table,
+                source_attribute,
+                destination_table,
+                destination_attribute
+              )
+
+            {:ok, destination} ->
+              source_columns = identifier_list(source_attribute)
+              destination_columns = identifier_list(destination_attribute)
+
+              if matching_belongs_to?(
+                   source,
+                   destination,
+                   destination_table,
+                   source_columns,
+                   destination_columns
+                 ) do
+                []
+              else
+                foreign_key_relationship_error(
+                  source_table,
+                  source_attribute,
+                  destination_table,
+                  destination_attribute
+                )
+              end
+          end
       end
     end)
     |> Enum.sort()
@@ -176,9 +191,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         password -> [{"PGPASSWORD", to_string(password)}]
       end
 
-    case System.cmd("pg_dump", args, env: env, stderr_to_stdout: true) do
-      {dump, 0} -> parse_dump(dump)
-      {output, status} -> dump_with_docker_or_raise!(config, output, status)
+    case System.find_executable("pg_dump") do
+      nil ->
+        dump_with_docker_or_raise!(config, "pg_dump is not available on PATH", :unavailable)
+
+      executable ->
+        case System.cmd(executable, args, env: env, stderr_to_stdout: true) do
+          {dump, 0} -> parse_dump(dump)
+          {output, status} -> dump_with_docker_or_raise!(config, output, status)
+        end
     end
   end
 
@@ -386,39 +407,99 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end)
     |> Enum.filter(fn {_domain, resource} -> migration_authoritative?(resource) end)
     |> Map.new(fn {domain, resource} ->
-      {AshPostgres.DataLayer.Info.table(resource), {domain, resource}}
+      {resource_table_identity(resource), {domain, resource}}
     end)
   end
 
-  defp single_existing_atom(attributes) do
-    case attributes |> String.split(",") |> Enum.map(&String.trim/1) do
-      [attribute] ->
-        {:ok, String.to_existing_atom(attribute)}
+  defp matching_belongs_to?(
+         source,
+         destination,
+         destination_table,
+         source_columns,
+         destination_columns
+       ) do
+    same_arity? = length(source_columns) == length(destination_columns)
+    actual_pairs = Enum.zip(source_columns, destination_columns) |> Enum.sort()
 
-      _composite ->
-        :composite
-    end
-  rescue
-    ArgumentError -> :unknown
+    same_arity? and
+      Enum.any?(Ash.Resource.Info.relationships(source), fn
+        %Ash.Resource.Relationships.BelongsTo{} = relationship ->
+          relationship.destination == destination and
+            relationship_destination_identity(relationship) == destination_table and
+            relationship_column_pairs(source, relationship) == actual_pairs
+
+        _other ->
+          false
+      end)
+  end
+
+  defp relationship_column_pairs(source, relationship) do
+    source_attribute = Ash.Resource.Info.attribute(source, relationship.source_attribute)
+
+    destination_attribute =
+      Ash.Resource.Info.attribute(relationship.destination, relationship.destination_attribute)
+
+    reference = AshPostgres.DataLayer.Info.reference(source, relationship.name)
+    base_pair = {attribute_column(source_attribute), attribute_column(destination_attribute)}
+
+    matched_pairs =
+      ((reference && reference.match_with) || %{})
+      |> Enum.map(fn {source_name, destination_name} ->
+        {
+          source |> Ash.Resource.Info.attribute(source_name) |> attribute_column(),
+          relationship.destination
+          |> Ash.Resource.Info.attribute(destination_name)
+          |> attribute_column()
+        }
+      end)
+
+    Enum.sort([base_pair | matched_pairs])
+  end
+
+  defp foreign_key_relationship_error(
+         source_table,
+         source_attribute,
+         destination_table,
+         destination_attribute
+       ) do
+    [
+      "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
+    ]
+  end
+
+  defp relationship_destination_identity(relationship) do
+    schema_table_identity(
+      relationship.context[:data_layer][:table] ||
+        AshPostgres.DataLayer.Info.table(relationship.destination),
+      relationship.context[:data_layer][:schema] ||
+        AshPostgres.DataLayer.Info.schema(relationship.destination)
+    )
+  end
+
+  defp attribute_column(nil), do: nil
+  defp attribute_column(attribute), do: to_string(attribute.source || attribute.name)
+
+  defp identifier_list(attributes) do
+    attributes
+    |> String.split(",", trim: true)
+    |> Enum.map(&trim_identifier/1)
   end
 
   defp table_shape_errors(inventory, expected_resources, project_tables) do
     expected_shape = expected_table_shape(expected_resources)
     actual_columns = project_definitions(inventory.columns, project_tables)
     expected_columns = definition_map(expected_shape.columns)
+    actual_column_keys = actual_columns |> Map.keys() |> MapSet.new()
+    expected_column_keys = expected_columns |> Map.keys() |> MapSet.new()
 
     unexpected_columns =
-      actual_columns
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.difference(expected_columns |> Map.keys() |> MapSet.new())
+      actual_column_keys
+      |> MapSet.difference(expected_column_keys)
       |> Enum.map(fn {table, column} -> "unexpected project column #{table}.#{column}" end)
 
     missing_columns =
-      expected_columns
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.difference(actual_columns |> Map.keys() |> MapSet.new())
+      expected_column_keys
+      |> MapSet.difference(actual_column_keys)
       |> Enum.map(fn {table, column} -> "missing Ash-owned column #{table}.#{column}" end)
 
     mismatched_columns =
@@ -445,19 +526,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     actual_constraints = project_definitions(inventory.constraints, project_tables)
     expected_constraints = definition_map(expected_shape.constraints)
+    actual_constraint_keys = actual_constraints |> Map.keys() |> MapSet.new()
+    expected_constraint_keys = expected_constraints |> Map.keys() |> MapSet.new()
 
     missing_constraints =
-      expected_constraints
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.difference(actual_constraints |> Map.keys() |> MapSet.new())
+      expected_constraint_keys
+      |> MapSet.difference(actual_constraint_keys)
       |> Enum.map(fn {table, name} -> "missing Ash-owned constraint #{table}.#{name}" end)
 
     unexpected_constraints =
-      actual_constraints
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.difference(expected_constraints |> Map.keys() |> MapSet.new())
+      actual_constraint_keys
+      |> MapSet.difference(expected_constraint_keys)
       |> Enum.map(fn {table, name} -> "unexpected project constraint #{table}.#{name}" end)
 
     mismatched_constraints =
@@ -471,19 +550,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     actual_indexes = project_definitions(inventory.indexes, project_tables)
     expected_indexes = definition_map(expected_shape.indexes)
+    actual_index_keys = actual_indexes |> Map.keys() |> MapSet.new()
+    expected_index_keys = expected_indexes |> Map.keys() |> MapSet.new()
 
     missing_indexes =
-      expected_indexes
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.difference(actual_indexes |> Map.keys() |> MapSet.new())
+      expected_index_keys
+      |> MapSet.difference(actual_index_keys)
       |> Enum.map(fn {table, name} -> "missing Ash-owned index #{name} ON #{table}" end)
 
     unexpected_indexes =
-      actual_indexes
-      |> Map.keys()
-      |> MapSet.new()
-      |> MapSet.difference(expected_indexes |> Map.keys() |> MapSet.new())
+      actual_index_keys
+      |> MapSet.difference(expected_index_keys)
       |> Enum.map(fn {table, name} -> "unexpected project index #{name} ON #{table}" end)
 
     mismatched_indexes =
@@ -540,8 +617,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         indexes: MapSet.new(),
         primary_keys: MapSet.new()
       },
-      fn {table, {_domain, resource}}, shape ->
-        table = resource_table_identity(table, resource)
+      fn {_table, {_domain, resource}}, shape ->
+        table = resource_table_identity(resource)
 
         shape
         |> Map.update!(:columns, &MapSet.union(&1, expected_columns(table, resource)))
@@ -592,7 +669,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp postgres_type({:array, type}), do: postgres_type(type) <> "[]"
+  defp postgres_type({:array, type}), do: "#{postgres_type(type)}[]"
   defp postgres_type({:varchar, size}), do: "character varying(#{size})"
   defp postgres_type({:binary, size}), do: "bit varying(#{size})"
   defp postgres_type({:decimal, precision, scale}), do: "numeric(#{precision},#{scale})"
@@ -751,12 +828,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     source = to_string(source_attribute.source || source_attribute.name)
     destination = to_string(destination_attribute.source || destination_attribute.name)
 
-    {sources, destinations} =
+    {matched_sources, matched_destinations} =
       ((reference && reference.match_with) || %{})
-      |> Enum.reduce({[source], [destination]}, fn {source, destination},
-                                                   {sources, destinations} ->
-        {sources ++ [to_string(source)], destinations ++ [to_string(destination)]}
+      |> Enum.map(fn {source, destination} ->
+        {to_string(source), to_string(destination)}
       end)
+      |> Enum.unzip()
+
+    sources = [source | matched_sources]
+    destinations = [destination | matched_destinations]
 
     destination_table =
       schema_table_identity(
@@ -999,8 +1079,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp framework_owned?(_identity), do: false
 
-  defp resource_table_identity(table, resource),
-    do: schema_table_identity(table, AshPostgres.DataLayer.Info.schema(resource))
+  defp resource_table_identity(resource) do
+    schema_table_identity(
+      AshPostgres.DataLayer.Info.table(resource),
+      AshPostgres.DataLayer.Info.schema(resource)
+    )
+  end
 
   defp schema_table_identity(table, schema) when schema in [nil, :public, "public"],
     do: to_string(table)

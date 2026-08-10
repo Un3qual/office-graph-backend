@@ -72,6 +72,22 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     refute Keyword.has_key?(aliases, :"office_graph.database_boundaries")
   end
 
+  test "production BEAMs are built before the compiled boundary audit" do
+    verify = Mix.Project.config()[:aliases][:verify]
+
+    assert Enum.find_index(verify, &(&1 == "production.build")) <
+             Enum.find_index(verify, &(&1 == "static.analysis"))
+  end
+
+  test "Nix shell pins the PostgreSQL 18 client used by terminal verification" do
+    flake = File.read!("flake.nix")
+
+    assert flake =~ "postgresql = pkgs.postgresql_18"
+
+    assert {version, 0} = System.cmd("pg_dump", ["--version"])
+    assert version =~ ~r/pg_dump \(PostgreSQL\) 18\./
+  end
+
   test "verification environment is stable and honors explicit isolation overrides" do
     {first_output, 0} =
       System.cmd("sh", ["bin/verify", "--print-environment"],

@@ -36,4 +36,12 @@
 - [x] 6.1 Add regressions for dynamic dispatch, Ecto query fragments and locks, qualified migration SQL options, and short-circuit migration branches.
 - [x] 6.2 Audit dynamic database operations in both tracked source and BEAM abstract code without general dataflow analysis.
 - [x] 6.3 Preserve and compare terminal column, constraint, and index definitions against Ash/AshPostgres metadata.
-- [ ] 6.4 Run focused and canonical verification, review the final diff, and push the follow-up commits.
+- [x] 6.4 Run focused and canonical verification and review the final diff before the follow-up push.
+
+## 7. Review Bot Follow-Up
+
+- [x] 7.1 Scan every tracked Elixir/SQL-like source and resolve ordinary alias prefixes without dataflow analysis.
+- [x] 7.2 Audit current tracked-source BEAMs from both test and production output, and keep metadata failures source-addressable.
+- [x] 7.3 Preserve schema-qualified resource identities and fail closed on unresolved or composite foreign-key ownership.
+- [x] 7.4 Pin PostgreSQL 18 client tooling in the Nix shell and preserve the container fallback when local `pg_dump` is unavailable.
+- [ ] 7.5 Run final focused and canonical verification, perform the final diff review, push, and reply to review threads.

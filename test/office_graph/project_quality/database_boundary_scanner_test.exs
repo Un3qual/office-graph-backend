@@ -101,6 +101,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "resolves aliases used as module prefixes" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "test/example_test.exs",
+          source: """
+          defmodule ExampleTest do
+            alias OfficeGraph, as: OG
+            alias OG.Repo
+
+            def load, do: Repo.query!("SELECT 1", [])
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "load/0"
+  end
+
   test "does not classify inert strings and comments" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{
@@ -529,6 +550,57 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.path == "lib/legacy_importer.ex"
   end
 
+  test "compiled audit includes production BEAM output" do
+    root = temporary_root("compiled_boundary_production")
+    test_source_path = Path.join(root, "lib/test_environment_boundary.ex")
+    prod_source_path = Path.join(root, "lib/prod_environment_boundary.ex")
+    test_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+    prod_ebin = Path.join(root, "_build/prod/lib/office_graph/ebin")
+    suffix = System.unique_integer([:positive])
+    test_module = Module.concat(OfficeGraph, "TestEnvironmentBoundary#{suffix}")
+    prod_module = Module.concat(OfficeGraph, "ProdEnvironmentBoundary#{suffix}")
+
+    init_git_repo!(root)
+
+    compile_source!(test_source_path, test_ebin, """
+    defmodule #{inspect(test_module)} do
+      def load, do: :ok
+    end
+    """)
+
+    compile_source!(prod_source_path, prod_ebin, """
+    defmodule #{inspect(prod_module)} do
+      def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+    end
+    """)
+
+    git!(root, ["add", "lib/test_environment_boundary.ex", "lib/prod_environment_boundary.ex"])
+
+    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root)
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.path == "lib/prod_environment_boundary.ex"
+  end
+
+  test "compiled audit ignores stale BEAMs whose source is no longer tracked" do
+    root = temporary_root("compiled_boundary_stale")
+    source_path = Path.join(root, "lib/stale_boundary.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+    module = Module.concat(OfficeGraph, "StaleBoundary#{System.unique_integer([:positive])}")
+
+    init_git_repo!(root)
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+    end
+    """)
+
+    git!(root, ["add", "lib/stale_boundary.ex"])
+    git!(root, ["mv", "lib/stale_boundary.ex", "lib/current_boundary.ex"])
+
+    assert DatabaseBoundaryScanner.scan_compiled(root) == []
+  end
+
   test "compiled audit fails closed when BEAM abstract code is unavailable" do
     root =
       Path.join(
@@ -567,7 +639,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :direct_ecto
     assert occurrence.construct == "compiled.abstract_code_unavailable"
     assert occurrence.approval == :unresolved_sql
-    assert occurrence.path =~ "NoDebugBoundaryExample.beam"
+    assert occurrence.path == "lib/no_debug_boundary_example.ex"
+  end
+
+  test "repository scan includes every tracked Elixir source" do
+    root = temporary_root("database_boundary_tracked_sources")
+    init_git_repo!(root)
+
+    sources = [
+      {"config/runtime.exs", "OfficeGraph.Repo.query!(\"SELECT 1\", [])"},
+      {".credo.exs", "OfficeGraph.Repo.query!(\"SELECT 2\", [])"},
+      {"operations.exs", "OfficeGraph.Repo.query!(\"SELECT 3\", [])"}
+    ]
+
+    Enum.each(sources, fn {path, source} ->
+      full_path = Path.join(root, path)
+      File.mkdir_p!(Path.dirname(full_path))
+      File.write!(full_path, source)
+      git!(root, ["add", path])
+    end)
+
+    expected_paths = sources |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+
+    assert DatabaseBoundaryScanner.scan_repository(root)
+           |> Enum.map(& &1.path) == expected_paths
   end
 
   test "current repository scan only reports approved UUIDv7 fragments" do
@@ -579,5 +674,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "fragment",
               "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"}
            ]
+  end
+
+  defp temporary_root(label) do
+    root =
+      Path.join(System.tmp_dir!(), "office_graph_#{label}_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    root
+  end
+
+  defp init_git_repo!(root), do: git!(root, ["init", "--quiet"])
+
+  defp git!(root, arguments) do
+    assert {_output, 0} = System.cmd("git", arguments, cd: root, stderr_to_stdout: true)
+    :ok
+  end
+
+  defp compile_source!(source_path, ebin, source) do
+    File.mkdir_p!(Path.dirname(source_path))
+    File.mkdir_p!(ebin)
+    File.write!(source_path, source)
+
+    assert {_output, 0} =
+             System.cmd("elixirc", ["-o", ebin, source_path],
+               stderr_to_stdout: true
+             )
   end
 end

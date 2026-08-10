@@ -17,7 +17,7 @@ Project constraints:
 
 - Preserve strict fail-closed enforcement for raw SQL, direct Ecto, migration SQL, and direct repository access.
 - Preserve exact exception fingerprinting and invalidation, including when terminal schema output is unchanged.
-- Preserve repository-wide tracked-source coverage for `lib`, tests, test support, Mix tasks, seeds, migrations, and SQL-like files.
+- Preserve repository-wide coverage for every tracked Elixir and SQL-like source, including `lib`, tests, test support, Mix tasks, configuration, seeds, migrations, and scripts.
 - Replace the current symbolic evaluator with four independent, comprehensible layers:
   1. forbidden-primitive source scan;
   2. post-compilation dependency/import audit;
@@ -38,7 +38,7 @@ Project constraints:
 
 ### 1. Source scan bans primitives and dynamic escape shapes
 
-The source layer scans every tracked project source whose path can express persistence behavior: runtime Elixir, tests, test support, Mix tasks, seeds, migrations, and tracked SQL-like files. It parses Elixir with `Code.string_to_quoted` for line metadata, but it does not evaluate helper bodies, callbacks, conditionals, quoted code, SQL strings, or macro output.
+The source layer scans every tracked `.ex`, `.exs`, and SQL-like project source regardless of its directory, including runtime Elixir, tests, test support, Mix tasks, configuration, seeds, migrations, and scripts. It parses Elixir with `Code.string_to_quoted` for line metadata, but it does not evaluate helper bodies, callbacks, conditionals, quoted code, SQL strings, or macro output.
 
 It reports exact occurrences for direct and imported uses of known low-level primitives: `OfficeGraph.Repo`, `Ecto.Adapters.SQL`, `Postgrex`, `Ecto.Multi`, `Ecto.Query.API.fragment`/`unsafe_fragment`, SQL-bearing Ecto query options, migration `execute`/`execute_file`/`fragment`, migration SQL options, direct migration inserts, and repository transaction/connection control. SQL-like tracked files are raw-SQL occurrences by definition. Dynamic `apply`, dynamic receivers with database operations, `Module.concat`, external SQL files, repository variable receivers, direct repository calls inside migrations, reflection, arbitrary migration helper calls, and migration branching/control flow including short-circuit operators are rejected as unresolved escape paths. Qualified `Ecto.Migration` calls receive the same enforcement as imported migration calls.
 
@@ -46,7 +46,7 @@ Alternative considered: retain symbolic expansion for statically provable constr
 
 ### 2. Compiled BEAM metadata audits aliases, imports, and dependencies
 
-After compilation, the gate inspects application BEAM modules with `:beam_lib` and uses abstract code/import metadata to find calls and imports that source text might spell indirectly. This catches ordinary aliases and imported direct calls without implementing alias-flow or callback execution. Dynamic BEAM receivers and `apply` calls with statically visible database operations fail closed as a second defense, while the source layer preserves the exact tracked-source occurrence.
+After test and production compilation, the gate inspects application BEAM modules with `:beam_lib` and uses abstract code/import metadata to find calls and imports that source text might spell indirectly. It reads each module's compiler-recorded source path and audits only artifacts backed by a currently tracked source, so deleted or renamed modules cannot produce stale results. This catches ordinary aliases and imported direct calls without implementing alias-flow or callback execution. Dynamic BEAM receivers and `apply` calls with statically visible database operations fail closed as a second defense, while the source layer preserves the exact tracked-source occurrence. Missing abstract code also fails closed against the compiler-recorded source path so static-analysis diagnostics never attempt to parse a BEAM binary as Elixir.
 
 Alternative considered: source-only scanning. Rejected because aliases and imports are common Elixir syntax and should be checked from compiler output where possible.
 
@@ -60,7 +60,7 @@ Alternative considered: reimplementing generated migration comparison in project
 
 The terminal comparison runs the real migrated test database and inspects `pg_dump --schema-only --no-owner` output. Privileges remain in the dump so grants are part of the inventory. The parser extracts project-owned object classes from the dump: tables, columns, primary keys, foreign keys, constraints, indexes, sequences, views, materialized views, functions/procedures, triggers, RLS policies, grants, and extensions. This avoids repository-authored catalog SQL while still testing the actual terminal database after migrations.
 
-The comparison derives expected project-owned tables, columns, key and constraint definitions, and identity/custom/reference index definitions from configured Ash and AshPostgres resource metadata. It compares normalized PostgreSQL 18 definitions for column type/default/nullability, primary and foreign keys, and index uniqueness/method/fields/null semantics. Normalization only folds database-equivalent output forms such as public-schema qualification, identifier quoting, automatically named `NOT NULL` constraints, and pair ordering in composite foreign keys. It fails if an Ash-owned object is absent, a definition differs, an unexpected object exists outside the allowed database-owned set, a terminal foreign key lacks the matching Ash relationship, or prohibited stored routines/triggers/views/policies/grants appear without exact approval.
+The comparison derives schema-qualified project-owned table identities, columns, key and constraint definitions, and identity/custom/reference index definitions from configured Ash and AshPostgres resource metadata. It compares normalized PostgreSQL 18 definitions for column type/default/nullability, primary and foreign keys, and index uniqueness/method/fields/null semantics. Normalization only folds database-equivalent output forms such as public-schema qualification, identifier quoting, automatically named `NOT NULL` constraints, and pair ordering in composite foreign keys. Foreign-key conformance compares the complete physical source/destination column pair set, including configured `match_with` columns, and fails closed on unknown tables or attributes originating from a project-owned table. It also fails if an Ash-owned object is absent, a definition differs, an unexpected object exists outside the allowed database-owned set, or prohibited stored routines/triggers/views/policies/grants appear without exact approval.
 
 Alternative considered: direct `pg_catalog` SQL. Rejected for this change because project policy requires exact SQL occurrence approval before adding repository-authored SQL, and `pg_dump` gives enough terminal evidence without adding that approval surface.
 
@@ -74,7 +74,7 @@ Alternative considered: approving terminal schema equivalence. Rejected because 
 
 - **Risk: simpler source scanning may report more violations than the old evaluator** -> Mitigation: this is intentional at persistence boundaries; dynamic or complex shapes must be rewritten to declarative Ash/AshPostgres/Ecto migration constructs or receive exact approval.
 - **Risk: `pg_dump` text parsing may drift across PostgreSQL versions** -> Mitigation: canonical verification already requires PostgreSQL 18, and tests use representative dump snippets plus live schema checks.
-- **Risk: external schema dump tooling might be unavailable outside the Nix shell** -> Mitigation: project commands run through the Nix flake, which supplies PostgreSQL tooling.
+- **Risk: external schema dump tooling might be unavailable outside the Nix shell** -> Mitigation: project commands run through the Nix flake, which pins the PostgreSQL 18 client; the terminal audit falls back to the PostgreSQL container's `pg_dump` when the local executable is unavailable or incompatible.
 - **Risk: terminal inventory alone misses non-schema database behavior** -> Mitigation: source and compiled gates remain mandatory and run independently of the terminal comparison.
 
 ## Migration Plan

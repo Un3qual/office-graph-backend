@@ -142,13 +142,13 @@ defmodule OfficeGraph.MixProject do
         "migration.drift",
         "boundary.check",
         "architecture.check",
+        "production.build",
         "static.analysis",
         "typecheck",
         "dependency.audit",
         "spec.verify",
         "cmd ./bin/check-spec-purposes",
         "frontend.verify.precompiled",
-        "production.build",
         "test"
       ],
       precommit: ["verify"]

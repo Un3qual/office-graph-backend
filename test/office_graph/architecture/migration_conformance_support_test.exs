@@ -65,12 +65,40 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
   test "resource table identities preserve non-public schema prefixes" do
     resources = %{
       "children" => {nil, __MODULE__.PublicResource},
-      "events" => {nil, __MODULE__.AuditResource}
+      "audit.events" => {nil, __MODULE__.AuditResource}
     }
 
     assert MigrationConformanceSupport.resource_table_identities(resources) == [
              "audit.events",
              "children"
+           ]
+  end
+
+  test "foreign-key conformance rejects unresolved project attributes" do
+    inventory = %{
+      foreign_keys: [
+        {"graph_items", "review_only_unmapped_attribute", "graph_items", "id"}
+      ]
+    }
+
+    assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+             %{"graph_items" => {nil, OfficeGraph.WorkGraph.GraphItem}},
+             inventory
+           ) == [
+             "graph_items.review_only_unmapped_attribute references graph_items.id without a matching belongs_to"
+           ]
+  end
+
+  test "foreign-key conformance rejects an unresolved destination table" do
+    inventory = %{
+      foreign_keys: [{"graph_items", "organization_id", "unowned_records", "id"}]
+    }
+
+    assert MigrationConformanceSupport.migration_foreign_key_relationship_errors(
+             %{"graph_items" => {nil, OfficeGraph.WorkGraph.GraphItem}},
+             inventory
+           ) == [
+             "graph_items.organization_id references unowned_records.id without a matching belongs_to"
            ]
   end
 
@@ -101,6 +129,8 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              %{"graph_items" => {nil, OfficeGraph.WorkGraph.GraphItem}},
              inventory
            ) == [
+             "graph_items.organization_id references organizations.id without a matching belongs_to",
+             "graph_items.workspace_id references workspaces.id without a matching belongs_to",
              "unexpected project column graph_items.rogue",
              "unexpected project constraint graph_items.graph_items_rogue_check",
              "unexpected project index graph_items_rogue_index ON graph_items"
