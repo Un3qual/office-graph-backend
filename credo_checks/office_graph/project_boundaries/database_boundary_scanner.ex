@@ -234,6 +234,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Ecto.Repo.Transaction"
   ]
   @process_execution_modules ["Port", "System", "erlang", "os"]
+  @process_execution_operations [
+    {"Port", :open},
+    {"System", :cmd},
+    {"System", :shell},
+    {"erlang", :open_port},
+    {"os", :cmd}
+  ]
   @database_cli_executables [
     "clusterdb",
     "createdb",
@@ -294,21 +301,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Module" => [:create, :eval_quoted]
   }
   @sql_payload_positions %{
-    "Ecto.Adapters.SQL.execute" => [],
-    "Ecto.Adapters.SQL.query" => [1],
-    "Ecto.Adapters.SQL.query!" => [1],
-    "Ecto.Adapters.SQL.query_many" => [1],
-    "Ecto.Adapters.SQL.query_many!" => [1],
-    "Ecto.Adapters.SQL.stream" => [1],
-    "Postgrex.execute" => [],
-    "Postgrex.execute!" => [],
-    "Postgrex.prepare" => [2],
-    "Postgrex.prepare!" => [2],
-    "Postgrex.prepare_execute" => [2],
-    "Postgrex.prepare_execute!" => [2],
-    "Postgrex.query" => [1],
-    "Postgrex.query!" => [1],
-    "Postgrex.stream" => []
+    "Ecto.Adapters.SQL.execute" => nil,
+    "Ecto.Adapters.SQL.query" => 1,
+    "Ecto.Adapters.SQL.query!" => 1,
+    "Ecto.Adapters.SQL.query_many" => 1,
+    "Ecto.Adapters.SQL.query_many!" => 1,
+    "Ecto.Adapters.SQL.stream" => 1,
+    "Postgrex.execute" => nil,
+    "Postgrex.execute!" => nil,
+    "Postgrex.prepare" => 2,
+    "Postgrex.prepare!" => 2,
+    "Postgrex.prepare_execute" => 2,
+    "Postgrex.prepare_execute!" => 2,
+    "Postgrex.query" => 1,
+    "Postgrex.query!" => 1,
+    "Postgrex.stream" => nil
   }
   @sql_file_extensions [".pgsql", ".psql", ".sql"]
   @source_extensions [".ex", ".exs" | @sql_file_extensions]
@@ -746,11 +753,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {env, occurrences}
   end
 
-  defp classify_remote_call(receiver, :apply, arguments, node, env)
-       when length(arguments) >= 2 do
+  defp classify_remote_call(receiver, :apply, [target, operation | _rest] = arguments, node, env) do
     case receiver_name(receiver, env) do
       receiver when receiver in ["Kernel", "erlang"] ->
-        [target, operation | _rest] = arguments
         classify_apply(target, operation, node, env)
 
       receiver ->
@@ -907,11 +912,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_operation(receiver, operation, _arity, node, env)
-       when receiver in @process_execution_modules and
-              ((receiver == "System" and operation in [:cmd, :shell]) or
-                 (receiver == "os" and operation == :cmd) or
-                 (receiver == "Port" and operation == :open) or
-                 (receiver == "erlang" and operation == :open_port)) do
+       when {receiver, operation} in @process_execution_operations do
     case process_command_status(receiver, operation, node) do
       :database_cli ->
         occurrence(env, line_from_node(node), :raw_sql, "process.database_cli", node,
@@ -1016,8 +1017,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp classify_operation(receiver, operation, _arity, node, env)
-       when receiver in @database_modules and operation == :apply do
+  defp classify_operation(receiver, :apply, _arity, node, env)
+       when receiver in @database_modules do
     class = dynamic_dispatch_class(receiver)
 
     occurrence(env, line_from_node(node), class, "#{receiver}.apply", node,
@@ -1377,7 +1378,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> Enum.reduce(env.aliases, fn alias_ast, aliases ->
       with prefix when is_binary(prefix) <- prefix,
            suffix when is_binary(suffix) <- module_name(alias_ast, env) do
-        module = prefix <> "." <> suffix
+        module = IO.iodata_to_binary([prefix, ".", suffix])
         Map.put(aliases, module |> String.split(".") |> List.last(), module)
       else
         _value -> aliases
@@ -1648,10 +1649,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if Enum.all?(nodes, &is_integer/1) do
       {[List.to_string(nodes)], false}
     else
-      Enum.reduce(nodes, {[], false}, fn node, {literals, dynamic?} ->
-        {node_literals, node_dynamic?} = command_literals(node)
-        {literals ++ node_literals, dynamic? or node_dynamic?}
-      end)
+      {reversed_literals, dynamic?} =
+        Enum.reduce(nodes, {[], false}, fn node, {literals, dynamic?} ->
+          {node_literals, node_dynamic?} = command_literals(node)
+          {Enum.reverse(node_literals, literals), dynamic? or node_dynamic?}
+        end)
+
+      {Enum.reverse(reversed_literals), dynamic?}
     end
   end
 
@@ -1668,14 +1672,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: {[List.to_string(characters)], false}
 
   defp command_literals({:bin, _metadata, elements}) when is_list(elements) do
-    Enum.reduce(elements, {[], false}, fn
-      {:bin_element, _element_metadata, value, _size, _type}, {literals, dynamic?} ->
-        {element_literals, element_dynamic?} = command_literals(value)
-        {literals ++ element_literals, dynamic? or element_dynamic?}
+    {reversed_literals, dynamic?} =
+      Enum.reduce(elements, {[], false}, fn
+        {:bin_element, _element_metadata, value, _size, _type}, {literals, dynamic?} ->
+          {element_literals, element_dynamic?} = command_literals(value)
+          {Enum.reverse(element_literals, literals), dynamic? or element_dynamic?}
 
-      _element, {literals, _dynamic?} ->
-        {literals, true}
-    end)
+        _element, {literals, _dynamic?} ->
+          {literals, true}
+      end)
+
+    {Enum.reverse(reversed_literals), dynamic?}
   end
 
   defp command_literals({:<<>>, _metadata, segments}) when is_list(segments) do
@@ -1833,7 +1840,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp sql_payload_arguments(construct, arguments) do
     case Map.fetch(@sql_payload_positions, construct) do
-      {:ok, positions} -> Enum.map(positions, &Enum.at(arguments, &1))
+      {:ok, nil} -> []
+      {:ok, position} -> [Enum.at(arguments, position)]
       :error -> Enum.take(arguments, 1)
     end
   end
@@ -2034,7 +2042,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp printable_node(node) do
     Macro.to_string(node)
   rescue
-    _error -> inspect(node)
+    _error in [ArgumentError, FunctionClauseError, Protocol.UndefinedError] -> inspect(node)
   end
 
   defp operator?(operation) do
@@ -2092,11 +2100,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       if environment_paths == [] do
         {paths, [env | missing_environments]}
       else
-        {paths ++ environment_paths, missing_environments}
+        {Enum.reverse(environment_paths, paths), missing_environments}
       end
     end)
     |> then(fn {paths, missing_environments} ->
-      {paths, Enum.reverse(missing_environments)}
+      {Enum.reverse(paths), Enum.reverse(missing_environments)}
     end)
   end
 
@@ -2115,13 +2123,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_beam(path, root, tracked_paths) do
     source = compiled_source(path, root)
 
-    cond do
-      tracked_paths && not MapSet.member?(tracked_paths, source) ->
-        []
-
-      true ->
-        scan_beam_abstract_code(path, source, root)
-    end
+    if tracked_paths && not MapSet.member?(tracked_paths, source),
+      do: [],
+      else: scan_beam_abstract_code(path, source, root)
   end
 
   defp scan_beam_abstract_code(path, source, root) do
@@ -2539,7 +2543,5 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp mix_env do
     if Process.whereis(Mix.State), do: Mix.env(), else: :dev
-  rescue
-    _error -> :dev
   end
 end

@@ -183,9 +183,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       ["class", "construct", "fingerprint", "line", "ordinal", "path"] ++
         @approved_metadata_fields
 
+    indexed_exceptions = Enum.with_index(approved_exceptions, 1)
+
     missing_field_errors =
-      approved_exceptions
-      |> Enum.with_index(1)
+      indexed_exceptions
       |> Enum.flat_map(fn {entry, index} ->
         missing_fields =
           required_fields
@@ -207,8 +208,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       end)
 
     invalid_field_errors =
-      approved_exceptions
-      |> Enum.with_index(1)
+      indexed_exceptions
       |> Enum.flat_map(fn {entry, index} ->
         case invalid_fields(entry) do
           [] ->
@@ -326,8 +326,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     |> Enum.group_by(fn {entry, _index} ->
       Enum.map(@locator_fields, &Map.get(entry, &1))
     end)
-    |> Map.values()
-    |> Enum.filter(&(length(&1) > 1))
+    |> Enum.flat_map(fn
+      {_locator, [_entry]} -> []
+      {_locator, entries} -> [entries]
+    end)
     |> Enum.sort_by(fn entries -> entries |> hd() |> elem(1) end)
     |> Enum.map(fn entries ->
       {entry, _index} = hd(entries)

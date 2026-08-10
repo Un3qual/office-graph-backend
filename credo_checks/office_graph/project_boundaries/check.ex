@@ -72,10 +72,12 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       root,
       path,
       params,
-      "invalid_inventory #{inventory_name(diagnostic.inventory)} entries " <>
-        "#{Enum.join(diagnostic.entries, ", ")} duplicate locator " <>
-        "#{locator.path} #{locator.function || "<module>"} #{locator.construct} " <>
-        "(#{locator.class}) ordinal #{locator.ordinal}"
+      IO.iodata_to_binary([
+        "invalid_inventory #{inventory_name(diagnostic.inventory)} entries ",
+        Enum.join(diagnostic.entries, ", "),
+        " duplicate locator #{locator.path} #{locator.function || "<module>"} ",
+        "#{locator.construct} (#{locator.class}) ordinal #{locator.ordinal}"
+      ])
     )
   end
 
@@ -90,8 +92,10 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       root,
       path,
       params,
-      "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: " <>
-        "invalid #{Enum.join(fields, ", ")}"
+      IO.iodata_to_binary([
+        "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: invalid ",
+        Enum.join(fields, ", ")
+      ])
     )
   end
 
@@ -102,8 +106,10 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       root,
       path,
       params,
-      "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: " <>
-        "missing #{Enum.join(diagnostic.missing_fields, ", ")}"
+      IO.iodata_to_binary([
+        "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: missing ",
+        Enum.join(diagnostic.missing_fields, ", ")
+      ])
     )
   end
 
@@ -180,7 +186,7 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
   end
 
   defp approval_provenance_context(%{change_paths: change_paths, reason: reason}, root) do
-    paths = change_paths |> Enum.map(&Path.relative_to(&1, root)) |> Enum.join(", ")
+    paths = Enum.map_join(change_paths, ", ", &Path.relative_to(&1, root))
     "(#{reason}; matching changes: #{paths})"
   end
 

@@ -126,7 +126,8 @@ defmodule OfficeGraph.MixProject do
       ],
       "static.analysis": [
         "credo --strict",
-        "reach.check --arch --smells --strict"
+        "reach.check --arch --smells --strict",
+        "reach.check --smells --strict credo_checks"
       ],
       typecheck: ["dialyzer --quiet-with-result"],
       release: ["assets.deploy", "release"],

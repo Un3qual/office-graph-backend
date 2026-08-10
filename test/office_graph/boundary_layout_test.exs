@@ -91,7 +91,8 @@ defmodule OfficeGraph.BoundaryLayoutTest do
 
     assert aliases[:"static.analysis"] == [
              "credo --strict",
-             "reach.check --arch --smells --strict"
+             "reach.check --arch --smells --strict",
+             "reach.check --smells --strict credo_checks"
            ]
 
     assert "test" in aliases[:verify]
