@@ -1882,7 +1882,8 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     Enum.each(
       [
         "DO $$ DECLARE result integer; BEGIN SELECT 1 INTO result; END $$;",
-        "DO $do$ DECLARE result integer; BEGIN SELECT 1 INTO result; END $do$;"
+        "DO $do$ DECLARE result integer; BEGIN SELECT 1 INTO result; END $do$;",
+        "CREATE OR REPLACE FUNCTION count_items() RETURNS integer LANGUAGE plpgsql AS $$ DECLARE total integer; BEGIN SELECT count(*) INTO total FROM items; RETURN total; END $$;"
       ],
       fn sql ->
         in_migration_root("office_graph_non_table_select_into", fn root, migrations ->
@@ -2065,6 +2066,29 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         end)
       end
     )
+  end
+
+  test "rejects migration SQL that imports a foreign schema" do
+    in_migration_root("office_graph_import_foreign_schema", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260810000000_import_foreign_schema.exs"),
+        """
+        defmodule ImportForeignSchema do
+          use Ecto.Migration
+
+          def change do
+            execute("IMPORT FOREIGN SCHEMA remote FROM SERVER upstream INTO public")
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/declarative Ecto migration constructs/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
   end
 
   test "treats SQL comments as whitespace when rejecting ownership DDL" do

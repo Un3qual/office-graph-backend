@@ -158,6 +158,14 @@ diverge.
   table while leaving PL/pgSQL `SELECT ... INTO` variable assignment outside
   the table-ownership classification
 
+#### Scenario: Ownership DDL imports a foreign schema
+
+- **WHEN** approved migration execution SQL uses PostgreSQL
+  `IMPORT FOREIGN SCHEMA` to create local foreign-table definitions
+- **THEN** canonical model-ownership verification MUST reject the unmodeled
+  table ownership change because declarative migration inventory cannot name
+  the imported tables statically
+
 #### Scenario: Migration try else selects a lifecycle branch
 
 - **WHEN** a forward migration's `try` body has a statically resolvable result

@@ -3165,6 +3165,44 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "fails closed when a database receiver enters ETS state" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            def load(table) do
+              :ets.insert(table, {:repository, OfficeGraph.Repo})
+              :ets.insert_new(table, [{:primary_repository, OfficeGraph.Repo}])
+              :ets.update_element(table, :repository, {2, OfficeGraph.Repo})
+              :ets.select_replace(table, [{{:"$1", :"$2"}, [], [{{:"$1", {:const, OfficeGraph.Repo}}}]}])
+              :ets.update_counter(table, :repository, {2, 1}, {:repository, 0, OfficeGraph.Repo})
+              :ets.insert(table, {:value, Example.NotARepo})
+              Example.ETS.insert(table, {:repository, OfficeGraph.Repo})
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 3, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 4, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 5, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 6, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/1", 7, :unresolved_sql}
+           ]
+  end
+
   test "fails closed when an ordinary remote helper receives a database receiver" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([

@@ -551,16 +551,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp schema_ownership_sql?(sql) do
     executable_sql = sql_code_without_comments_or_literals(sql)
-
-    top_level_sql =
-      sql
-      |> then(&Regex.replace(~r/(?<![A-Za-z0-9_$])DO(?![A-Za-z0-9_$])/i, &1, " "))
-      |> sql_code_without_comments_or_literals()
+    top_level_sql = sql_code_without_comments_or_literals(sql, false)
 
     Regex.match?(
       ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)(?:FOREIGN\s+)?TABLE\b/i,
       executable_sql
-    ) or table_creating_select_into?(top_level_sql, executable_sql)
+    ) or Regex.match?(~r/\bIMPORT\s+FOREIGN\s+SCHEMA\b/i, executable_sql) or
+      table_creating_select_into?(top_level_sql, executable_sql)
   end
 
   defp table_creating_select_into?(top_level_sql, executable_sql) do
@@ -568,116 +565,238 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       Regex.match?(~r/\bEXECUTE\b[^;]*\bSELECT\b[^;]*\bINTO\b/i, executable_sql)
   end
 
-  defp sql_code_without_comments_or_literals(sql) do
+  defp sql_code_without_comments_or_literals(sql, preserve_procedural_bodies? \\ true) do
     sql
-    |> do_sql_code_without_comments_or_literals([])
+    |> do_sql_code_without_comments_or_literals([], preserve_procedural_bodies?)
     |> Enum.reverse()
     |> IO.iodata_to_binary()
   end
 
-  defp do_sql_code_without_comments_or_literals(<<>>, code), do: code
+  defp do_sql_code_without_comments_or_literals(<<>>, code, _preserve_procedural_bodies?),
+    do: code
 
-  defp do_sql_code_without_comments_or_literals(<<"--", rest::binary>>, code),
-    do: skip_sql_line_comment(rest, [" " | code])
+  defp do_sql_code_without_comments_or_literals(
+         <<"--", rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_line_comment(rest, [" " | code], preserve_procedural_bodies?)
 
-  defp do_sql_code_without_comments_or_literals(<<"/*", rest::binary>>, code),
-    do: skip_sql_block_comment(rest, 1, [" " | code])
+  defp do_sql_code_without_comments_or_literals(
+         <<"/*", rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_block_comment(rest, 1, [" " | code], preserve_procedural_bodies?)
 
-  defp do_sql_code_without_comments_or_literals(<<"'", rest::binary>>, code) do
+  defp do_sql_code_without_comments_or_literals(
+         <<"'", rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ) do
     quote_mode = sql_single_quote_mode(code)
 
     cond do
-      sql_do_block_prefix?(code) ->
-        preserve_sql_single_quoted_code(rest, code, quote_mode)
+      preserve_procedural_bodies? and sql_do_block_prefix?(code) ->
+        preserve_sql_single_quoted_code(
+          rest,
+          code,
+          quote_mode,
+          preserve_procedural_bodies?
+        )
 
       sql_dynamic_execute_prefix?(code) ->
-        preserve_sql_single_quoted_code(rest, code, quote_mode)
+        preserve_sql_single_quoted_code(
+          rest,
+          code,
+          quote_mode,
+          preserve_procedural_bodies?
+        )
 
-      sql_routine_definition_prefix?(code) ->
-        preserve_sql_single_quoted_code(rest, code, quote_mode)
+      preserve_procedural_bodies? and sql_routine_definition_prefix?(code) ->
+        preserve_sql_single_quoted_code(
+          rest,
+          code,
+          quote_mode,
+          preserve_procedural_bodies?
+        )
 
       true ->
-        skip_sql_single_quoted(rest, [" " | code], quote_mode)
+        skip_sql_single_quoted(
+          rest,
+          [" " | code],
+          quote_mode,
+          preserve_procedural_bodies?
+        )
     end
   end
 
-  defp do_sql_code_without_comments_or_literals(<<"\"", rest::binary>>, code),
-    do: skip_sql_double_quoted(rest, [" " | code])
+  defp do_sql_code_without_comments_or_literals(
+         <<"\"", rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_double_quoted(rest, [" " | code], preserve_procedural_bodies?)
 
-  defp do_sql_code_without_comments_or_literals(<<"$", _rest::binary>> = sql, code) do
+  defp do_sql_code_without_comments_or_literals(
+         <<"$", _rest::binary>> = sql,
+         code,
+         preserve_procedural_bodies?
+       ) do
     case sql_dollar_quote_delimiter(sql) do
       nil ->
-        consume_sql_codepoint(sql, code)
+        consume_sql_codepoint(sql, code, preserve_procedural_bodies?)
 
       delimiter ->
         cond do
-          sql_do_block_prefix?(code) ->
-            preserve_sql_dollar_quoted_code(sql, delimiter, code)
+          preserve_procedural_bodies? and sql_do_block_prefix?(code) ->
+            preserve_sql_dollar_quoted_code(
+              sql,
+              delimiter,
+              code,
+              preserve_procedural_bodies?
+            )
 
           sql_dynamic_execute_prefix?(code) ->
-            preserve_sql_dollar_quoted_code(sql, delimiter, code)
+            preserve_sql_dollar_quoted_code(
+              sql,
+              delimiter,
+              code,
+              preserve_procedural_bodies?
+            )
 
-          sql_routine_definition_prefix?(code) ->
-            preserve_sql_dollar_quoted_code(sql, delimiter, code)
+          preserve_procedural_bodies? and sql_routine_definition_prefix?(code) ->
+            preserve_sql_dollar_quoted_code(
+              sql,
+              delimiter,
+              code,
+              preserve_procedural_bodies?
+            )
 
           true ->
-            skip_sql_dollar_quoted(sql, delimiter, [" " | code])
+            skip_sql_dollar_quoted(
+              sql,
+              delimiter,
+              [" " | code],
+              preserve_procedural_bodies?
+            )
         end
     end
   end
 
-  defp do_sql_code_without_comments_or_literals(sql, code),
-    do: consume_sql_codepoint(sql, code)
+  defp do_sql_code_without_comments_or_literals(sql, code, preserve_procedural_bodies?),
+    do: consume_sql_codepoint(sql, code, preserve_procedural_bodies?)
 
-  defp consume_sql_codepoint(<<codepoint::utf8, rest::binary>>, code),
-    do: do_sql_code_without_comments_or_literals(rest, [<<codepoint::utf8>> | code])
+  defp consume_sql_codepoint(
+         <<codepoint::utf8, rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do:
+         do_sql_code_without_comments_or_literals(
+           rest,
+           [<<codepoint::utf8>> | code],
+           preserve_procedural_bodies?
+         )
 
-  defp skip_sql_line_comment(<<>>, code), do: code
+  defp skip_sql_line_comment(<<>>, code, _preserve_procedural_bodies?), do: code
 
-  defp skip_sql_line_comment(<<line_break, rest::binary>>, code)
+  defp skip_sql_line_comment(<<line_break, rest::binary>>, code, preserve_procedural_bodies?)
        when line_break in [?\n, ?\r],
-       do: do_sql_code_without_comments_or_literals(rest, [" " | code])
+       do:
+         do_sql_code_without_comments_or_literals(
+           rest,
+           [" " | code],
+           preserve_procedural_bodies?
+         )
 
-  defp skip_sql_line_comment(<<_codepoint::utf8, rest::binary>>, code),
-    do: skip_sql_line_comment(rest, code)
+  defp skip_sql_line_comment(
+         <<_codepoint::utf8, rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_line_comment(rest, code, preserve_procedural_bodies?)
 
-  defp skip_sql_block_comment(<<>>, _depth, code), do: code
+  defp skip_sql_block_comment(<<>>, _depth, code, _preserve_procedural_bodies?), do: code
 
-  defp skip_sql_block_comment(<<"/*", rest::binary>>, depth, code),
-    do: skip_sql_block_comment(rest, depth + 1, code)
+  defp skip_sql_block_comment(
+         <<"/*", rest::binary>>,
+         depth,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_block_comment(rest, depth + 1, code, preserve_procedural_bodies?)
 
-  defp skip_sql_block_comment(<<"*/", rest::binary>>, 1, code),
-    do: do_sql_code_without_comments_or_literals(rest, code)
+  defp skip_sql_block_comment(<<"*/", rest::binary>>, 1, code, preserve_procedural_bodies?),
+    do: do_sql_code_without_comments_or_literals(rest, code, preserve_procedural_bodies?)
 
-  defp skip_sql_block_comment(<<"*/", rest::binary>>, depth, code),
-    do: skip_sql_block_comment(rest, depth - 1, code)
+  defp skip_sql_block_comment(
+         <<"*/", rest::binary>>,
+         depth,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_block_comment(rest, depth - 1, code, preserve_procedural_bodies?)
 
-  defp skip_sql_block_comment(<<_codepoint::utf8, rest::binary>>, depth, code),
-    do: skip_sql_block_comment(rest, depth, code)
+  defp skip_sql_block_comment(
+         <<_codepoint::utf8, rest::binary>>,
+         depth,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_block_comment(rest, depth, code, preserve_procedural_bodies?)
 
-  defp skip_sql_single_quoted(<<>>, code, _quote_mode), do: code
+  defp skip_sql_single_quoted(<<>>, code, _quote_mode, _preserve_procedural_bodies?),
+    do: code
 
-  defp skip_sql_single_quoted(<<"''", rest::binary>>, code, quote_mode),
-    do: skip_sql_single_quoted(rest, code, quote_mode)
+  defp skip_sql_single_quoted(
+         <<"''", rest::binary>>,
+         code,
+         quote_mode,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_single_quoted(rest, code, quote_mode, preserve_procedural_bodies?)
 
   defp skip_sql_single_quoted(
          <<"\\", _escaped_codepoint::utf8, rest::binary>>,
          code,
-         :escape
+         :escape,
+         preserve_procedural_bodies?
        ),
-       do: skip_sql_single_quoted(rest, code, :escape)
+       do: skip_sql_single_quoted(rest, code, :escape, preserve_procedural_bodies?)
 
-  defp skip_sql_single_quoted(<<"'", rest::binary>>, code, _quote_mode),
-    do: do_sql_code_without_comments_or_literals(rest, code)
+  defp skip_sql_single_quoted(
+         <<"'", rest::binary>>,
+         code,
+         _quote_mode,
+         preserve_procedural_bodies?
+       ),
+       do: do_sql_code_without_comments_or_literals(rest, code, preserve_procedural_bodies?)
 
-  defp skip_sql_single_quoted(<<_codepoint::utf8, rest::binary>>, code, quote_mode),
-    do: skip_sql_single_quoted(rest, code, quote_mode)
+  defp skip_sql_single_quoted(
+         <<_codepoint::utf8, rest::binary>>,
+         code,
+         quote_mode,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_single_quoted(rest, code, quote_mode, preserve_procedural_bodies?)
 
-  defp preserve_sql_single_quoted_code(sql, code, quote_mode) do
+  defp preserve_sql_single_quoted_code(
+         sql,
+         code,
+         quote_mode,
+         preserve_procedural_bodies?
+       ) do
     case take_sql_single_quoted(sql, [], quote_mode) do
       {:ok, body, trailing} ->
-        body_code = sql_code_without_comments_or_literals(body)
-        do_sql_code_without_comments_or_literals(trailing, [" ", body_code, " " | code])
+        body_code =
+          sql_code_without_comments_or_literals(body, preserve_procedural_bodies?)
+
+        do_sql_code_without_comments_or_literals(
+          trailing,
+          [" ", body_code, " " | code],
+          preserve_procedural_bodies?
+        )
 
       :error ->
         code
@@ -707,16 +826,20 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp take_sql_single_quoted(<<codepoint::utf8, rest::binary>>, body, quote_mode),
     do: take_sql_single_quoted(rest, [<<codepoint::utf8>> | body], quote_mode)
 
-  defp skip_sql_double_quoted(<<>>, code), do: code
+  defp skip_sql_double_quoted(<<>>, code, _preserve_procedural_bodies?), do: code
 
-  defp skip_sql_double_quoted(<<"\"\"", rest::binary>>, code),
-    do: skip_sql_double_quoted(rest, code)
+  defp skip_sql_double_quoted(<<"\"\"", rest::binary>>, code, preserve_procedural_bodies?),
+    do: skip_sql_double_quoted(rest, code, preserve_procedural_bodies?)
 
-  defp skip_sql_double_quoted(<<"\"", rest::binary>>, code),
-    do: do_sql_code_without_comments_or_literals(rest, code)
+  defp skip_sql_double_quoted(<<"\"", rest::binary>>, code, preserve_procedural_bodies?),
+    do: do_sql_code_without_comments_or_literals(rest, code, preserve_procedural_bodies?)
 
-  defp skip_sql_double_quoted(<<_codepoint::utf8, rest::binary>>, code),
-    do: skip_sql_double_quoted(rest, code)
+  defp skip_sql_double_quoted(
+         <<_codepoint::utf8, rest::binary>>,
+         code,
+         preserve_procedural_bodies?
+       ),
+       do: skip_sql_double_quoted(rest, code, preserve_procedural_bodies?)
 
   defp sql_dollar_quote_delimiter(sql) do
     case Regex.run(~r/\A\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/, sql) do
@@ -725,7 +848,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp skip_sql_dollar_quoted(sql, delimiter, code) do
+  defp skip_sql_dollar_quoted(sql, delimiter, code, preserve_procedural_bodies?) do
     delimiter_size = byte_size(delimiter)
     rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
 
@@ -734,14 +857,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         trailing_offset = closing_offset + delimiter_size
         trailing_size = byte_size(rest) - trailing_offset
         trailing = binary_part(rest, trailing_offset, trailing_size)
-        do_sql_code_without_comments_or_literals(trailing, code)
+        do_sql_code_without_comments_or_literals(trailing, code, preserve_procedural_bodies?)
 
       :nomatch ->
         code
     end
   end
 
-  defp preserve_sql_dollar_quoted_code(sql, delimiter, code) do
+  defp preserve_sql_dollar_quoted_code(
+         sql,
+         delimiter,
+         code,
+         preserve_procedural_bodies?
+       ) do
     delimiter_size = byte_size(delimiter)
     rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
 
@@ -751,9 +879,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         trailing_offset = closing_offset + delimiter_size
         trailing_size = byte_size(rest) - trailing_offset
         trailing = binary_part(rest, trailing_offset, trailing_size)
-        body_code = sql_code_without_comments_or_literals(body)
 
-        do_sql_code_without_comments_or_literals(trailing, [" ", body_code, " " | code])
+        body_code =
+          sql_code_without_comments_or_literals(body, preserve_procedural_bodies?)
+
+        do_sql_code_without_comments_or_literals(
+          trailing,
+          [" ", body_code, " " | code],
+          preserve_procedural_bodies?
+        )
 
       :nomatch ->
         code

@@ -164,6 +164,14 @@ binary literals or documentation text.
   nonlocal control flow before a later Agent callback can consume the receiver,
   and MUST NOT apply `Agent` semantics to an unrelated receiver
 
+#### Scenario: Database receiver enters ETS state
+
+- **WHEN** an ETS write operation receives a statically resolvable value that
+  contains a repository receiver
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later ETS lookup can expose the receiver, and
+  MUST NOT apply ETS semantics to an unrelated receiver
+
 #### Scenario: Static Enum result feeds a downstream callback
 
 - **WHEN** a supported `Enum.map/2` call produces the enumerable consumed by a
