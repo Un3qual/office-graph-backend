@@ -44,4 +44,4 @@
 - [x] 7.2 Audit current tracked-source BEAMs from both test and production output, and keep metadata failures source-addressable.
 - [x] 7.3 Preserve schema-qualified resource identities and fail closed on unresolved or composite foreign-key ownership.
 - [x] 7.4 Pin PostgreSQL 18 client tooling in the Nix shell and preserve the container fallback when local `pg_dump` is unavailable.
-- [ ] 7.5 Run final focused and canonical verification, perform the final diff review, push, and reply to review threads.
+- [x] 7.5 Run final focused and canonical verification and perform the final diff review before publication.
