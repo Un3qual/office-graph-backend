@@ -12,6 +12,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @repo_direct_operations [
     :aggregate,
     :all,
+    :all_by,
     :checkout,
     :delete,
     :delete!,

@@ -84,6 +84,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           defmodule Example do
             alias OfficeGraph.{Foundation, Repo}
 
+            def list_by(id), do: Repo.all_by(Example, id: id)
             def persist(changeset), do: Repo.insert_or_update(changeset)
             def reload_record(record), do: Repo.reload(record)
             def prepare(conn), do: Postgrex.prepare_execute(conn, "example", "SELECT 1", [])
@@ -93,6 +94,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       ])
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:direct_ecto, "Repo.all_by", "list_by/1"},
              {:direct_ecto, "Repo.insert_or_update", "persist/1"},
              {:direct_ecto, "Repo.reload", "reload_record/1"},
              {:raw_sql, "Postgrex.prepare_execute", "prepare/1"}
