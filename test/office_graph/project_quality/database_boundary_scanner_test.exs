@@ -3279,6 +3279,45 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "fails closed when a database receiver enters application environment state" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias Application, as: AppEnvironment
+            import Application, only: [put_env: 3]
+
+            def load do
+              Application.put_env(:example, :repository, OfficeGraph.Repo)
+              Application.put_env(:example, :nested, {:repository, OfficeGraph.Repo}, persistent: true)
+              AppEnvironment.put_all_env(example: [repository: OfficeGraph.Repo])
+              put_env(:example, :repository, OfficeGraph.Repo)
+              Application.put_env(:example, :unrelated, Example.NotARepo)
+              Example.Application.put_env(:example, :repository, OfficeGraph.Repo)
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 6, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 7, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 8, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 9, :unresolved_sql}
+           ]
+  end
+
   test "fails closed when an ordinary remote helper receives a database receiver" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([

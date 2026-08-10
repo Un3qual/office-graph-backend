@@ -49,7 +49,7 @@ defmodule OfficeGraph.Identity.HumanSessions do
           ttl_seconds: attrs.ttl_seconds
         })
         |> Ash.run_action(authorize?: false)
-        |> normalize_issue_result()
+        |> normalize_issue_result(principal, external_identity_link)
       end)
     end
   end
@@ -361,9 +361,15 @@ defmodule OfficeGraph.Identity.HumanSessions do
           %OfficeGraph.Identity.HumanSessionIssueResult{
             status: "issued",
             session: session
-          }}
+          }},
+         principal,
+         external_identity_link
        ) do
-    {:ok, %{session: session, session_context: context(session)}}
+    {:ok,
+     %{
+       session: session,
+       session_context: context(session, principal, external_identity_link)
+     }}
   end
 
   defp normalize_issue_result(
@@ -371,12 +377,15 @@ defmodule OfficeGraph.Identity.HumanSessions do
           %OfficeGraph.Identity.HumanSessionIssueResult{
             status: "rejected",
             reason: reason
-          }}
+          }},
+         _principal,
+         _external_identity_link
        ) do
     {:error, String.to_existing_atom(reason)}
   end
 
-  defp normalize_issue_result({:error, _error}), do: {:error, :identity_storage_unavailable}
+  defp normalize_issue_result({:error, _error}, _principal, _external_identity_link),
+    do: {:error, :identity_storage_unavailable}
 
   defp normalize_revoke_result({:ok, result}) when result in ["revoked", "already_revoked"],
     do: :ok

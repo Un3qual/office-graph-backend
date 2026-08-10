@@ -17,7 +17,7 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     explanations: [
       check: """
       OpenSpec is the only durable planning system, and direct database access
-      must match the reviewed debt or approved-exception inventories.
+      must match the exact approved-exception inventory.
       """
     ]
 

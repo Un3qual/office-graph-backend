@@ -81,6 +81,8 @@ human authentication providers.
   organization and workspace
 - **AND** session issuance MUST lock and revalidate current identity facts
   before committing
+- **AND** the returned session context MUST retain the bounded validated
+  principal and external-link basis needed for current-basis checks
 
 #### Scenario: Local development session is reused
 

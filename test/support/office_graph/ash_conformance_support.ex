@@ -1077,7 +1077,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
   defp direct_dataloader_resolver_location({:field, _metadata, arguments}, aliases)
        when is_list(arguments) do
-    case List.last(arguments) do
+    Enum.find_value(arguments, fn
       options when is_list(options) ->
         if Keyword.keyword?(options) do
           options
@@ -1087,7 +1087,7 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
 
       _not_options ->
         nil
-    end
+    end)
   end
 
   defp direct_dataloader_resolver_location(_node, _aliases), do: nil

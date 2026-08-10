@@ -220,6 +220,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     update_element: [2, 3]
   }
   @database_receiver_storage_payload_indexes %{
+    "Application" => %{put_all_env: [0], put_env: [2]},
     "Process" => %{put: [1]},
     "ets" => @ets_receiver_storage_payload_indexes,
     "persistent_term" => %{put: [1]}
@@ -3393,7 +3394,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_atom(operation) and is_list(arguments) do
     receiver = imported_receiver(environment, operation, length(arguments))
 
-    classify_database_receiver_state_ingress(receiver, operation, arguments, environment) ||
+    classify_database_receiver_storage(receiver, operation, arguments, environment) ||
+      classify_database_receiver_state_ingress(receiver, operation, arguments, environment) ||
       classify_map_database_receiver_callback(receiver, operation, arguments, environment) ||
       classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation)
@@ -3554,7 +3556,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: receiver |> receiver_name() |> resolve_receiver(environment)
 
   defp classify_database_receiver_storage(receiver, operation, arguments, environment) do
-    receiver = receiver |> receiver_name() |> resolve_receiver(environment)
+    receiver = storage_receiver_name(receiver, environment)
 
     with operation_payload_indexes when is_map(operation_payload_indexes) <-
            Map.get(@database_receiver_storage_payload_indexes, receiver),
@@ -3567,6 +3569,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _unrecognized_or_unrelated_storage -> nil
     end
   end
+
+  defp storage_receiver_name(receiver, environment) when is_binary(receiver),
+    do: resolve_receiver(receiver, environment)
+
+  defp storage_receiver_name(receiver, environment),
+    do: receiver |> receiver_name() |> resolve_receiver(environment)
 
   defp classify_map_database_receiver_callback(receiver, operation, arguments, environment) do
     with "Map" <- map_callback_receiver_name(receiver, environment),
