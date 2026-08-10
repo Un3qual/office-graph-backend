@@ -45,29 +45,429 @@ implementation tasks, and accepted project decisions.
 - **THEN** it MUST be removed without copying that non-normative content into OpenSpec
 
 ### Requirement: Non-growing database-boundary debt
-Canonical verification SHALL compare tracked project sources with deterministic
-raw-SQL and direct-Ecto inventories and SHALL reject unclassified occurrences,
-changed fingerprints, and stale inventory entries.
+Canonical verification SHALL compare current tracked project sources with the
+exact explicitly approved raw-SQL and direct-Ecto exception inventory and SHALL
+reject every unmatched occurrence or stale approved exception.
 
 #### Scenario: New repository-authored SQL is added
-- **WHEN** verification detects a raw-SQL occurrence that is absent from both the temporary debt inventory and the explicitly approved exception inventory
+
+- **WHEN** verification detects a raw-SQL or direct-Ecto occurrence that does
+  not exactly match an explicitly approved exception
 - **THEN** verification fails with the occurrence path and construct class
 
+#### Scenario: Approved occurrence is removed or changed
+
+- **WHEN** implementation removes, moves, rewrites, or broadens an approved
+  occurrence
+- **THEN** verification fails until the stale approval is removed or the exact
+  changed occurrence receives user approval through an accepted OpenSpec change
+
 #### Scenario: SQL adapter execution spelling changes
-- **WHEN** tracked code calls a public Postgrex or Ecto SQL-adapter API that queries, prepares, executes, or streams SQL through a fully qualified, aliased, or imported receiver
+
+- **WHEN** tracked code calls a public Postgrex or Ecto SQL-adapter API that
+  queries, prepares, executes, or streams SQL through a fully qualified,
+  aliased, or imported receiver
 - **THEN** the database-boundary scanner MUST classify the call as repository-authored raw SQL
 
-#### Scenario: Existing debt is removed
-- **WHEN** implementation removes or replaces an inventoried raw-SQL or direct-Ecto occurrence
-- **THEN** verification fails until the stale debt entry is removed in the same change
+#### Scenario: Ecto SQL adapter explains a generated query
+
+- **WHEN** tracked code calls `Ecto.Adapters.SQL.explain` through a fully
+  qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as direct Ecto
+  access without treating its generated query as repository-authored raw SQL
+
+#### Scenario: Ecto SQL adapter checks out a connection
+
+- **WHEN** tracked code calls `Ecto.Adapters.SQL.checkout` through a fully
+  qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as direct Ecto
+  connection access
+
+#### Scenario: Ecto SQL adapter disconnects pooled connections
+
+- **WHEN** tracked code calls `Ecto.Adapters.SQL.disconnect_all/2-3` through a
+  fully qualified, aliased, or imported receiver
+- **THEN** the database-boundary scanner MUST classify the call as direct Ecto
+  connection access
 
 #### Scenario: Verification examines project scope
+
 - **WHEN** the database-boundary scan runs
-- **THEN** it MUST include tracked runtime code, tests, seeds, migrations, and SQL files while excluding dependency source and untracked build artifacts
+- **THEN** it MUST include tracked runtime code, tests, test support, seeds,
+  migrations, and SQL files while excluding dependency source and untracked
+  build artifacts
 
 #### Scenario: Verification runs from a clean checkout
+
 - **WHEN** the planning and database-boundary checks complete
 - **THEN** they MUST NOT rewrite an inventory, source file, or OpenSpec artifact
+
+### Requirement: Database scanner classifies executable syntax
+
+The project-local database-boundary scanner SHALL classify executable
+repository calls and SQL-bearing migration constructs rather than unrelated
+binary literals or documentation text.
+
+#### Scenario: Migration documentation mentions SQL
+
+- **WHEN** a migration module attribute or other non-executed literal mentions
+  `insert into`, `md5(`, or another SQL phrase
+- **THEN** the scanner MUST NOT report an occurrence unless that literal is an
+  argument or option value of a classified executable SQL-bearing construct
+
+#### Scenario: SQL-bearing migration option uses a module attribute
+
+- **WHEN** a classified migration `check` or `where` option references a module
+  attribute containing SQL
+- **THEN** the scanner MUST resolve that attribute for both classification and
+  occurrence fingerprinting so changing the SQL invalidates the exact approval
+
+#### Scenario: SQL payload uses an accumulated module attribute
+
+- **WHEN** a SQL-bearing call references a module attribute registered with
+  `accumulate: true`
+- **THEN** the scanner MUST fingerprint every accumulated value in compiler
+  order, and MUST reject exact approval when accumulation semantics cannot be
+  determined statically
+
+#### Scenario: SQL payload contains literal interpolation
+
+- **WHEN** a classified raw-SQL payload interpolates only statically resolvable
+  literal values
+- **THEN** the scanner MUST retain the exact interpolation AST in its
+  fingerprint and allow exact approval while continuing to reject payloads
+  that interpolate runtime values
+
+#### Scenario: Static callback receives a database receiver
+
+- **WHEN** a direct literal-function invocation, a known Kernel value callback,
+  or a supported `Enum` operation, including predicate overloads such as
+  `take_while/2`, passes a statically resolvable repository receiver into a
+  literal `fn`, positional capture callback pattern, or captured local function,
+  including through a match or assignment expression evaluated as the callback
+  argument or through an explicit static `Enum` accumulator
+- **THEN** the scanner MUST normalize positional and matching local-function
+  captures without executing source, bind the callback pattern before
+  classifying and fingerprinting database calls in its body, bind independently
+  known callback parameters even when another parameter is dynamic, and MUST
+  NOT assume Kernel or `Enum` callback semantics when the receiver resolves to
+  an unrelated local, imported, or qualified function
+
+#### Scenario: Static Map callback receives a database receiver
+
+- **WHEN** an entry, key, or conflict callback-bearing `Map` operation is called
+  through a fully qualified, aliased, or imported receiver and receives an input
+  that is statically known to contain a repository receiver, including through
+  a compound input expression
+- **THEN** the scanner MUST fail closed at the `Map` call as nonlocal control
+  flow before the callback can consume the receiver, and MUST NOT apply this
+  rule when the local, imported, or qualified receiver resolves to an unrelated
+  function or module
+
+#### Scenario: Tuple callback result contains an executable expression
+
+- **WHEN** a statically invoked callback returns a two-element tuple whose
+  first or second position contains a database operation
+- **THEN** the scanner MUST inspect both tuple positions and classify the
+  operation before fingerprinting the occurrence
+
+#### Scenario: Static List fold receives a database receiver
+
+- **WHEN** `List.foldl/3` or `List.foldr/3`, including through an explicit
+  alias, folds a statically resolvable list containing a repository receiver
+  through a literal callback
+- **THEN** the scanner MUST bind the list element and independently known
+  accumulator before classifying and fingerprinting database calls in the
+  callback, and MUST NOT apply `List` semantics to an unrelated receiver
+
+#### Scenario: Database receiver enters Agent state
+
+- **WHEN** `Agent.start/1-2` or `Agent.start_link/1-2`, including through an
+  explicit alias, initializes process state from a literal callback whose
+  statically resolvable result contains a repository receiver
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later Agent callback can consume the receiver,
+  and MUST NOT apply `Agent` semantics to an unrelated receiver
+
+#### Scenario: Database receiver enters GenServer state
+
+- **WHEN** `GenServer.start/2-3` or `GenServer.start_link/2-3`, including through
+  an explicit alias or import, receives a statically resolvable repository
+  receiver in its initial-state argument
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later GenServer callback can consume the
+  receiver, and MUST NOT apply `GenServer` semantics to an unrelated receiver
+
+#### Scenario: Database receiver enters ETS state
+
+- **WHEN** an ETS write operation receives a statically resolvable value that
+  contains a repository receiver
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later ETS lookup can expose the receiver, and
+  MUST NOT apply ETS semantics to an unrelated receiver
+
+#### Scenario: Database receiver enters persistent-term state
+
+- **WHEN** `:persistent_term.put/2` receives a statically resolvable value that
+  contains a repository receiver
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later persistent-term lookup can expose the
+  receiver, and MUST NOT apply persistent-term semantics to an unrelated
+  receiver
+
+#### Scenario: Static Enum result feeds a downstream callback
+
+- **WHEN** a supported `Enum.map/2` call produces the enumerable consumed by a
+  later supported callback operation and its literal or captured local callback
+  has a statically resolvable result
+- **THEN** the scanner MUST propagate each resolved result into the downstream
+  callback before classifying database calls, including when the callback
+  introduces or removes a repository receiver, and MUST terminate static
+  resolution when lexical rebinding produces a cyclic analysis value
+
+#### Scenario: Short-circuit operand binds a database receiver
+
+- **WHEN** the always-evaluated left operand of `&&`, `and`, `||`, or `or`
+  binds a statically resolvable repository receiver and execution can reach a
+  database call in the right operand
+- **THEN** the scanner MUST carry the left operand's lexical bindings into the
+  right operand before classifying and fingerprinting that call
+
+#### Scenario: Try result binds an else clause
+
+- **WHEN** a `try` body returns a statically resolvable repository receiver and
+  an `else` clause invokes a database operation through its matching result
+  pattern
+- **THEN** the scanner MUST bind the body result into the clause before
+  classifying and fingerprinting that operation
+
+#### Scenario: Consumed stream invokes a static callback
+
+- **WHEN** `Stream.run/1` consumes a supported stream operation, including
+  `Stream.map_every/3`, whose callback receives elements from a statically
+  resolvable repository enumerable
+- **THEN** the scanner MUST select the callback by operation and argument
+  position, scan every non-callback argument, and bind each static element
+  before classifying database calls in the callback body
+
+#### Scenario: Task stream callback receives a static element
+
+- **WHEN** `Task.async_stream` or `Task.Supervisor.async_stream` invokes a
+  literal callback over a statically resolvable repository enumerable,
+  including the `async_stream_nolink` supervisor variant
+- **THEN** the scanner MUST select the enumerable and callback according to the
+  exact Task API shape, bind each static element in the callback's isolated
+  process environment, and MUST NOT apply Task semantics to an unrelated
+  receiver
+
+#### Scenario: Receive clause consumes a statically delivered database receiver
+
+- **WHEN** repository code delivers a statically resolvable repository value
+  to `self()` with Kernel `send/2` and a subsequent `receive` clause matches
+  that value
+- **THEN** the scanner MUST preserve same-function mailbox order, bind the
+  selected message into the matching clause pattern before classifying its
+  body, and consume that selected static message before scanning a later
+  receive expression
+
+#### Scenario: Enum callback receives an implicit accumulator
+
+- **WHEN** `Enum.reduce/2` or `Enum.scan/2` receives a statically resolvable
+  enumerable whose first element is a repository receiver
+- **THEN** the scanner MUST model that first element as the implicit
+  accumulator and scan callback invocations with the remaining elements in
+  element-first order
+
+#### Scenario: Static local helper receives a database receiver
+
+- **WHEN** a matching local function is called with a statically resolvable
+  repository or `Ecto.Multi` receiver and its body invokes a classified
+  database operation through that parameter
+- **THEN** the scanner MUST bind the local parameters and classify and
+  fingerprint the helper body without executing source, while bounding
+  recursive helper expansion
+
+#### Scenario: Module construction returns a database receiver
+
+- **WHEN** a database operation is invoked through a receiver constructed by
+  `Module.concat/1` or `Module.concat/2`
+- **THEN** the scanner MUST resolve literal and explicitly aliased module
+  components without executing source, and MUST fail closed when a dynamic
+  component prevents proving that the constructed receiver is unrelated to
+  database access
+
+#### Scenario: Static comprehension enumerates database receivers
+
+- **WHEN** a `for` comprehension enumerates a statically resolvable list that
+  contains one or more receiver spellings accepted by database-operation
+  classification, including bare `Repo` and `Multi`
+- **THEN** the scanner MUST evaluate the body under every distinct statically
+  matching generator binding, classify database calls for the matching
+  receiver values, and omit statically impossible pattern branches
+
+#### Scenario: Database apply target is static but invocation data is unresolved
+
+- **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically targets a known
+  repository, Ecto, migration, SQL-adapter, or Postgrex module while its
+  operation or argument list remains runtime-provided
+- **THEN** the scanner MUST retain the known database target, classify any
+  statically known operation, and fail closed for a dynamic operation that
+  could execute repository-authored SQL
+
+#### Scenario: Dynamic apply targets the Ecto query builder
+
+- **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically targets
+  `Ecto.Query` while its operation or argument list remains runtime-provided
+- **THEN** the scanner MUST NOT classify the call as database access solely
+  because `Ecto.Query` constructs queries without executing them
+
+#### Scenario: Static apply invokes migration constructs with SQL options
+
+- **WHEN** `Kernel.apply/3` or `:erlang.apply/3` statically invokes an
+  `Ecto.Migration` create operation whose index, constraint, table, or generated
+  column construct contains an executable SQL-bearing option or expression
+- **THEN** the scanner MUST classify and fingerprint the SQL-bearing construct
+  from the normalized invocation exactly as it does for a direct migration call
+
+#### Scenario: Reversible migration execute carries two commands
+
+- **WHEN** a migration uses `execute(up_command, down_command)`
+- **THEN** both executable commands MUST be statically fingerprintable before
+  the occurrence can receive an exact raw-SQL approval
+
+#### Scenario: Migration executes SQL from files
+
+- **WHEN** a migration uses `execute_file/1` or reversible `execute_file/2`
+  through an imported, aliased, or fully qualified migration receiver
+- **THEN** the scanner MUST classify the call as repository-authored raw SQL
+  and require every executable path to remain inside the project root and
+  resolve to a tracked project file whose contents participate in the
+  occurrence fingerprint before the occurrence can receive an exact approval
+
+#### Scenario: External migration helper invokes an explicit SQL API
+
+- **WHEN** tracked code outside `priv/repo/migrations` invokes
+  `Ecto.Migration.execute` or `Ecto.Migration.fragment` through a fully
+  qualified, aliased, or imported receiver
+- **THEN** the scanner MUST classify that explicit SQL-bearing call exactly as
+  it would inside a migration file
+
+#### Scenario: External helper uses the migration macro
+
+- **WHEN** tracked code outside `priv/repo/migrations` invokes an unqualified
+  SQL-bearing API or `repo/0` imported by `use Ecto.Migration`
+- **THEN** the scanner MUST model only the relevant macro-provided imports and
+  classify the call without treating unrelated Kernel functions as migration
+  imports
+
+#### Scenario: Quoted database syntax is inert
+
+- **WHEN** ordinary code stores a database call only inside a `quote` body
+- **THEN** the scanner MUST treat that body as data and MUST NOT report it,
+  while still expanding a statically invoked local macro and classifying the
+  executable database syntax that macro emits
+
+#### Scenario: Building quoted data evaluates inputs
+
+- **WHEN** a `quote` evaluates an enabled `unquote` or a `bind_quoted` value
+  containing database access
+- **THEN** the scanner MUST classify the evaluated expression while leaving
+  the remaining quoted body inert, and MUST preserve `unquote: false`
+  semantics
+
+#### Scenario: Block-form table creation carries SQL options
+
+- **WHEN** an unqualified, aliased, or fully qualified migration `create`
+  operation receives a table construct with raw `options` or `modifiers` and a
+  trailing `do` block
+- **THEN** the scanner MUST classify each SQL-bearing table option without
+  treating the trailing block as part of the construct identity or payload
+
+#### Scenario: Migration construction uses pipeline syntax
+
+- **WHEN** a migration pipes an index, constraint, or table construct into an
+  unqualified, aliased, or fully qualified creation operation
+- **THEN** the scanner MUST classify and fingerprint the executable construct
+  exactly as it does for the equivalent nested call
+
+#### Scenario: Migration index carries raw expression fields
+
+- **WHEN** an index or unique-index construct includes a string expression
+  field or a field whose safety cannot be resolved statically
+- **THEN** the scanner MUST classify the field as repository-authored raw SQL,
+  bind its fingerprint to the enclosing index target and field position, and
+  reject exact approval for unresolved fields while leaving atom column fields
+  unclassified
+
+#### Scenario: Generated column carries a SQL expression
+
+- **WHEN** a migration table block uses `add` or `modify` with a `generated`
+  expression
+- **THEN** the scanner MUST classify the expression as repository-authored SQL,
+  bind its fingerprint to the enclosing table and column, and reject an
+  expression that cannot be resolved statically
+
+### Requirement: Duplicate static-analysis configuration is prohibited
+
+Each static analyzer SHALL have one canonical invocation and one path/options
+configuration used by the repository gate.
+
+#### Scenario: ExDNA runs during static analysis
+
+- **WHEN** the canonical static-analysis alias runs
+- **THEN** ExDNA MUST scan the current configured paths exactly once and MUST
+  NOT retain a second path list that can drift after files move
+
+### Requirement: Conformance tests assert observable contracts
+
+Architecture and conformance tests SHALL inspect parsed syntax, configured Ash
+resources, generated schemas, or consumer-visible behavior rather than count
+source-text spellings or duplicate inventories already derivable from those
+artifacts.
+
+#### Scenario: Migration table ownership is derived
+
+- **WHEN** conformance derives tables created by ordered forward migrations
+- **THEN** it MUST parse executable `create table` and `drop table` calls from
+  quoted AST, including multiline calls, while ignoring comments, strings, and
+  rollback-only functions
+
+#### Scenario: Migration lifecycle uses short-circuit operators
+
+- **WHEN** a migration table or foreign-key lifecycle operation appears in the
+  right operand of `&&`, `and`, `||`, or `or`
+- **THEN** conformance MUST always collect lifecycle operations from the left
+  operand, use a statically known left value to include or omit the right
+  operand, and mark right-side operations as possible when the left value is
+  unresolved so a conditional drop or removal cannot hide durable ownership
+
+#### Scenario: Migration table identity cannot be resolved
+
+- **WHEN** a declarative table lifecycle, rename, table block, constraint, or
+  reference construct retains a table identity that cannot be resolved
+  statically after local binding and helper expansion
+- **THEN** conformance MUST fail closed instead of omitting the table or
+  foreign-key operation from the canonical ownership inventory
+
+#### Scenario: Raw SQL changes foreign-table ownership
+
+- **WHEN** a statically resolvable migration execution creates, alters, or drops
+  a PostgreSQL foreign table
+- **THEN** conformance MUST reject the SQL and require declarative migration
+  constructs rather than omitting the table from the ownership inventory
+
+#### Scenario: Relay resource conformance is checked
+
+- **WHEN** the generated GraphQL resource surface is verified
+- **THEN** the expected resource types MUST be derived from configured Ash
+  resources and their schema objects MUST implement Relay Node without a
+  separately maintained type-name list
+
+#### Scenario: Stable projection Node behavior is checked
+
+- **WHEN** a stable projection is accepted as a Relay Node
+- **THEN** a behavior test MUST prove it can be refetched by opaque ID rather
+  than a source-text regular expression asserting macro formatting
 
 ### Requirement: Verification is non-mutating
 The canonical verification and precommit entry points MUST NOT intentionally rewrite dependency lockfiles, generated artifacts, source files, or planning artifacts.
@@ -253,6 +653,15 @@ The project-local database-boundary scanner SHALL classify repository-authored E
 - **WHEN** tracked source calls `fragment` on a receiver that does not resolve to the Ecto query API
 - **THEN** the scanner MUST NOT classify the call solely from the operation name
 
+#### Scenario: Ecto query helper embeds repository-authored SQL
+
+- **WHEN** a local query helper supplies string `lock` or `hints` clauses to
+  `Ecto.Query.from`, `join`, or `lock`, including through an import or explicit
+  alias
+- **THEN** the scanner MUST emit a raw-SQL occurrence whose exact fingerprint
+  includes the query target, option identity, and authored SQL value, even
+  when a repository call receives only the helper invocation
+
 ### Requirement: Database boundary scanning classifies repository connection ownership
 
 The project-local database-boundary scanner SHALL classify explicit connection
@@ -266,6 +675,13 @@ access.
 - **THEN** the canonical Credo boundary check MUST report the call as direct
   Ecto access requiring an inventory entry or removal
 
+#### Scenario: Repository connections are disconnected
+
+- **WHEN** tracked Elixir source calls `OfficeGraph.Repo.disconnect_all/1-2`
+  directly or through an explicit repository alias
+- **THEN** the canonical Credo boundary check MUST report the call as direct
+  Ecto connection access requiring an inventory entry or removal
+
 #### Scenario: Repository transaction is rolled back
 
 - **WHEN** tracked Elixir source calls `OfficeGraph.Repo.rollback` directly or
@@ -275,8 +691,8 @@ access.
 
 #### Scenario: Unrelated connection-control function is called
 
-- **WHEN** tracked Elixir source calls `checkout` or `rollback` on a receiver
-  that does not resolve to `OfficeGraph.Repo`
+- **WHEN** tracked Elixir source calls `checkout`, `disconnect_all`, or
+  `rollback` on a receiver that does not resolve to `OfficeGraph.Repo`
 - **THEN** the database-boundary scanner MUST NOT classify the call solely from
   its function name
 

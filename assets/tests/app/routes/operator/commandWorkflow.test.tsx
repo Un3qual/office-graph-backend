@@ -148,7 +148,7 @@ describe("operator command workflow", () => {
     );
   });
 
-  it("encodes projection IDs before submitting a Relay-translated command", async () => {
+  it("encodes projection IDs before submitting a Relay-translated command", () => {
     const request = deferredRequest();
     const environment = relayEnvironment(request.fetch);
     const { result } = renderHook(() => useApplyProposedChangesCommand(), {
@@ -170,6 +170,49 @@ describe("operator command workflow", () => {
         proposedChangeIds: ["cHJvcG9zZWRfZ3JhcGhfY2hhbmdlOnByb3Bvc2FsLTE="],
       },
     });
+  });
+
+  it("reports a safe error and accepts a later command when Relay ID translation fails", () => {
+    const request = deferredRequest();
+    const environment = relayEnvironment(request.fetch);
+    const { result } = renderHook(() => useCreateWorkPacketCommand(), {
+      wrapper: relayWrapper(environment),
+    });
+    const input = {
+      autonomyPosture: "human_supervised",
+      contextSummary: "Context",
+      idempotencyKey: "packet-translation-retry",
+      objective: "Objective",
+      requirements: "Requirements",
+      sourceGraphItemIds: ["dmVyaWZpY2F0aW9uX2NoZWNrOmNoZWNrLTE="],
+      successCriteria: "Success",
+      title: "Packet",
+      verificationCheckIds: ["check-1"],
+    };
+
+    let accepted = true;
+
+    act(() => {
+      accepted = result.current.submit(input);
+    });
+
+    expect(accepted).toBe(false);
+    expect(result.current.state).toEqual({
+      status: "error",
+      code: "unknown",
+      message: "Unable to complete this action. Try again.",
+    });
+
+    act(() => {
+      accepted = result.current.submit({
+        ...input,
+        sourceGraphItemIds: ["graph-item-1"],
+      });
+    });
+
+    expect(accepted).toBe(true);
+    expect(result.current.state).toEqual({ status: "pending" });
+    expect(request.name).toBe("OperatorCreateWorkPacketMutation");
   });
 
   it("maps work-packet creation results", async () => {

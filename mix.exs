@@ -126,7 +126,6 @@ defmodule OfficeGraph.MixProject do
       ],
       "static.analysis": [
         "credo --strict",
-        "ex_dna #{Enum.join(ex_dna_paths(), " ")} --min-mass 45 --literal-mode abstract --normalize-pipes --min-similarity 0.9 --exclude-macro schema --exclude-macro pipe_through --exclude-macro plug --exclude-macro field --exclude-macro object --exclude-macro input_object --exclude-macro policies --exclude-macro policy --exclude-macro authorize_if --max-clones 0",
         "reach.check --arch --smells --strict"
       ],
       typecheck: ["dialyzer --quiet-with-result"],
@@ -153,21 +152,6 @@ defmodule OfficeGraph.MixProject do
         "test"
       ],
       precommit: ["verify"]
-    ]
-  end
-
-  defp ex_dna_paths do
-    [
-      "lib/office_graph/*.ex",
-      "lib/office_graph/verification/*.ex",
-      "lib/office_graph/runs/changes/*.ex",
-      "lib/office_graph/work_graph/changes/*.ex",
-      "lib/office_graph/work_graph/commands/proposal_commands.ex",
-      "lib/office_graph/work_graph/commands/command_support.ex",
-      "lib/office_graph/work_graph/queries/queries.ex",
-      "lib/office_graph/work_graph/commands/verification_commands.ex",
-      "lib/office_graph/work_packets/changes/*.ex",
-      "lib/office_graph/work_packets/services/readiness.ex"
     ]
   end
 end

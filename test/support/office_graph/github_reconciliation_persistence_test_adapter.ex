@@ -3,37 +3,14 @@ defmodule OfficeGraph.GitHubIntegration.ReconciliationPersistenceTestAdapter do
 
   @behaviour OfficeGraph.GitHubIntegration.ReconciliationPersistence
 
-  @adapter_key :github_reconciliation_persistence
-  @responses_key :github_reconciliation_persistence_test_responses
+  alias OfficeGraphTest.PersistenceFailureResponses
 
-  def configure!(responses) when is_list(responses) do
-    configured_adapter = Application.fetch_env(:office_graph, @adapter_key)
-    configured_responses = Application.fetch_env(:office_graph, @responses_key)
+  def configure!(responses),
+    do: PersistenceFailureResponses.configure!(:github_reconciliation, responses)
 
-    Application.put_env(:office_graph, @adapter_key, __MODULE__)
-    Application.put_env(:office_graph, @responses_key, Map.new(responses))
-
-    ExUnit.Callbacks.on_exit(fn ->
-      restore(@adapter_key, configured_adapter)
-      restore(@responses_key, configured_responses)
-    end)
-
-    :ok
-  end
-
-  def clear_reconciliation_failures! do
-    Application.put_env(:office_graph, @responses_key, %{})
-    :ok
-  end
+  def clear_reconciliation_failures!,
+    do: PersistenceFailureResponses.clear!(:github_reconciliation)
 
   @impl true
-  def before_write(stage) do
-    case Application.fetch_env!(:office_graph, @responses_key) do
-      %{^stage => response} -> response
-      _responses -> :ok
-    end
-  end
-
-  defp restore(key, {:ok, value}), do: Application.put_env(:office_graph, key, value)
-  defp restore(key, :error), do: Application.delete_env(:office_graph, key)
+  def before_write(stage), do: PersistenceFailureResponses.fetch(:github_reconciliation, stage)
 end

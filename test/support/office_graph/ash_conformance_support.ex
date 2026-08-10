@@ -990,62 +990,179 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
     end
   end
 
-  def migration_tables do
-    "priv/repo/migrations/*.exs"
-    |> Path.wildcard()
+  @spec dataloader_resolver_violations(Path.t(), String.t()) :: [String.t()]
+  def dataloader_resolver_violations(path, source) do
+    ast = Code.string_to_quoted!(source, file: path, columns: true)
+    {locations, direct_locations} = dataloader_resolver_locations(ast)
+
+    locations
+    |> Enum.reject(&MapSet.member?(direct_locations, &1))
     |> Enum.sort()
-    |> Enum.reduce(MapSet.new(), fn path, tables ->
-      path
-      |> File.read!()
-      |> migration_forward_source()
-      |> String.split("\n")
-      |> Enum.reduce(tables, fn line, current_tables ->
-        case {
-          Regex.run(~r/create\s+table\(:([a-zA-Z0-9_]+)\b/, line),
-          Regex.run(~r/drop\s+table\(:([a-zA-Z0-9_]+)\b/, line)
-        } do
-          {[_, table], _drop} ->
-            MapSet.put(current_tables, table)
-
-          {_create, [_, table]} ->
-            MapSet.delete(current_tables, table)
-
-          _no_table_operation ->
-            current_tables
-        end
-      end)
+    |> Enum.map(fn {line, column} ->
+      "#{path}:#{line}:#{column} dataloader resolver is not a direct field option"
     end)
-    |> MapSet.to_list()
-    |> Enum.sort()
   end
 
-  def migration_foreign_key_relationship_errors(expected_resources) do
-    resources_by_table =
-      Map.new(expected_resources, fn {table, {_domain, resource}} -> {table, resource} end)
+  defp dataloader_resolver_locations(ast) do
+    {_aliases, locations, direct_locations} =
+      walk_dataloader_resolvers(ast, %{}, [], MapSet.new())
 
-    migration_foreign_keys()
-    |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
-      with source when not is_nil(source) <- Map.get(resources_by_table, source_table),
-           destination when not is_nil(destination) <-
-             Map.get(resources_by_table, destination_table),
-           source_attribute <- String.to_existing_atom(source_attribute),
-           destination_attribute <- String.to_existing_atom(destination_attribute),
-           nil <-
-             Enum.find(Ash.Resource.Info.relationships(source), fn relationship ->
-               match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
-                 relationship.source_attribute == source_attribute and
-                 relationship.destination == destination and
-                 relationship.destination_attribute == destination_attribute
-             end) do
-        [
-          "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
-        ]
-      else
-        %Ash.Resource.Relationships.BelongsTo{} -> []
-        _table_without_resource -> []
-      end
+    {Enum.reverse(locations), direct_locations}
+  end
+
+  defp walk_dataloader_resolvers(
+         {:__block__, _metadata, expressions},
+         aliases,
+         locations,
+         direct_locations
+       )
+       when is_list(expressions) do
+    Enum.reduce(expressions, {aliases, locations, direct_locations}, fn expression,
+                                                                        {aliases, locations,
+                                                                         direct_locations} ->
+      walk_dataloader_resolvers(expression, aliases, locations, direct_locations)
     end)
-    |> Enum.sort()
+  end
+
+  defp walk_dataloader_resolvers(
+         {:alias, _metadata, arguments},
+         aliases,
+         locations,
+         direct_locations
+       )
+       when is_list(arguments) do
+    {put_dataloader_alias(aliases, arguments), locations, direct_locations}
+  end
+
+  defp walk_dataloader_resolvers(nodes, aliases, locations, direct_locations)
+       when is_list(nodes) do
+    Enum.reduce(nodes, {aliases, locations, direct_locations}, fn node,
+                                                                  {aliases, locations,
+                                                                   direct_locations} ->
+      walk_dataloader_resolvers(node, aliases, locations, direct_locations)
+    end)
+  end
+
+  defp walk_dataloader_resolvers(node, aliases, locations, direct_locations)
+       when is_tuple(node) do
+    locations =
+      case dataloader_call_location(node, aliases) do
+        nil -> locations
+        location -> [location | locations]
+      end
+
+    direct_locations =
+      case direct_dataloader_resolver_location(node, aliases) do
+        nil -> direct_locations
+        location -> MapSet.put(direct_locations, location)
+      end
+
+    {_child_aliases, locations, direct_locations} =
+      node
+      |> Tuple.to_list()
+      |> Enum.reduce({aliases, locations, direct_locations}, fn child,
+                                                                {_child_aliases, locations,
+                                                                 direct_locations} ->
+        {_scoped_aliases, locations, direct_locations} =
+          walk_dataloader_resolvers(child, aliases, locations, direct_locations)
+
+        {aliases, locations, direct_locations}
+      end)
+
+    {aliases, locations, direct_locations}
+  end
+
+  defp walk_dataloader_resolvers(_node, aliases, locations, direct_locations),
+    do: {aliases, locations, direct_locations}
+
+  defp direct_dataloader_resolver_location({:field, _metadata, arguments}, aliases)
+       when is_list(arguments) do
+    Enum.find_value(arguments, fn
+      options when is_list(options) ->
+        if Keyword.keyword?(options) do
+          options
+          |> Keyword.get(:resolve)
+          |> dataloader_call_location(aliases)
+        end
+
+      _not_options ->
+        nil
+    end)
+  end
+
+  defp direct_dataloader_resolver_location(_node, _aliases), do: nil
+
+  defp dataloader_call_location({:dataloader, metadata, arguments}, _aliases)
+       when is_list(arguments),
+       do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+
+  defp dataloader_call_location(
+         {{:., _dot_metadata, [{:__aliases__, _alias_metadata, receiver_parts}, :dataloader]},
+          metadata, arguments},
+         aliases
+       )
+       when is_list(receiver_parts) and is_list(arguments) do
+    if resolve_dataloader_alias(Enum.join(receiver_parts, "."), aliases) ==
+         "Absinthe.Resolution.Helpers",
+       do: {Keyword.get(metadata, :line, 1), Keyword.get(metadata, :column, 1)}
+  end
+
+  defp dataloader_call_location(_node, _aliases), do: nil
+
+  defp put_dataloader_alias(aliases, [target | options]) do
+    options = if is_list(options), do: List.first(options, []), else: []
+
+    Enum.reduce(dataloader_alias_target_names(target), aliases, fn target_name, aliases ->
+      resolved_target = resolve_dataloader_alias(target_name, aliases)
+
+      alias_name =
+        case Keyword.get(options, :as) do
+          nil -> target_name |> String.split(".") |> List.last()
+          explicit_alias -> dataloader_module_name(explicit_alias)
+        end
+
+      if is_binary(alias_name),
+        do: Map.put(aliases, alias_name, resolved_target),
+        else: aliases
+    end)
+  end
+
+  defp put_dataloader_alias(aliases, _arguments), do: aliases
+
+  defp dataloader_alias_target_names({{:., _dot_metadata, [prefix, :{}]}, _metadata, suffixes})
+       when is_list(suffixes) do
+    case dataloader_module_name(prefix) do
+      nil ->
+        []
+
+      prefix_name ->
+        Enum.flat_map(suffixes, fn suffix ->
+          case dataloader_module_name(suffix) do
+            nil -> []
+            suffix_name -> ["#{prefix_name}.#{suffix_name}"]
+          end
+        end)
+    end
+  end
+
+  defp dataloader_alias_target_names(target) do
+    case dataloader_module_name(target) do
+      nil -> []
+      target_name -> [target_name]
+    end
+  end
+
+  defp dataloader_module_name({:__aliases__, _metadata, parts}) do
+    if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
+  end
+
+  defp dataloader_module_name(_target), do: nil
+
+  defp resolve_dataloader_alias(target, aliases) do
+    case String.split(target, ".", parts: 2) do
+      [alias_name] -> Map.get(aliases, alias_name, target)
+      [alias_name, rest] -> "#{Map.get(aliases, alias_name, alias_name)}.#{rest}"
+    end
   end
 
   def unmodeled_uuid_identifier_fields(expected_resources) do
@@ -1071,125 +1188,6 @@ defmodule OfficeGraph.TestSupport.AshConformanceSupport do
   end
 
   def stable_inverse_relationships, do: @stable_inverse_relationships
-
-  def migration_foreign_keys do
-    "priv/repo/migrations/*.exs"
-    |> Path.wildcard()
-    |> Enum.sort()
-    |> Enum.reduce(%{}, fn path, foreign_keys ->
-      path
-      |> File.read!()
-      |> migration_forward_ast()
-      |> migration_foreign_key_operations()
-      |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
-    end)
-    |> Map.values()
-    |> Enum.sort()
-  end
-
-  def migration_forward_ast(source) do
-    ast = Code.string_to_quoted!(source)
-
-    {_ast, functions} =
-      Macro.prewalk(ast, [], fn
-        {:def, _meta, [{name, _name_meta, _arguments}, [do: body]]} = node, functions
-        when name in [:up, :change] ->
-          {node, [{name, body} | functions]}
-
-        node, functions ->
-          {node, functions}
-      end)
-
-    case Enum.find(functions, &(elem(&1, 0) == :up)) ||
-           Enum.find(functions, &(elem(&1, 0) == :change)) do
-      {_name, body} -> body
-      nil -> {:__block__, [], []}
-    end
-  end
-
-  def migration_foreign_key_operations(ast) do
-    {_ast, operations} =
-      Macro.prewalk(ast, [], fn
-        {operation, _meta, [{:table, _table_meta, [table | _table_options]}, [do: block]]} =
-            node,
-        operations
-        when operation in [:create, :alter] and is_atom(table) ->
-          table_operations = table_foreign_key_operations(table, block)
-          {node, Enum.reverse(table_operations, operations)}
-
-        {:drop, _meta, [{:table, _table_meta, [table | _table_options]}]} = node, operations
-        when is_atom(table) ->
-          {node, [{:drop_table, Atom.to_string(table)} | operations]}
-
-        node, operations ->
-          {node, operations}
-      end)
-
-    Enum.reverse(operations)
-  end
-
-  def table_foreign_key_operations(table, block) do
-    table = Atom.to_string(table)
-
-    {_block, operations} =
-      Macro.prewalk(block, [], fn
-        {operation, _meta,
-         [
-           column,
-           {:references, _references_meta, [destination | reference_options]}
-           | _column_options
-         ]} = node,
-        operations
-        when operation in [:add, :modify] and is_atom(column) and is_atom(destination) ->
-          destination_attribute =
-            reference_options
-            |> List.flatten()
-            |> Keyword.get(:column, :id)
-
-          foreign_key = {
-            table,
-            Atom.to_string(column),
-            Atom.to_string(destination),
-            Atom.to_string(destination_attribute)
-          }
-
-          {node, [{:put, foreign_key} | operations]}
-
-        {:remove, _meta, [column | _options]} = node, operations when is_atom(column) ->
-          {node, [{:remove, table, Atom.to_string(column)} | operations]}
-
-        node, operations ->
-          {node, operations}
-      end)
-
-    Enum.reverse(operations)
-  end
-
-  def apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do
-    {table, column, _destination_table, _destination_column} = foreign_key
-    Map.put(foreign_keys, {table, column}, foreign_key)
-  end
-
-  def apply_foreign_key_operation({:remove, table, column}, foreign_keys),
-    do: Map.delete(foreign_keys, {table, column})
-
-  def apply_foreign_key_operation({:drop_table, table}, foreign_keys) do
-    Map.reject(foreign_keys, fn {{source_table, _column}, _foreign_key} ->
-      source_table == table
-    end)
-  end
-
-  def migration_forward_source(source) do
-    case String.split(source, ~r/^\s*def up do\s*$/m, parts: 2) do
-      [_before_up, up_and_after] ->
-        up_and_after
-        |> String.split(~r/^\s*def down do\s*$/m, parts: 2)
-        |> hd()
-
-      [_change_migration] ->
-        source
-    end
-  end
 
   def expected_domains do
     @expected_resources

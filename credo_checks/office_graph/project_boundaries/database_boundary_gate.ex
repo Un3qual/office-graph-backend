@@ -1,12 +1,10 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   @moduledoc """
-  Compares the current database-access scan with removal-debt and explicitly
-  approved exception inventories.
+  Requires every detected database-access occurrence to match an explicitly
+  approved exception.
   """
 
-  @locator_fields ["path", "class", "construct", "function", "ordinal"]
-  @debt_metadata_fields ["owner", "remediation_change"]
-
+  @locator_fields ["path", "line", "class", "construct", "function", "ordinal"]
   @approved_metadata_fields [
     "approving_change",
     "owner",
@@ -14,140 +12,59 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "retirement_condition",
     "verification"
   ]
+  @required_string_fields ["class", "construct", "fingerprint", "path"] ++
+                            @approved_metadata_fields
+  @approval_evidence_fields @locator_fields ++ ["fingerprint"] ++ @approved_metadata_fields
+  @approval_evidence_file "database-exception-approvals.json"
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
 
-  @spec compare([map()], [map()], [map()]) :: [map()]
-  def compare(current, debt, approved_exceptions) do
+  @spec compare([map()], [map()]) :: [map()]
+  def compare(current, approved_exceptions) do
     current = Enum.map(current, &normalize_entry/1)
-    debt = Enum.map(debt, &normalize_entry(&1, :debt))
 
     approved_exceptions =
       Enum.map(approved_exceptions, &normalize_entry(&1, :approved_exceptions))
 
-    recorded = debt ++ approved_exceptions
+    compare_normalized(current, approved_exceptions)
+  end
 
-    inventory_errors(:debt, debt, @debt_metadata_fields) ++
-      inventory_errors(
-        :approved_exceptions,
-        approved_exceptions,
-        @approved_metadata_fields
-      ) ++
-      current_diagnostics(current, recorded) ++
-      stale_diagnostics(current, recorded)
+  defp compare_normalized(current, approved_exceptions) do
+    case inventory_errors(approved_exceptions) do
+      [] ->
+        current_diagnostics(current, approved_exceptions) ++
+          stale_diagnostics(current, approved_exceptions)
+
+      errors ->
+        errors
+    end
   end
 
   @spec check_repository(Path.t()) :: [map()]
   def check_repository(root \\ File.cwd!()) do
-    debt_path =
-      Path.join(root, "openspec/specs/ecto-sql-boundaries/database-access-debt.json")
-
     approved_path =
       Path.join(
         root,
         "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
       )
 
-    debt = load_debt_inventory!(debt_path)
+    current = DatabaseBoundaryScanner.scan_repository(root) |> Enum.map(&normalize_entry/1)
 
-    compare(
-      DatabaseBoundaryScanner.scan_repository(root),
-      debt,
-      load_approved_inventory!(approved_path)
-    ) ++ completed_remediation_diagnostics(root, debt)
-  end
+    approved_exceptions =
+      approved_path
+      |> load_approved_inventory!()
+      |> Enum.map(&normalize_entry(&1, :approved_exceptions))
 
-  @spec remediation_progress([map()], String.t()) :: map()
-  def remediation_progress(debt, remediation_change) do
-    matching =
-      Enum.filter(
-        debt,
-        &(Map.get(&1, "remediation_change") == remediation_change)
-      )
-
-    %{
-      total: length(matching),
-      by_class: Enum.frequencies_by(matching, &Map.fetch!(&1, "class")),
-      by_owner:
-        matching
-        |> Enum.frequencies_by(&Map.fetch!(&1, "owner"))
-        |> Enum.map(fn {owner, total} -> %{owner: owner, total: total} end)
-        |> Enum.sort_by(& &1.owner)
-    }
-  end
-
-  @spec completed_remediation_diagnostics(Path.t(), [map()]) :: [map()]
-  def completed_remediation_diagnostics(root, debt) do
-    debt
-    |> Enum.group_by(&Map.fetch!(&1, "remediation_change"))
-    |> Enum.flat_map(fn {remediation_change, occurrences} ->
-      archive_pattern =
-        Path.join([
-          root,
-          "openspec",
-          "changes",
-          "archive",
-          "*-#{remediation_change}"
-        ])
-
-      if Path.wildcard(archive_pattern) == [] do
-        []
-      else
-        [
-          %{
-            kind: :completed_remediation_debt,
-            remediation_change: remediation_change,
-            count: length(occurrences)
-          }
-        ]
-      end
-    end)
-    |> Enum.sort_by(& &1.remediation_change)
-  end
-
-  @spec decode_debt_inventory!(map()) :: [map()]
-  def decode_debt_inventory!(%{
-        "version" => 1,
-        "status" => "unapproved_removal_debt",
-        "occurrence_fields" => fields,
-        "files" => files
-      })
-      when is_list(fields) and is_list(files) do
-    Enum.flat_map(files, fn file ->
-      path = Map.fetch!(file, "path")
-      owner = Map.fetch!(file, "owner")
-      remediation_change = Map.fetch!(file, "remediation_change")
-
-      file
-      |> Map.fetch!("occurrences")
-      |> Enum.map(fn values ->
-        if length(values) != length(fields) do
-          raise ArgumentError,
-                "debt occurrence in #{path} has #{length(values)} values for #{length(fields)} fields"
+    case inventory_errors(approved_exceptions) do
+      [] ->
+        case approval_provenance_errors(root, approved_exceptions) do
+          [] -> compare_normalized(current, approved_exceptions)
+          errors -> errors
         end
 
-        fields
-        |> Enum.zip(values)
-        |> Map.new()
-        |> Map.merge(%{
-          "owner" => owner,
-          "path" => path,
-          "remediation_change" => remediation_change
-        })
-      end)
-    end)
-  end
-
-  def decode_debt_inventory!(_inventory) do
-    raise ArgumentError, "invalid database-access debt inventory schema"
-  end
-
-  @spec load_debt_inventory!(Path.t()) :: [map()]
-  def load_debt_inventory!(path) do
-    path
-    |> File.read!()
-    |> Jason.decode!()
-    |> decode_debt_inventory!()
+      errors ->
+        errors
+    end
   end
 
   @spec load_approved_inventory!(Path.t()) :: [map()]
@@ -158,55 +75,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     end
   end
 
-  @spec build_debt_inventory([map()]) :: map()
-  def build_debt_inventory(occurrences) do
-    files =
-      occurrences
-      |> Enum.group_by(& &1.path)
-      |> Enum.map(fn {path, file_occurrences} ->
-        %{
-          "path" => path,
-          "owner" => owner_for_path(path),
-          "remediation_change" => remediation_change_for_path(path),
-          "occurrences" =>
-            Enum.map(file_occurrences, fn occurrence ->
-              [
-                occurrence.fingerprint,
-                to_string(occurrence.class),
-                occurrence.construct,
-                occurrence.function,
-                occurrence.ordinal
-              ]
-            end)
-        }
-      end)
-      |> Enum.sort_by(& &1["path"])
-
-    %{
-      "version" => 1,
-      "status" => "unapproved_removal_debt",
-      "occurrence_fields" => [
-        "fingerprint",
-        "class",
-        "construct",
-        "function",
-        "ordinal"
-      ],
-      "files" => files
-    }
-  end
-
-  defp current_diagnostics(current, recorded) do
+  defp current_diagnostics(current, approved_exceptions) do
     Enum.flat_map(current, fn occurrence ->
-      case recorded_match(recorded, occurrence) do
+      case approved_match(approved_exceptions, occurrence) do
+        :unresolved ->
+          [diagnostic(occurrence, :unresolved)]
+
         :exact ->
           []
 
-        {:changed, recorded_occurrence} ->
+        {:changed, approved_exception} ->
           [
             occurrence
             |> diagnostic(:changed)
-            |> Map.put(:recorded_fingerprint, recorded_occurrence["fingerprint"])
+            |> Map.put(:recorded_fingerprint, approved_exception["fingerprint"])
           ]
 
         :new ->
@@ -215,82 +97,289 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     end)
   end
 
-  defp recorded_match(recorded, occurrence) do
-    Enum.reduce_while(recorded, :new, fn recorded_occurrence, match ->
-      cond do
-        same_fingerprint?(recorded_occurrence, occurrence) ->
-          {:halt, :exact}
+  defp approved_match(approved_exceptions, occurrence) do
+    if occurrence["approval"] == :unresolved_sql do
+      :unresolved
+    else
+      Enum.reduce_while(approved_exceptions, :new, fn approved_exception, match ->
+        cond do
+          same_locator?(approved_exception, occurrence) and
+              approved_exception["fingerprint"] == occurrence["fingerprint"] ->
+            {:halt, :exact}
 
-        same_locator?(recorded_occurrence, occurrence) ->
-          {:cont, {:changed, recorded_occurrence}}
+          same_locator?(approved_exception, occurrence) ->
+            {:cont, {:changed, approved_exception}}
 
-        true ->
-          {:cont, match}
-      end
-    end)
+          true ->
+            {:cont, match}
+        end
+      end)
+    end
   end
 
-  defp stale_diagnostics(current, recorded) do
-    recorded
-    |> Enum.reject(fn occurrence ->
-      Enum.any?(current, &same_locator?(&1, occurrence))
+  defp stale_diagnostics(current, approved_exceptions) do
+    approved_exceptions
+    |> Enum.reject(fn approved_exception ->
+      Enum.any?(current, &same_locator?(&1, approved_exception))
     end)
-    |> Enum.map(fn occurrence ->
-      occurrence
+    |> Enum.map(fn approved_exception ->
+      approved_exception
       |> diagnostic(:stale)
-      |> Map.put(:inventory, occurrence["inventory"])
+      |> Map.put(:inventory, :approved_exceptions)
     end)
   end
 
-  defp inventory_errors(inventory, entries, required_metadata_fields) do
+  defp inventory_errors(approved_exceptions) do
     required_fields =
-      ["class", "construct", "fingerprint", "ordinal", "path"] ++
-        required_metadata_fields
+      ["class", "construct", "fingerprint", "line", "ordinal", "path"] ++
+        @approved_metadata_fields
 
-    entries
+    missing_field_errors =
+      approved_exceptions
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {entry, index} ->
+        missing_fields =
+          required_fields
+          |> Enum.filter(&blank?(Map.get(entry, &1)))
+          |> Enum.sort()
+
+        if missing_fields == [] do
+          []
+        else
+          [
+            %{
+              kind: :invalid_inventory,
+              inventory: :approved_exceptions,
+              entry: index,
+              missing_fields: missing_fields
+            }
+          ]
+        end
+      end)
+
+    invalid_field_errors =
+      approved_exceptions
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {entry, index} ->
+        case invalid_fields(entry) do
+          [] ->
+            []
+
+          fields ->
+            [
+              %{
+                kind: :invalid_inventory,
+                inventory: :approved_exceptions,
+                entry: index,
+                invalid_fields: fields
+              }
+            ]
+        end
+      end)
+
+    missing_field_errors ++
+      invalid_field_errors ++
+      duplicate_locator_errors(approved_exceptions)
+  end
+
+  defp approval_provenance_errors(root, approved_exceptions) do
+    approved_exceptions
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {entry, index} ->
-      missing_fields =
-        required_fields
-        |> Enum.filter(&blank?(Map.get(entry, &1)))
-        |> Enum.sort()
+      change = entry["approving_change"]
 
-      if missing_fields == [] do
-        []
-      else
-        [
-          %{
-            kind: :invalid_inventory,
-            inventory: inventory,
-            entry: index,
-            missing_fields: missing_fields
-          }
-        ]
-      end
+      root
+      |> approval_change_directories(change)
+      |> approval_provenance_error(entry, index, change)
+    end)
+  end
+
+  defp approval_change_directories(root, change) do
+    active_change = Path.join(root, "openspec/changes/#{change}")
+
+    archived_change_pattern =
+      ~r/^\d{4}-\d{2}-\d{2}-#{Regex.escape(change)}$/
+
+    archived_changes =
+      root
+      |> Path.join("openspec/changes/archive/*")
+      |> Path.wildcard()
+      |> Enum.filter(fn path ->
+        File.dir?(path) and Regex.match?(archived_change_pattern, Path.basename(path))
+      end)
+
+    [active_change | archived_changes]
+    |> Enum.filter(&File.dir?/1)
+    |> Enum.sort()
+  end
+
+  defp approval_provenance_error([], entry, index, change) do
+    [approval_provenance_diagnostic(entry, index, change, :missing_change)]
+  end
+
+  defp approval_provenance_error([change_root], entry, index, change) do
+    evidence_path = Path.join(change_root, @approval_evidence_file)
+
+    case load_approval_evidence(evidence_path) do
+      {:ok, approvals} ->
+        if Enum.any?(approvals, &same_approval_evidence?(&1, entry)) do
+          []
+        else
+          [approval_provenance_diagnostic(entry, index, change, :unrecorded_exception)]
+        end
+
+      {:error, reason} ->
+        [approval_provenance_diagnostic(entry, index, change, reason)]
+    end
+  end
+
+  defp approval_provenance_error(change_roots, entry, index, change) do
+    [
+      entry
+      |> approval_provenance_diagnostic(index, change, :ambiguous_change)
+      |> Map.put(:change_paths, change_roots)
+    ]
+  end
+
+  defp load_approval_evidence(path) do
+    with {:ok, body} <- File.read(path),
+         {:ok, %{"version" => 1, "approvals" => approvals}} when is_list(approvals) <-
+           Jason.decode(body) do
+      {:ok, approvals}
+    else
+      {:error, :enoent} -> {:error, :missing_approval_evidence}
+      {:error, _reason} -> {:error, :invalid_approval_evidence}
+      _invalid_schema -> {:error, :invalid_approval_evidence}
+    end
+  end
+
+  defp same_approval_evidence?(evidence, entry) when is_map(evidence) do
+    Enum.all?(@approval_evidence_fields, &(Map.get(evidence, &1) == Map.get(entry, &1)))
+  end
+
+  defp same_approval_evidence?(_evidence, _entry), do: false
+
+  defp approval_provenance_diagnostic(entry, index, change, reason) do
+    %{
+      kind: :invalid_approval_provenance,
+      inventory: :approved_exceptions,
+      entry: index,
+      approving_change: change,
+      fingerprint: entry["fingerprint"],
+      reason: reason
+    }
+  end
+
+  defp duplicate_locator_errors(approved_exceptions) do
+    approved_exceptions
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {entry, _index} -> valid_locator?(entry) end)
+    |> Enum.group_by(fn {entry, _index} ->
+      Enum.map(@locator_fields, &Map.get(entry, &1))
+    end)
+    |> Map.values()
+    |> Enum.filter(&(length(&1) > 1))
+    |> Enum.sort_by(fn entries -> entries |> hd() |> elem(1) end)
+    |> Enum.map(fn entries ->
+      {entry, _index} = hd(entries)
+
+      %{
+        kind: :invalid_inventory,
+        inventory: :approved_exceptions,
+        entries: Enum.map(entries, &elem(&1, 1)),
+        duplicate_locator: %{
+          path: entry["path"],
+          line: entry["line"],
+          class: entry["class"],
+          construct: entry["construct"],
+          function: entry["function"],
+          ordinal: entry["ordinal"]
+        }
+      }
     end)
   end
 
   defp normalize_entry(entry) do
     entry
     |> Map.new(fn {key, value} -> {to_string(key), value} end)
-    |> Map.update("class", nil, &to_string/1)
+    |> Map.update("class", nil, &normalize_class/1)
   end
 
-  defp normalize_entry(entry, inventory) do
+  defp normalize_entry(entry, inventory) when is_map(entry) do
     entry
     |> normalize_entry()
     |> Map.put("inventory", inventory)
   end
 
-  defp same_fingerprint?(left, right),
-    do: left["fingerprint"] == right["fingerprint"]
+  defp normalize_entry(_entry, inventory), do: %{"inventory" => inventory}
 
   defp same_locator?(left, right) do
     Enum.all?(@locator_fields, &(Map.get(left, &1) == Map.get(right, &1)))
   end
 
+  defp invalid_fields(entry) do
+    invalid_strings =
+      Enum.filter(@required_string_fields, fn field ->
+        value = Map.get(entry, field)
+        not blank?(value) and not is_binary(value)
+      end)
+
+    invalid_function =
+      case Map.get(entry, "function") do
+        nil -> []
+        value when is_binary(value) and value != "" -> []
+        _value -> ["function"]
+      end
+
+    invalid_ordinal =
+      entry
+      |> Map.get("ordinal")
+      |> case do
+        value when is_integer(value) and value > 0 -> []
+        value -> if blank?(value), do: [], else: ["ordinal"]
+      end
+
+    invalid_line =
+      entry
+      |> Map.get("line")
+      |> case do
+        value when is_integer(value) and value > 0 -> []
+        value -> if blank?(value), do: [], else: ["line"]
+      end
+
+    invalid_approving_change =
+      case Map.get(entry, "approving_change") do
+        value when is_binary(value) and value != "" ->
+          if Regex.match?(~r/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/, value),
+            do: [],
+            else: ["approving_change"]
+
+        _value ->
+          []
+      end
+
+    (invalid_strings ++
+       invalid_function ++ invalid_line ++ invalid_ordinal ++ invalid_approving_change)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp valid_locator?(entry) do
+    is_binary(entry["path"]) and entry["path"] != "" and
+      is_binary(entry["class"]) and entry["class"] != "" and
+      is_binary(entry["construct"]) and entry["construct"] != "" and
+      (is_nil(entry["function"]) or
+         (is_binary(entry["function"]) and entry["function"] != "")) and
+      is_integer(entry["line"]) and entry["line"] > 0 and
+      is_integer(entry["ordinal"]) and entry["ordinal"] > 0
+  end
+
+  defp normalize_class(nil), do: nil
+  defp normalize_class(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_class(value), do: value
+
   defp diagnostic(occurrence, kind) do
-    %{
+    diagnostic = %{
       kind: kind,
       class: occurrence["class"],
       construct: occurrence["construct"],
@@ -300,30 +389,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       ordinal: occurrence["ordinal"],
       path: occurrence["path"]
     }
+
+    case Map.fetch(occurrence, "approval") do
+      {:ok, approval} -> Map.put(diagnostic, :approval, approval)
+      :error -> diagnostic
+    end
   end
 
   defp blank?(nil), do: true
   defp blank?(""), do: true
   defp blank?(_value), do: false
-
-  defp owner_for_path("priv/repo/migrations/" <> _rest), do: "OfficeGraph.Repo.Migrations"
-  defp owner_for_path("priv/repo/seeds.exs"), do: "OfficeGraph.Foundation"
-  defp owner_for_path("lib/office_graph_web/" <> _rest), do: "OfficeGraphWeb"
-  defp owner_for_path("test/office_graph_web/" <> _rest), do: "OfficeGraphWeb"
-  defp owner_for_path("test/support/" <> _rest), do: "OfficeGraph.TestSupport"
-
-  defp owner_for_path(path) do
-    case String.split(path, "/") do
-      [root, "office_graph", area | _rest] when root in ["lib", "test"] ->
-        "OfficeGraph.#{area |> Path.rootname() |> Macro.camelize()}"
-
-      _parts ->
-        "OfficeGraph.ProjectQuality"
-    end
-  end
-
-  defp remediation_change_for_path("priv/repo/migrations/" <> _rest),
-    do: "rebaseline-unreleased-migrations"
-
-  defp remediation_change_for_path(_path), do: "remove-direct-database-access"
 end

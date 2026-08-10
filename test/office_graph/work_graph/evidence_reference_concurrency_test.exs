@@ -229,8 +229,8 @@ defmodule OfficeGraph.WorkGraph.EvidenceReferenceConcurrencyTest do
 
   defp cleanup_scope(organization_slug, owner_email) do
     with_unboxed_connection(fn ->
-      cleanup_work_run_verification_scope!(organization_slug)
-      cleanup_bootstrap_scope!(organization_slug, owner_email)
+      ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+      ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
     end)
   end
 end

@@ -602,9 +602,14 @@ defmodule OfficeGraph.GitHubIntegration.ConcurrencyTest do
     on_exit(fn ->
       with_unboxed_connection(fn ->
         GitHubIntegrationCleanup.cleanup_scope!(organization_id)
-        cleanup_bootstrap_scope!(context.organization_slug, context.owner_email)
-        cleanup_owner_principal!(context.service_email)
-        cleanup_owner_principal!(context.webhook_email)
+
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(
+          context.organization_slug,
+          context.owner_email
+        )
+
+        ConcurrencyCleanup.cleanup_owner_principal!(context.service_email)
+        ConcurrencyCleanup.cleanup_owner_principal!(context.webhook_email)
       end)
     end)
   end

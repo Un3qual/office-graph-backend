@@ -8,6 +8,7 @@ defmodule OfficeGraph.AuthenticationTest do
   alias OfficeGraph.Authorization.{Capability, Role, RoleAssignment, RoleCapability}
   alias OfficeGraph.Foundation
   alias OfficeGraph.Identity
+  alias OfficeGraph.QueryCounter
 
   alias OfficeGraph.Identity.{
     AuthenticationEvent,
@@ -506,6 +507,22 @@ defmodule OfficeGraph.AuthenticationTest do
       assert completed.session.authentication_method == "local_development"
       assert completed.session.purpose == "human_web"
 
+      assert completed.session_context.authentication_basis == %{
+               provider:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.provider,
+               provider_tenant:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.provider_tenant,
+               subject:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.subject,
+               verified_email:
+                 seeded.fixtures["workspace_admin"].identity.external_identity_link.verified_email,
+               principal_email: seeded.fixtures["workspace_admin"].identity.principal.email,
+               principal_kind: "human",
+               principal_status: "active",
+               link_status: "active",
+               linking_state: "linked"
+             }
+
       assert {:ok, resolved} =
                Authentication.resolve_session(completed.session.id,
                  trace_id: "local-resolve",
@@ -517,6 +534,30 @@ defmodule OfficeGraph.AuthenticationTest do
 
       assert resolved.organization_id == seeded.bootstrap.organization.id
       assert resolved.workspace_id == seeded.bootstrap.workspace.id
+    end
+
+    test "revalidates from the identity basis loaded with the session" do
+      Application.put_env(:office_graph, :local_development_authentication, enabled: true)
+      _seeded = local_development_seed("local-query-bound")
+
+      assert {:ok, completed} =
+               Authentication.complete_local_development_login("member",
+                 trace_id: "local-query-bound-login",
+                 source_surface: "web"
+               )
+
+      {result, queries} =
+        QueryCounter.count(fn ->
+          Authentication.resolve_session(completed.session.id,
+            trace_id: "local-query-bound-resolve",
+            source_surface: "web"
+          )
+        end)
+
+      assert {:ok, _resolved} = result
+      assert QueryCounter.source_count(queries, "principals") == 1
+      assert QueryCounter.source_count(queries, "external_identity_links") == 1
+      assert QueryCounter.source_count(queries, "principal_profiles") == 0
     end
 
     test "rejects unknown and disabled fixtures with bounded durable evidence" do

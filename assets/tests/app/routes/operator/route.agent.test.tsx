@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { GraphQLResponse } from "relay-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { GraphQLResponseError } from "../../../../app/relay/fetchGraphQL";
@@ -37,6 +37,20 @@ describe("operator run agent surface", () => {
     expect(screen.getByRole("button", { name: "Cancel agent execution" })).toBeEnabled();
     expect(screen.getByLabelText("Approval resolution reason")).toBeVisible();
     expect(screen.getByLabelText("Context expansion resolution reason")).toBeVisible();
+  });
+
+  it("orders equal-timestamp agent history by internal ID ascending", async () => {
+    const network = agentNetwork({ equalTimestampExecutions: true });
+
+    renderWithRelay(<OperatorRoute />, network);
+
+    const executions = await screen.findByRole("region", { name: "Agent executions" });
+
+    expect(
+      within(executions)
+        .getAllByText(/ID execution/)
+        .map((node) => node.textContent),
+    ).toEqual(["ID execution A", "ID execution B"]);
   });
 
   it("matches generated Relay node IDs to internal affordance targets", async () => {
@@ -387,6 +401,7 @@ describe("operator run agent surface", () => {
 function agentNetwork({
   appendEnabled = true,
   conversationError = false,
+  equalTimestampExecutions = false,
   invocation,
   noConversation = false,
   onConversationRead,
@@ -397,6 +412,7 @@ function agentNetwork({
 }: {
   appendEnabled?: boolean;
   conversationError?: boolean;
+  equalTimestampExecutions?: boolean;
   invocation?: ReturnType<typeof deferredGraphQLResponse>;
   noConversation?: boolean;
   onConversationRead?: () => void;
@@ -461,25 +477,42 @@ function agentNetwork({
                 : affordance,
             ),
           };
-      const projectedSurface = untargetedPendingGates
+      const orderedSurface = equalTimestampExecutions
         ? {
             ...appendScopedSurface,
-            approvalRequests: [
-              ...appendScopedSurface.approvalRequests,
+            executions: [
               {
-                ...appendScopedSurface.approvalRequests[0],
-                id: "approval_untargeted",
+                ...appendScopedSurface.executions[0],
+                id: "execution_b",
+                requestedOutcome: "ID execution B",
               },
-            ],
-            contextExpansionRequests: [
-              ...appendScopedSurface.contextExpansionRequests,
               {
-                ...appendScopedSurface.contextExpansionRequests[0],
-                id: "expansion_untargeted",
+                ...appendScopedSurface.executions[0],
+                id: "execution_a",
+                requestedOutcome: "ID execution A",
               },
             ],
           }
         : appendScopedSurface;
+      const projectedSurface = untargetedPendingGates
+        ? {
+            ...orderedSurface,
+            approvalRequests: [
+              ...orderedSurface.approvalRequests,
+              {
+                ...orderedSurface.approvalRequests[0],
+                id: "approval_untargeted",
+              },
+            ],
+            contextExpansionRequests: [
+              ...orderedSurface.contextExpansionRequests,
+              {
+                ...orderedSurface.contextExpansionRequests[0],
+                id: "expansion_untargeted",
+              },
+            ],
+          }
+        : orderedSurface;
       return {
         data: saturatedAgentHistory
           ? prioritizedAgentQueryResponse(projectedSurface)

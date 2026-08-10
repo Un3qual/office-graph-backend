@@ -13,8 +13,27 @@ import { vi } from "vitest";
 import type { RunActivityFragment$data } from "../../../../app/relay/__generated__/RunActivityFragment.graphql";
 import type { RunsRouteQuery as RunsRouteOperation } from "../../../../app/relay/__generated__/RunsRouteQuery.graphql";
 import { getOfficeGraphDataID } from "../../../../app/relay/environment";
+import { relayGlobalId, relayInternalId } from "../../../../app/relay/relayIds";
 import RunsRoute from "../../../../app/routes/runs/route";
 import type { RunDetailState } from "../../../../app/routes/runs/types";
+
+type NetworkResolver = (
+  request: Parameters<FetchFunction>[0],
+  variables: Parameters<FetchFunction>[1],
+) => GraphQLResponse | Promise<GraphQLResponse>;
+
+export function createNetworkMock(resolver: NetworkResolver) {
+  return vi.fn(
+    (request, variables): Promise<GraphQLResponse> =>
+      new Promise((resolve, reject) => {
+        try {
+          resolve(resolver(request, variables));
+        } catch (error) {
+          reject(error);
+        }
+      }),
+  );
+}
 
 export function renderWithRelay(network: FetchFunction, initialEntry = "/runs") {
   return renderWithRelayEnvironment(createRelayTestEnvironment(network), initialEntry);
@@ -57,17 +76,20 @@ export function createRunsNetwork({
   rows?: RunSummaryPayload[];
   states?: Record<string, RunStatePayload>;
 } = {}) {
-  return vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+  return createNetworkMock((request, variables) => {
     if (request.name === "RunsRouteQuery") {
       return runsConnectionResponse(rows);
     }
 
     if (request.name === "RunDetailQuery") {
+      const requestedId = String(variables.id);
+
       return runDetailResponse(
-        states[String(variables.id)] ??
+        states[requestedId] ??
+          states[relayInternalId("work_run", requestedId)] ??
           runState({
             run: {
-              id: String(variables.id),
+              id: requestedId,
               aggregateState: "running",
               executionState: "completed",
               verificationState: "pending",
@@ -133,8 +155,10 @@ export function activityPageResponse({ title }: { title: string }): GraphQLRespo
 }
 
 export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSummaryPayload {
+  const { id = "run_new", ...attributes } = overrides;
+
   return {
-    id: "run_new",
+    id: runRelayId(id),
     objective: "Review the newest authorized run",
     aggregateState: "running",
     executionState: "completed",
@@ -144,8 +168,16 @@ export function runSummary(overrides: Partial<RunSummaryPayload> = {}): RunSumma
       id: "123e4567-e89b-12d3-a456-426614174000",
       title: "Newest packet",
     },
-    ...overrides,
+    ...attributes,
   };
+}
+
+export function runRelayId(id: string) {
+  return relayGlobalId("work_run", id);
+}
+
+export function runPath(id: string) {
+  return `/runs?runId=${encodeURIComponent(runRelayId(id))}`;
 }
 
 export function runState(overrides: Partial<RunStatePayload> = {}): RunStatePayload {
@@ -279,7 +311,7 @@ function runResourceResponse(
   childHasNextPage: Partial<Record<RunChildConnection, boolean>> = {},
 ) {
   return {
-    id: state.run.id,
+    id: runRelayId(state.run.id),
     aggregateState: state.run.aggregateState,
     executionState: state.run.executionState,
     verificationState: state.run.verificationState,

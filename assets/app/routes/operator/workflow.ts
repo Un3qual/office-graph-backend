@@ -176,31 +176,31 @@ function runConversationFromRelay(data: OperatorRunConversationOperation["respon
     data.activeAgentExecutions,
     data.terminalAgentExecutions,
   )
-    .sort(compareInsertedAt)
     .map((execution) => ({
       ...execution,
       id: relayInternalId("agent_execution", execution.id),
-    }));
+    }))
+    .sort(compareInsertedAtAndId);
   const approvalRequests = prioritizedConnectionNodes(
     data.pendingAgentApprovalRequests,
     data.resolvedAgentApprovalRequests,
   )
-    .sort(compareInsertedAt)
     .map((request) => ({
       ...request,
       id: relayInternalId("agent_approval_request", request.id),
       executionId: relayInternalId("agent_execution", request.execution.id),
-    }));
+    }))
+    .sort(compareInsertedAtAndId);
   const contextExpansionRequests = prioritizedConnectionNodes(
     data.pendingAgentContextExpansionRequests,
     data.resolvedAgentContextExpansionRequests,
   )
-    .sort(compareInsertedAt)
     .map((request) => ({
       ...request,
       id: relayInternalId("agent_context_expansion_request", request.id),
       executionId: relayInternalId("agent_execution", request.execution.id),
-    }));
+    }))
+    .sort(compareInsertedAtAndId);
 
   return {
     ...projection,
@@ -258,11 +258,11 @@ function prioritizedConnectionNodes<T>(
   return priorityNodes.concat(connectionNodes(history).slice(0, remaining));
 }
 
-function compareInsertedAt(
-  left: { readonly insertedAt: string },
-  right: { readonly insertedAt: string },
+function compareInsertedAtAndId(
+  left: { readonly id: string; readonly insertedAt: string },
+  right: { readonly id: string; readonly insertedAt: string },
 ) {
-  return left.insertedAt.localeCompare(right.insertedAt);
+  return left.insertedAt.localeCompare(right.insertedAt) || left.id.localeCompare(right.id);
 }
 
 function workflowConnectionFromRelay(

@@ -50,7 +50,7 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, [])
+        ConcurrencyCleanup.cleanup_committed_scope!(organization_id, principal_id, [])
       end)
     end
   end
@@ -117,7 +117,11 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, [principal_id, other_principal_id], [])
+        ConcurrencyCleanup.cleanup_committed_scope!(
+          organization_id,
+          [principal_id, other_principal_id],
+          []
+        )
       end)
     end
   end
@@ -180,8 +184,8 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -241,8 +245,8 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -314,13 +318,13 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
 
       assert 1 ==
                with_unboxed_connection(fn ->
-                 conversation_count(run.id, graph_item_id)
+                 ConcurrencyCleanup.conversation_count(run.id, graph_item_id)
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_conversation_scope!(organization_slug)
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_conversation_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -434,9 +438,9 @@ defmodule OfficeGraph.Integrations.CommandReplayConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_conversation_scope!(organization_slug)
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_conversation_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end

@@ -639,9 +639,6 @@ defmodule OfficeGraph.Authentication do
       :ok ->
         :ok
 
-      {:error, :identity_storage_unavailable} = error ->
-        error
-
       {:error, _invalid_basis} ->
         Identity.reject_human_session(
           session_context,
@@ -653,33 +650,32 @@ defmodule OfficeGraph.Authentication do
 
   defp validate_current_authentication_basis(_session_context, _opts), do: :ok
 
-  defp validate_exact_local_development_session(session_context) do
-    Enum.reduce_while(
-      LocalDevelopmentFixtures.all(),
-      {:error, :invalid_session},
-      fn fixture, _not_matched ->
-        case Identity.local_development_identity(fixture) do
-          {:ok, linked} ->
-            if linked.principal.id == session_context.principal_id and
-                 linked.external_identity_link.id ==
-                   session_context.external_identity_link_id and
-                 linked.principal.status == "active" and
-                 linked.external_identity_link.status == "active" and
-                 linked.external_identity_link.linking_state == "linked" do
-              {:halt, :ok}
-            else
-              {:cont, {:error, :invalid_session}}
-            end
+  defp validate_exact_local_development_session(%{authentication_basis: basis})
+       when is_map(basis) do
+    fixture =
+      Enum.find(LocalDevelopmentFixtures.all(), fn fixture ->
+        fixture.provider == basis.provider and
+          fixture.provider_tenant == basis.provider_tenant and
+          fixture.subject == basis.subject
+      end)
 
-          {:error, :identity_storage_unavailable} = error ->
-            {:halt, error}
-
-          {:error, :local_development_fixture_missing} ->
-            {:cont, {:error, :invalid_session}}
-        end
-      end
-    )
+    if fixture &&
+         basis.verified_email == String.downcase(fixture.email) &&
+         basis.principal_email == String.downcase(fixture.email) &&
+         basis.principal_kind == "human" &&
+         basis.principal_status == fixture.principal_status &&
+         basis.principal_status == "active" &&
+         basis.link_status == fixture.link_status &&
+         basis.link_status == "active" &&
+         basis.linking_state == "linked" do
+      :ok
+    else
+      {:error, :invalid_session}
+    end
   end
+
+  defp validate_exact_local_development_session(_session_context),
+    do: {:error, :invalid_session}
 
   defp ensure_rejection_trace(opts) do
     Keyword.put_new_lazy(opts, :trace_id, &Ecto.UUID.generate/0)

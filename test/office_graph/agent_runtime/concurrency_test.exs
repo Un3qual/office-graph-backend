@@ -590,9 +590,9 @@ defmodule OfficeGraph.AgentRuntime.ConcurrencyTest do
     on_exit(fn ->
       with_unboxed_connection(fn ->
         AgentRuntimeCleanup.cleanup_scope!(organization_id)
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
-        cleanup_owner_principal!(agent_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_owner_principal!(agent_email)
       end)
     end)
   end

@@ -1,7 +1,18 @@
 import { fireEvent, screen, within } from "@testing-library/react";
-import type { GraphQLResponse } from "relay-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as support from "./routeTestSupport";
+import {
+  activityPageResponse,
+  createNetworkMock,
+  createRunsNetwork,
+  lastVariablesFor,
+  renderWithRelay,
+  runDetailResponse,
+  runPath,
+  runRelayId,
+  runState,
+  runSummary,
+  runsConnectionResponse,
+} from "./routeTestSupport";
 
 describe("all-runs route activity and command boundaries", () => {
   afterEach(() => {
@@ -9,27 +20,27 @@ describe("all-runs route activity and command boundaries", () => {
   });
 
   it("appends the next activity page exactly once without reusing the run-list cursor", async () => {
-    const firstState = support.runState();
-    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+    const firstState = runState();
+    const network = createNetworkMock((request) => {
       if (request.name === "RunsRouteQuery") {
-        return support.runsConnectionResponse([support.runSummary()], {
+        return runsConnectionResponse([runSummary()], {
           hasNextPage: true,
           endCursor: "run_list_cursor_1",
         });
       }
 
       if (request.name === "RunDetailQuery") {
-        return support.runDetailResponse(firstState);
+        return runDetailResponse(firstState);
       }
 
       if (request.name === "RunActivityPaginationQuery") {
-        return support.activityPageResponse({ title: "Later execution observation" });
+        return activityPageResponse({ title: "Later execution observation" });
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    renderWithRelay(network, "/runs?runId=run_new");
 
     const activity = await screen.findByRole("region", { name: "Run activity" });
     expect(within(activity).getByText("Release verification")).toBeInTheDocument();
@@ -41,12 +52,12 @@ describe("all-runs route activity and command boundaries", () => {
     expect(
       network.mock.calls.filter(([request]) => request.name === "RunActivityPaginationQuery"),
     ).toHaveLength(1);
-    expect(support.lastVariablesFor(network, "RunActivityPaginationQuery")).toEqual({
+    expect(lastVariablesFor(network, "RunActivityPaginationQuery")).toEqual({
       id: "run_new",
       first: 5,
       after: "activity_cursor_2",
     });
-    expect(support.lastVariablesFor(network, "RunsRouteQuery")).toMatchObject({
+    expect(lastVariablesFor(network, "RunsRouteQuery")).toMatchObject({
       first: 50,
       after: null,
     });
@@ -56,13 +67,13 @@ describe("all-runs route activity and command boundaries", () => {
   it("keeps loaded activity visible when continuation fails and retries only that page", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     let continuationAttempts = 0;
-    const network = vi.fn(async (request): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request) => {
       if (request.name === "RunsRouteQuery") {
-        return support.runsConnectionResponse([support.runSummary()]);
+        return runsConnectionResponse([runSummary()]);
       }
 
       if (request.name === "RunDetailQuery") {
-        return support.runDetailResponse();
+        return runDetailResponse();
       }
 
       if (request.name === "RunActivityPaginationQuery") {
@@ -72,13 +83,13 @@ describe("all-runs route activity and command boundaries", () => {
           throw new Error("credential-bearing activity transport failure");
         }
 
-        return support.activityPageResponse({ title: "Recovered execution observation" });
+        return activityPageResponse({ title: "Recovered execution observation" });
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    renderWithRelay(network, "/runs?runId=run_new");
 
     const activity = await screen.findByRole("region", { name: "Run activity" });
     fireEvent.click(within(activity).getByRole("button", { name: "Load more activity" }));
@@ -107,14 +118,14 @@ describe("all-runs route activity and command boundaries", () => {
     let continuationAttempts = 0;
     let detailAttempts = 0;
     const rawErrorSentinel = "RAW_ACTIVITY_FIELD_ERROR_SENTINEL_63a8";
-    const network = vi.fn(async (request, _variables): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request, _variables) => {
       if (request.name === "RunsRouteQuery") {
-        return support.runsConnectionResponse([support.runSummary()]);
+        return runsConnectionResponse([runSummary()]);
       }
 
       if (request.name === "RunDetailQuery") {
         detailAttempts += 1;
-        return support.runDetailResponse();
+        return runDetailResponse();
       }
 
       if (request.name === "RunActivityPaginationQuery") {
@@ -136,13 +147,13 @@ describe("all-runs route activity and command boundaries", () => {
           };
         }
 
-        return support.activityPageResponse({ title: "Recovered field-error observation" });
+        return activityPageResponse({ title: "Recovered field-error observation" });
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    renderWithRelay(network, "/runs?runId=run_new");
 
     const activity = await screen.findByRole("region", { name: "Run activity" });
     fireEvent.click(within(activity).getByRole("button", { name: "Load more activity" }));
@@ -173,18 +184,18 @@ describe("all-runs route activity and command boundaries", () => {
   });
 
   it("resets loaded activity pages when the selected run changes", async () => {
-    const secondSummary = support.runSummary({
+    const secondSummary = runSummary({
       id: "run_second",
       objective: "Second visible run",
     });
-    const network = vi.fn(async (request, variables): Promise<GraphQLResponse> => {
+    const network = createNetworkMock((request, variables) => {
       if (request.name === "RunsRouteQuery") {
-        return support.runsConnectionResponse([support.runSummary(), secondSummary]);
+        return runsConnectionResponse([runSummary(), secondSummary]);
       }
 
-      if (request.name === "RunDetailQuery" && variables.id === "run_second") {
-        return support.runDetailResponse(
-          support.runState({
+      if (request.name === "RunDetailQuery" && variables.id === runRelayId("run_second")) {
+        return runDetailResponse(
+          runState({
             packet: {
               id: "packet_second",
               relayId: "d29ya19wYWNrZXQ6cGFja2V0X3NlY29uZA==",
@@ -221,17 +232,17 @@ describe("all-runs route activity and command boundaries", () => {
       }
 
       if (request.name === "RunActivityPaginationQuery") {
-        return support.activityPageResponse({ title: "Later execution observation" });
+        return activityPageResponse({ title: "Later execution observation" });
       }
 
       if (request.name === "RunDetailQuery") {
-        return support.runDetailResponse();
+        return runDetailResponse();
       }
 
       throw new Error(`Unexpected Relay request in all-runs route test: ${request.name}`);
     });
 
-    support.renderWithRelay(network, "/runs?runId=run_new");
+    renderWithRelay(network, "/runs?runId=run_new");
 
     const activity = await screen.findByRole("region", { name: "Run activity" });
     fireEvent.click(within(activity).getByRole("button", { name: "Load more activity" }));
@@ -244,14 +255,14 @@ describe("all-runs route activity and command boundaries", () => {
     expect(
       within(replacementActivity).queryByText("Later execution observation"),
     ).not.toBeInTheDocument();
-    expect(support.lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
-      id: "run_second",
+    expect(lastVariablesFor(network, "RunDetailQuery")).toMatchObject({
+      id: runRelayId("run_second"),
     });
-    expect(screen.getByTestId("route-location")).toHaveTextContent("/runs?runId=run_second");
+    expect(screen.getByTestId("route-location")).toHaveTextContent(runPath("run_second"));
   });
 
   it("links packet history to the exact packet route without adding a command", async () => {
-    support.renderWithRelay(support.createRunsNetwork(), "/runs?runId=run_new");
+    renderWithRelay(createRunsNetwork(), "/runs?runId=run_new");
 
     expect(await screen.findByRole("link", { name: "Open packet history" })).toHaveAttribute(
       "href",

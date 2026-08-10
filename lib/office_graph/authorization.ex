@@ -3,7 +3,9 @@ defmodule OfficeGraph.Authorization do
   Public boundary for authorization decisions and capability checks.
   """
 
-  use Boundary, deps: [OfficeGraph.Identity], exports: [Domain, ExternalRoleFacts]
+  use Boundary,
+    deps: [OfficeGraph.CommandSupport, OfficeGraph.Identity],
+    exports: [Domain, ExternalRoleFacts]
 
   alias OfficeGraph.Authorization.{
     Capability,
@@ -17,7 +19,7 @@ defmodule OfficeGraph.Authorization do
     RoleCapability
   }
 
-  alias OfficeGraph.Identity
+  alias OfficeGraph.{CommandSupport, Identity}
 
   require Ash.Query
 
@@ -711,7 +713,7 @@ defmodule OfficeGraph.Authorization do
   defp run_role_action_with_identity_retry(action, input) do
     case run_role_action(action, input) do
       {:error, %Ash.Error.Invalid{} = error} ->
-        if authorization_identity_conflict?(error) do
+        if CommandSupport.unique_constraint?(error, @identity_constraints) do
           run_role_action(action, input)
         else
           {:error, error}
@@ -726,16 +728,5 @@ defmodule OfficeGraph.Authorization do
     Role
     |> Ash.ActionInput.for_action(action, input)
     |> Ash.run_action(authorize?: false)
-  end
-
-  defp authorization_identity_conflict?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: private_vars} ->
-        Keyword.get(private_vars, :constraint_type) == :unique and
-          Keyword.get(private_vars, :constraint) in @identity_constraints
-
-      _other ->
-        false
-    end)
   end
 end

@@ -76,8 +76,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -161,8 +161,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -259,8 +259,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -367,8 +367,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -382,8 +382,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       {bootstrap, first_check, second_check, first_run, second_run, first_operation,
        second_operation} =
         with_unboxed_connection(fn ->
-          cleanup_work_run_verification_scope!("office-graph")
-          cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+          ConcurrencyCleanup.cleanup_work_run_verification_scope!("office-graph")
+          ConcurrencyCleanup.cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
 
           {:ok, bootstrap} = Foundation.bootstrap_local_owner([])
 
@@ -457,8 +457,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!("office-graph")
-        cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!("office-graph")
+        ConcurrencyCleanup.cleanup_bootstrap_scope!("office-graph", "owner@office-graph.local")
       end)
     end
   end
@@ -561,8 +561,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
                end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -663,8 +663,8 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       end)
     after
       with_unboxed_connection(fn ->
-        cleanup_work_run_verification_scope!(organization_slug)
-        cleanup_bootstrap_scope!(organization_slug, owner_email)
+        ConcurrencyCleanup.cleanup_work_run_verification_scope!(organization_slug)
+        ConcurrencyCleanup.cleanup_bootstrap_scope!(organization_slug, owner_email)
       end)
     end
   end
@@ -736,7 +736,11 @@ defmodule OfficeGraph.Integrations.EvidenceConcurrencyTest do
       assert with_unboxed_connection(fn -> proposed_change_count(normalized_event.id) end) == 4
     after
       with_unboxed_connection(fn ->
-        cleanup_committed_scope!(organization_id, principal_id, source_identity)
+        ConcurrencyCleanup.cleanup_committed_scope!(
+          organization_id,
+          principal_id,
+          source_identity
+        )
       end)
     end
   end

@@ -80,30 +80,11 @@ typed result contract.
 - **WHEN** an entrypoint requests fields from another domain's private tables
 - **THEN** the owning domain MUST expose an approved action, relationship, or typed query result instead of allowing the caller to query the private table
 
-### Requirement: Existing Database Access Is Removal Debt
-Office Graph SHALL record existing raw-SQL and direct-Ecto occurrences that
-have not received exact user approval as temporary removal debt and SHALL NOT
-describe them as approved architecture.
-
-#### Scenario: The initial debt inventory is created
-- **WHEN** this quality boundary is implemented against the existing repository
-- **THEN** every existing occurrence MUST receive a deterministic fingerprint, construct class, owner, and future remediation change without receiving implied approval
-
-#### Scenario: A later remediation change lands
-- **WHEN** a later change replaces an inventoried occurrence with built-in Ash or declarative migration behavior
-- **THEN** that change MUST remove the matching debt entry and preserve or strengthen behavioral and concurrency verification
-
-#### Scenario: A debt occurrence changes
-- **WHEN** an inventoried occurrence is moved, rewritten, or broadened before removal
-- **THEN** verification MUST treat the changed fingerprint as a new unapproved occurrence
-
-### Requirement: Non-migration database access has no removal debt
+### Requirement: Non-migration database access is fully approved
 
 Office Graph SHALL have zero unapproved raw-SQL or direct-Ecto occurrences in
-runtime code, tests, test support, or seeds after this change. Historical
-migration debt SHALL remain isolated to the dedicated unreleased-migration
-rebaseline, and explicitly approved exceptions SHALL remain exact and
-fingerprinted.
+runtime code, tests, test support, or seeds. Explicitly approved exceptions
+SHALL remain exact and fingerprinted.
 
 #### Scenario: Non-migration source is scanned
 
@@ -113,11 +94,26 @@ fingerprinted.
   relationship, aggregate, calculation, query lock, atomic change, bulk API, or
   other built-in Ash/AshPostgres interface
 
-#### Scenario: Removal change completes
+#### Scenario: Terminal repository scan completes
 
-- **WHEN** `remove-direct-database-access` is ready to archive
-- **THEN** the debt inventory MUST contain zero entries assigned to that change
-  and the approved inventory MUST contain no exception added by this change
+- **WHEN** canonical verification scans the current repository
+- **THEN** every detected occurrence MUST match an exact explicitly approved
+  exception or fail without consulting or rewriting a temporary debt inventory
+
+#### Scenario: Approved inventory repeats one locator
+
+- **WHEN** two approved entries share the same path, line, class, construct,
+  function, and ordinal even when their fingerprints differ
+- **THEN** canonical verification MUST reject the approved inventory before
+  matching current fingerprints or suppressing stale entries
+
+#### Scenario: Approval provenance is invalid
+
+- **WHEN** an approved exception references a missing change directory, a
+  missing or invalid approval-evidence file, an unmatched approval record, or
+  multiple archived directories for the same approving change
+- **THEN** canonical verification MUST reject the approved inventory before
+  matching current fingerprints or suppressing stale entries
 
 #### Scenario: Framework capability is insufficient
 
@@ -130,14 +126,24 @@ fingerprinted.
 
 Office Graph tests SHALL create, mutate, coordinate, and assert persisted state
 through public Ash/domain behavior or narrow test-only typed seams rather than
-SQL, direct Ecto, catalog inspection, or database-object mutation.
+SQL, direct Ecto, catalog inspection, database-object mutation, or a shadow
+copy of the product resource graph.
 
 #### Scenario: Test needs otherwise unreachable state
 
 - **WHEN** a behavior test needs a lifecycle or failure state that public
   product input cannot reach directly
-- **THEN** test support MUST use a test-only Ash action or adapter seam that
-  retains resource validation and MUST NOT update the row with Repo or SQL
+- **THEN** test support MUST use a test-owned Ash action, canonical-resource
+  data-layer seam, or process-scoped adapter that MUST NOT update the row with
+  Repo or SQL
+
+#### Scenario: Committed concurrency data is cleaned
+
+- **WHEN** independent database owners commit records that outlive the SQL
+  sandbox transaction
+- **THEN** cleanup MUST select canonical Ash resources and hard-delete them
+  through one test-only Ash seam without redeclaring their tables, attributes,
+  or domain
 
 #### Scenario: Test proves a database constraint
 
@@ -184,17 +190,18 @@ relationships, or database constraints.
 
 ### Requirement: Migration baseline has no removal debt
 
-Office Graph SHALL have zero unapproved raw-SQL or direct-database debt in its
+Office Graph SHALL have zero unapproved raw-SQL or direct-database occurrences in its
 terminal migration baseline. The baseline MAY retain only exact
 user-approved, fingerprinted migration exceptions whose accepted OpenSpec
 change proves declarative AshPostgres and Ecto migration behavior is
 insufficient.
 
-#### Scenario: Rebaseline change completes
+#### Scenario: Terminal migration baseline is scanned
 
-- **WHEN** `rebaseline-unreleased-migrations` is ready to archive
-- **THEN** the debt inventory MUST contain zero entries assigned to that
-  change and MUST contain no stale path from the replaced migration chain
+- **WHEN** canonical verification scans the current migration baseline
+- **THEN** every detected occurrence MUST match an exact explicitly approved
+  exception and every approved migration exception MUST still match current
+  source
 
 #### Scenario: Generated migration includes SQL
 
@@ -206,8 +213,8 @@ insufficient.
 
 #### Scenario: Native UUIDv7 default remains necessary
 
-- **WHEN** the PostgreSQL 18 `uuidv7()` default remains represented by the
+- **WHEN** the PostgreSQL 18 `uuidv7()` default remains represented by a
   previously approved generated fragment
-- **THEN** the approved-exception inventory MUST update its exact path and
-  fingerprint to the baseline occurrence while preserving the original
-  reason, verification, and retirement condition
+- **THEN** the approved-exception inventory MUST retain its exact path and
+  fingerprint while preserving the original reason, verification, and
+  retirement condition

@@ -6,15 +6,10 @@ defmodule OfficeGraph.NodeConversations.ActionSupport do
   @rollback_marker :node_conversation_action_error
 
   @storage_exceptions [
-    Ash.Error.Forbidden,
-    Ash.Error.Framework,
-    Ash.Error.Invalid,
-    Ash.Error.Unknown,
     DBConnection.ConnectionError,
     Ecto.ConstraintError,
     Ecto.StaleEntryError,
-    Postgrex.Error,
-    RuntimeError
+    Postgrex.Error
   ]
 
   def rollback(resource, error) do
@@ -31,6 +26,7 @@ defmodule OfficeGraph.NodeConversations.ActionSupport do
   rescue
     _error in @storage_exceptions -> {:error, :integration_storage_unavailable}
   catch
-    :exit, _reason -> {:error, :integration_storage_unavailable}
+    :exit, {_reason, {DBConnection.Holder, :checkout, [_pool, _opts]}} ->
+      {:error, :integration_storage_unavailable}
   end
 end

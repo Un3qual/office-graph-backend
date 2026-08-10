@@ -11,6 +11,7 @@ defmodule OfficeGraph.Identity.SessionContext do
     :external_identity_link_id,
     :enterprise_connection_id,
     :authentication_method,
+    :authentication_basis,
     capabilities: MapSet.new(),
     trusted?: false
   ]

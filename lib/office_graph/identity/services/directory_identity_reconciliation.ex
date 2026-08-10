@@ -121,8 +121,8 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
          } = attrs
        )
        when is_binary(principal_id) do
-    with {:ok, principal} <- restore_principal(principals, attrs),
-         true <- restoration_compatible_links?(email_links, principal.id, attrs),
+    with true <- restoration_compatible_links?(email_links, principal_id, attrs),
+         {:ok, principal} <- restore_principal(principals, attrs),
          {:ok, restored_link} <- restore_link(link) do
       DirectoryIdentityResult.linked(
         principal,
@@ -130,7 +130,14 @@ defmodule OfficeGraph.Identity.Actions.ReconcileDirectoryIdentity do
         principal_origin(attrs, principal.id, "reused")
       )
     else
-      _incompatible -> DirectoryIdentityResult.review_required("provider_subject_conflict")
+      false ->
+        DirectoryIdentityResult.review_required("provider_subject_conflict")
+
+      {:error, :ineligible_principal} ->
+        DirectoryIdentityResult.review_required("provider_subject_conflict")
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -621,6 +628,7 @@ defmodule OfficeGraph.Identity.Actions.ReconcileWorkOSSsoIdentity do
          {:ok, authenticated_link} <- reactivate_sso_link(link, attrs) do
       DirectoryIdentityResult.linked(principal, authenticated_link, "reused")
     else
+      {:error, _reason} = error -> error
       _conflict -> DirectoryIdentityResult.review_required("provider_subject_conflict")
     end
   end

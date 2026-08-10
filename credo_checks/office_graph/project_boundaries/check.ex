@@ -17,7 +17,7 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     explanations: [
       check: """
       OpenSpec is the only durable planning system, and direct database access
-      must match the reviewed debt or approved-exception inventories.
+      must match the exact approved-exception inventory.
       """
     ]
 
@@ -28,7 +28,6 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryGate
   alias OfficeGraph.ProjectQuality.PlanningBoundary
 
-  @debt_path "openspec/specs/ecto-sql-boundaries/database-access-debt.json"
   @approved_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   @doc false
@@ -59,6 +58,40 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(
+         %{kind: :invalid_inventory, duplicate_locator: locator} = diagnostic,
+         root,
+         params
+       ) do
+    path = inventory_path(diagnostic.inventory)
+
+    format_boundary_issue(
+      root,
+      path,
+      params,
+      "invalid_inventory #{inventory_name(diagnostic.inventory)} entries " <>
+        "#{Enum.join(diagnostic.entries, ", ")} duplicate locator " <>
+        "#{locator.path} #{locator.function || "<module>"} #{locator.construct} " <>
+        "(#{locator.class}) ordinal #{locator.ordinal}"
+    )
+  end
+
+  defp issue_for(
+         %{kind: :invalid_inventory, invalid_fields: fields} = diagnostic,
+         root,
+         params
+       ) do
+    path = inventory_path(diagnostic.inventory)
+
+    format_boundary_issue(
+      root,
+      path,
+      params,
+      "invalid_inventory #{inventory_name(diagnostic.inventory)} entry #{diagnostic.entry}: " <>
+        "invalid #{Enum.join(fields, ", ")}"
+    )
+  end
+
   defp issue_for(%{kind: :invalid_inventory} = diagnostic, root, params) do
     path = inventory_path(diagnostic.inventory)
 
@@ -71,13 +104,17 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
-  defp issue_for(%{kind: :completed_remediation_debt} = diagnostic, root, params) do
+  defp issue_for(%{kind: :invalid_approval_provenance} = diagnostic, root, params) do
+    path = inventory_path(diagnostic.inventory)
+
     format_boundary_issue(
       root,
-      @debt_path,
+      path,
       params,
-      "completed_remediation_debt: archived change #{diagnostic.remediation_change} " <>
-        "still owns #{diagnostic.count} debt occurrences"
+      "invalid_approval_provenance #{inventory_name(diagnostic.inventory)} " <>
+        "entry #{diagnostic.entry}: change #{diagnostic.approving_change} does not record " <>
+        "fingerprint #{diagnostic.fingerprint} " <>
+        approval_provenance_context(diagnostic, root)
     )
   end
 
@@ -105,6 +142,18 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(%{kind: :unresolved} = diagnostic, root, params) do
+    format_boundary_issue(
+      root,
+      diagnostic.path,
+      params,
+      "unresolved database boundary: #{diagnostic.construct} (#{diagnostic.class}) at " <>
+        "#{function_name(diagnostic)}; the SQL payload is not statically fingerprintable " <>
+        "and cannot be approved",
+      diagnostic.line
+    )
+  end
+
   defp issue_for(%{kind: :new} = diagnostic, root, params) do
     format_boundary_issue(
       root,
@@ -115,6 +164,13 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       diagnostic.line
     )
   end
+
+  defp approval_provenance_context(%{change_paths: change_paths, reason: reason}, root) do
+    paths = change_paths |> Enum.map(&Path.relative_to(&1, root)) |> Enum.join(", ")
+    "(#{reason}; matching changes: #{paths})"
+  end
+
+  defp approval_provenance_context(%{reason: reason}, _root), do: "(#{reason})"
 
   defp format_boundary_issue(root, path, params, message, line \\ nil) do
     source =
@@ -133,10 +189,8 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     |> format_issue(message: message, line_no: line)
   end
 
-  defp inventory_path(:debt), do: @debt_path
   defp inventory_path(:approved_exceptions), do: @approved_path
 
-  defp inventory_name(:debt), do: "database_access_debt"
   defp inventory_name(:approved_exceptions), do: "approved_database_exceptions"
 
   defp source_locator(diagnostic) do
