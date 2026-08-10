@@ -184,6 +184,15 @@ diverge.
   that lifecycle exactly as the equivalent direct call while leaving a matching
   shadowed local `apply/3` under ordinary local-function semantics
 
+#### Scenario: Guarded migration entrypoint selects a lifecycle clause
+
+- **WHEN** a public zero-arity `up` or `change` entrypoint has multiple clauses
+  with guards
+- **THEN** canonical model-ownership verification MUST inventory only the first
+  statically matching clause and MUST fail closed when an earlier guard cannot
+  be resolved statically or no entrypoint clause matches, instead of treating
+  every clause body or a lower-precedence `change/0` entrypoint as definite
+
 #### Scenario: Ownership DDL is loaded from a migration file
 
 - **WHEN** a forward migration invokes `execute_file/1` or the forward path of
@@ -203,8 +212,9 @@ diverge.
 #### Scenario: Migration delegates lifecycle work to a repository helper
 
 - **WHEN** a forward migration invokes an imported, aliased, or fully
-  qualified repository-authored helper whose lifecycle effects cannot be
-  inventoried from the migration module
+  qualified repository-authored helper, including a sibling module defined in
+  the same migration file, whose lifecycle effects cannot be inventoried from
+  the recognized migration module
 - **THEN** canonical model-ownership verification MUST fail closed and require
   the declarative lifecycle constructs to remain visible to the migration
   inventory, while leaving dependency-owned migration entrypoints outside this

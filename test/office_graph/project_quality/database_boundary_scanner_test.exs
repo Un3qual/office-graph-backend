@@ -3172,6 +3172,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "fails closed when a database receiver enters GenServer state" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            alias GenServer, as: RuntimeServer
+            import GenServer, only: [start: 3]
+
+            def load do
+              GenServer.start_link(__MODULE__, OfficeGraph.Repo, [])
+              RuntimeServer.start(__MODULE__, {:repository, OfficeGraph.Repo}, [])
+              start(__MODULE__, Map.put(%{}, :repository, OfficeGraph.Repo), [])
+              GenServer.start_link(__MODULE__, Example.NotARepo, [])
+              Example.GenServer.start_link(__MODULE__, OfficeGraph.Repo, [])
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, fn occurrence ->
+             {
+               occurrence.class,
+               occurrence.construct,
+               occurrence.function,
+               occurrence.line,
+               occurrence.approval
+             }
+           end) == [
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 6, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 7, :unresolved_sql},
+             {:raw_sql, "database_receiver.nonlocal_control_flow", "load/0", 8, :unresolved_sql}
+           ]
+  end
+
   test "fails closed when a database receiver enters ETS state" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([

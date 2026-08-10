@@ -189,6 +189,15 @@ binary literals or documentation text.
   nonlocal control flow before a later Agent callback can consume the receiver,
   and MUST NOT apply `Agent` semantics to an unrelated receiver
 
+#### Scenario: Database receiver enters GenServer state
+
+- **WHEN** `GenServer.start/2-3` or `GenServer.start_link/2-3`, including through
+  an explicit alias or import, receives a statically resolvable repository
+  receiver in its initial-state argument
+- **THEN** the scanner MUST fail closed at the state-ingress boundary as
+  nonlocal control flow before a later GenServer callback can consume the
+  receiver, and MUST NOT apply `GenServer` semantics to an unrelated receiver
+
 #### Scenario: Database receiver enters ETS state
 
 - **WHEN** an ETS write operation receives a statically resolvable value that

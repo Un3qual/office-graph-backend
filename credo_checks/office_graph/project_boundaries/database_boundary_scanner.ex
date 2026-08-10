@@ -198,7 +198,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @kernel_value_callback_operations [:tap, :then]
   @repo_supplied_callback_operations [:transact, :transaction]
   @list_fold_operations [:foldl, :foldr]
-  @agent_start_operations [:start, :start_link]
+  @database_receiver_state_ingress %{
+    "Agent" => %{
+      {:start, 1} => {:callback_result, 0},
+      {:start, 2} => {:callback_result, 0},
+      {:start_link, 1} => {:callback_result, 0},
+      {:start_link, 2} => {:callback_result, 0}
+    },
+    "GenServer" => %{
+      {:start, 2} => {:argument, 1},
+      {:start, 3} => {:argument, 1},
+      {:start_link, 2} => {:argument, 1},
+      {:start_link, 3} => {:argument, 1}
+    }
+  }
   @ets_receiver_storage_payload_indexes %{
     insert: [1],
     insert_new: [1],
@@ -3284,17 +3297,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
-         _context,
-         environment
-       )
-       when operation in @agent_start_operations and is_list(arguments) do
-    if agent_module_receiver?(receiver, environment) and
-         agent_initial_state_contains_database_receiver?(arguments, environment),
-       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-  end
-
-  defp classify_node(
          {operation, _metadata, [value]},
          _context,
          environment
@@ -3328,11 +3330,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     map_callback_classification =
       classify_map_database_receiver_callback(receiver, operation, arguments, environment)
 
+    state_ingress_classification =
+      classify_database_receiver_state_ingress(receiver, operation, arguments, environment)
+
     resolved_receiver = resolve_database_receiver_expression(receiver, environment)
     receiver = database_receiver_name(resolved_receiver, migration?, environment)
 
     storage_classification ||
       map_callback_classification ||
+      state_ingress_classification ||
       classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation) ||
       classify_unresolved_database_receiver(resolved_receiver, operation, environment) ||
@@ -3387,7 +3393,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_atom(operation) and is_list(arguments) do
     receiver = imported_receiver(environment, operation, length(arguments))
 
-    classify_map_database_receiver_callback(receiver, operation, arguments, environment) ||
+    classify_database_receiver_state_ingress(receiver, operation, arguments, environment) ||
+      classify_map_database_receiver_callback(receiver, operation, arguments, environment) ||
       classify_migration_operation(receiver, operation) ||
       classify_database_operation(receiver, operation)
   end
@@ -3509,7 +3516,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> static_value_contains_database_receiver?(environment)
   end
 
-  defp agent_initial_state_contains_database_receiver?([callback | _options], environment) do
+  defp literal_callback_result_contains_database_receiver?(callback, environment) do
     with {:ok, callback} <- normalize_literal_callback(callback, environment),
          0 <- literal_callback_arity(callback),
          {:ok, state} <- static_literal_callback_result(callback, [], environment) do
@@ -3519,11 +3526,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp agent_initial_state_contains_database_receiver?(_arguments, _environment), do: false
+  defp classify_database_receiver_state_ingress(receiver, operation, arguments, environment) do
+    receiver = state_ingress_receiver_name(receiver, environment)
 
-  defp agent_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Agent"
+    case get_in(@database_receiver_state_ingress, [receiver, {operation, length(arguments)}]) do
+      {:argument, index} ->
+        if arguments
+           |> Enum.at(index)
+           |> database_receiver_escape_argument?(environment),
+           do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
+
+      {:callback_result, index} ->
+        if arguments
+           |> Enum.at(index)
+           |> literal_callback_result_contains_database_receiver?(environment),
+           do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
+
+      nil ->
+        nil
+    end
   end
+
+  defp state_ingress_receiver_name(receiver, environment) when is_binary(receiver),
+    do: resolve_receiver(receiver, environment)
+
+  defp state_ingress_receiver_name(receiver, environment),
+    do: receiver |> receiver_name() |> resolve_receiver(environment)
 
   defp classify_database_receiver_storage(receiver, operation, arguments, environment) do
     receiver = receiver |> receiver_name() |> resolve_receiver(environment)

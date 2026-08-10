@@ -1696,6 +1696,47 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     )
   end
 
+  test "fails closed for lifecycle calls delegated to same-file migration helpers" do
+    Enum.each(
+      [
+        {"import SameFileMigrationHelpers", "create_auxiliary_table()"},
+        {"alias SameFileMigrationHelpers, as: Helpers", "Helpers.create_auxiliary_table()"},
+        {"", "SameFileMigrationHelpers.create_auxiliary_table()"}
+      ],
+      fn {module_setup, helper_call} ->
+        in_migration_root("office_graph_same_file_helper_conformance", fn root, migrations ->
+          _ = root
+
+          File.write!(
+            Path.join(migrations, "20260810000000_same_file_helper.exs"),
+            """
+            defmodule SameFileMigrationHelpers do
+              import Ecto.Migration
+
+              def create_auxiliary_table do
+                create table(:same_file_helper_owned)
+              end
+            end
+
+            defmodule SameFileHelperMigration do
+              use Ecto.Migration
+              #{module_setup}
+
+              def change do
+                #{helper_call}
+              end
+            end
+            """
+          )
+
+          assert_raise ArgumentError, ~r/repository migration helper/, fn ->
+            MigrationConformanceSupport.migration_tables()
+          end
+        end)
+      end
+    )
+  end
+
   test "fails closed for lifecycle calls exposed through repository defdelegates" do
     in_migration_root("office_graph_defdelegated_helper_conformance", fn root, migrations ->
       helpers = Path.join(root, "lib/my_app")
@@ -2254,6 +2295,98 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       )
 
       assert MigrationConformanceSupport.migration_tables() == ["public_change_examples"]
+    end)
+  end
+
+  test "selects the first statically matching guarded migration entrypoint" do
+    in_migration_root("office_graph_guarded_entrypoint_conformance", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260810000000_create_durable.exs"),
+        """
+        defmodule CreateDurable do
+          use Ecto.Migration
+
+          def change do
+            create table(:durable)
+          end
+        end
+        """
+      )
+
+      File.write!(
+        Path.join(migrations, "20260810000001_guarded_drop.exs"),
+        """
+        defmodule GuardedDrop do
+          use Ecto.Migration
+
+          def up when false do
+            drop table(:durable)
+          end
+
+          def up do
+            :ok
+          end
+        end
+        """
+      )
+
+      assert MigrationConformanceSupport.migration_tables() == ["durable"]
+    end)
+  end
+
+  test "fails closed when a migration entrypoint guard cannot be resolved" do
+    in_migration_root("office_graph_unresolved_entrypoint_guard", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260810000000_guarded_drop.exs"),
+        """
+        defmodule GuardedDrop do
+          use Ecto.Migration
+
+          def up when node() == :migration_runner do
+            drop table(:durable)
+          end
+
+          def up do
+            :ok
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/cannot statically verify guarded migration entrypoint/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
+    end)
+  end
+
+  test "fails closed when no guarded migration entrypoint clause matches" do
+    in_migration_root("office_graph_unmatched_entrypoint_guard", fn root, migrations ->
+      _ = root
+
+      File.write!(
+        Path.join(migrations, "20260810000000_guarded_drop.exs"),
+        """
+        defmodule GuardedDrop do
+          use Ecto.Migration
+
+          def up when false do
+            drop table(:durable)
+          end
+
+          def change do
+            create table(:incorrect_fallback)
+          end
+        end
+        """
+      )
+
+      assert_raise ArgumentError, ~r/no statically matching guarded migration entrypoint/, fn ->
+        MigrationConformanceSupport.migration_tables()
+      end
     end)
   end
 

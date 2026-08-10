@@ -112,6 +112,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     ast = Code.string_to_quoted!(source)
     module_body = migration_module_body(ast)
 
+    repository_helpers =
+      Map.merge(
+        repository_helpers,
+        collect_repository_helper_modules(ast, nil, %{}),
+        fn _module, repository_keys, same_file_keys ->
+          MapSet.union(repository_keys, same_file_keys)
+        end
+      )
+
     repository_helper_imports =
       repository_migration_helper_imports(module_body, repository_helpers)
 
@@ -1033,11 +1042,34 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        do: dynamic_execute_open_frames(rest, frames, "", false)
 
   defp migration_entrypoint(functions, key) do
-    case functions
-         |> Map.get(key, [])
-         |> Enum.filter(&(&1.kind == :function and &1.visibility == :public)) do
-      [] -> nil
-      definitions -> definitions
+    public_definitions =
+      functions
+      |> Map.get(key, [])
+      |> Enum.filter(&(&1.kind == :function and &1.visibility == :public))
+
+    definitions = matching_definitions(public_definitions, [])
+
+    case {public_definitions, definitions} do
+      {[], []} ->
+        nil
+
+      {[_definition | _remaining], []} ->
+        {name, arity} = key
+
+        raise ArgumentError,
+              "no statically matching guarded migration entrypoint #{name}/#{arity}; " <>
+                "use a matching unconditional clause"
+
+      {_public_definitions, definitions} ->
+        if Enum.any?(definitions, &(guards_match(&1.guards, %{}) == :unknown)) do
+          {name, arity} = key
+
+          raise ArgumentError,
+                "cannot statically verify guarded migration entrypoint #{name}/#{arity}; " <>
+                  "use a statically decidable guard or a single unconditional entrypoint"
+        end
+
+        definitions
     end
   end
 
