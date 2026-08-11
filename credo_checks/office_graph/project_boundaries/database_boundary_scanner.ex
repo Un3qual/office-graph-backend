@@ -324,13 +324,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Ecto.Repo.Supervisor",
     "Ecto.Repo.Transaction"
   ]
-  @process_execution_modules ["Port", "System", "erlang", "os"]
+  @mix_shell_modules ["Mix.Shell", "Mix.Shell.IO", "Mix.Shell.Process", "Mix.Shell.Quiet"]
+  @process_execution_modules ["Port", "System", "erlang", "os" | @mix_shell_modules]
   @process_execution_operations [
     {"Port", :open},
     {"System", :cmd},
     {"System", :shell},
     {"erlang", :open_port},
     {"os", :cmd}
+    | Enum.map(@mix_shell_modules, &{&1, :cmd})
   ]
   @database_cli_executables [
     "clusterdb",
@@ -452,12 +454,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @reflection_modules [
     "Code",
+    "Config.Reader",
     "EEx",
     "IEx.Helpers",
     "Kernel.ParallelCompiler",
+    "Macro",
+    "Mix.Task",
     "Mix.Tasks.Eval",
     "Mix.Tasks.Run",
     "Module",
+    "c",
     "code",
     "erl_eval",
     "file"
@@ -471,8 +477,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :eval_quoted,
       :eval_quoted_with_env,
       :eval_string,
+      :load_file,
       :require_file
     ],
+    "Config.Reader" => [:eval!, :load, :read!, :read_imports!],
     "EEx" => [
       :compile_file,
       :compile_string,
@@ -489,9 +497,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :files_to_path,
       :require
     ],
+    "Macro" => [:compile_apply, :expand, :expand_once],
+    "Mix.Task" => [:rerun, :run],
     "Mix.Tasks.Eval" => [:run],
     "Mix.Tasks.Run" => [:run],
     "Module" => [:create, :eval_quoted],
+    "c" => [:appcall, :c, :erlangrc, :l, :lc, :lc_batch, :nc, :nl],
     "code" => [
       :atomic_load,
       :ensure_loaded,
@@ -512,14 +523,49 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs",
      "compile_file!/2"}
   ]
-  @allowed_uncompiled_macro_modules [
+  @allowed_dependency_macro_modules [
+    "Absinthe.Relay.Schema",
+    "Absinthe.Relay.Schema.Notation",
+    "Absinthe.Schema",
+    "Absinthe.Schema.Notation",
+    "Application",
+    "Ash.Domain",
+    "Ash.Policy.SimpleCheck",
     "Ash.Query",
     "Ash.Resource",
+    "Ash.Resource.Actions.Implementation",
+    "Ash.Resource.Change",
+    "Ash.TypedStruct",
+    "AshGraphql",
+    "AshGraphql.Type",
+    "AshJsonApi.Router",
+    "AshPostgres.Repo",
+    "Boundary",
     "Config",
+    "Credo.Check",
+    "Ecto",
+    "Ecto.Changeset",
     "Ecto.Migration",
+    "Ecto.Query",
+    "Ecto.Repo",
+    "ExUnit.Assertions",
     "ExUnit.Case",
+    "ExUnit.CaseTemplate",
+    "GenServer",
+    "Logger",
     "Mix.Project",
-    "Oban.Testing"
+    "Oban.Testing",
+    "Oban.Worker",
+    "Phoenix.Channel",
+    "Phoenix.ConnTest",
+    "Phoenix.Controller",
+    "Phoenix.Endpoint",
+    "Phoenix.Router",
+    "Phoenix.VerifiedRoutes",
+    "Plug.Conn",
+    "Splode.Error",
+    "Supervisor",
+    "Telemetry.Metrics"
   ]
   @canonical_verification_fingerprints %{
     "bin/verify" => "sha256:4895bc9e15a8389b6fadf4b2913247b5a076d4de9c36943295cda211fe143b2f",
@@ -549,6 +595,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   }
   @sql_file_extensions [".pgsql", ".psql", ".sql"]
   @source_extensions [".ex", ".exs" | @sql_file_extensions]
+  @tracked_config_reader_paths ["config/config.exs", "config/runtime.exs"]
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
@@ -642,6 +689,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_source(%{path: path, source: source}, root, compiled_source_paths)
   end
 
+  defp defined_module_names(ast) do
+    {_ast, modules} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:defmodule, _metadata, [module | _body]} = node, modules ->
+          module = literal_module_name(module)
+          {node, if(module, do: MapSet.put(modules, module), else: modules)}
+
+        node, modules ->
+          {node, modules}
+      end)
+
+    modules
+  end
+
+  defp literal_module_name({:__aliases__, _metadata, parts}) when is_list(parts),
+    do: Enum.map_join(parts, ".", &to_string/1)
+
+  defp literal_module_name(module) when is_atom(module),
+    do: module |> Atom.to_string() |> canonical_module_name()
+
+  defp literal_module_name(_module), do: nil
+
   defp scan_elixir_source(path, source, root, compiled_source_paths) do
     case Code.string_to_quoted(source, file: path, columns: true) do
       {:ok, ast} ->
@@ -656,6 +725,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           migration?: migration_path?(path),
           module: nil,
           path: path,
+          project_modules: defined_module_names(ast),
           quote_depth: 0,
           query_dsl?: false,
           repository_module?: false,
@@ -770,7 +840,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {env, import_occurrences} = apply_import(arguments, metadata, env)
 
     occurrences =
-      case uncompiled_macro_occurrence(:import, arguments, env) do
+      case dependency_macro_occurrence(:import, arguments, env) do
         nil -> occurrences
         occurrence -> [occurrence | occurrences]
       end
@@ -780,7 +850,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({:require, _metadata, arguments}, env, occurrences) when is_list(arguments) do
     occurrences =
-      case uncompiled_macro_occurrence(:require, arguments, env) do
+      case dependency_macro_occurrence(:require, arguments, env) do
         nil -> occurrences
         occurrence -> [occurrence | occurrences]
       end
@@ -801,7 +871,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({:use, _metadata, [target | _options]} = node, env, occurrences) do
     occurrences =
-      case uncompiled_macro_occurrence(:use, [target], env) do
+      case dependency_macro_occurrence(:use, [target], env) do
         nil -> occurrences
         occurrence -> [occurrence | occurrences]
       end
@@ -1383,7 +1453,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_operation(receiver, operation, arity, node, env)
        when receiver in @reflection_modules do
-    if operation in Map.fetch!(@reflection_operations, receiver) do
+    if operation in Map.fetch!(@reflection_operations, receiver) and
+         not trusted_reflection_call?(receiver, operation, node) do
       occurrence(
         env,
         line_from_node(node),
@@ -1426,6 +1497,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp reviewed_runtime_compiler_fixture?(_receiver, _operation, _arity, _env), do: false
+
+  defp trusted_reflection_call?("Config.Reader", operation, node)
+       when operation in [:read!, :read_imports!] do
+    node
+    |> call_arguments()
+    |> List.first()
+    |> static_command_literal()
+    |> then(&(&1 in @tracked_config_reader_paths))
+  end
+
+  defp trusted_reflection_call?(_receiver, _operation, _node), do: false
 
   defp classify_apply(receiver, operation, node, env) do
     classify_dynamic_dispatch(receiver, operation, :apply, node, env)
@@ -1877,41 +1959,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp uncompiled_elixir_source?(%{path: path, compiled_source?: compiled_source?}),
     do: source_extension(path) == ".exs" or not compiled_source?
 
-  defp uncompiled_macro_occurrence(kind, [target | _options], env) do
+  defp dependency_macro_occurrence(kind, [target | _options], env) do
     module = module_name(target, env)
 
-    if uncompiled_elixir_source?(env) and
-         not (kind == :use and env.migration?) and
-         opaque_dependency_macro_module?(module) do
+    if not (kind == :use and env.migration?) and opaque_dependency_macro_module?(module, env) do
       occurrence(
         env,
         line_from_node(target),
         :direct_ecto,
-        "uncompiled_macro.#{kind}",
+        "dependency_macro.#{kind}",
         {kind, target},
         approval: :unresolved_sql
       )
     end
   end
 
-  defp uncompiled_macro_occurrence(_kind, _arguments, _env), do: nil
+  defp dependency_macro_occurrence(_kind, _arguments, _env), do: nil
 
-  defp opaque_dependency_macro_module?(module) when is_binary(module) do
-    module not in @allowed_uncompiled_macro_modules and
+  defp opaque_dependency_macro_module?(module, env) when is_binary(module) do
+    module not in @allowed_dependency_macro_modules and
       module not in @database_modules and
       module not in @private_persistence_modules and
       module not in @process_execution_modules and
       module not in @reflection_modules and
       module not in @dynamic_dispatch_modules and
-      not project_module?(module)
+      not project_module?(module, env)
   end
 
-  defp opaque_dependency_macro_module?(_module), do: true
+  defp opaque_dependency_macro_module?(_module, _env), do: true
 
-  defp project_module?(module),
+  defp project_module?(module, env),
     do:
-      module == "OfficeGraph" or String.starts_with?(module, "OfficeGraph.") or
-        module == "OfficeGraphWeb" or String.starts_with?(module, "OfficeGraphWeb.")
+      MapSet.member?(env.project_modules, module) or module == "OfficeGraph" or
+        String.starts_with?(module, "OfficeGraph.") or module == "OfficeGraphWeb" or
+        String.starts_with?(module, "OfficeGraphWeb.")
 
   defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
        when is_atom(name) and is_atom(context) do
@@ -2257,6 +2338,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         {"System", :cmd, [executable, args | _options]} -> [executable, args]
         {"System", :shell, [command | _options]} -> [command]
         {"os", :cmd, [command | _options]} -> [command]
+        {"Mix.Shell", :cmd, [_shell, command | _options]} -> [command]
+        {receiver, :cmd, [command | _options]} when receiver in @mix_shell_modules -> [command]
         _call -> []
       end
 

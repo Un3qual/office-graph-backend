@@ -231,6 +231,35 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSmallintResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceObjectIdentifierResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  resource do
+    require_primary_key? false
+  end
+
+  postgres do
+    table "catalog_references"
+    repo OfficeGraph.Repo
+
+    migration_types object_id: :oid,
+                    relation_ref: :regclass,
+                    namespace_ref: :regnamespace,
+                    transaction_id: :xid8,
+                    tuple_id: :tid
+  end
+
+  attributes do
+    attribute :object_id, :integer, allow_nil?: false
+    attribute :relation_ref, :integer, allow_nil?: false
+    attribute :namespace_ref, :integer, allow_nil?: false
+    attribute :transaction_id, :integer, allow_nil?: false
+    attribute :tuple_id, :string, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceCitextResource do
   @moduledoc false
 

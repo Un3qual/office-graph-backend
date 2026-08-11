@@ -19,7 +19,7 @@
       "approving_change": "simplify-database-boundary-enforcement",
       "class": "direct_ecto",
       "construct": "reflection.Kernel.ParallelCompiler.compile_to_path",
-      "fingerprint": "sha256:de44ac89e13fc6e5341f24d497100a502113d8682384716aea773e6555069a8a",
+      "fingerprint": "sha256:e42d99a1baf6533199695ea8d2558bd454173526e88c5b94aa7de8e461f6c215",
       "function": "compile_file!/2",
       "line": 2490,
       "ordinal": 1,

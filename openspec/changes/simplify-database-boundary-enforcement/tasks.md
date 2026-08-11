@@ -167,3 +167,11 @@
 - [x] 23.2 Extend the shared source/BEAM supervisor and reflection inventories without adding value-flow analysis or flagging ordinary generic worker specs.
 - [x] 23.3 Normalize PostgreSQL 18 built-in migration types and aliases independently from resource-schema-qualified custom types, with focused `:smallint` terminal-conformance coverage.
 - [x] 23.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 24. Runtime Loader, Macro Trust, And Identifier-Type Follow-Up
+
+- [x] 24.1 Add failing source and compiled regressions for indirect Mix task dispatch, Erlang shell compilation, Config evaluation, macro expansion, and Mix shell execution.
+- [x] 24.2 Reject those execution paths through the shared source/BEAM inventories while retaining only literal reads of tracked canonical config files.
+- [x] 24.3 Audit opaque dependency macros in every tracked source regardless of BEAM coverage, using exact trusted framework modules and tracked project module definitions instead of expansion or dataflow analysis.
+- [x] 24.4 Normalize the complete PostgreSQL 18 object-identifier and system-identifier type family as unqualified catalog-owned migration types.
+- [x] 24.5 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

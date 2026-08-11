@@ -156,13 +156,14 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 - **AND** the existing test-only shell invocation of the tracked canonical
   `bin/verify` script MUST match its source path and argument shape exactly
 
-#### Scenario: Tracked Elixir source lacks compiled coverage
+#### Scenario: Tracked Elixir source invokes an opaque dependency macro
 
 - **WHEN** a tracked `.ex` or `.exs` source introduces an opaque dependency
-  macro through `require`, `import`, or `use` and no matching compiler-recorded
-  BEAM source path exists
+  macro through `require`, `import`, or `use` outside exact trusted framework
+  providers and tracked project-authored module definitions
 - **THEN** canonical verification MUST reject the macro capability as unresolved
-  rather than assuming the compiled audit will inspect its expansion
+  regardless of matching BEAM coverage rather than assuming the compiled audit
+  can prove transient expansion side effects did not occur
 
 #### Scenario: Low-level execution is hidden behind private APIs or ports
 

@@ -1613,6 +1613,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     :money => "money",
     :numeric => "numeric",
     :decimal => "numeric",
+    :oid => "oid",
     :path => "path",
     :pg_lsn => "pg_lsn",
     :pg_snapshot => "pg_snapshot",
@@ -1620,6 +1621,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     :polygon => "polygon",
     :real => "real",
     :float4 => "real",
+    :regclass => "regclass",
+    :regcollation => "regcollation",
+    :regconfig => "regconfig",
+    :regdictionary => "regdictionary",
+    :regnamespace => "regnamespace",
+    :regoper => "regoper",
+    :regoperator => "regoperator",
+    :regproc => "regproc",
+    :regprocedure => "regprocedure",
+    :regrole => "regrole",
+    :regtype => "regtype",
     :smallint => "smallint",
     :int2 => "smallint",
     :text => "text",
@@ -1630,7 +1642,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     :tsvector => "tsvector",
     :txid_snapshot => "txid_snapshot",
     :uuid => "uuid",
-    :xml => "xml"
+    :xml => "xml",
+    :xid => "xid",
+    :xid8 => "xid8",
+    :cid => "cid",
+    :tid => "tid"
   }
   @resource_independent_migration_types Map.keys(@postgres_builtin_migration_type_names) ++
                                           [

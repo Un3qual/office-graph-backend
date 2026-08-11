@@ -1035,6 +1035,26 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
+  test "terminal errors keep PostgreSQL object identifier types unqualified" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.catalog_references (
+          object_id oid NOT NULL,
+          relation_ref regclass NOT NULL,
+          namespace_ref regnamespace NOT NULL,
+          transaction_id xid8 NOT NULL,
+          tuple_id tid NOT NULL
+      );
+      """)
+
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "catalog_references" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceObjectIdentifierResource}
+           })
+           |> without_framework_presence_errors() == []
+  end
+
   test "terminal errors qualify custom migration types in default casts" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

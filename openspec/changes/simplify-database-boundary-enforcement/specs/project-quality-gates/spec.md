@@ -89,8 +89,10 @@ construction, SQL bodies, macro output, or control flow.
 #### Scenario: Runtime execution namespaces are audited
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
   Erlang runtime code loader or expression evaluator, IEx compilation or
-  recompilation helpers, `Mix.Tasks.Run` or `Mix.Tasks.Eval`, any supported
-  MFA-executing RPC form,
+  recompilation helpers, `Mix.Tasks.Run`, `Mix.Tasks.Eval`, or `Mix.Task`
+  dispatch, Erlang shell compilation/loading, `Config.Reader` evaluation or
+  nonliteral/external config reads, runtime macro expansion, Mix shell command
+  execution, any supported MFA-executing RPC form,
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
   supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
   or `Supervisor.child_spec/2`, including standard module and
@@ -111,13 +113,13 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the scanner MUST reject the invocation as an unresolved helper call
   without attempting to trace the function value
 
-#### Scenario: Uncompiled source invokes dependency macros
-- **WHEN** a tracked `.exs` source introduces an opaque dependency macro through
-  `require`, `import`, or `use` outside the explicitly recognized declarative
-  framework surfaces
+#### Scenario: Tracked source invokes dependency macros
+- **WHEN** any tracked source introduces an opaque dependency macro through
+  `require`, `import`, or `use` outside exact trusted framework providers and
+  tracked project-authored module definitions
 - **THEN** the source gate MUST reject the capability without expanding or
-  evaluating the macro, because no persisted application BEAM can audit its
-  emitted calls
+  evaluating the macro, regardless of whether a matching BEAM exists, because
+  compilation can erase transient macro side effects
 
 #### Scenario: Canonical verifier script changes
 - **WHEN** the test-only canonical verifier subprocess seam still has its exact
@@ -233,7 +235,7 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 
 #### Scenario: Built-in migration type remains catalog-owned
 - **WHEN** an AshPostgres resource configures a PostgreSQL 18 built-in migration
-  type or alias such as `:smallint`
+  type or alias such as `:smallint`, `:oid`, or `:regclass`
 - **THEN** terminal conformance MUST compare its canonical unqualified
   `pg_catalog` type while continuing to resource-schema-qualify unknown custom
   type atoms
