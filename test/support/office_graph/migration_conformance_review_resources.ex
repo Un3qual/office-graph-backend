@@ -53,6 +53,143 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredPrimaryKeyResource 
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceParentResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_reference_parents"
+    repo OfficeGraph.Repo
+    migration_ignore_attributes [:scope_id]
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :scope_id, :uuid, allow_nil?: false
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceChildResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_reference_children"
+    repo OfficeGraph.Repo
+    migration_ignore_attributes [:scope_id]
+
+    references do
+      reference :parent do
+        name "ignored_reference_children_parent_fkey"
+        index? true
+        match_with scope_id: :scope_id
+      end
+    end
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :parent_id, :uuid, allow_nil?: false
+    attribute :scope_id, :uuid, allow_nil?: false
+  end
+
+  relationships do
+    belongs_to :parent,
+               OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceParentResource do
+      source_attribute :parent_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredDestinationParentResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_destination_parents"
+    repo OfficeGraph.Repo
+    migration_ignore_attributes [:id]
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :name, :string, allow_nil?: false
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredDestinationChildResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_destination_children"
+    repo OfficeGraph.Repo
+
+    references do
+      reference :parent do
+        name "ignored_destination_children_parent_fkey"
+        index? true
+      end
+    end
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :parent_id, :uuid, allow_nil?: false
+  end
+
+  relationships do
+    belongs_to :parent,
+               OfficeGraph.TestSupport.MigrationConformanceIgnoredDestinationParentResource do
+      source_attribute :parent_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceIgnoredSourceChildResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "ignored_source_children"
+    repo OfficeGraph.Repo
+    migration_ignore_attributes [:parent_id]
+
+    references do
+      reference :parent do
+        name "ignored_source_children_parent_fkey"
+        index? true
+      end
+    end
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :parent_id, :uuid, allow_nil?: false
+  end
+
+  relationships do
+    belongs_to :parent,
+               OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceParentResource do
+      source_attribute :parent_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceNetworkResource do
   @moduledoc false
 

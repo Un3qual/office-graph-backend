@@ -320,6 +320,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           source: """
           defmodule ProcessEscapeScript do
             def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
+            def dash, do: System.cmd("dash", ["/tmp/run-db.sh"])
+            def fish, do: System.cmd("fish", ["/tmp/run-db.fish"])
             def port(command), do: Port.open({:spawn, command}, [])
             def erlang_port(command), do: :erlang.open_port({:spawn, command}, [])
           end
@@ -329,6 +331,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"process.dynamic_command", "busybox/1", :unresolved_sql},
+             {"process.dynamic_command", "dash/0", :unresolved_sql},
+             {"process.dynamic_command", "fish/0", :unresolved_sql},
              {"process.dynamic_command", "port/1", :unresolved_sql},
              {"process.dynamic_command", "erlang_port/1", :unresolved_sql}
            ]
@@ -386,6 +390,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def async_call(sql), do: :rpc.async_call(node(), OfficeGraph.Repo, :query!, [sql, []])
             def cast(sql), do: :erpc.cast(node(), OfficeGraph.Repo, :query!, [sql, []])
             def multicall(nodes, sql), do: :erpc.multicall(nodes, OfficeGraph.Repo, :query!, [sql, []])
+            def multicast(nodes, sql), do: :erpc.multicast(nodes, OfficeGraph.Repo, :query!, [sql, []])
             def request(sql), do: :erpc.send_request(node(), OfficeGraph.Repo, :query!, [sql, []])
           end
           """
@@ -397,6 +402,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"OfficeGraph.Repo.async_call", "async_call/1", :unresolved_sql},
              {"OfficeGraph.Repo.cast", "cast/1", :unresolved_sql},
              {"OfficeGraph.Repo.multicall", "multicall/2", :unresolved_sql},
+             {"OfficeGraph.Repo.multicast", "multicast/2", :unresolved_sql},
              {"OfficeGraph.Repo.send_request", "request/1", :unresolved_sql}
            ]
   end
@@ -610,6 +616,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def evaluate(path), do: RuntimeCode.eval_file(path)
             def require_runtime(path), do: Code.require_file(path)
             def compile_runtime(path), do: compile_file(path)
+            def load_binary(module, path, beam), do: :code.load_binary(module, path, beam)
+            def load_file(module), do: :code.load_file(module)
           end
           """
         }
@@ -618,7 +626,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"reflection.Code.eval_file", "evaluate/1", :unresolved_sql},
              {"reflection.Code.require_file", "require_runtime/1", :unresolved_sql},
-             {"reflection.Code.compile_file", "compile_runtime/1", :unresolved_sql}
+             {"reflection.Code.compile_file", "compile_runtime/1", :unresolved_sql},
+             {"reflection.code.load_binary", "load_binary/3", :unresolved_sql},
+             {"reflection.code.load_file", "load_file/1", :unresolved_sql}
            ]
   end
 
@@ -843,6 +853,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
             @before_compile ExternalInstaller
             @after_compile ExternalInstaller
+            @after_verify {ExternalInstaller, :run}
             @on_definition ExternalInstaller
             @on_load :install
 
@@ -853,6 +864,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       ])
 
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"migration.compile_callback", nil, :unresolved_sql},
              {"migration.compile_callback", nil, :unresolved_sql},
              {"migration.compile_callback", nil, :unresolved_sql},
              {"migration.compile_callback", nil, :unresolved_sql},
@@ -934,6 +946,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Postgrex.transaction", "transact/2"},
              {:direct_ecto, "Postgrex.rollback", "rollback/2"},
              {:direct_ecto, "Postgrex.parameters", "parameters/1"}
+           ]
+  end
+
+  test "audits Postgrex notification connections and subscriptions" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/postgrex_notifications_boundary.ex",
+          source: """
+          defmodule PostgrexNotificationsBoundary do
+            def start(options), do: Postgrex.Notifications.start_link(options)
+            def listen(pid, channel), do: Postgrex.Notifications.listen(pid, channel)
+            def unlisten(pid, ref), do: Postgrex.Notifications.unlisten(pid, ref)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "Postgrex.Notifications.start_link", "start/1", :unresolved_sql},
+             {:direct_ecto, "Postgrex.Notifications.listen", "listen/2", :unresolved_sql},
+             {:direct_ecto, "Postgrex.Notifications.unlisten", "unlisten/2", :unresolved_sql}
            ]
   end
 
@@ -1247,15 +1281,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   end
 
   test "tracks SQL-like files as unapproved raw SQL" do
-    [occurrence] =
+    occurrences =
       DatabaseBoundaryScanner.scan_sources([
-        %{path: "priv/repo/manual_patch.sql", source: "SELECT pg_notify('events', 'changed');"}
+        %{path: "priv/repo/manual_patch.sql", source: "SELECT pg_notify('events', 'changed');"},
+        %{path: "priv/repo/manual_patch.SQL", source: "SELECT pg_notify('events', 'changed');"}
       ])
 
-    assert occurrence.class == :raw_sql
-    assert occurrence.construct == "tracked_sql_file"
-    assert occurrence.approval == :unresolved_sql
-    assert occurrence.line == 1
+    assert Enum.map(occurrences, &{&1.path, &1.class, &1.construct, &1.approval, &1.line}) == [
+             {"priv/repo/manual_patch.sql", :raw_sql, "tracked_sql_file", :unresolved_sql, 1},
+             {"priv/repo/manual_patch.SQL", :raw_sql, "tracked_sql_file", :unresolved_sql, 1}
+           ]
   end
 
   test "allows only the exact canonical verification shell seam" do
@@ -1506,8 +1541,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def run_migration(repo, migration), do: Ecto.Migration.Runner.run(repo, migration)
       def drop_database(config), do: Ecto.Adapters.Postgres.storage_down(config)
       def static_shell, do: System.cmd("sh", ["/tmp/run-db.sh"])
+      def dash_shell, do: System.cmd("dash", ["/tmp/run-db.sh"])
       def port(command), do: Port.open({:spawn, command}, [])
       def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
+      def multicast(nodes, sql), do: :erpc.multicast(nodes, OfficeGraph.Repo, :query!, [sql, []])
+      def load_binary(module, path, beam), do: :code.load_binary(module, path, beam)
+      def listen(pid, channel), do: Postgrex.Notifications.listen(pid, channel)
     end
     """)
 
@@ -1524,9 +1563,65 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Ecto.Adapters.Postgres.storage_down", "drop_database/1",
               :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "static_shell/0", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "dash_shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "port/1", :unresolved_sql},
-             {:raw_sql, "process.dynamic_command", "busybox/1", :unresolved_sql}
+             {:raw_sql, "process.dynamic_command", "busybox/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.multicast", "multicast/2", :unresolved_sql},
+             {:direct_ecto, "reflection.code.load_binary", "load_binary/3", :unresolved_sql},
+             {:direct_ecto, "Postgrex.Notifications.listen", "listen/2", :unresolved_sql}
            ]
+  end
+
+  test "compiled audit scans generated functions in the canonical Repo source" do
+    root = temporary_root("compiled_generated_canonical_repo")
+    init_git_repo!(root)
+
+    suffix = System.unique_integer([:positive])
+    macro_module = Module.concat(OfficeGraph, "GeneratedRepoMacro#{suffix}")
+    repo_module = Module.concat(OfficeGraph, "GeneratedRepoTarget#{suffix}")
+    macro_path = Path.join(System.tmp_dir!(), "generated_repo_macro_#{suffix}.ex")
+    macro_ebin = Path.join(System.tmp_dir!(), "generated_repo_macro_ebin_#{suffix}")
+    source_path = Path.join(root, "lib/office_graph/repo.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    on_exit(fn -> File.rm(macro_path) end)
+    on_exit(fn -> File.rm_rf!(macro_ebin) end)
+
+    compile_source!(macro_path, macro_ebin, """
+    defmodule #{inspect(macro_module)} do
+      defmacro install do
+        quote generated: true do
+          def generated_load(repo, query), do: Ecto.Repo.Queryable.all(repo, query, [])
+        end
+      end
+    end
+    """)
+
+    File.mkdir_p!(Path.dirname(source_path))
+    File.mkdir_p!(ebin)
+
+    File.write!(source_path, """
+    defmodule #{inspect(repo_module)} do
+      require #{inspect(macro_module)}
+      #{inspect(macro_module)}.install()
+    end
+    """)
+
+    git!(root, ["add", "lib/office_graph/repo.ex"])
+
+    assert {_output, 0} =
+             System.cmd(
+               "elixirc",
+               ["-pa", macro_ebin, "-o", ebin, source_path],
+               stderr_to_stdout: true
+             )
+
+    beam_path = Path.join(ebin, "#{repo_module}.beam")
+
+    assert [occurrence] = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+    assert occurrence.construct == "Ecto.Repo.Queryable.all"
+    assert occurrence.function == "generated_load/2"
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "compiled audit scans macro expansions inside authored canonical Repo definitions" do

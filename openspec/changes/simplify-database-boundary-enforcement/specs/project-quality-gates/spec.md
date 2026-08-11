@@ -33,7 +33,7 @@ escape path, or stale approved exception.
 
 - **WHEN** the database-boundary scan runs
 - **THEN** it MUST include every tracked Elixir and SQL-like source regardless
-  of directory, including runtime code, tests, test support, Mix tasks,
+  of directory or extension casing, including runtime code, tests, test support, Mix tasks,
   configuration, seeds, migrations, and scripts, while excluding dependency
   source and untracked build artifacts
 
@@ -86,6 +86,13 @@ construction, SQL bodies, macro output, or control flow.
   command body while preserving only statically identified non-dispatch tools
   and the approved read-only `pg_dump` seam
 
+#### Scenario: Runtime execution namespaces are audited
+- **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
+  Erlang runtime code loader, `:erpc.multicast` with a database target, or a
+  migration `@after_verify` callback
+- **THEN** the scanner MUST reject the occurrence as an unresolved low-level
+  persistence or runtime-execution path
+
 #### Scenario: Compiled environments are audited
 - **WHEN** canonical verification reaches the compiled database-boundary audit
 - **THEN** current, test, and production output MUST already exist and the audit
@@ -97,6 +104,12 @@ construction, SQL bodies, macro output, or control flow.
 - **WHEN** a current tracked-source BEAM lacks auditable abstract code
 - **THEN** the audit MUST fail closed with a diagnostic attached to the
   compiler-recorded Elixir source path rather than the binary artifact
+
+#### Scenario: Canonical Repo contains generated dependency code
+- **WHEN** a dependency macro emits a generated function in the canonical Repo
+  source that calls a private persistence namespace
+- **THEN** the compiled audit MUST inspect the generated function and preserve
+  only the narrow call-level suppression for named AshPostgres Repo wrappers
 
 #### Scenario: Inert text mentions SQL
 - **WHEN** ordinary strings, comments, or documentation mention SQL phrases
@@ -126,7 +139,7 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 #### Scenario: Terminal database ownership is derived
 - **WHEN** conformance compares database objects after real migrations run
 - **THEN** it MUST derive regular, foreign, and unlogged tables, columns, keys,
-  constraints, indexes, sequences, views, materialized views,
+  constraints, indexes, sequences, enum types, views, materialized views,
   functions, procedures, ordinary, constraint, and event triggers and their
   firing modes, RLS policies and table enable/force state, direct and
   default-privilege grants, and extensions from the actual database and compare
@@ -134,6 +147,11 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   normalized column type/default/nullability, key and constraint definitions,
   index uniqueness/method/fields/null semantics, configured PostgreSQL
   migration types, and exact shapes for present framework-owned tables
+
+#### Scenario: Framework enum definition drifts
+- **WHEN** the present Oban job-state enum has missing, added, or reordered labels
+- **THEN** terminal conformance MUST report a framework enum definition mismatch,
+  and non-framework enums MUST require an exact terminal-object approval
 
 #### Scenario: Terminal definitions use quoted identifiers and literals
 - **WHEN** `pg_dump` emits quoted schema or object identifiers, string or
@@ -154,6 +172,18 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 - **THEN** conformance MUST key resources by schema-qualified table identity and
   require every terminal foreign-key pair to match the owning Ash `belongs_to`
   metadata, including configured `match_with` pairs
+
+#### Scenario: Relationship attributes are excluded from migrations
+- **WHEN** a belongs-to source, destination, or `match_with` attribute is listed
+  in its resource's `migration_ignore_attributes`
+- **THEN** conformance MUST omit the foreign-key and reference-index expectation
+  derived from that relationship
+
+#### Scenario: Generated identifier truncation crosses a multibyte character
+- **WHEN** PostgreSQL shortens an automatically named `NOT NULL` constraint whose
+  table or column contains multibyte UTF-8 characters
+- **THEN** conformance MUST apply the PostgreSQL byte budget while clipping only
+  at complete UTF-8 codepoint boundaries
 
 #### Scenario: Raw SQL changes ownership
 - **WHEN** a migration attempts to create, alter, or drop schema ownership
@@ -245,7 +275,7 @@ required application setup remain synchronized and usable on PostgreSQL 18.
 - **WHEN** terminal migration-baseline verification inventories the migrated
   database
 - **THEN** it MUST cover tables, columns, primary keys, foreign keys,
-  constraints, indexes, sequences, views, materialized views,
+  constraints, indexes, sequences, enum types, views, materialized views,
   functions/procedures, triggers, RLS policies, grants, and extensions as
   applicable
 

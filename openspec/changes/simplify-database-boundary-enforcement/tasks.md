@@ -100,3 +100,10 @@
 - [x] 14.2 Audit private migration runner entrypoints and reject nonliteral migration SQL-option containers.
 - [x] 14.3 Normalize Unicode identifiers, quoted generated `NOT NULL` constraint names, and schema-qualified custom migration types through the PostgreSQL lexical boundary.
 - [x] 14.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the review threads.
+
+## 15. Runtime Namespace And Terminal Metadata Follow-Up
+
+- [x] 15.1 Audit additional shell entrypoints, `:erpc.multicast`, Erlang code loaders, Postgrex Notifications, and migration `@after_verify` callbacks in source and compiled code.
+- [x] 15.2 Inspect generated canonical Repo functions while retaining only narrow named-wrapper suppression, and discover tracked SQL-like files case-insensitively.
+- [x] 15.3 Derive relationship objects only from migration-visible attributes, truncate generated names at UTF-8 boundaries, and pin exact Oban enum labels.
+- [x] 15.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the review threads.

@@ -5,6 +5,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
   alias OfficeGraph.TestSupport.PostgresDump
 
   @framework_presence_errors MapSet.new([
+                               "missing framework enum oban_job_state",
                                "missing framework sequence oban_jobs_id_seq",
                                "missing framework table oban_jobs",
                                "missing framework table oban_peers",
@@ -97,6 +98,64 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert inventory.policies == MapSet.new(["child_policy ON children"])
     assert inventory.grants == MapSet.new(["SELECT ON TABLE children TO readonly"])
     assert inventory.extensions == MapSet.new(["plpgsql"])
+  end
+
+  test "terminal inventory pins the Oban job-state enum labels and order" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TYPE public.oban_job_state AS ENUM (
+          'available',
+          'suspended',
+          'scheduled',
+          'executing',
+          'retryable',
+          'completed',
+          'discarded',
+          'cancelled'
+      );
+      """)
+
+    assert inventory.enums == %{
+             "oban_job_state" =>
+               "'available', 'suspended', 'scheduled', 'executing', 'retryable', 'completed', 'discarded', 'cancelled'"
+           }
+
+    refute Enum.any?(
+             MigrationConformanceSupport.terminal_database_errors(%{}, inventory, []),
+             &String.contains?(&1, "oban_job_state")
+           )
+
+    drifted =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TYPE public.oban_job_state AS ENUM (
+          'available',
+          'scheduled',
+          'suspended',
+          'executing',
+          'retryable',
+          'completed',
+          'discarded',
+          'cancelled'
+      );
+      """)
+
+    assert "enum definition mismatch for framework enum oban_job_state" in MigrationConformanceSupport.terminal_database_errors(
+             %{},
+             drifted,
+             []
+           )
+  end
+
+  test "terminal inventory requires approval for non-framework enums" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TYPE public.review_state AS ENUM ('open', 'closed');
+      """)
+
+    assert Enum.any?(
+             MigrationConformanceSupport.terminal_database_errors(%{}, inventory, []),
+             &(&1 == "unexpected project enum review_state")
+           )
   end
 
   test "terminal approvals match exact stored-object definitions" do
@@ -647,6 +706,22 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
+  test "generated not-null names truncate only at UTF-8 codepoint boundaries" do
+    table = String.duplicate("é", 30)
+    column = String.duplicate("é", 30)
+    generated_name = String.duplicate("é", 13) <> "_" <> String.duplicate("é", 13) <> "_not_null"
+
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public."#{table}" (
+          "#{column}" text CONSTRAINT "#{generated_name}" NOT NULL
+      );
+      """)
+
+    assert inventory.columns ==
+             MapSet.new([{table, column, "text NOT NULL"}])
+  end
+
   test "terminal errors accept declarative generated integer sequences" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -756,6 +831,82 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              "ignored_primary_key_examples" =>
                {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredPrimaryKeyResource}
            })
+           |> without_framework_presence_errors() == []
+  end
+
+  test "terminal errors omit references whose match attributes are migration-ignored" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.ignored_reference_parents (
+          id uuid NOT NULL
+      );
+      CREATE TABLE public.ignored_reference_children (
+          id uuid NOT NULL,
+          parent_id uuid NOT NULL
+      );
+      ALTER TABLE ONLY public.ignored_reference_parents ADD CONSTRAINT ignored_reference_parents_pkey PRIMARY KEY (id);
+      ALTER TABLE ONLY public.ignored_reference_children ADD CONSTRAINT ignored_reference_children_pkey PRIMARY KEY (id);
+      """)
+
+    resources = %{
+      "ignored_reference_parents" =>
+        {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceParentResource},
+      "ignored_reference_children" =>
+        {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceChildResource}
+    }
+
+    assert inventory
+           |> synthetic_terminal_errors(resources, [])
+           |> without_framework_presence_errors() == []
+  end
+
+  test "terminal errors omit references with migration-ignored destination attributes" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.ignored_destination_parents (
+          name text NOT NULL
+      );
+      CREATE TABLE public.ignored_destination_children (
+          id uuid NOT NULL,
+          parent_id uuid NOT NULL
+      );
+      ALTER TABLE ONLY public.ignored_destination_children ADD CONSTRAINT ignored_destination_children_pkey PRIMARY KEY (id);
+      """)
+
+    resources = %{
+      "ignored_destination_parents" =>
+        {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredDestinationParentResource},
+      "ignored_destination_children" =>
+        {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredDestinationChildResource}
+    }
+
+    assert inventory
+           |> synthetic_terminal_errors(resources, [])
+           |> without_framework_presence_errors() == []
+  end
+
+  test "terminal errors omit references with migration-ignored source attributes" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.ignored_reference_parents (
+          id uuid NOT NULL
+      );
+      CREATE TABLE public.ignored_source_children (
+          id uuid NOT NULL
+      );
+      ALTER TABLE ONLY public.ignored_reference_parents ADD CONSTRAINT ignored_reference_parents_pkey PRIMARY KEY (id);
+      ALTER TABLE ONLY public.ignored_source_children ADD CONSTRAINT ignored_source_children_pkey PRIMARY KEY (id);
+      """)
+
+    resources = %{
+      "ignored_reference_parents" =>
+        {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredReferenceParentResource},
+      "ignored_source_children" =>
+        {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredSourceChildResource}
+    }
+
+    assert inventory
+           |> synthetic_terminal_errors(resources, [])
            |> without_framework_presence_errors() == []
   end
 

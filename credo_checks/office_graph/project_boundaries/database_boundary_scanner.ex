@@ -49,10 +49,55 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update!,
     :update_all
   ]
-  @repo_operation_names Enum.map(
-                          @repo_raw_sql_operations ++ @repo_direct_operations,
-                          &to_string/1
-                        )
+  @generated_canonical_repo_static_calls MapSet.new([
+                                           {"aggregate/3", "Ecto.Repo.Queryable", :aggregate, 4},
+                                           {"aggregate/3", "Ecto.Repo.Queryable", :aggregate, 5},
+                                           {"aggregate/4", "Ecto.Repo.Queryable", :aggregate, 5},
+                                           {"all/2", "Ecto.Repo.Queryable", :all, 3},
+                                           {"all_by/3", "Ecto.Repo.Queryable", :all_by, 4},
+                                           {"delete/2", "Ecto.Repo.Schema", :delete, 4},
+                                           {"delete!/2", "Ecto.Repo.Schema", :delete!, 4},
+                                           {"delete_all/2", "Ecto.Repo.Queryable", :delete_all,
+                                            3},
+                                           {"disconnect_all/2", "Ecto.Adapters.SQL",
+                                            :disconnect_all, 3},
+                                           {"exists?/2", "Ecto.Repo.Queryable", :exists?, 3},
+                                           {"explain/3", "Ecto.Adapters.SQL", :explain, 4},
+                                           {"get/3", "Ecto.Repo.Queryable", :get, 4},
+                                           {"get!/3", "Ecto.Repo.Queryable", :get!, 4},
+                                           {"get_by/3", "Ecto.Repo.Queryable", :get_by, 4},
+                                           {"get_by!/3", "Ecto.Repo.Queryable", :get_by!, 4},
+                                           {"in_transaction?/0", "Ecto.Repo.Transaction",
+                                            :in_transaction?, 1},
+                                           {"insert/2", "Ecto.Repo.Schema", :insert, 4},
+                                           {"insert!/2", "Ecto.Repo.Schema", :insert!, 4},
+                                           {"insert_all/3", "Ecto.Repo.Schema", :insert_all, 5},
+                                           {"insert_or_update/2", "Ecto.Repo.Schema",
+                                            :insert_or_update, 4},
+                                           {"insert_or_update!/2", "Ecto.Repo.Schema",
+                                            :insert_or_update!, 4},
+                                           {"load/2", "Ecto.Repo.Schema", :load, 3},
+                                           {"one/2", "Ecto.Repo.Queryable", :one, 3},
+                                           {"one!/2", "Ecto.Repo.Queryable", :one!, 3},
+                                           {"query/3", "Ecto.Adapters.SQL", :query, 4},
+                                           {"query!/3", "Ecto.Adapters.SQL", :query!, 4},
+                                           {"query_many/3", "Ecto.Adapters.SQL", :query_many, 4},
+                                           {"query_many!/3", "Ecto.Adapters.SQL", :query_many!,
+                                            4},
+                                           {"reload/2", "Ecto.Repo.Queryable", :reload, 3},
+                                           {"reload!/2", "Ecto.Repo.Queryable", :reload!, 3},
+                                           {"rollback/1", "Ecto.Repo.Transaction", :rollback, 2},
+                                           {"stream/2", "Ecto.Repo.Queryable", :stream, 3},
+                                           {"transact/2", "Ecto.Repo.Transaction", :transact, 4},
+                                           {"update/2", "Ecto.Repo.Schema", :update, 4},
+                                           {"update!/2", "Ecto.Repo.Schema", :update!, 4},
+                                           {"update_all/3", "Ecto.Repo.Queryable", :update_all, 4}
+                                         ])
+  @generated_canonical_repo_dynamic_calls MapSet.new([
+                                            {"checked_out?/0", :checked_out?, 1},
+                                            {"checkout/2", :checkout, 3}
+                                          ])
+  @canonical_repo_use_line 6
   @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
   @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
   @postgres_adapter_storage_operations [
@@ -233,7 +278,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Ecto.Query",
     "Ecto.Query.API",
     "OfficeGraph.Repo",
-    "Postgrex"
+    "Postgrex",
+    "Postgrex.Notifications"
   ]
   @private_persistence_modules [
     "Ecto.Adapters.Postgres.Connection",
@@ -266,25 +312,40 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "vacuumdb"
   ]
   @command_dispatch_executables [
+    "ash",
     "bash",
     "busybox",
+    "cmd",
+    "cmd.exe",
+    "csh",
+    "dash",
     "docker",
+    "elvish",
     "elixir",
     "erl",
     "env",
+    "fish",
+    "ksh",
+    "mksh",
     "node",
+    "nu",
     "perl",
+    "powershell",
+    "powershell.exe",
     "python",
     "python3",
+    "pwsh",
     "ruby",
     "sh",
+    "tcsh",
     "xargs",
+    "xonsh",
     "zsh"
   ]
   @dynamic_dispatch_modules ["Function", "Task", "Task.Supervisor", "erpc", "rpc"]
   @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
   @mfa_rpc_operations [:async_call, :block_call, :call, :cast, :multicall]
-  @mfa_erpc_operations [:call, :cast, :multicall, :send_request]
+  @mfa_erpc_operations [:call, :cast, :multicall, :multicast, :send_request]
   @mfa_task_operations [:async, :async_stream, :start, :start_link]
   @mfa_task_supervisor_operations [
     :async,
@@ -300,8 +361,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                @mfa_task_operations ++
                                @mfa_task_supervisor_operations
                            )
-  @migration_callback_attributes [:after_compile, :before_compile, :on_definition, :on_load]
-  @reflection_modules ["Code", "Module"]
+  @migration_callback_attributes [
+    :after_compile,
+    :after_verify,
+    :before_compile,
+    :on_definition,
+    :on_load
+  ]
+  @reflection_modules ["Code", "Module", "code"]
   @reflection_operations %{
     "Code" => [
       :compile_file,
@@ -312,7 +379,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :eval_string,
       :require_file
     ],
-    "Module" => [:create, :eval_quoted]
+    "Module" => [:create, :eval_quoted],
+    "code" => [
+      :atomic_load,
+      :ensure_loaded,
+      :ensure_modules_loaded,
+      :finish_loading,
+      :load_abs,
+      :load_binary,
+      :load_file,
+      :load_native_partial,
+      :prepare_loading
+    ]
   }
   @sql_payload_positions %{
     "Ecto.Adapters.SQL.execute" => nil,
@@ -1032,6 +1110,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :direct_ecto, "Postgrex.#{operation}", node)
   end
 
+  defp classify_operation("Postgrex.Notifications", operation, _arity, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :direct_ecto,
+      "Postgrex.Notifications.#{operation}",
+      node,
+      approval: :unresolved_sql
+    )
+  end
+
   defp classify_operation("Ecto.Multi", operation, _arity, node, env)
        when operation in @multi_operations do
     occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Multi.#{operation}", node)
@@ -1223,11 +1312,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when operation in @mfa_erpc_operations do
     case {operation, arguments} do
       {operation, [_node, target, target_operation, _arguments | _options]}
-      when operation in [:call, :cast, :multicall, :send_request] ->
+      when operation in [:call, :cast, :multicall, :multicast, :send_request] ->
         [{target, target_operation}]
 
       {operation, [_node, function | _options]}
-      when operation in [:call, :cast, :multicall, :send_request] ->
+      when operation in [:call, :cast, :multicall, :multicast, :send_request] ->
         [{function, nil}]
 
       _other ->
@@ -1619,6 +1708,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp imported_operation?("Postgrex", operation),
     do: operation in @postgrex_raw_sql_operations or operation in @postgrex_direct_operations
+
+  defp imported_operation?("Postgrex.Notifications", _operation), do: true
 
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
   defp imported_operation?("Ecto.Migrator", operation), do: operation in @ecto_migrator_operations
@@ -2190,6 +2281,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp occurrence(path, line, function, class, construct, node, opts) do
+    function = occurrence_function(function)
+
     base = %{
       class: class,
       construct: construct,
@@ -2205,6 +2298,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> Map.put(:fingerprint, fingerprint(base, base.fingerprint_input))
     |> maybe_put_approval(Keyword.get(opts, :approval))
   end
+
+  defp occurrence_function({function, _generated?, _line}), do: function
+  defp occurrence_function(function), do: function
 
   defp maybe_put_approval(occurrence, nil), do: occurrence
   defp maybe_put_approval(occurrence, approval), do: Map.put(occurrence, :approval, approval)
@@ -2309,11 +2405,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp boundary_source?(path) do
-    Path.extname(path) in @source_extensions
+    source_extension(path) in @source_extensions
   end
 
-  defp elixir_source?(path), do: Path.extname(path) in [".ex", ".exs"]
-  defp sql_file?(path), do: Path.extname(path) in @sql_file_extensions
+  defp elixir_source?(path), do: source_extension(path) in [".ex", ".exs"]
+  defp sql_file?(path), do: source_extension(path) in @sql_file_extensions
+  defp source_extension(path), do: path |> Path.extname() |> String.downcase()
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
 
   defp compiled_beam_paths(root) do
@@ -2437,24 +2534,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_form_occurrences(
-         {:function, _annotation, name, arity, _clauses} = form,
+         {:function, annotation, name, arity, _clauses} = form,
          source,
          behaviours
        ) do
-    cond do
-      generated_canonical_repo_form?(form, source) ->
-        []
+    function = {"#{name}/#{arity}", :erl_anno.generated(annotation), line(annotation)}
 
-      generated_non_persistence_callback?(form, behaviours) ->
-        form
-        |> compiled_node_occurrences(source, "#{name}/#{arity}", [])
-        |> Enum.reject(&(&1.construct == "dynamic_dispatch.apply"))
-        |> Enum.reverse()
-
-      true ->
-        form
-        |> compiled_node_occurrences(source, "#{name}/#{arity}", [])
-        |> Enum.reverse()
+    if generated_non_persistence_callback?(form, behaviours) do
+      form
+      |> compiled_node_occurrences(source, function, [])
+      |> Enum.reject(&(&1.construct == "dynamic_dispatch.apply"))
+      |> Enum.reverse()
+    else
+      form
+      |> compiled_node_occurrences(source, function, [])
+      |> Enum.reverse()
     end
   end
 
@@ -2481,14 +2575,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp generated_non_persistence_callback?(_form, _behaviours), do: false
-
-  defp generated_canonical_repo_form?(
-         {:function, annotation, _name, _arity, _clauses},
-         "lib/office_graph/repo.ex"
-       ),
-       do: :erl_anno.generated(annotation)
-
-  defp generated_canonical_repo_form?(_form, _source), do: false
 
   defp compiled_node_occurrences(
          {:call, _line, {:atom, _fun_line, :apply}, arguments} = node,
@@ -2536,7 +2622,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when not is_tuple(receiver) or elem(receiver, 0) != :atom do
     occurrences =
-      if compiled_unresolved_receiver_operation?(receiver, operation, arguments) do
+      if compiled_unresolved_receiver_operation?(receiver, operation, arguments) and
+           not generated_canonical_repo_dynamic_api?(
+             source,
+             function,
+             operation,
+             length(arguments)
+           ) do
         class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
 
         receiver_kind =
@@ -2583,7 +2675,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       )
 
     occurrence =
-      if generated_canonical_repo_api?(source, function, module) do
+      if generated_canonical_repo_api?(
+           source,
+           function,
+           module,
+           fun,
+           length(arguments)
+         ) do
         nil
       else
         classify_operation(
@@ -2774,13 +2872,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp compiled_operation({:atom, _line, operation}) when is_atom(operation), do: operation
   defp compiled_operation(_node), do: nil
 
-  defp generated_canonical_repo_api?("lib/office_graph/repo.ex", function, module)
-       when module in @private_persistence_modules and is_binary(function) do
-    operation = function |> String.split("/", parts: 2) |> hd()
-    operation in @repo_operation_names
-  end
+  defp generated_canonical_repo_api?(
+         "lib/office_graph/repo.ex",
+         {function, generated?, line},
+         module,
+         operation,
+         arity
+       ),
+       do:
+         canonical_repo_generated_context?(generated?, line) and
+           MapSet.member?(
+             @generated_canonical_repo_static_calls,
+             {function, module, operation, arity}
+           )
 
-  defp generated_canonical_repo_api?(_source, _function, _module), do: false
+  defp generated_canonical_repo_api?(_source, _function, _module, _operation, _arity),
+    do: false
+
+  defp generated_canonical_repo_dynamic_api?(
+         "lib/office_graph/repo.ex",
+         {function, generated?, line},
+         operation,
+         arity
+       ),
+       do:
+         canonical_repo_generated_context?(generated?, line) and
+           MapSet.member?(@generated_canonical_repo_dynamic_calls, {function, operation, arity})
+
+  defp generated_canonical_repo_dynamic_api?(_source, _function, _operation, _arity),
+    do: false
+
+  defp canonical_repo_generated_context?(true, _line), do: true
+  defp canonical_repo_generated_context?(false, @canonical_repo_use_line), do: true
+  defp canonical_repo_generated_context?(_generated?, _line), do: false
 
   defp mix_env do
     if Process.whereis(Mix.State), do: Mix.env(), else: :dev

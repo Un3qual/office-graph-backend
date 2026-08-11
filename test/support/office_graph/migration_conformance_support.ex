@@ -4,8 +4,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   alias OfficeGraph.TestSupport.PostgresDump
 
   @framework_objects %{
+    enum: MapSet.new(["oban_job_state"]),
     table: MapSet.new(["oban_jobs", "oban_peers", "schema_migrations"]),
     sequence: MapSet.new(["oban_jobs_id_seq"])
+  }
+  @framework_enums %{
+    "oban_job_state" =>
+      "'available', 'suspended', 'scheduled', 'executing', 'retryable', 'completed', 'discarded', 'cancelled'"
   }
   @framework_relation_kinds %{
     "oban_jobs" => :regular,
@@ -210,6 +215,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        missing_sequences ++
        unexpected_sequences ++
        framework_presence_errors(inventory) ++
+       framework_enum_definition_errors(inventory) ++
        relation_kind_errors(inventory, expected_tables) ++
        sequence_definition_errors(inventory, expected_resources) ++
        table_shape_errors(inventory, expected_resources, project_tables) ++
@@ -220,6 +226,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp framework_presence_errors(inventory) do
+    missing_enums =
+      @framework_objects.enum
+      |> MapSet.difference(inventory.enums |> Map.keys() |> MapSet.new())
+      |> Enum.map(&"missing framework enum #{&1}")
+
     missing_tables =
       @framework_objects.table
       |> MapSet.difference(inventory.tables)
@@ -230,7 +241,22 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> MapSet.difference(inventory.sequences)
       |> Enum.map(&"missing framework sequence #{&1}")
 
-    missing_tables ++ missing_sequences
+    missing_enums ++ missing_tables ++ missing_sequences
+  end
+
+  defp framework_enum_definition_errors(inventory) do
+    Enum.flat_map(@framework_enums, fn {identity, expected_definition} ->
+      case Map.fetch(inventory.enums, identity) do
+        {:ok, ^expected_definition} ->
+          []
+
+        {:ok, _actual_definition} ->
+          ["enum definition mismatch for framework enum #{identity}"]
+
+        :error ->
+          []
+      end
+    end)
   end
 
   defp relation_kind_errors(inventory, expected_tables) do
@@ -326,6 +352,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     initial = %{
       columns: MapSet.new(),
       constraints: MapSet.new(),
+      enums: %{},
       extensions: MapSet.new(),
       foreign_keys: MapSet.new(),
       grants: MapSet.new(),
@@ -356,6 +383,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       end)
 
     inventory
+    |> Map.put(:enums, enum_definitions(dump))
     |> Map.put(:sequence_definitions, sequence_definitions(dump))
     |> Map.put(:terminal_objects, terminal_objects(dump))
   end
@@ -428,6 +456,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       {"view", inventory.views},
       {"materialized view", inventory.materialized_views},
       {"materialized view index", materialized_view_index_identities(inventory)},
+      {"enum", inventory.enums |> Map.keys() |> reject_framework_objects(:enum)},
       {"routine", inventory.routines},
       {"trigger", inventory.triggers},
       {"RLS policy", inventory.policies},
@@ -443,6 +472,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp allowed_terminal_object?("extension", identity),
     do: MapSet.member?(@allowed_extensions, identity)
+
+  defp allowed_terminal_object?("enum", identity), do: framework_owned?(:enum, identity)
 
   defp allowed_terminal_object?(_class, _identity), do: false
 
@@ -502,6 +533,30 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       end
     end)
     |> MapSet.new()
+  end
+
+  defp enum_definitions(dump) do
+    dump
+    |> sql_statements()
+    |> Enum.reduce(%{}, fn statement, definitions ->
+      case enum_definition(statement) do
+        {identity, definition} -> Map.put(definitions, identity, definition)
+        nil -> definitions
+      end
+    end)
+  end
+
+  defp enum_definition(statement) do
+    with {identity, rest} <- PostgresDump.identifier_after(statement, "CREATE TYPE "),
+         rest <- String.trim_leading(rest),
+         true <- String.starts_with?(rest, "AS ENUM"),
+         rest <- rest |> String.replace_prefix("AS ENUM", "") |> String.trim_leading(),
+         {labels, trailing} <- PostgresDump.take_parenthesized(rest),
+         true <- trailing |> String.trim() |> String.trim_trailing(";") |> String.trim() == "" do
+      {identity, normalize_definition(labels)}
+    else
+      _not_enum -> nil
+    end
   end
 
   defp sequence_definitions(dump) do
@@ -591,6 +646,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp terminal_object_identity(statement, views, materialized_views) do
     materialized_view_index = materialized_view_index_identity(statement, materialized_views)
     view_column_default = view_column_default_identity(statement, views, materialized_views)
+    enum = enum_definition(statement)
 
     cond do
       identity = prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") ->
@@ -604,6 +660,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       view_column_default ->
         view_column_default
+
+      enum ->
+        {identity, _definition} = enum
+        {"enum", identity}
 
       identity = routine_identity(statement) ->
         {"routine", identity}
@@ -1107,7 +1167,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     {table_size, column_size} =
       fit_identifier_parts(byte_size(table), byte_size(column), available)
 
-    "#{binary_part(table, 0, table_size)}_#{binary_part(column, 0, column_size)}_#{label}"
+    "#{utf8_byte_prefix(table, table_size)}_#{utf8_byte_prefix(column, column_size)}_#{label}"
   end
 
   defp fit_identifier_parts(left, right, available) when left + right <= available,
@@ -1118,6 +1178,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp fit_identifier_parts(left, right, available),
     do: fit_identifier_parts(left, right - 1, available)
+
+  defp utf8_byte_prefix(value, limit), do: utf8_byte_prefix(value, limit, [])
+
+  defp utf8_byte_prefix(<<>>, _remaining, output),
+    do: output |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp utf8_byte_prefix(<<character::utf8, rest::binary>>, remaining, output) do
+    codepoint = <<character::utf8>>
+
+    if byte_size(codepoint) <= remaining do
+      utf8_byte_prefix(rest, remaining - byte_size(codepoint), [codepoint | output])
+    else
+      output |> Enum.reverse() |> IO.iodata_to_binary()
+    end
+  end
 
   defp parse_constraint(table, name, definition, inventory) do
     definition = normalize_definition(definition)
@@ -1684,6 +1759,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.filter(&match?(%Ash.Resource.Relationships.BelongsTo{}, &1))
     |> Enum.flat_map(fn relationship ->
       with false <- ignored_reference?(resource, relationship),
+           true <- relationship_migration_visible?(resource, relationship),
            %Ash.Resource.Attribute{} = source_attribute <-
              Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
         name = reference_name(table, source_attribute, resource, relationship)
@@ -1850,6 +1926,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Enum.filter(&match?(%Ash.Resource.Relationships.BelongsTo{}, &1))
     |> Enum.flat_map(fn relationship ->
       with false <- ignored_reference?(resource, relationship),
+           true <- relationship_migration_visible?(resource, relationship),
            true <- reference_index?(resource, relationship),
            %Ash.Resource.Attribute{} = source_attribute <-
              Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
@@ -1925,6 +2002,33 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       nil -> false
       reference -> reference.ignore?
     end
+  end
+
+  defp relationship_migration_visible?(resource, relationship) do
+    reference = AshPostgres.DataLayer.Info.reference(resource, relationship.name)
+    matched_attributes = (reference && reference.match_with) || []
+    {matched_sources, matched_destinations} = Enum.unzip(matched_attributes)
+
+    source_attributes =
+      [relationship.source_attribute | matched_sources]
+      |> MapSet.new()
+
+    destination_attributes =
+      [relationship.destination_attribute | matched_destinations]
+      |> MapSet.new()
+
+    MapSet.subset?(source_attributes, migrated_attribute_names(resource)) and
+      MapSet.subset?(
+        destination_attributes,
+        migrated_attribute_names(relationship.destination)
+      )
+  end
+
+  defp migrated_attribute_names(resource) do
+    resource
+    |> migrated_attributes()
+    |> Enum.map(& &1.name)
+    |> MapSet.new()
   end
 
   defp reference_index?(resource, relationship) do
