@@ -210,6 +210,27 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceNetworkResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceSmallintResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  resource do
+    require_primary_key? false
+  end
+
+  postgres do
+    table "small_scores"
+    repo OfficeGraph.Repo
+    migration_types score: :smallint, alias_score: :int2
+  end
+
+  attributes do
+    attribute :score, :integer, allow_nil?: false
+    attribute :alias_score, :integer, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceCitextResource do
   @moduledoc false
 

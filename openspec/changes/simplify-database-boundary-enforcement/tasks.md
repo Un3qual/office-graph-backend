@@ -160,3 +160,10 @@
 - [x] 22.2 Reuse the existing dispatcher, child-spec, private-namespace, and reflection inventories to reject those paths without dataflow or callback interpretation.
 - [x] 22.3 Add compiled regressions for static child-spec shorthands, `Ecto.Repo.Supervisor`, and IEx compilation helpers, and refresh the exact compiler-fixture fingerprint evidence.
 - [x] 22.4 Run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 23. Supervisor, Mix Evaluation, And Built-In Type Follow-Up
+
+- [x] 23.1 Add failing source and compiled regressions for repository children passed through `Supervisor.start_link/2` and `Supervisor.child_spec/2`, plus runtime evaluation through `Mix.Tasks.Run` and `Mix.Tasks.Eval`.
+- [x] 23.2 Extend the shared source/BEAM supervisor and reflection inventories without adding value-flow analysis or flagging ordinary generic worker specs.
+- [x] 23.3 Normalize PostgreSQL 18 built-in migration types and aliases independently from resource-schema-qualified custom types, with focused `:smallint` terminal-conformance coverage.
+- [x] 23.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

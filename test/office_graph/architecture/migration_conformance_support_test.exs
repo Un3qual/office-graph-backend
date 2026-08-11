@@ -1019,6 +1019,22 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
+  test "terminal errors canonicalize built-in PostgreSQL migration types and aliases" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.small_scores (
+          score smallint NOT NULL,
+          alias_score smallint NOT NULL
+      );
+      """)
+
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "small_scores" => {nil, OfficeGraph.TestSupport.MigrationConformanceSmallintResource}
+           })
+           |> without_framework_presence_errors() == []
+  end
+
   test "terminal errors qualify custom migration types in default casts" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

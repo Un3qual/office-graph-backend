@@ -89,10 +89,12 @@ construction, SQL bodies, macro output, or control flow.
 #### Scenario: Runtime execution namespaces are audited
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
   Erlang runtime code loader or expression evaluator, IEx compilation or
-  recompilation helpers, any supported MFA-executing RPC form,
+  recompilation helpers, `Mix.Tasks.Run` or `Mix.Tasks.Eval`, any supported
+  MFA-executing RPC form,
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
-  supervisor child spec including standard module and `{module, argument}`
-  shorthands, or a migration `@after_verify` callback
+  supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
+  or `Supervisor.child_spec/2`, including standard module and
+  `{module, argument}` shorthands, or a migration `@after_verify` callback
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
 
@@ -228,6 +230,13 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   terminal object
 - **THEN** the approval inventory MUST accept the `enum` class and terminal
   conformance MUST still require its exact identity and statement fingerprint
+
+#### Scenario: Built-in migration type remains catalog-owned
+- **WHEN** an AshPostgres resource configures a PostgreSQL 18 built-in migration
+  type or alias such as `:smallint`
+- **THEN** terminal conformance MUST compare its canonical unqualified
+  `pg_catalog` type while continuing to resource-schema-qualify unknown custom
+  type atoms
 
 #### Scenario: Raw SQL changes ownership
 - **WHEN** a migration attempts to create, alter, or drop schema ownership

@@ -90,28 +90,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     "TABLE",
     "TYPE"
   ]
-  @builtin_migration_types [
-    :bigint,
-    :binary,
-    :boolean,
-    :citext,
-    :date,
-    :decimal,
-    :float,
-    :inet,
-    :integer,
-    :jsonb,
-    :map,
-    :naive_datetime,
-    :naive_datetime_usec,
-    :string,
-    :text,
-    :time,
-    :time_usec,
-    :utc_datetime,
-    :utc_datetime_usec,
-    :uuid
-  ]
   @approved_exceptions_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   def migration_tables do
@@ -1601,6 +1579,74 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  @postgres_builtin_migration_type_names %{
+    :bigint => "bigint",
+    :int8 => "bigint",
+    :bit => "bit(1)",
+    :"bit varying" => "bit varying",
+    :varbit => "bit varying",
+    :boolean => "boolean",
+    :bool => "boolean",
+    :box => "box",
+    :bytea => "bytea",
+    :character => "character(1)",
+    :char => "character(1)",
+    :"character varying" => "character varying",
+    :varchar => "character varying",
+    :cidr => "cidr",
+    :circle => "circle",
+    :date => "date",
+    :"double precision" => "double precision",
+    :float8 => "double precision",
+    :inet => "inet",
+    :integer => "integer",
+    :int => "integer",
+    :int4 => "integer",
+    :interval => "interval",
+    :json => "json",
+    :jsonb => "jsonb",
+    :jsonpath => "jsonpath",
+    :line => "line",
+    :lseg => "lseg",
+    :macaddr => "macaddr",
+    :macaddr8 => "macaddr8",
+    :money => "money",
+    :numeric => "numeric",
+    :decimal => "numeric",
+    :path => "path",
+    :pg_lsn => "pg_lsn",
+    :pg_snapshot => "pg_snapshot",
+    :point => "point",
+    :polygon => "polygon",
+    :real => "real",
+    :float4 => "real",
+    :smallint => "smallint",
+    :int2 => "smallint",
+    :text => "text",
+    :timetz => "time with time zone",
+    :timestamp => "timestamp without time zone",
+    :timestamptz => "timestamp with time zone",
+    :tsquery => "tsquery",
+    :tsvector => "tsvector",
+    :txid_snapshot => "txid_snapshot",
+    :uuid => "uuid",
+    :xml => "xml"
+  }
+  @resource_independent_migration_types Map.keys(@postgres_builtin_migration_type_names) ++
+                                          [
+                                            :binary,
+                                            :citext,
+                                            :float,
+                                            :map,
+                                            :naive_datetime,
+                                            :naive_datetime_usec,
+                                            :string,
+                                            :time,
+                                            :time_usec,
+                                            :utc_datetime,
+                                            :utc_datetime_usec
+                                          ]
+
   defp postgres_type({:array, type}), do: "#{postgres_type(type)}[]"
   defp postgres_type({:varchar, size}), do: "character varying(#{size})"
   defp postgres_type({:binary, size}), do: "bit varying(#{size})"
@@ -1625,7 +1671,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_type(:utc_datetime), do: "timestamp(0) without time zone"
   defp postgres_type(:utc_datetime_usec), do: "timestamp without time zone"
   defp postgres_type(:uuid), do: "uuid"
-  defp postgres_type(type) when is_atom(type), do: Atom.to_string(type)
+
+  defp postgres_type(type) when is_atom(type),
+    do: Map.get(@postgres_builtin_migration_type_names, type, Atom.to_string(type))
 
   defp postgres_type({type, size}) when is_atom(type) and is_integer(size),
     do: "#{type}(#{size})"
@@ -1635,17 +1683,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_type({:array, type}, resource), do: "#{postgres_type(type, resource)}[]"
 
   defp postgres_type(type, resource)
-       when is_atom(type) and type not in @builtin_migration_types do
-    type_parts = type |> Atom.to_string() |> String.split(".")
+       when is_atom(type) do
+    if type in @resource_independent_migration_types do
+      postgres_type(type)
+    else
+      type_parts = type |> Atom.to_string() |> String.split(".")
 
-    case type_parts do
-      [type] ->
-        schema = AshPostgres.DataLayer.Info.schema(resource) || "public"
+      case type_parts do
+        [type] ->
+          schema = AshPostgres.DataLayer.Info.schema(resource) || "public"
 
-        "#{PostgresDump.configured_identifier(schema)}.#{PostgresDump.configured_identifier(type)}"
+          "#{PostgresDump.configured_identifier(schema)}.#{PostgresDump.configured_identifier(type)}"
 
-      parts ->
-        Enum.map_join(parts, ".", &PostgresDump.configured_identifier/1)
+        parts ->
+          Enum.map_join(parts, ".", &PostgresDump.configured_identifier/1)
+      end
     end
   end
 

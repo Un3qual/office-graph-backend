@@ -407,6 +407,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :start_child
   ]
   @mfa_supervisor_operations [:start_child]
+  @mfa_elixir_supervisor_operations [:start_child, :start_link]
   @mfa_proc_lib_operations [
     :hibernate,
     :spawn,
@@ -422,7 +423,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "DynamicSupervisor" => @mfa_supervisor_operations,
     "Function" => [:capture],
     "Process" => [:spawn],
-    "Supervisor" => @mfa_supervisor_operations,
+    "Supervisor" => @mfa_elixir_supervisor_operations,
     "Task" => @mfa_task_operations,
     "Task.Supervisor" => @mfa_task_supervisor_operations,
     "erpc" => @mfa_erpc_operations,
@@ -438,7 +439,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                @mfa_erpc_operations ++
                                @mfa_task_operations ++
                                @mfa_task_supervisor_operations ++
-                               @mfa_supervisor_operations ++
+                               @mfa_elixir_supervisor_operations ++
                                @mfa_proc_lib_operations ++
                                @mfa_timer_operations
                            )
@@ -454,6 +455,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "EEx",
     "IEx.Helpers",
     "Kernel.ParallelCompiler",
+    "Mix.Tasks.Eval",
+    "Mix.Tasks.Run",
     "Module",
     "code",
     "erl_eval",
@@ -486,6 +489,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :files_to_path,
       :require
     ],
+    "Mix.Tasks.Eval" => [:run],
+    "Mix.Tasks.Run" => [:run],
     "Module" => [:create, :eval_quoted],
     "code" => [
       :atomic_load,
@@ -522,7 +527,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       "sha256:e3e7fba601c6a331cbc7b62acc48e5b8c49ebe6c3a6b48366a5c3a332ee75bd5"
   }
   @terminal_dump_command_fingerprints MapSet.new([
-                                        "sha256:2f2fed84fdb7accb554b48376b89e7cb304bd36d5a376b9d6fef107cfde95b8a",
+                                        "sha256:0f2ffcc70cdc09bb5b0e1c696f7b9b632c4dfb6bc8925e213d3a921ab2f53a86",
                                         "sha256:4704301d94f355eeae64b6589e8b52f5668037b55e4a856dc8618d4166eff83f"
                                       ])
   @sql_payload_positions %{
@@ -1590,6 +1595,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     child_spec_start_targets(child_spec)
   end
 
+  defp mfa_dispatch_targets("Supervisor", :start_link, [children, _options]) do
+    child_specs_start_targets(children)
+  end
+
   defp mfa_dispatch_targets(_receiver, _operation, _arguments), do: []
 
   defp parallel_eval_targets(calls) when is_list(calls),
@@ -1619,6 +1628,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp mfa_function_spec_target(function_spec), do: {function_spec, nil}
 
+  defp child_specs_start_targets(child_specs) when is_list(child_specs),
+    do: Enum.flat_map(child_specs, &child_spec_start_targets/1)
+
+  defp child_specs_start_targets({:cons, _annotation, child_spec, rest}) do
+    rest_targets = child_specs_start_targets(rest)
+
+    case child_spec_start_targets(child_spec) do
+      [] -> rest_targets
+      [target] -> [target | rest_targets]
+    end
+  end
+
+  defp child_specs_start_targets({nil, _annotation}), do: []
+  defp child_specs_start_targets(_child_specs), do: []
+
   defp child_spec_start_targets({:%{}, _metadata, entries}) when is_list(entries) do
     case List.keyfind(entries, :start, 0) do
       {:start, start_mfa} -> [mfa_call_target(start_mfa)]
@@ -1636,6 +1660,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         nil
     end)
   end
+
+  defp child_spec_start_targets(
+         {{:., _dot_metadata, [{:__aliases__, _alias_metadata, [:Supervisor]}, :child_spec]},
+          _metadata, [child_spec, _overrides]}
+       ),
+       do: child_spec_start_targets(child_spec)
+
+  defp child_spec_start_targets(
+         {:call, _annotation,
+          {:remote, _remote_annotation, {:atom, _module_annotation, Supervisor},
+           {:atom, _operation_annotation, :child_spec}}, [child_spec, _overrides]}
+       ),
+       do: child_spec_start_targets(child_spec)
 
   defp child_spec_start_targets({module, _argument}), do: [{module, nil}]
 

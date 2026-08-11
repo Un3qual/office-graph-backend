@@ -2426,7 +2426,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:3e8d3892a9f1d906d4b2d52dd197cc50f14006f6112fe621550181afcb0e71f7"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2490,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:83c4d7b08b572470d904fbaa9cfa218fa5f0450db1a42f091711b375b80b2ca1"},
+              "sha256:de44ac89e13fc6e5341f24d497100a502113d8682384716aea773e6555069a8a"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2509,7 +2509,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_reviewed_runtime_boundaries:
-                         "34361d4c87e71d073e1d4991347ed375616b966445ae53637cba084f8eba7946",
+                         "6014929d7a8a2b9f8bf967835f309890af2e5355464c725d56d422db249fd845",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2600,6 +2600,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects repository children passed to Supervisor.start_link" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/supervisor_start_link_children.exs",
+          source: """
+          defmodule SupervisorStartLinkChildren do
+            def repo(options),
+              do: Supervisor.start_link([{OfficeGraph.Repo, options}], strategy: :one_for_one)
+
+            def worker(options),
+              do: Supervisor.start_link([{Worker, options}], strategy: :one_for_one)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "OfficeGraph.Repo.start_link", "repo/1", :unresolved_sql}
+           ]
+  end
+
+  test "recognizes the built-in child-spec constructor without flagging generic workers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/constructed_supervisor_child_specs.exs",
+          source: """
+          defmodule ConstructedSupervisorChildSpecs do
+            def repo(supervisor, options),
+              do:
+                Supervisor.start_child(
+                  supervisor,
+                  Supervisor.child_spec(OfficeGraph.Repo, id: :review_repo)
+                )
+
+            def worker(supervisor, options),
+              do:
+                Supervisor.start_child(
+                  supervisor,
+                  Supervisor.child_spec({Worker, options}, id: :worker)
+                )
+
+            def unresolved(supervisor, child_spec),
+              do: Supervisor.start_child(supervisor, child_spec)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "OfficeGraph.Repo.start_child", "repo/2", :unresolved_sql}
+           ]
+  end
+
   test "rejects direct repository startup through Ecto.Repo.Supervisor" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -2642,6 +2697,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects runtime evaluation through Mix tasks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/mix_task_evaluation.exs",
+          source: """
+          Mix.Tasks.Run.run(["-e", code])
+          Mix.Tasks.Eval.run([code])
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
+             {"reflection.Mix.Tasks.Run.run", :unresolved_sql},
+             {"reflection.Mix.Tasks.Eval.run", :unresolved_sql}
+           ]
+  end
+
   test "rejects anonymous helper invocation in migration execution contexts" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -2665,7 +2738,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "compiled audit rejects private startup, IEx compilation, and child-spec shorthands" do
+  test "compiled audit rejects reviewed runtime startup and evaluation escape paths" do
     root = temporary_root("compiled_reviewed_runtime_boundaries")
     source_path = Path.join(root, "lib/compiled_reviewed_runtime_boundaries.ex")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
@@ -2685,6 +2758,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
       def module(supervisor),
         do: DynamicSupervisor.start_child(supervisor, OfficeGraph.Repo)
+
+      def supervisor_start_link(options),
+        do: Supervisor.start_link([{OfficeGraph.Repo, options}], strategy: :one_for_one)
+
+      def constructed(supervisor),
+        do:
+          Supervisor.start_child(
+            supervisor,
+            Supervisor.child_spec(OfficeGraph.Repo, id: :review_repo)
+          )
+
+      def unresolved(supervisor, child_spec),
+        do: Supervisor.start_child(supervisor, child_spec)
+
+      def mix_run(arguments), do: Mix.Tasks.Run.run(arguments)
+      def mix_eval(arguments), do: Mix.Tasks.Eval.run(arguments)
     end
     """)
 
@@ -2697,7 +2786,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "reflection.IEx.Helpers.c", "compile/1", :unresolved_sql},
              {:direct_ecto, "reflection.IEx.Helpers.r", "recompile/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_child", "tuple/2", :unresolved_sql},
-             {:raw_sql, "OfficeGraph.Repo.start_child", "module/1", :unresolved_sql}
+             {:raw_sql, "OfficeGraph.Repo.start_child", "module/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_link", "supervisor_start_link/1",
+              :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "constructed/1", :unresolved_sql},
+             {:direct_ecto, "reflection.Mix.Tasks.Run.run", "mix_run/1", :unresolved_sql},
+             {:direct_ecto, "reflection.Mix.Tasks.Eval.run", "mix_eval/1", :unresolved_sql}
            ]
   end
 end
