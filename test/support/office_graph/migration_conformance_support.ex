@@ -209,6 +209,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        unexpected_tables ++
        missing_sequences ++
        unexpected_sequences ++
+       framework_presence_errors(inventory) ++
        relation_kind_errors(inventory, expected_tables) ++
        sequence_definition_errors(inventory, expected_resources) ++
        table_shape_errors(inventory, expected_resources, project_tables) ++
@@ -216,6 +217,20 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        prohibited_objects ++
        migration_foreign_key_relationship_errors(expected_resources, inventory))
     |> Enum.sort()
+  end
+
+  defp framework_presence_errors(inventory) do
+    missing_tables =
+      @framework_objects.table
+      |> MapSet.difference(inventory.tables)
+      |> Enum.map(&"missing framework table #{&1}")
+
+    missing_sequences =
+      @framework_objects.sequence
+      |> MapSet.difference(inventory.sequences)
+      |> Enum.map(&"missing framework sequence #{&1}")
+
+    missing_tables ++ missing_sequences
   end
 
   defp relation_kind_errors(inventory, expected_tables) do
@@ -459,6 +474,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp terminal_objects(dump) do
     statements = sql_statements(dump)
 
+    views =
+      statements
+      |> Enum.flat_map(fn statement ->
+        case prefixed_identity(statement, "CREATE VIEW ") do
+          nil -> []
+          identity -> [identity]
+        end
+      end)
+      |> MapSet.new()
+
     materialized_views =
       statements
       |> Enum.flat_map(fn statement ->
@@ -471,7 +496,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
     statements
     |> Enum.flat_map(fn statement ->
-      case terminal_object_identity(statement, materialized_views) do
+      case terminal_object_identity(statement, views, materialized_views) do
         nil -> []
         {class, identity} -> [{class, identity, fingerprint_statement(statement)}]
       end
@@ -563,8 +588,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp put_sequence_owner(definition, owner), do: "#{definition} OWNED BY #{owner}"
 
-  defp terminal_object_identity(statement, materialized_views) do
+  defp terminal_object_identity(statement, views, materialized_views) do
     materialized_view_index = materialized_view_index_identity(statement, materialized_views)
+    view_column_default = view_column_default_identity(statement, views, materialized_views)
 
     cond do
       identity = prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") ->
@@ -575,6 +601,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       identity = prefixed_identity(statement, "CREATE VIEW ") ->
         {"view", identity}
+
+      view_column_default ->
+        view_column_default
 
       identity = routine_identity(statement) ->
         {"routine", identity}
@@ -603,6 +632,47 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       true ->
         nil
     end
+  end
+
+  defp view_column_default_identity(statement, views, materialized_views) do
+    case alter_column_default_relation(statement) do
+      nil ->
+        nil
+
+      relation ->
+        cond do
+          MapSet.member?(views, relation) -> {"view", relation}
+          MapSet.member?(materialized_views, relation) -> {"materialized view", relation}
+          true -> nil
+        end
+    end
+  end
+
+  defp alter_column_default_relation(statement) do
+    [
+      "ALTER MATERIALIZED VIEW ONLY ",
+      "ALTER MATERIALIZED VIEW ",
+      "ALTER VIEW ONLY ",
+      "ALTER VIEW ",
+      "ALTER TABLE ONLY ",
+      "ALTER TABLE "
+    ]
+    |> Enum.find_value(fn prefix ->
+      with {relation, rest} <- PostgresDump.identifier_after(statement, prefix),
+           {_column, default} <- alter_column_default(rest),
+           true <- String.starts_with?(String.trim_leading(default), "SET DEFAULT ") do
+        relation
+      else
+        _not_default -> nil
+      end
+    end)
+  end
+
+  defp alter_column_default(rest) do
+    rest = String.trim_leading(rest)
+
+    PostgresDump.identifier_after(rest, "ALTER COLUMN ") ||
+      PostgresDump.identifier_after(rest, "ALTER ")
   end
 
   defp fingerprint_statement(statement) do
@@ -1150,7 +1220,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp attribute_column(nil), do: nil
-  defp attribute_column(attribute), do: to_string(attribute.source || attribute.name)
+
+  defp attribute_column(attribute),
+    do: PostgresDump.configured_identifier(attribute.source || attribute.name)
 
   defp identifier_list(attributes) do
     attributes
@@ -1339,8 +1411,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     resource
     |> migrated_attributes()
     |> Enum.map(fn attribute ->
-      {table, to_string(attribute.source || attribute.name),
-       expected_column_definition(resource, attribute)}
+      {table, attribute_column(attribute), expected_column_definition(resource, attribute)}
     end)
     |> MapSet.new()
   end
@@ -1588,7 +1659,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       attributes ->
         name = postgres_identifier("#{table_name(table)}_pkey")
-        fields = Enum.map_join(attributes, ", ", &to_string(&1.source || &1.name))
+        fields = Enum.map_join(attributes, ", ", &attribute_column/1)
         MapSet.new([{table, name, "PRIMARY KEY (#{fields})"}])
     end
   end
@@ -1629,8 +1700,8 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       Ash.Resource.Info.attribute(relationship.destination, relationship.destination_attribute)
 
     reference = AshPostgres.DataLayer.Info.reference(resource, relationship.name)
-    source = to_string(source_attribute.source || source_attribute.name)
-    destination = to_string(destination_attribute.source || destination_attribute.name)
+    source = attribute_column(source_attribute)
+    destination = attribute_column(destination_attribute)
 
     {matched_sources, matched_destinations} =
       ((reference && reference.match_with) || %{})
@@ -1770,7 +1841,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
              Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
         source = to_string(source_attribute.source || source_attribute.name)
         name = postgres_identifier("#{table_name(table)}_#{source}_index")
-        fields = expected_index_fields(resource, [source], false)
+        fields = [attribute_column(source_attribute)]
         [{table, name, expected_index_definition(false, :btree, fields, nil, nil, true)}]
       else
         _value -> []
@@ -1795,7 +1866,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp expected_index_field(resource, field) when is_atom(field) do
     case Ash.Resource.Info.attribute(resource, field) do
       nil -> to_string(field)
-      attribute -> to_string(attribute.source || attribute.name)
+      attribute -> attribute_column(attribute)
     end
   end
 

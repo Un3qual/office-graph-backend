@@ -4,6 +4,13 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
   alias OfficeGraph.TestSupport.MigrationConformanceSupport
   alias OfficeGraph.TestSupport.PostgresDump
 
+  @framework_presence_errors MapSet.new([
+                               "missing framework sequence oban_jobs_id_seq",
+                               "missing framework table oban_jobs",
+                               "missing framework table oban_peers",
+                               "missing framework table schema_migrations"
+                             ])
+
   test "parenthesized SQL keeps parentheses inside dollar-quoted strings" do
     assert PostgresDump.take_parenthesized(~S|($$text ) and ($$) trailing|) ==
              {~S|$$text ) and ($$|, " trailing"}
@@ -99,7 +106,9 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       "fingerprint" => fingerprint
     }
 
-    assert MigrationConformanceSupport.terminal_database_errors(%{}, inventory, [approval]) == []
+    assert inventory
+           |> synthetic_terminal_errors(%{}, [approval])
+           |> without_framework_presence_errors() == []
 
     changed_approval =
       Map.put(
@@ -108,10 +117,50 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
         "sha256:0000000000000000000000000000000000000000000000000000000000000000"
       )
 
-    assert MigrationConformanceSupport.terminal_database_errors(%{}, inventory, [changed_approval]) ==
+    assert inventory
+           |> synthetic_terminal_errors(%{}, [changed_approval])
+           |> without_framework_presence_errors() ==
              [
                "terminal definition mismatch for approved project routine touch_child()"
              ]
+  end
+
+  test "view approvals fingerprint column defaults with the view definition" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE VIEW public.review_queue AS SELECT NULL::text AS state;
+      ALTER VIEW public.review_queue ALTER COLUMN state SET DEFAULT 'pending'::text;
+      CREATE VIEW public.review_archive AS SELECT NULL::text AS state;
+      ALTER TABLE ONLY public.review_archive ALTER COLUMN state SET DEFAULT 'archived'::text;
+      """)
+
+    approvals =
+      Enum.map(inventory.terminal_objects, fn {class, identity, fingerprint} ->
+        %{"class" => class, "identity" => identity, "fingerprint" => fingerprint}
+      end)
+
+    assert Enum.count(approvals, &(&1["class"] == "view" and &1["identity"] == "review_queue")) ==
+             2
+
+    assert Enum.count(
+             approvals,
+             &(&1["class"] == "view" and &1["identity"] == "review_archive")
+           ) == 2
+
+    assert inventory
+           |> synthetic_terminal_errors(%{}, approvals)
+           |> without_framework_presence_errors() == []
+
+    [create_approval, _default_approval] =
+      Enum.filter(approvals, &(&1["identity"] == "review_queue"))
+
+    other_approvals = Enum.reject(approvals, &(&1["identity"] == "review_queue"))
+
+    assert "terminal definition mismatch for approved project view review_queue" in MigrationConformanceSupport.terminal_database_errors(
+             %{},
+             inventory,
+             [create_approval | other_approvals]
+           )
   end
 
   test "materialized-view indexes require independent exact terminal approval" do
@@ -137,7 +186,9 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              [view_approval]
            )
 
-    assert MigrationConformanceSupport.terminal_database_errors(%{}, inventory, approvals) == []
+    assert inventory
+           |> synthetic_terminal_errors(%{}, approvals)
+           |> without_framework_presence_errors() == []
   end
 
   test "inventories event triggers, trigger firing modes, and row-level-security state" do
@@ -227,6 +278,20 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert "unexpected project index injected_oban_index ON oban_jobs" in errors
     refute "unexpected project table oban_jobs" in errors
     refute "unexpected project sequence oban_jobs_id_seq" in errors
+  end
+
+  test "terminal errors require every configured framework object" do
+    errors =
+      MigrationConformanceSupport.terminal_database_errors(
+        %{},
+        MigrationConformanceSupport.parse_dump(""),
+        []
+      )
+
+    assert "missing framework table oban_jobs" in errors
+    assert "missing framework table oban_peers" in errors
+    assert "missing framework table schema_migrations" in errors
+    assert "missing framework sequence oban_jobs_id_seq" in errors
   end
 
   test "terminal errors do not exempt arbitrary triggers on framework tables" do
@@ -352,9 +417,11 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     inventory =
       MigrationConformanceSupport.parse_dump(~S'''
       CREATE TABLE "Audit Space"."Review Items" (
-          id uuid NOT NULL
+          "External ID" uuid NOT NULL,
+          "Display Label" text NOT NULL
       );
-      ALTER TABLE ONLY "Audit Space"."Review Items" ADD CONSTRAINT "Review Items_pkey" PRIMARY KEY (id);
+      CREATE UNIQUE INDEX "Review Items_unique_label_index" ON "Audit Space"."Review Items" USING btree ("Display Label");
+      ALTER TABLE ONLY "Audit Space"."Review Items" ADD CONSTRAINT "Review Items_pkey" PRIMARY KEY ("External ID");
       ''')
 
     resources = %{
@@ -365,7 +432,37 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              ~s|"Audit Space"."Review Items"|
            ]
 
-    assert MigrationConformanceSupport.terminal_database_errors(resources, inventory, []) == []
+    assert inventory
+           |> synthetic_terminal_errors(resources, [])
+           |> without_framework_presence_errors() == []
+  end
+
+  test "terminal comparison canonicalizes quoted foreign-key and reference-index columns" do
+    inventory =
+      MigrationConformanceSupport.parse_dump(~S'''
+      CREATE TABLE "Audit Space"."Review Items" (
+          "External ID" uuid NOT NULL,
+          "Display Label" text NOT NULL
+      );
+      CREATE UNIQUE INDEX "Review Items_unique_label_index" ON "Audit Space"."Review Items" USING btree ("Display Label");
+      ALTER TABLE ONLY "Audit Space"."Review Items" ADD CONSTRAINT "Review Items_pkey" PRIMARY KEY ("External ID");
+      CREATE TABLE "Audit Space"."Quoted Children" (
+          "Child ID" uuid NOT NULL,
+          "Parent ID" uuid NOT NULL
+      );
+      CREATE INDEX "Quoted Children_Parent ID_index" ON "Audit Space"."Quoted Children" USING btree ("Parent ID");
+      ALTER TABLE ONLY "Audit Space"."Quoted Children" ADD CONSTRAINT "Quoted Children_pkey" PRIMARY KEY ("Child ID");
+      ALTER TABLE ONLY "Audit Space"."Quoted Children" ADD CONSTRAINT "Quoted Children Parent FK" FOREIGN KEY ("Parent ID") REFERENCES "Audit Space"."Review Items"("External ID");
+      ''')
+
+    resources = %{
+      "Quoted Children" => {nil, OfficeGraph.TestSupport.MigrationConformanceQuotedChildResource},
+      "Review Items" => {nil, OfficeGraph.TestSupport.MigrationConformanceQuotedResource}
+    }
+
+    assert inventory
+           |> synthetic_terminal_errors(resources, [])
+           |> without_framework_presence_errors() == []
   end
 
   test "foreign-key conformance rejects unresolved project attributes" do
@@ -527,14 +624,15 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
 
     assert {"literal_examples", "label", "text DEFAULT 'a b'::text NOT NULL"} in inventory.columns
 
-    assert MigrationConformanceSupport.terminal_database_errors(
+    assert inventory
+           |> synthetic_terminal_errors(
              %{
                "literal_examples" =>
                  {nil, OfficeGraph.TestSupport.MigrationConformanceLiteralResource}
              },
-             inventory,
              []
-           ) == []
+           )
+           |> without_framework_presence_errors() == []
   end
 
   test "terminal errors accept declarative generated integer sequences" do
@@ -559,13 +657,12 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert {"sequence_examples", "id",
             "bigint DEFAULT nextval('sequence_examples_id_seq'::regclass) NOT NULL"} in inventory.columns
 
-    assert MigrationConformanceSupport.terminal_database_errors(
-             %{
-               "sequence_examples" =>
-                 {nil, OfficeGraph.TestSupport.MigrationConformanceSequenceResource}
-             },
-             inventory
-           ) == []
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "sequence_examples" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceSequenceResource}
+           })
+           |> without_framework_presence_errors() == []
   end
 
   test "terminal errors reject sequence definition drift" do
@@ -626,13 +723,12 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       ALTER TABLE ONLY public.ignored_sequence_examples ADD CONSTRAINT ignored_sequence_examples_pkey PRIMARY KEY (id);
       """)
 
-    assert MigrationConformanceSupport.terminal_database_errors(
-             %{
-               "ignored_sequence_examples" =>
-                 {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource}
-             },
-             inventory
-           ) == []
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "ignored_sequence_examples" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredSequenceResource}
+           })
+           |> without_framework_presence_errors() == []
   end
 
   test "terminal errors omit migration-ignored primary-key attributes" do
@@ -643,13 +739,12 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       );
       """)
 
-    assert MigrationConformanceSupport.terminal_database_errors(
-             %{
-               "ignored_primary_key_examples" =>
-                 {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredPrimaryKeyResource}
-             },
-             inventory
-           ) == []
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "ignored_primary_key_examples" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceIgnoredPrimaryKeyResource}
+           })
+           |> without_framework_presence_errors() == []
   end
 
   test "terminal errors honor configured PostgreSQL migration types" do
@@ -660,13 +755,12 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       );
       """)
 
-    assert MigrationConformanceSupport.terminal_database_errors(
-             %{
-               "network_endpoints" =>
-                 {nil, OfficeGraph.TestSupport.MigrationConformanceNetworkResource}
-             },
-             inventory
-           ) == []
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "network_endpoints" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceNetworkResource}
+           })
+           |> without_framework_presence_errors() == []
   end
 
   test "terminal errors accept public-qualified custom migration types" do
@@ -677,14 +771,15 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       );
       """)
 
-    assert MigrationConformanceSupport.terminal_database_errors(
+    assert inventory
+           |> synthetic_terminal_errors(
              %{
                "review_items" =>
                  {nil, OfficeGraph.TestSupport.MigrationConformanceCustomTypeResource}
              },
-             inventory,
              []
-           ) == []
+           )
+           |> without_framework_presence_errors() == []
   end
 
   test "terminal constraints resolve match_with attributes to physical columns" do
@@ -736,5 +831,13 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       schema "audit"
       repo OfficeGraph.Repo
     end
+  end
+
+  defp without_framework_presence_errors(errors) do
+    Enum.reject(errors, &MapSet.member?(@framework_presence_errors, &1))
+  end
+
+  defp synthetic_terminal_errors(inventory, resources, approvals \\ []) do
+    MigrationConformanceSupport.terminal_database_errors(resources, inventory, approvals)
   end
 end

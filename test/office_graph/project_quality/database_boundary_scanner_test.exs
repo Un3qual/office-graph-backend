@@ -292,6 +292,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def load(repo, query), do: Queryable.all(repo, query, [])
             def insert(repo, schema, fields), do: Ecto.Repo.Schema.insert_all(repo, schema, fields, [])
             def execute(connection, query), do: Ecto.Adapters.Postgres.Connection.execute(connection, query, [])
+            def drop_database(config), do: Ecto.Adapters.Postgres.storage_down(config)
+            def load_structure(path, config), do: Ecto.Adapters.Postgres.structure_load(path, config)
           end
           """
         }
@@ -300,7 +302,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
              {:direct_ecto, "Ecto.Repo.Queryable.all", "load/2"},
              {:direct_ecto, "Ecto.Repo.Schema.insert_all", "insert/3"},
-             {:direct_ecto, "Ecto.Adapters.Postgres.Connection.execute", "execute/2"}
+             {:direct_ecto, "Ecto.Adapters.Postgres.Connection.execute", "execute/2"},
+             {:direct_ecto, "Ecto.Adapters.Postgres.storage_down", "drop_database/1"},
+             {:direct_ecto, "Ecto.Adapters.Postgres.structure_load", "load_structure/2"}
            ]
 
     assert Enum.all?(occurrences, &(&1.approval == :unresolved_sql))
@@ -377,6 +381,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           source: """
           defmodule RpcRepoScript do
             def call(sql), do: :rpc.call(node(), OfficeGraph.Repo, :query!, [sql, []])
+            def async_call(sql), do: :rpc.async_call(node(), OfficeGraph.Repo, :query!, [sql, []])
             def cast(sql), do: :erpc.cast(node(), OfficeGraph.Repo, :query!, [sql, []])
             def multicall(nodes, sql), do: :erpc.multicall(nodes, OfficeGraph.Repo, :query!, [sql, []])
             def request(sql), do: :erpc.send_request(node(), OfficeGraph.Repo, :query!, [sql, []])
@@ -387,6 +392,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"OfficeGraph.Repo.call", "call/1", :unresolved_sql},
+             {"OfficeGraph.Repo.async_call", "async_call/1", :unresolved_sql},
              {"OfficeGraph.Repo.cast", "cast/1", :unresolved_sql},
              {"OfficeGraph.Repo.multicall", "multicall/2", :unresolved_sql},
              {"OfficeGraph.Repo.send_request", "request/1", :unresolved_sql}
@@ -1191,6 +1197,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def shell, do: :os.cmd(~c"psql -c 'SELECT 1'")
             def dynamic(command, args), do: System.cmd(command, args)
             def disguised(command), do: System.cmd("sh", [command, "pg_dump"])
+            def static_shell, do: System.cmd("sh", ["/tmp/run-db.sh"])
+            def static_python, do: System.cmd("python3", ["/tmp/run-db.py"])
             def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
             def inspect_container(container),
               do: System.cmd("docker", ["exec", "-e", "PGPASSWORD=secret", container, "pg_dump", "--schema-only"])
@@ -1205,7 +1213,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "process.database_cli", "direct/1", :unresolved_sql},
              {:raw_sql, "process.database_cli", "shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "dynamic/2", :unresolved_sql},
-             {:raw_sql, "process.dynamic_command", "disguised/1", :unresolved_sql}
+             {:raw_sql, "process.dynamic_command", "disguised/1", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "static_shell/0", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "static_python/0", :unresolved_sql}
            ]
   end
 
@@ -1219,6 +1229,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "tracked_sql_file"
     assert occurrence.approval == :unresolved_sql
     assert occurrence.line == 1
+  end
+
+  test "allows only the exact canonical verification shell seam" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "test/office_graph/project_quality_gate_test.exs",
+          source: ~S|System.cmd("sh", ["bin/verify", "--print-environment"])|
+        },
+        %{
+          path: "scripts/run_verify.exs",
+          source: ~S|System.cmd("sh", ["bin/verify", "--print-environment"])|
+        },
+        %{
+          path: "test/office_graph/project_quality_gate_test.exs",
+          source: ~S|System.cmd("sh", ["/tmp/run-db.sh"])|
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.path, &1.construct, &1.approval}) == [
+             {"scripts/run_verify.exs", "process.dynamic_command", :unresolved_sql},
+             {"test/office_graph/project_quality_gate_test.exs", "process.dynamic_command",
+              :unresolved_sql}
+           ]
   end
 
   test "preserves approved UUIDv7 fragment fingerprints" do
@@ -1385,6 +1419,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
         def spawn_query(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
         def rpc_query(sql), do: :rpc.call(node(), OfficeGraph.Repo, :query!, [sql, []])
+        def rpc_async_query(sql), do: :rpc.async_call(node(), OfficeGraph.Repo, :query!, [sql, []])
         def psql(sql), do: System.cmd("psql", ["-c", sql])
         def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
@@ -1420,6 +1455,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "variable_receiver.up", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.call", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.async_call", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
@@ -1440,6 +1476,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def spawn_call(target, operation, arguments), do: spawn(target, operation, arguments)
       def private_load(repo, query), do: Ecto.Repo.Queryable.all(repo, query, [])
       def private_insert(repo, schema, fields), do: Ecto.Repo.Schema.insert_all(repo, schema, fields, [])
+      def drop_database(config), do: Ecto.Adapters.Postgres.storage_down(config)
+      def static_shell, do: System.cmd("sh", ["/tmp/run-db.sh"])
       def port(command), do: Port.open({:spawn, command}, [])
       def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
     end
@@ -1454,6 +1492,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "dynamic_dispatch.spawn", "spawn_call/3", :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Queryable.all", "private_load/2", :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Schema.insert_all", "private_insert/3", :unresolved_sql},
+             {:direct_ecto, "Ecto.Adapters.Postgres.storage_down", "drop_database/1",
+              :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "static_shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "port/1", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "busybox/1", :unresolved_sql}
            ]
@@ -1489,6 +1530,59 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "Repo.query!"
     assert occurrence.path == "lib/office_graph/repo.ex"
+  end
+
+  test "compiled audit retains generated private persistence calls from dependency macros" do
+    root = temporary_root("compiled_generated_dependency_macro")
+    init_git_repo!(root)
+
+    suffix = System.unique_integer([:positive])
+    macro_module = Module.concat(OfficeGraph, "GeneratedPersistenceMacro#{suffix}")
+    target_module = Module.concat(OfficeGraph, "GeneratedPersistenceTarget#{suffix}")
+    macro_path = Path.join(System.tmp_dir!(), "generated_persistence_macro_#{suffix}.ex")
+    macro_ebin = Path.join(System.tmp_dir!(), "generated_persistence_macro_ebin_#{suffix}")
+    source_path = Path.join(root, "lib/generated_persistence_target.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    on_exit(fn -> File.rm(macro_path) end)
+    on_exit(fn -> File.rm_rf!(macro_ebin) end)
+
+    compile_source!(macro_path, macro_ebin, """
+    defmodule #{inspect(macro_module)} do
+      defmacro load(repo, query) do
+        quote generated: true do
+          Ecto.Repo.Queryable.all(unquote(repo), unquote(query), [])
+        end
+      end
+    end
+    """)
+
+    File.mkdir_p!(Path.dirname(source_path))
+    File.mkdir_p!(ebin)
+
+    File.write!(source_path, """
+    defmodule #{inspect(target_module)} do
+      require #{inspect(macro_module)}
+
+      def load(repo, query), do: #{inspect(macro_module)}.load(repo, query)
+    end
+    """)
+
+    git!(root, ["add", "lib/generated_persistence_target.ex"])
+
+    assert {_output, 0} =
+             System.cmd(
+               "elixirc",
+               ["-pa", macro_ebin, "-o", ebin, source_path],
+               stderr_to_stdout: true
+             )
+
+    beam_path = Path.join(ebin, "#{target_module}.beam")
+
+    assert [occurrence] = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+    assert occurrence.construct == "Ecto.Repo.Queryable.all"
+    assert occurrence.function == "load/2"
+    assert occurrence.approval == :unresolved_sql
   end
 
   test "compiled audit rejects persistence operations on expression receivers" do

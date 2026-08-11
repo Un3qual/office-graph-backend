@@ -133,6 +133,8 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   CLI, a shell form containing that CLI, or a dynamic subprocess command
 - **THEN** canonical verification MUST reject the command as unresolved while
   retaining only the statically visible read-only `pg_dump` inspection seam
+- **AND** the existing test-only shell invocation of the tracked canonical
+  `bin/verify` script MUST match its source path and argument shape exactly
 
 #### Scenario: Low-level execution is hidden behind private APIs or ports
 

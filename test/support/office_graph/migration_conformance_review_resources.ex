@@ -179,6 +179,48 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedResource do
   end
 
   attributes do
-    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :id, :uuid,
+      source: :"External ID",
+      primary_key?: true,
+      allow_nil?: false
+
+    attribute :label, :string, source: :"Display Label", allow_nil?: false
+  end
+
+  identities do
+    identity :unique_label, [:label]
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedChildResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "Quoted Children"
+    schema "Audit Space"
+    repo OfficeGraph.Repo
+
+    references do
+      reference :parent do
+        name "Quoted Children Parent FK"
+        index? true
+      end
+    end
+  end
+
+  attributes do
+    attribute :id, :uuid, source: :"Child ID", primary_key?: true, allow_nil?: false
+    attribute :parent_id, :uuid, source: :"Parent ID", allow_nil?: false
+  end
+
+  relationships do
+    belongs_to :parent, OfficeGraph.TestSupport.MigrationConformanceQuotedResource do
+      source_attribute :parent_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? false
+    end
   end
 end

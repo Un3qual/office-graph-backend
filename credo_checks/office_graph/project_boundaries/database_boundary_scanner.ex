@@ -55,6 +55,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                         )
   @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
   @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
+  @postgres_adapter_storage_operations [
+    :storage_down,
+    :storage_status,
+    :storage_up,
+    :structure_dump,
+    :structure_load
+  ]
   @ecto_migrator_operations [
     :down,
     :migrated_versions,
@@ -112,7 +119,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update,
     :update!,
     :update_all
-    | @ecto_migrator_operations
+    | @ecto_migrator_operations ++ @postgres_adapter_storage_operations
   ]
   @postgrex_raw_sql_operations [
     :execute,
@@ -218,6 +225,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @database_modules [
     "DBConnection",
+    "Ecto.Adapters.Postgres",
     "Ecto.Adapters.SQL",
     "Ecto.Migration",
     "Ecto.Migrator",
@@ -274,7 +282,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @dynamic_dispatch_modules ["Function", "Task", "Task.Supervisor", "erpc", "rpc"]
   @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
-  @mfa_rpc_operations [:block_call, :call, :cast, :multicall]
+  @mfa_rpc_operations [:async_call, :block_call, :call, :cast, :multicall]
   @mfa_erpc_operations [:call, :cast, :multicall, :send_request]
   @mfa_task_operations [:async, :async_stream, :start, :start_link]
   @mfa_task_supervisor_operations [
@@ -938,6 +946,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Adapters.SQL.#{operation}", node)
   end
 
+  defp classify_operation("Ecto.Adapters.Postgres", operation, _arity, node, env)
+       when operation in @postgres_adapter_storage_operations do
+    occurrence(
+      env,
+      line_from_node(node),
+      :direct_ecto,
+      "Ecto.Adapters.Postgres.#{operation}",
+      node,
+      approval: :unresolved_sql
+    )
+  end
+
   defp classify_operation("Ecto.Migrator", operation, _arity, node, env)
        when operation in @ecto_migrator_operations do
     occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Migrator.#{operation}", node,
@@ -947,7 +967,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_operation(receiver, operation, _arity, node, env)
        when {receiver, operation} in @process_execution_operations do
-    case process_command_status(receiver, operation, node) do
+    case process_command_status(receiver, operation, node, env.path) do
       :database_cli ->
         occurrence(env, line_from_node(node), :raw_sql, "process.database_cli", node,
           approval: :unresolved_sql
@@ -1145,7 +1165,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when operation in @mfa_rpc_operations do
     case {operation, arguments} do
       {operation, [_node, target, target_operation, _arguments | _options]}
-      when operation in [:block_call, :call, :cast] ->
+      when operation in [:async_call, :block_call, :call, :cast] ->
         [{target, target_operation}]
 
       {:multicall, [target, target_operation, _arguments]} ->
@@ -1552,6 +1572,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp imported_operation?("Ecto.Adapters.SQL", operation),
     do: operation in @ecto_sql_raw_sql_operations or operation in @ecto_sql_direct_operations
 
+  defp imported_operation?("Ecto.Adapters.Postgres", operation),
+    do: operation in @postgres_adapter_storage_operations
+
   defp imported_operation?("DBConnection", operation),
     do:
       operation in @db_connection_raw_sql_operations or
@@ -1682,18 +1705,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp call_arguments(_node), do: []
 
-  defp process_command_status(receiver, operation, node) do
+  defp process_command_status(receiver, operation, node, path) do
     arguments = call_arguments(node)
 
     if (receiver == "Port" and operation == :open) or
          (receiver == "erlang" and operation == :open_port) do
       :dynamic
     else
-      process_command_status(receiver, operation, arguments, node)
+      process_command_status(receiver, operation, arguments, node, path)
     end
   end
 
-  defp process_command_status(receiver, operation, arguments, node) do
+  defp process_command_status(receiver, operation, arguments, node, path) do
     command_arguments =
       case {receiver, operation, arguments} do
         {"System", :cmd, [executable, args | _options]} -> [executable, args]
@@ -1702,26 +1725,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         _call -> []
       end
 
-    {literals, dynamic?} = command_literals(command_arguments)
+    {literals, _dynamic?} = command_literals(command_arguments)
     executable = arguments |> List.first() |> command_literals() |> elem(0) |> List.first()
 
     cond do
       Enum.any?(literals, &database_cli_reference?/1) ->
         :database_cli
 
-      read_only_pg_dump_command?(receiver, operation, node) ->
+      read_only_process_command?(receiver, operation, node) or
+          canonical_verification_command?(receiver, operation, node, path) ->
         :safe
 
       is_nil(executable) ->
         :dynamic
 
-      command_dispatch_executable?(executable) and dynamic? ->
+      command_dispatch_executable?(executable) ->
         :dynamic
 
-      receiver == "os" and dynamic? ->
+      receiver == "os" ->
         :dynamic
 
-      operation == :shell and dynamic? ->
+      operation == :shell ->
         :dynamic
 
       true ->
@@ -1795,12 +1819,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> Enum.any?(&(&1 in @database_cli_executables))
   end
 
-  defp read_only_pg_dump_command?("System", :cmd, node) do
+  defp read_only_process_command?("System", :cmd, node) do
     case call_arguments(node) do
       [executable, arguments | _options] ->
         case static_command_literal(executable) do
           "pg_dump" -> true
-          "docker" -> docker_pg_dump_arguments?(arguments)
+          "docker" -> docker_read_only_arguments?(arguments)
           _executable -> false
         end
 
@@ -1809,7 +1833,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp read_only_pg_dump_command?(_receiver, _operation, _node), do: false
+  defp read_only_process_command?(_receiver, _operation, _node), do: false
+
+  defp canonical_verification_command?(
+         "System",
+         :cmd,
+         node,
+         "test/office_graph/project_quality_gate_test.exs"
+       ) do
+    case call_arguments(node) do
+      [executable, arguments | _options] ->
+        static_command_literal(executable) == "sh" and
+          static_command_arguments(arguments) in [
+            ["bin/verify"],
+            ["bin/verify", "--print-environment"]
+          ]
+
+      _arguments ->
+        false
+    end
+  end
+
+  defp canonical_verification_command?(_receiver, _operation, _node, _path), do: false
+
+  defp docker_read_only_arguments?(arguments) do
+    docker_pg_dump_arguments?(arguments) or
+      static_command_arguments(arguments) in [
+        ["compose", "config", "--format", "json"],
+        ["ps", "--format", "{{.id}} {{.ports}}"]
+      ]
+  end
 
   defp docker_pg_dump_arguments?(arguments) do
     case command_argument_nodes(arguments) do
@@ -1838,6 +1891,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp command_argument_nodes(_arguments), do: :dynamic
+
+  defp static_command_arguments(arguments) do
+    case command_argument_nodes(arguments) do
+      arguments when is_list(arguments) ->
+        literals = Enum.map(arguments, &static_argument_literal/1)
+        if Enum.all?(literals, &is_binary/1), do: literals
+
+      :dynamic ->
+        nil
+    end
+  end
+
+  defp static_argument_literal(node) do
+    case command_literals(node) do
+      {[literal], false} -> String.downcase(literal)
+      _literal -> nil
+    end
+  end
 
   defp static_command_literal(node) do
     case command_literals(node) do
@@ -2215,7 +2286,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_beam_abstract_code(path, source, root) do
     case :beam_lib.chunks(String.to_charlist(path), [:abstract_code]) do
       {:ok, {_module, [abstract_code: {:raw_abstract_v1, forms}]}} ->
-        Enum.flat_map(forms, &compiled_form_occurrences(&1, source))
+        behaviours = compiled_behaviours(forms)
+        Enum.flat_map(forms, &compiled_form_occurrences(&1, source, behaviours))
 
       error ->
         [compiled_metadata_unavailable_occurrence(path, source, root, error)]
@@ -2290,21 +2362,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp compiled_form_occurrences({:function, _annotation, name, arity, _clauses} = form, source) do
-    if generated_canonical_repo_form?(form, source) do
-      []
-    else
-      form
-      |> compiled_node_occurrences(source, "#{name}/#{arity}", [])
-      |> Enum.reverse()
+  defp compiled_form_occurrences(
+         {:function, _annotation, name, arity, _clauses} = form,
+         source,
+         behaviours
+       ) do
+    cond do
+      generated_canonical_repo_form?(form, source) ->
+        []
+
+      generated_non_persistence_callback?(form, behaviours) ->
+        form
+        |> compiled_node_occurrences(source, "#{name}/#{arity}", [])
+        |> Enum.reject(&(&1.construct == "dynamic_dispatch.apply"))
+        |> Enum.reverse()
+
+      true ->
+        form
+        |> compiled_node_occurrences(source, "#{name}/#{arity}", [])
+        |> Enum.reverse()
     end
   end
 
-  defp compiled_form_occurrences(form, source) do
+  defp compiled_form_occurrences(form, source, _behaviours) do
     form
     |> compiled_node_occurrences(source, nil, [])
     |> Enum.reverse()
   end
+
+  defp compiled_behaviours(forms) do
+    forms
+    |> Enum.flat_map(fn
+      {:attribute, _annotation, :behaviour, behaviour} -> [behaviour]
+      _form -> []
+    end)
+    |> MapSet.new()
+  end
+
+  defp generated_non_persistence_callback?(
+         {:function, annotation, :cast_input_array, 2, _clauses},
+         behaviours
+       ) do
+    :erl_anno.generated(annotation) and MapSet.member?(behaviours, Ash.Type)
+  end
+
+  defp generated_non_persistence_callback?(_form, _behaviours), do: false
 
   defp generated_canonical_repo_form?(
          {:function, annotation, _name, _arity, _clauses},
@@ -2320,12 +2422,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          function,
          occurrences
        ) do
-    occurrences =
-      if compiled_generated_node?(node) do
-        occurrences
-      else
-        compiled_apply_occurrences(arguments, node, source, function, occurrences)
-      end
+    occurrences = compiled_apply_occurrences(arguments, node, source, function, occurrences)
 
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
   end
@@ -2338,12 +2435,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          function,
          occurrences
        ) do
-    occurrences =
-      if compiled_generated_node?(node) do
-        occurrences
-      else
-        compiled_apply_occurrences(arguments, node, source, function, occurrences)
-      end
+    occurrences = compiled_apply_occurrences(arguments, node, source, function, occurrences)
 
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
   end
@@ -2356,12 +2448,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          function,
          occurrences
        ) do
-    occurrences =
-      if compiled_generated_node?(node) do
-        occurrences
-      else
-        compiled_capture_occurrences(arguments, node, source, function, occurrences)
-      end
+    occurrences = compiled_capture_occurrences(arguments, node, source, function, occurrences)
 
     compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
   end
@@ -2422,8 +2509,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       )
 
     occurrence =
-      if (private_persistence_module?(module) and compiled_generated_node?(node)) or
-           generated_canonical_repo_api?(source, function, module) do
+      if generated_canonical_repo_api?(source, function, module) do
         nil
       else
         classify_operation(
@@ -2613,9 +2699,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp compiled_operation({:atom, _line, operation}) when is_atom(operation), do: operation
   defp compiled_operation(_node), do: nil
-
-  defp compiled_generated_node?({:call, annotation, _callee, _arguments}),
-    do: :erl_anno.generated(annotation)
 
   defp generated_canonical_repo_api?("lib/office_graph/repo.ex", function, module)
        when module in @private_persistence_modules and is_binary(function) do
