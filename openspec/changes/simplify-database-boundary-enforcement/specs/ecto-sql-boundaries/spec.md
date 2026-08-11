@@ -141,10 +141,14 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 #### Scenario: Runtime code execution or MFA dispatch appears
 
 - **WHEN** tracked source or compiled project code uses runtime source
-  compilation, quoted evaluation, or a public process-library MFA form
+  compilation, quoted evaluation, an OTP file evaluator, or a public
+  process-library MFA form including `:erlang.hibernate/3`
 - **THEN** canonical verification MUST reject the operation as unresolved
   unless the exact occurrence is an approved private verification fixture with
   matching fingerprint and behavior coverage
+- **AND** an approved generated-source compiler fixture MUST reject source whose
+  exact content fingerprint is absent from the fingerprinted compiler
+  occurrence
 - **AND** the existing test-only shell invocation of the tracked canonical
   `bin/verify` script MUST match its source path and argument shape exactly
 

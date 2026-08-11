@@ -339,7 +339,17 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
 
     try do
       assert {:ok, _modules, _diagnostics} =
-               Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
+               Kernel.ParallelCompiler.compile_to_path(
+                 [
+                   OfficeGraph.TestSupport.CompiledBoundaryFixture.approved_source_path!(
+                     source_path,
+                     %{
+                       sentinel:
+                         "56951246228ec4501c98eea5b58626b89a98e18f3a612a904577e650ff6806f1"
+                     }
+                   )
+                 ],
+                 ebin,
                  return_diagnostics: true
                )
     after

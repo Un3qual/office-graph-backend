@@ -136,3 +136,11 @@
 - [x] 19.3 Preserve AshPostgres empty-map defaults and zero precision for non-usec datetime and time types in expected terminal definitions.
 - [x] 19.4 Require every approved exception and matching approval record to declare `terminal_objects`, allowing an explicit empty list.
 - [x] 19.5 Run focused source, compiled, approval, and terminal-conformance regressions before canonical verification.
+
+## 20. Generated Compiler And OTP Execution Follow-Up
+
+- [x] 20.1 Add failing source and compiled regressions for `:erlang.hibernate/3`, every public OTP file-evaluator arity, and unapproved generated compiler input.
+- [x] 20.2 Reject `:erlang.hibernate/3` MFA dispatch and `:file.eval`/`script`/`path_eval`/`path_script` in the shared source and compiled inventories.
+- [x] 20.3 Bind each private runtime-compiler exception to the exact generated-source SHA-256 allowlist embedded in its approved occurrence.
+- [x] 20.4 Verify that nonempty map defaults remain omitted when the pinned AshPostgres migration generator reports them unsupported.
+- [x] 20.5 Run focused scanner, gate, Credo, OpenSpec, and repository verification after refreshing exact approval evidence.

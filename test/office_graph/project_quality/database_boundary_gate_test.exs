@@ -292,8 +292,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       )
 
     suffix = System.unique_integer([:positive])
-    macro_module = Module.concat(OfficeGraph, "BoundaryMacro#{suffix}")
-    target_module = Module.concat(OfficeGraph, "BoundaryTarget#{suffix}")
+    macro_module = OfficeGraph.BoundaryMultiplicityMacroFixture
+    target_module = OfficeGraph.BoundaryMultiplicityTargetFixture
     macro_path = Path.join(System.tmp_dir!(), "office_graph_boundary_macro_#{suffix}.ex")
     source_path = Path.join(root, "lib/example.ex")
     current_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
@@ -370,8 +370,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       )
 
     suffix = System.unique_integer([:positive])
-    macro_module = Module.concat(OfficeGraph, "QuotedBoundaryMacro#{suffix}")
-    target_module = Module.concat(OfficeGraph, "QuotedBoundaryTarget#{suffix}")
+    macro_module = OfficeGraph.QuotedBoundaryMacroFixture
+    target_module = OfficeGraph.QuotedBoundaryTargetFixture
     macro_path = Path.join(System.tmp_dir!(), "office_graph_quoted_boundary_macro_#{suffix}.ex")
     source_path = Path.join(root, "lib/example.ex")
     current_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
@@ -574,13 +574,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   end
 
   defp prepare_compiled_environments!(root) do
-    suffix = System.unique_integer([:positive])
     source_path = Path.join(root, "lib/boundary_environment_marker.ex")
 
     File.mkdir_p!(Path.dirname(source_path))
 
     File.write!(source_path, """
-    defmodule OfficeGraph.BoundaryEnvironmentMarker#{suffix} do
+    defmodule OfficeGraph.BoundaryEnvironmentMarkerFixture do
       def present?, do: true
     end
     """)
@@ -599,7 +598,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
 
     try do
       assert {:ok, _modules, _diagnostics} =
-               Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
+               Kernel.ParallelCompiler.compile_to_path(
+                 [
+                   OfficeGraph.TestSupport.CompiledBoundaryFixture.approved_source_path!(
+                     source_path,
+                     %{
+                       boundary_environment_marker:
+                         "0c08560abd6ef73e0c3cfab9760f7d262e0ecdd04700228cbc5f2e4d9d764f92",
+                       multiplicity_macro:
+                         "1c71bc98b2c641e91dbd6de175009d4638495bb8aa04947e4124afb6abef14ef",
+                       multiplicity_target:
+                         "8ecacb5652b05f1dde5365fbdd07d431ff15e0faf304e5a0167056b2844c55ac",
+                       quoted_macro:
+                         "743a45ba0234059ebaba4d656a7e6012d7f03be4f978e0033b95e17cf8634dba",
+                       quoted_target:
+                         "8aa0bd1144ce65cb661375595d71581718450f20c1a3e3dfd6248b1b384edfdd"
+                     }
+                   )
+                 ],
+                 ebin,
                  return_diagnostics: true
                )
     after

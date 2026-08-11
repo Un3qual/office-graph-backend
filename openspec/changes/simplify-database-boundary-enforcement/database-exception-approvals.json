@@ -4,46 +4,46 @@
       "approving_change": "simplify-database-boundary-enforcement",
       "class": "direct_ecto",
       "construct": "reflection.Kernel.ParallelCompiler.compile_to_path",
-      "fingerprint": "sha256:a808358a0059becfb73cea3349ebf8cf0818c73b7c2442db8c1e5fa7af11fe45",
+      "fingerprint": "sha256:170a41471cf5a1356b83e72500b14dc3c915b422743de729d507bb682f3e98ec",
       "function": "compile_file!/2",
-      "line": 602,
+      "line": 601,
       "ordinal": 1,
       "owner": "OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest",
       "path": "test/office_graph/project_quality/database_boundary_gate_test.exs",
-      "reason": "Compile temporary fixture modules that prove the gate reconciles source occurrences with post-compilation BEAM references.",
+      "reason": "Compile temporary fixture modules that prove the gate reconciles source occurrences with post-compilation BEAM references; the approved occurrence embeds every permitted generated-source SHA-256 fingerprint.",
       "retirement_condition": "Remove when the boundary gate no longer requires generated BEAM fixtures.",
       "terminal_objects": [],
-      "verification": "Focused database boundary gate tests exercise the private compiler fixture and reject unreviewed runtime compilation."
+      "verification": "Focused database boundary gate tests exercise the private compiler fixture, reject source whose exact content hash is absent, and invalidate this occurrence fingerprint when the content allowlist changes."
     },
     {
       "approving_change": "simplify-database-boundary-enforcement",
       "class": "direct_ecto",
       "construct": "reflection.Kernel.ParallelCompiler.compile_to_path",
-      "fingerprint": "sha256:0cd3e07510e789078cb7bda626f8a2229b01fa454e60dfbe779a7e2b83b3ae9c",
+      "fingerprint": "sha256:6f709dbf1525e727b7176c1bcfec4d3b537f666e904cdf77553be319cfe70789",
       "function": "compile_file!/2",
-      "line": 2384,
+      "line": 2425,
       "ordinal": 1,
       "owner": "OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest",
       "path": "test/office_graph/project_quality/database_boundary_scanner_test.exs",
-      "reason": "Compile temporary fixture modules that prove the post-compilation BEAM audit catches low-level persistence references and escape paths.",
+      "reason": "Compile temporary fixture modules that prove the post-compilation BEAM audit catches low-level persistence references and escape paths; the approved occurrence embeds every permitted generated-source SHA-256 fingerprint.",
       "retirement_condition": "Remove when the compiled scanner no longer requires generated BEAM fixtures.",
       "terminal_objects": [],
-      "verification": "Focused database boundary scanner tests exercise the private compiler fixture and reject unreviewed runtime compilation."
+      "verification": "Focused database boundary scanner tests exercise the private compiler fixture, reject source whose exact content hash is absent, and invalidate this occurrence fingerprint when the content allowlist changes."
     },
     {
       "approving_change": "simplify-database-boundary-enforcement",
       "class": "direct_ecto",
       "construct": "reflection.Kernel.ParallelCompiler.compile_to_path",
-      "fingerprint": "sha256:d61ffc842538282854795c3cb4fd83ec26e5cc07a19caff5aca73327d7f5d6b5",
+      "fingerprint": "sha256:9ac92b5392725775ea53aa56d63bc1ff285a7aede1c7569e26aba73f9eb26a5b",
       "function": "compile_file!/2",
       "line": 342,
       "ordinal": 1,
       "owner": "OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest",
       "path": "test/office_graph/project_quality/project_boundaries_credo_check_test.exs",
-      "reason": "Compile temporary fixture modules that prove Credo reports compiled-only boundary violations with repository-relative evidence.",
+      "reason": "Compile temporary fixture modules that prove Credo reports compiled-only boundary violations with repository-relative evidence; the approved occurrence embeds every permitted generated-source SHA-256 fingerprint.",
       "retirement_condition": "Remove when the Credo boundary check no longer requires generated BEAM fixtures.",
       "terminal_objects": [],
-      "verification": "Focused project-boundaries Credo tests exercise the private compiler fixture and reject unreviewed runtime compilation."
+      "verification": "Focused project-boundaries Credo tests exercise the private compiler fixture, reject source whose exact content hash is absent, and invalidate this occurrence fingerprint when the content allowlist changes."
     }
   ],
   "version": 1

@@ -357,7 +357,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "rpc",
     "timer"
   ]
-  @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
+  @mfa_process_operations [
+    :hibernate,
+    :spawn,
+    :spawn_link,
+    :spawn_monitor,
+    :spawn_opt,
+    :spawn_request
+  ]
   @mfa_rpc_operations [
     :async_call,
     :block_call,
@@ -406,7 +413,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :on_definition,
     :on_load
   ]
-  @reflection_modules ["Code", "Kernel.ParallelCompiler", "Module", "code", "erl_eval"]
+  @reflection_modules ["Code", "Kernel.ParallelCompiler", "Module", "code", "erl_eval", "file"]
   @reflection_operations %{
     "Code" => [
       :compile_file,
@@ -437,7 +444,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :load_native_partial,
       :prepare_loading
     ],
-    "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause]
+    "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
+    "file" => [:eval, :path_eval, :path_script, :script]
   }
   @reviewed_runtime_compiler_fixtures [
     {"test/office_graph/project_quality/database_boundary_gate_test.exs", "compile_file!/2"},
@@ -1350,6 +1358,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp mfa_dispatch_targets(receiver, operation, arguments)
        when receiver in ["Kernel", "erlang"] and operation in @mfa_process_operations do
     case {operation, arguments} do
+      {:hibernate, [target, target_operation, _arguments]} ->
+        [{target, target_operation}]
+
       {operation, [target, target_operation, _arguments]}
       when operation in [:spawn, :spawn_link, :spawn_monitor, :spawn_request] ->
         [{target, target_operation}]

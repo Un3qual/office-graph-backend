@@ -511,6 +511,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects erlang hibernate module-function-argument dispatch to database operations" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/hibernate_repo.exs",
+          source: """
+          defmodule HibernateRepoScript do
+            def hibernate(sql), do: :erlang.hibernate(OfficeGraph.Repo, :query!, [sql, []])
+          end
+          """
+        }
+      ])
+
+    assert {occurrence.construct, occurrence.function, occurrence.approval} ==
+             {"OfficeGraph.Repo.hibernate", "hibernate/1", :unresolved_sql}
+  end
+
   test "rejects opaque runtime execution namespaces and supervisor start MFAs" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -831,6 +848,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def compile_runtime(path), do: compile_file(path)
             def load_binary(module, path, beam), do: :code.load_binary(module, path, beam)
             def load_file(module), do: :code.load_file(module)
+            def eval_terms(path), do: :file.eval(path)
+            def eval_terms(path, bindings), do: :file.eval(path, bindings)
+            def script(path), do: :file.script(path)
+            def script(path, bindings), do: :file.script(path, bindings)
+            def path_eval(path, name), do: :file.path_eval(path, name)
+            def path_eval(path, name, bindings), do: :file.path_eval(path, name, bindings)
+            def path_script(path, name), do: :file.path_script(path, name)
+            def path_script(path, name, bindings), do: :file.path_script(path, name, bindings)
           end
           """
         }
@@ -841,7 +866,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"reflection.Code.require_file", "require_runtime/1", :unresolved_sql},
              {"reflection.Code.compile_file", "compile_runtime/1", :unresolved_sql},
              {"reflection.code.load_binary", "load_binary/3", :unresolved_sql},
-             {"reflection.code.load_file", "load_file/1", :unresolved_sql}
+             {"reflection.code.load_file", "load_file/1", :unresolved_sql},
+             {"reflection.file.eval", "eval_terms/1", :unresolved_sql},
+             {"reflection.file.eval", "eval_terms/2", :unresolved_sql},
+             {"reflection.file.script", "script/1", :unresolved_sql},
+             {"reflection.file.script", "script/2", :unresolved_sql},
+             {"reflection.file.path_eval", "path_eval/2", :unresolved_sql},
+             {"reflection.file.path_eval", "path_eval/3", :unresolved_sql},
+             {"reflection.file.path_script", "path_script/2", :unresolved_sql},
+             {"reflection.file.path_script", "path_script/3", :unresolved_sql}
            ]
   end
 
@@ -1663,6 +1696,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            )
   end
 
+  test "runtime compiler fixtures reject generated source that is not content-approved" do
+    root = temporary_root("unapproved_runtime_compiler_fixture")
+    source_path = Path.join(root, "lib/unapproved_runtime_compiler_fixture.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    File.mkdir_p!(Path.dirname(source_path))
+    File.mkdir_p!(ebin)
+
+    File.write!(source_path, """
+    defmodule OfficeGraph.UnapprovedRuntimeCompilerFixture do
+      def run, do: :ok
+    end
+    """)
+
+    assert_raise ArgumentError, ~r/generated compiler fixture source is not approved/, fn ->
+      compile_file!(source_path, ebin)
+    end
+  end
+
   test "compiled audit reports low-level database calls from BEAM abstract code" do
     root =
       Path.join(
@@ -1679,11 +1731,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     Code.compiler_options(debug_info: true, ignore_module_conflict: true)
     on_exit(fn -> Code.compiler_options(previous_options) end)
 
-    module =
-      Module.concat(
-        OfficeGraph,
-        "CompiledBoundaryExample#{System.unique_integer([:positive])}"
-      )
+    module = OfficeGraph.CompiledBoundaryExampleFixture
 
     File.write!(
       source_path,
@@ -1723,11 +1771,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     Code.compiler_options(debug_info: true)
     on_exit(fn -> Code.compiler_options(previous_options) end)
 
-    module =
-      Module.concat(
-        OfficeGraph,
-        "CompiledDynamicBoundaryExample#{System.unique_integer([:positive])}"
-      )
+    module = OfficeGraph.CompiledDynamicBoundaryExampleFixture
 
     File.write!(
       source_path,
@@ -1755,8 +1799,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def start_repo(options), do: OfficeGraph.Repo.start_link(options)
         def process_spawn_query(sql), do: Process.spawn(OfficeGraph.Repo, :query!, [sql, []], [])
         def proc_lib_query(sql), do: :proc_lib.spawn(OfficeGraph.Repo, :query!, [sql, []])
+        def hibernate_query(sql), do: :erlang.hibernate(OfficeGraph.Repo, :query!, [sql, []])
         def timed_query(sql), do: :timer.tc(OfficeGraph.Repo, :query!, [sql, []])
         def timed_query(unit, sql), do: :timer.tc(unit, OfficeGraph.Repo, :query!, [sql, []])
+        def eval_terms(path), do: :file.eval(path)
+        def eval_terms(path, bindings), do: :file.eval(path, bindings)
+        def script(path), do: :file.script(path)
+        def script(path, bindings), do: :file.script(path, bindings)
+        def path_eval(path, name), do: :file.path_eval(path, name)
+        def path_eval(path, name, bindings), do: :file.path_eval(path, name, bindings)
+        def path_script(path, name), do: :file.path_script(path, name)
+        def path_script(path, name, bindings), do: :file.path_script(path, name, bindings)
         def psql(sql), do: System.cmd("psql", ["-c", sql])
         def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
@@ -1794,8 +1847,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Repo.start_link", nil},
                {:raw_sql, "OfficeGraph.Repo.spawn_opt", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.hibernate", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.tc", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.tc", :unresolved_sql},
+               {:direct_ecto, "reflection.file.eval", :unresolved_sql},
+               {:direct_ecto, "reflection.file.eval", :unresolved_sql},
+               {:direct_ecto, "reflection.file.script", :unresolved_sql},
+               {:direct_ecto, "reflection.file.script", :unresolved_sql},
+               {:direct_ecto, "reflection.file.path_eval", :unresolved_sql},
+               {:direct_ecto, "reflection.file.path_eval", :unresolved_sql},
+               {:direct_ecto, "reflection.file.path_script", :unresolved_sql},
+               {:direct_ecto, "reflection.file.path_script", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
@@ -1806,8 +1868,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     source_path = Path.join(root, "lib/compiled_strict_boundary.ex")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
 
-    module =
-      Module.concat(OfficeGraph, "CompiledStrictBoundary#{System.unique_integer([:positive])}")
+    module = OfficeGraph.CompiledStrictBoundaryFixture
 
     compile_source!(source_path, ebin, """
     defmodule #{inspect(module)} do
@@ -1879,8 +1940,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     init_git_repo!(root)
 
     suffix = System.unique_integer([:positive])
-    macro_module = Module.concat(OfficeGraph, "GeneratedRepoMacro#{suffix}")
-    repo_module = Module.concat(OfficeGraph, "GeneratedRepoTarget#{suffix}")
+    macro_module = OfficeGraph.GeneratedRepoMacroFixture
+    repo_module = OfficeGraph.GeneratedRepoTargetFixture
     macro_path = Path.join(System.tmp_dir!(), "generated_repo_macro_#{suffix}.ex")
     macro_ebin = Path.join(System.tmp_dir!(), "generated_repo_macro_ebin_#{suffix}")
     source_path = Path.join(root, "lib/office_graph/repo.ex")
@@ -1925,9 +1986,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     root = temporary_root("compiled_canonical_repo_macro")
     source_path = Path.join(root, "lib/office_graph/repo.ex")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
-    suffix = System.unique_integer([:positive])
-    macro_module = Module.concat(OfficeGraph, "RepoBoundaryMacro#{suffix}")
-    repo_module = Module.concat(OfficeGraph, "CanonicalRepoBoundary#{suffix}")
+    macro_module = OfficeGraph.RepoBoundaryMacroFixture
+    repo_module = OfficeGraph.CanonicalRepoBoundaryFixture
 
     compile_source!(source_path, ebin, """
     defmodule #{inspect(macro_module)} do
@@ -1958,8 +2018,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     init_git_repo!(root)
 
     suffix = System.unique_integer([:positive])
-    macro_module = Module.concat(OfficeGraph, "GeneratedPersistenceMacro#{suffix}")
-    target_module = Module.concat(OfficeGraph, "GeneratedPersistenceTarget#{suffix}")
+    macro_module = OfficeGraph.GeneratedPersistenceMacroFixture
+    target_module = OfficeGraph.GeneratedPersistenceTargetFixture
     macro_path = Path.join(System.tmp_dir!(), "generated_persistence_macro_#{suffix}.ex")
     macro_ebin = Path.join(System.tmp_dir!(), "generated_persistence_macro_ebin_#{suffix}")
     source_path = Path.join(root, "lib/generated_persistence_target.ex")
@@ -2006,11 +2066,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     source_path = Path.join(root, "lib/compiled_expression_boundary.ex")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
 
-    module =
-      Module.concat(
-        OfficeGraph,
-        "CompiledExpressionBoundary#{System.unique_integer([:positive])}"
-      )
+    module = OfficeGraph.CompiledExpressionBoundaryFixture
 
     compile_source!(source_path, ebin, """
     defmodule #{inspect(module)} do
@@ -2036,11 +2092,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     source_path = Path.join(root, "lib/compiled_boundary_multiplicity.ex")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
 
-    module =
-      Module.concat(
-        OfficeGraph,
-        "CompiledBoundaryMultiplicity#{System.unique_integer([:positive])}"
-      )
+    module = OfficeGraph.CompiledBoundaryMultiplicityFixture
 
     compile_source!(source_path, ebin, """
     defmodule #{inspect(module)} do
@@ -2105,11 +2157,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     source_path = Path.join(root, "lib/current_environment_boundary.ex")
     current_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
 
-    module =
-      Module.concat(
-        OfficeGraph,
-        "CurrentEnvironmentBoundary#{System.unique_integer([:positive])}"
-      )
+    module = OfficeGraph.CurrentEnvironmentBoundaryFixture
 
     init_git_repo!(root)
 
@@ -2150,13 +2198,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   test "compiled audit excludes only the exact scanner BEAM" do
     root = temporary_root("compiled_boundary_scanner_name_prefix")
     source_path = Path.join(root, "lib/database_boundary_scanner_plugin.ex")
-    suffix = System.unique_integer([:positive])
-
-    module =
-      Module.concat(
-        OfficeGraph.ProjectQuality,
-        "DatabaseBoundaryScannerPlugin#{suffix}"
-      )
+    module = OfficeGraph.ProjectQuality.DatabaseBoundaryScannerPluginFixture
 
     init_git_repo!(root)
 
@@ -2184,9 +2226,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     prod_source_path = Path.join(root, "lib/prod_environment_boundary.ex")
     test_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
     prod_ebin = Path.join(root, "_build/prod/lib/office_graph/ebin")
-    suffix = System.unique_integer([:positive])
-    test_module = Module.concat(OfficeGraph, "TestEnvironmentBoundary#{suffix}")
-    prod_module = Module.concat(OfficeGraph, "ProdEnvironmentBoundary#{suffix}")
+    test_module = OfficeGraph.TestEnvironmentBoundaryFixture
+    prod_module = OfficeGraph.ProdEnvironmentBoundaryFixture
 
     init_git_repo!(root)
 
@@ -2212,7 +2253,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   test "compiled audit ignores stale BEAMs whose source is no longer tracked" do
     root = temporary_root("compiled_boundary_stale")
     source_path = Path.join(root, "lib/stale_boundary.ex")
-    module = Module.concat(OfficeGraph, "StaleBoundary#{System.unique_integer([:positive])}")
+    module = OfficeGraph.StaleBoundaryFixture
 
     init_git_repo!(root)
 
@@ -2315,15 +2356,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
               "fragment",
               "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"},
-             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 602,
+             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 601,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:a808358a0059becfb73cea3349ebf8cf0818c73b7c2442db8c1e5fa7af11fe45"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2384,
+              "sha256:170a41471cf5a1356b83e72500b14dc3c915b422743de729d507bb682f3e98ec"},
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2425,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:0cd3e07510e789078cb7bda626f8a2229b01fa454e60dfbe779a7e2b83b3ae9c"},
+              "sha256:6f709dbf1525e727b7176c1bcfec4d3b537f666e904cdf77553be319cfe70789"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:d61ffc842538282854795c3cb4fd83ec26e5cc07a19caff5aca73327d7f5d6b5"}
+              "sha256:9ac92b5392725775ea53aa56d63bc1ff285a7aede1c7569e26aba73f9eb26a5b"}
            ]
   end
 
@@ -2382,7 +2423,47 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     try do
       assert {:ok, _modules, _diagnostics} =
                Kernel.ParallelCompiler.compile_to_path(
-                 [source_path],
+                 [
+                   OfficeGraph.TestSupport.CompiledBoundaryFixture.approved_source_path!(
+                     source_path,
+                     %{
+                       canonical_repo_macro:
+                         "8e31d5061a4eb59adb27e1ea51582028ad68982fcd7de0745fd08ba79e116ad9",
+                       compiled_boundary:
+                         "e97785c4198e1b316c535066697961dc04342975d13248b80a51a56ee21a929b",
+                       compiled_dynamic_boundary:
+                         "6b8e950f0c612e26cf518bc3ddbb6bc75913332308810144c450dce5924742b8",
+                       compiled_expression_boundary:
+                         "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
+                       compiled_multiplicity:
+                         "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
+                       compiled_strict_boundary:
+                         "fefbce1732cb039171d4d86125bf27b737bbf9dd11724f470c574833574b8fd2",
+                       current_environment:
+                         "51da408a16c40a07129763d7f89926d2758405fd69d92f2f22e05ba0830d5286",
+                       generated_persistence_macro:
+                         "7e857d6c6e0efc76894b3609ade7103b0ad9836a3265cdb5cda41b33a994b4a4",
+                       generated_persistence_target:
+                         "bc27d6dc5776f18e5378dec5f7d448883939f4c947f790891242ca7cedf375a7",
+                       generated_repo_macro:
+                         "bf0328b0d25c03ecda5b5a3a1a63496fed0b6e557e29b95259590da36e814886",
+                       generated_repo_target:
+                         "9283bb98601d116ad56b32e0d17b855fa08aed26ae670ced3832ac6a644f9e1b",
+                       legacy_importer:
+                         "ebec71783de7b0bfe0fe1d9576837bb5c3d4bb83283d611d3f959e6b8249f84c",
+                       no_debug_info:
+                         "3fc628b2184eef161a9c5590b04efaaa3c2920fabfd12ee289b57342bbcbb012",
+                       production_environment:
+                         "3519554bcb5f1c02bb7bb4d6044eccbb4bcb738f1ec584c36274b393be0f0ef2",
+                       scanner_prefix:
+                         "dbd0797870523b233fa8494a6fbbca3b9512a78257b63113518960604b8a030b",
+                       stale_boundary:
+                         "6819a3b481ca97500414fdaa42e70471aea0eee7253aff003eafa0658f0c1a95",
+                       test_environment:
+                         "0f93bd491507c0845b6a608aaa1f7eab6cd65f785fc136514c6953768f683c42"
+                     }
+                   )
+                 ],
                  ebin,
                  Keyword.put(options, :return_diagnostics, true)
                )
