@@ -114,3 +114,10 @@
 - [x] 16.2 Reject those source and compiled escape paths without macro expansion, dataflow, or command-body interpretation.
 - [x] 16.3 Add and implement terminal regressions for enum approvals, UTF-8 generated identifiers, quoted foreign-key columns, quoted keyword columns, and dollar-token boundaries.
 - [x] 16.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the cached review threads.
+
+## 17. Default-Deny Execution And Extension Type Follow-Up
+
+- [x] 17.1 Default unknown process executables to unresolved and retain only exact reviewed Git, schema-dump, and canonical verifier seams.
+- [x] 17.2 Audit OTP timer MFA dispatch, zero-arity expression receivers, and every non-scanner BEAM whose name shares the scanner prefix.
+- [x] 17.3 Compare AshPostgres `:citext` columns with the public-qualified extension type emitted by `pg_dump`.
+- [x] 17.4 Add focused source, compiled, fingerprint-invalidation, and terminal-conformance regressions.

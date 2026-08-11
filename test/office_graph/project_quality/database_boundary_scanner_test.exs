@@ -1,5 +1,5 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
 
@@ -322,6 +322,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
             def dash, do: System.cmd("dash", ["/tmp/run-db.sh"])
             def fish, do: System.cmd("fish", ["/tmp/run-db.fish"])
+            def wrapper, do: System.cmd("/tmp/run-db", [])
             def port(command), do: Port.open({:spawn, command}, [])
             def erlang_port(command), do: :erlang.open_port({:spawn, command}, [])
           end
@@ -333,6 +334,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"process.dynamic_command", "busybox/1", :unresolved_sql},
              {"process.dynamic_command", "dash/0", :unresolved_sql},
              {"process.dynamic_command", "fish/0", :unresolved_sql},
+             {"process.dynamic_command", "wrapper/0", :unresolved_sql},
              {"process.dynamic_command", "port/1", :unresolved_sql},
              {"process.dynamic_command", "erlang_port/1", :unresolved_sql}
            ]
@@ -428,6 +430,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"OfficeGraph.Repo.eval_everywhere", "everywhere_on/2", :unresolved_sql},
              {"OfficeGraph.Repo.parallel_eval", "parallel/1", :unresolved_sql},
              {"OfficeGraph.Repo.pmap", "mapped/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects timer module-function-argument dispatch to database operations" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/timer_repo.exs",
+          source: """
+          defmodule TimerRepoScript do
+            def once(sql), do: :timer.apply_after(1, OfficeGraph.Repo, :query!, [sql, []])
+            def interval(sql), do: :timer.apply_interval(1, OfficeGraph.Repo, :query!, [sql, []])
+            def repeated(sql), do: :timer.apply_repeatedly(1, OfficeGraph.Repo, :query!, [sql, []])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"OfficeGraph.Repo.apply_after", "once/1", :unresolved_sql},
+             {"OfficeGraph.Repo.apply_interval", "interval/1", :unresolved_sql},
+             {"OfficeGraph.Repo.apply_repeatedly", "repeated/1", :unresolved_sql}
            ]
   end
 
@@ -654,6 +678,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           path: "scripts/expression_repo.EXS",
           source: """
           lookup_repo().query!(sql, [])
+          lookup_repo().checked_out?()
+          lookup_repo().get_dynamic_repo()
+          lookup_repo().in_transaction?()
+          lookup_repo().stop()
           """
         },
         %{
@@ -676,6 +704,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ) == [
              {:raw_sql, "expression_receiver.query!", nil, :unresolved_sql},
              {:raw_sql, "expression_receiver.query!", nil, :unresolved_sql},
+             {:direct_ecto, "expression_receiver.checked_out?", nil, :unresolved_sql},
+             {:direct_ecto, "expression_receiver.get_dynamic_repo", nil, :unresolved_sql},
+             {:direct_ecto, "expression_receiver.in_transaction?", nil, :unresolved_sql},
+             {:direct_ecto, "expression_receiver.stop", nil, :unresolved_sql},
              {:direct_ecto, "Repo.insert", "up/0", nil}
            ]
   end
@@ -1412,6 +1444,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "allows only the exact terminal database dump seam" do
+    sources = [
+      %{
+        path: "test/support/office_graph/migration_conformance_support.ex",
+        source: """
+        defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
+          def dump_terminal_inventory! do
+            System.cmd("pg_dump", args, env: env, stderr_to_stdout: true)
+          end
+        end
+        """
+      },
+      %{
+        path: "test/support/office_graph/migration_conformance_support.ex",
+        source: """
+        defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
+          def dump_terminal_inventory! do
+            System.cmd("pg_dump", args, env: env, stderr_to_stdout: true, into: "")
+          end
+        end
+        """
+      }
+    ]
+
+    [occurrence] = DatabaseBoundaryScanner.scan_sources(sources)
+    assert occurrence.construct == "process.dynamic_command"
+    assert occurrence.function == "dump_terminal_inventory!/0"
+    assert occurrence.approval == :unresolved_sql
+  end
+
   test "invalidates the canonical verification seam when a reviewed script changes" do
     root = temporary_root("canonical_verifier_fingerprint")
     File.mkdir_p!(Path.join(root, "bin"))
@@ -1521,7 +1583,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     File.mkdir_p!(ebin)
     on_exit(fn -> File.rm_rf!(root) end)
     previous_options = Code.compiler_options()
-    Code.compiler_options(debug_info: true)
+    Code.compiler_options(debug_info: true, ignore_module_conflict: true)
     on_exit(fn -> Code.compiler_options(previous_options) end)
 
     module =
@@ -1667,6 +1729,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def parallel_map(sql), do: :rpc.pmap({OfficeGraph.Repo, :query!}, [[]], [sql])
       def load_binary(module, path, beam), do: :code.load_binary(module, path, beam)
       def evaluate_forms(forms), do: :erl_eval.exprs(forms, [])
+      def timer_query(sql), do: :timer.apply_after(1, OfficeGraph.Repo, :query!, [sql, []])
       def listen(pid, channel), do: Postgrex.Notifications.listen(pid, channel)
       def simple_connection(options), do: Postgrex.SimpleConnection.start_link(__MODULE__, [], options)
       def mix_eval(code), do: System.cmd("mix", ["run", "-e", code])
@@ -1703,6 +1766,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "OfficeGraph.Repo.pmap", "parallel_map/1", :unresolved_sql},
              {:direct_ecto, "reflection.code.load_binary", "load_binary/3", :unresolved_sql},
              {:direct_ecto, "reflection.erl_eval.exprs", "evaluate_forms/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.apply_after", "timer_query/1", :unresolved_sql},
              {:direct_ecto, "Postgrex.Notifications.listen", "listen/2", :unresolved_sql},
              {:direct_ecto, "Postgrex.SimpleConnection.start_link", "simple_connection/1",
               :unresolved_sql},
@@ -1748,12 +1812,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     git!(root, ["add", "lib/office_graph/repo.ex"])
 
-    assert {_output, 0} =
-             System.cmd(
-               "elixirc",
-               ["-pa", macro_ebin, "-o", ebin, source_path],
-               stderr_to_stdout: true
-             )
+    compile_file!(source_path, ebin)
 
     beam_path = Path.join(ebin, "#{repo_module}.beam")
 
@@ -1833,12 +1892,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     git!(root, ["add", "lib/generated_persistence_target.ex"])
 
-    assert {_output, 0} =
-             System.cmd(
-               "elixirc",
-               ["-pa", macro_ebin, "-o", ebin, source_path],
-               stderr_to_stdout: true
-             )
+    compile_file!(source_path, ebin)
 
     beam_path = Path.join(ebin, "#{target_module}.beam")
 
@@ -1998,6 +2052,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(&1.construct == "compiled.environment_missing"))
   end
 
+  test "compiled audit excludes only the exact scanner BEAM" do
+    root = temporary_root("compiled_boundary_scanner_name_prefix")
+    source_path = Path.join(root, "lib/database_boundary_scanner_plugin.ex")
+    suffix = System.unique_integer([:positive])
+
+    module =
+      Module.concat(
+        OfficeGraph.ProjectQuality,
+        "DatabaseBoundaryScannerPlugin#{suffix}"
+      )
+
+    init_git_repo!(root)
+
+    source = """
+    defmodule #{inspect(module)} do
+      def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+    end
+    """
+
+    for env <- [Mix.env(), :prod] |> Enum.uniq() do
+      ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
+      compile_source!(source_path, ebin, source)
+    end
+
+    git!(root, ["add", "lib/database_boundary_scanner_plugin.ex"])
+
+    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root)
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.path == "lib/database_boundary_scanner_plugin.ex"
+  end
+
   test "compiled audit includes production BEAM output" do
     root = temporary_root("compiled_boundary_production")
     test_source_path = Path.join(root, "lib/test_environment_boundary.ex")
@@ -2153,8 +2238,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
   defp init_git_repo!(root), do: git!(root, ["init", "--quiet"])
 
-  defp git!(root, arguments) do
-    assert {_output, 0} = System.cmd("git", arguments, cd: root, stderr_to_stdout: true)
+  defp git!(root, ["init", "--quiet"]) do
+    assert {_output, 0} =
+             System.cmd("git", ["init", "--quiet"], cd: root, stderr_to_stdout: true)
+
+    :ok
+  end
+
+  defp git!(root, ["add" | paths]) do
+    assert {_output, 0} =
+             System.cmd("git", ["add" | paths], cd: root, stderr_to_stdout: true)
+
+    :ok
+  end
+
+  defp git!(root, ["mv", source, destination]) do
+    assert {_output, 0} =
+             System.cmd("git", ["mv", source, destination],
+               cd: root,
+               stderr_to_stdout: true
+             )
+
     :ok
   end
 
@@ -2163,7 +2267,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     File.mkdir_p!(ebin)
     File.write!(source_path, source)
 
-    assert {_output, 0} =
-             System.cmd("elixirc", ["-o", ebin, source_path], stderr_to_stdout: true)
+    compile_file!(source_path, ebin)
+  end
+
+  defp compile_file!(source_path, ebin) do
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(debug_info: true, ignore_module_conflict: true)
+
+    try do
+      assert {:ok, _modules, _diagnostics} =
+               Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
+                 return_diagnostics: true
+               )
+    after
+      Code.compiler_options(compiler_options)
+    end
   end
 end

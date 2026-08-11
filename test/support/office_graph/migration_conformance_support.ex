@@ -1609,7 +1609,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_type(:binary), do: "bytea"
   defp postgres_type(:bigint), do: "bigint"
   defp postgres_type(:boolean), do: "boolean"
-  defp postgres_type(:citext), do: "citext"
+  defp postgres_type(:citext), do: "public.citext"
   defp postgres_type(:date), do: "date"
   defp postgres_type(:decimal), do: "numeric"
   defp postgres_type(:float), do: "double precision"

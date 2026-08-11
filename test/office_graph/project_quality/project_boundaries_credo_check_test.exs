@@ -327,8 +327,21 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
       File.mkdir_p!(ebin)
 
-      assert {_output, 0} =
-               System.cmd("elixirc", ["-o", ebin, source_path], stderr_to_stdout: true)
+      compile_file!(source_path, ebin)
+    end
+  end
+
+  defp compile_file!(source_path, ebin) do
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(debug_info: true, ignore_module_conflict: true)
+
+    try do
+      assert {:ok, _modules, _diagnostics} =
+               Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
+                 return_diagnostics: true
+               )
+    after
+      Code.compiler_options(compiler_options)
     end
   end
 

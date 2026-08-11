@@ -525,6 +525,23 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
+  test "terminal comparison qualifies the AshPostgres citext extension type" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.citext_examples (
+          label public.citext NOT NULL
+      );
+      """)
+
+    resources = %{
+      "citext_examples" => {nil, OfficeGraph.TestSupport.MigrationConformanceCitextResource}
+    }
+
+    assert inventory
+           |> synthetic_terminal_errors(resources, [])
+           |> without_framework_presence_errors() == []
+  end
+
   test "terminal comparison canonicalizes quoted foreign-key and reference-index columns" do
     inventory =
       MigrationConformanceSupport.parse_dump(~S'''

@@ -210,6 +210,25 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceNetworkResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceCitextResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  resource do
+    require_primary_key? false
+  end
+
+  postgres do
+    table "citext_examples"
+    repo OfficeGraph.Repo
+  end
+
+  attributes do
+    attribute :label, :ci_string, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceLiteralResource do
   @moduledoc false
 

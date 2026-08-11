@@ -312,6 +312,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "reindexdb",
     "vacuumdb"
   ]
+  @reviewed_git_operations ["add", "init", "ls-files", "mv"]
   @command_dispatch_executables [
     "ash",
     "bash",
@@ -351,7 +352,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Task",
     "Task.Supervisor",
     "erpc",
-    "rpc"
+    "rpc",
+    "timer"
   ]
   @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
   @mfa_rpc_operations [
@@ -374,13 +376,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :start_child
   ]
   @mfa_supervisor_operations [:start_child]
+  @mfa_timer_operations [:apply_after, :apply_interval, :apply_repeatedly]
   @mfa_dispatch_operations Enum.uniq(
                              @mfa_process_operations ++
                                @mfa_rpc_operations ++
                                @mfa_erpc_operations ++
                                @mfa_task_operations ++
                                @mfa_task_supervisor_operations ++
-                               @mfa_supervisor_operations
+                               @mfa_supervisor_operations ++
+                               @mfa_timer_operations
                            )
   @migration_callback_attributes [
     :after_compile,
@@ -428,6 +432,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "bin/verify-migration-baseline" =>
       "sha256:e3e7fba601c6a331cbc7b62acc48e5b8c49ebe6c3a6b48366a5c3a332ee75bd5"
   }
+  @terminal_dump_command_fingerprints MapSet.new([
+                                        "sha256:2f2fed84fdb7accb554b48376b89e7cb304bd36d5a376b9d6fef107cfde95b8a",
+                                        "sha256:4704301d94f355eeae64b6589e8b52f5668037b55e4a856dc8618d4166eff83f"
+                                      ])
   @sql_payload_positions %{
     "Ecto.Adapters.SQL.execute" => nil,
     "Ecto.Adapters.SQL.query" => 1,
@@ -1407,6 +1415,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp mfa_dispatch_targets("timer", operation, [_delay, target, target_operation, _arguments])
+       when operation in @mfa_timer_operations,
+       do: [{target, target_operation}]
+
   defp mfa_dispatch_targets(receiver, :start_child, [_supervisor, child_spec])
        when receiver in ["DynamicSupervisor", "Supervisor"] do
     child_spec_start_targets(child_spec)
@@ -1626,8 +1638,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_expression_receiver(receiver, operation, node, env) do
     if uncompiled_elixir_source?(env.path) and receiver_name(receiver, env) == nil and
          not variable_receiver?(receiver) and
-         not dynamic_module_receiver?(receiver, env) and call_arguments(node) != [] and
-         database_operation?(operation) do
+         not dynamic_module_receiver?(receiver, env) and
+         database_operation_arity?(operation, length(call_arguments(node))) do
       class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
 
       occurrence(env, line_from_node(node), class, "expression_receiver.#{operation}", node,
@@ -2032,7 +2044,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       Enum.any?(literals, &database_cli_reference?/1) ->
         :database_cli
 
-      read_only_process_command?(receiver, operation, node) or
+      reviewed_process_command?(receiver, operation, node) or
+        canonical_terminal_dump_command?(receiver, operation, node, env) or
           canonical_verification_command?(receiver, operation, node, env) ->
         :safe
 
@@ -2049,7 +2062,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         :dynamic
 
       true ->
-        :safe
+        :dynamic
     end
   end
 
@@ -2119,11 +2132,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> Enum.any?(&(&1 in @database_cli_executables))
   end
 
-  defp read_only_process_command?("System", :cmd, node) do
+  defp reviewed_process_command?("System", :cmd, node) do
     case call_arguments(node) do
       [executable, arguments | _options] ->
         case static_command_literal(executable) do
-          "pg_dump" -> true
+          "git" -> reviewed_git_arguments?(arguments)
+          "pg_dump" -> pg_dump_read_only_arguments?(arguments)
           "docker" -> docker_read_only_arguments?(arguments)
           _executable -> false
         end
@@ -2133,7 +2147,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp read_only_process_command?(_receiver, _operation, _node), do: false
+  defp reviewed_process_command?(_receiver, _operation, _node), do: false
+
+  defp reviewed_git_arguments?(arguments) do
+    case command_first_argument(arguments) do
+      nil -> false
+      argument -> static_argument_literal(argument) in @reviewed_git_operations
+    end
+  end
+
+  defp pg_dump_read_only_arguments?(arguments) do
+    argument_nodes = command_argument_nodes(arguments)
+
+    argument_nodes == ["--version"] or
+      (is_list(argument_nodes) and
+         Enum.any?(argument_nodes, &(static_argument_literal(&1) == "--schema-only")))
+  end
 
   defp canonical_verification_command?(
          "System",
@@ -2155,6 +2184,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp canonical_verification_command?(_receiver, _operation, _node, _env), do: false
+
+  defp canonical_terminal_dump_command?(
+         "System",
+         :cmd,
+         node,
+         %{
+           path: "test/support/office_graph/migration_conformance_support.ex",
+           function: function
+         }
+       ) do
+    occurrence_function(function) == "dump_terminal_inventory!/0" and
+      MapSet.member?(@terminal_dump_command_fingerprints, sha256(printable_node(node)))
+  end
+
+  defp canonical_terminal_dump_command?(_receiver, _operation, _node, _env), do: false
 
   defp canonical_verification_sources_match?(root) do
     Enum.all?(@canonical_verification_fingerprints, fn {path, expected} ->
@@ -2178,14 +2222,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp docker_pg_dump_arguments?(arguments) do
     case command_argument_nodes(arguments) do
-      [exec, env_flag, _env, _container, pg_dump | _rest] ->
+      [exec, env_flag, _env, _container, pg_dump | rest] ->
         static_command_literal(exec) == "exec" and
           static_command_literal(env_flag) in ["-e", "--env"] and
-          static_command_literal(pg_dump) == "pg_dump"
+          static_command_literal(pg_dump) == "pg_dump" and
+          Enum.any?(rest, &(static_argument_literal(&1) == "--schema-only"))
 
-      [exec, _container, pg_dump | _rest] ->
+      [exec, _container, pg_dump | rest] ->
         static_command_literal(exec) == "exec" and
-          static_command_literal(pg_dump) == "pg_dump"
+          static_command_literal(pg_dump) == "pg_dump" and
+          Enum.any?(rest, &(static_argument_literal(&1) == "--schema-only"))
 
       _arguments ->
         false
@@ -2203,6 +2249,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp command_argument_nodes(_arguments), do: :dynamic
+
+  defp command_first_argument([{:|, _metadata, [head, _tail]}]), do: head
+  defp command_first_argument([head | _tail]), do: head
+  defp command_first_argument({:cons, _metadata, head, _tail}), do: head
+  defp command_first_argument(_arguments), do: nil
 
   defp static_command_arguments(arguments) do
     case command_argument_nodes(arguments) do
@@ -2605,7 +2656,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         root
         |> Path.join("_build/#{env}/lib/office_graph/ebin/*.beam")
         |> Path.wildcard()
-        |> Enum.reject(&String.contains?(&1, "ProjectQuality.DatabaseBoundaryScanner"))
+        |> Enum.reject(
+          &(Path.basename(&1) ==
+              "Elixir.OfficeGraph.ProjectQuality.DatabaseBoundaryScanner.beam")
+        )
 
       if environment_paths == [] do
         {paths, [env | missing_environments]}
@@ -2898,7 +2952,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     database_operation_arity?(operation, arity) and
       (raw_sql_operation?(operation) or compiled_variable_receiver?(receiver) or
-         operation in @expression_receiver_direct_operations)
+         operation in @expression_receiver_direct_operations or
+         operation in @zero_arity_variable_operations)
   end
 
   defp compiled_apply_occurrences(
