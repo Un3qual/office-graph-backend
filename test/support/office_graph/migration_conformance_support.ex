@@ -1111,17 +1111,20 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp parse_table_column(line, table, inventory) do
-    case PostgresDump.take_identifier(String.trim_leading(line)) do
-      {"constraint", _definition} ->
-        inventory
+    line = String.trim_leading(line)
 
-      {name, definition} when definition != "" ->
-        definition = normalize_column_definition(table, name, definition)
-        column = {table, name, definition}
-        Map.update!(inventory, :columns, &MapSet.put(&1, column))
+    if Regex.match?(~r/^CONSTRAINT(?:\s|$)/i, line) do
+      inventory
+    else
+      case PostgresDump.take_identifier(line) do
+        {name, definition} when definition != "" ->
+          definition = normalize_column_definition(table, name, definition)
+          column = {table, name, definition}
+          Map.update!(inventory, :columns, &MapSet.put(&1, column))
 
-      nil ->
-        inventory
+        nil ->
+          inventory
+      end
     end
   end
 
@@ -1206,18 +1209,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         inventory
       end
 
-    case Regex.named_captures(
-           ~r/FOREIGN KEY \((?<source>[^\)]+)\) REFERENCES (?<destination>[^\(]+)\((?<destination_attribute>[^\)]+)\)/,
-           definition
-         ) do
-      %{
-        "source" => source_attribute,
-        "destination" => destination_table,
-        "destination_attribute" => destination_attribute
-      } ->
+    case foreign_key_definition_parts(definition) do
+      {source_attribute, destination_table, destination_attribute, _suffix} ->
         foreign_key =
-          {table, trim_identifier(source_attribute), normalize_identity(destination_table),
-           trim_identifier(destination_attribute)}
+          {table, normalize_identifier_list(source_attribute), destination_table,
+           normalize_identifier_list(destination_attribute)}
 
         Map.update!(inventory, :foreign_keys, &MapSet.put(&1, foreign_key))
 
@@ -1225,6 +1221,18 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         inventory
     end
   end
+
+  defp foreign_key_definition_parts("FOREIGN KEY " <> rest) do
+    with {sources, rest} <- PostgresDump.take_parenthesized(rest),
+         {table, rest} <- PostgresDump.identifier_after(rest, "REFERENCES "),
+         {destinations, suffix} <- PostgresDump.take_parenthesized(rest) do
+      {sources, table, destinations, suffix}
+    else
+      _unrecognized -> nil
+    end
+  end
+
+  defp foreign_key_definition_parts(_definition), do: nil
 
   defp expected_resource_map do
     :office_graph
@@ -1312,7 +1320,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp identifier_list(attributes) do
     attributes
-    |> String.split(",", trim: true)
+    |> PostgresDump.split_outside_quotes(",")
     |> Enum.map(&trim_identifier/1)
   end
 
@@ -2088,7 +2096,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_identifier(name) do
     name
     |> to_string()
-    |> String.slice(0, 63)
+    |> utf8_byte_prefix(63)
     |> PostgresDump.configured_identifier()
   end
 
@@ -2211,32 +2219,32 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp normalize_foreign_key_definition(definition) do
-    case Regex.named_captures(
-           ~r/^FOREIGN KEY \((?<sources>[^\)]+)\) REFERENCES (?<table>[^\(]+)\((?<destinations>[^\)]+)\)(?<suffix>.*)$/,
-           definition
-         ) do
-      %{
-        "sources" => sources,
-        "table" => table,
-        "destinations" => destinations,
-        "suffix" => suffix
-      } ->
+    case foreign_key_definition_parts(definition) do
+      {sources, table, destinations, suffix} ->
         pairs =
           sources
-          |> String.split(",")
-          |> Enum.map(&String.trim/1)
-          |> Enum.zip(destinations |> String.split(",") |> Enum.map(&String.trim/1))
+          |> PostgresDump.split_outside_quotes(",")
+          |> Enum.map(&trim_identifier/1)
+          |> Enum.zip(
+            destinations
+            |> PostgresDump.split_outside_quotes(",")
+            |> Enum.map(&trim_identifier/1)
+          )
           |> Enum.sort()
 
         {sources, destinations} = Enum.unzip(pairs)
-
-        table = table |> String.trim() |> normalize_identity()
 
         "FOREIGN KEY (#{Enum.join(sources, ", ")}) REFERENCES #{table}(#{Enum.join(destinations, ", ")})#{suffix}"
 
       nil ->
         definition
     end
+  end
+
+  defp normalize_identifier_list(attributes) do
+    attributes
+    |> PostgresDump.split_outside_quotes(",")
+    |> Enum.map_join(", ", &trim_identifier/1)
   end
 
   defp normalize_identity(identity) when is_binary(identity) do

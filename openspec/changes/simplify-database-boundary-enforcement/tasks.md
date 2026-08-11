@@ -107,3 +107,10 @@
 - [x] 15.2 Inspect generated canonical Repo functions while retaining only narrow named-wrapper suppression, and discover tracked SQL-like files case-insensitively.
 - [x] 15.3 Derive relationship objects only from migration-visible attributes, truncate generated names at UTF-8 boundaries, and pin exact Oban enum labels.
 - [x] 15.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the review threads.
+
+## 16. Macro, Dispatch, And PostgreSQL Token Follow-Up
+
+- [x] 16.1 Add failing regressions for uncompiled dependency macros, remaining runtime dispatch forms, and verifier-script fingerprint invalidation.
+- [x] 16.2 Reject those source and compiled escape paths without macro expansion, dataflow, or command-body interpretation.
+- [x] 16.3 Add and implement terminal regressions for enum approvals, UTF-8 generated identifiers, quoted foreign-key columns, quoted keyword columns, and dollar-token boundaries.
+- [x] 16.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the cached review threads.

@@ -37,28 +37,23 @@ defmodule OfficeGraph.ProjectQualityGateTest do
   test "test query logging is quiet by default and explicitly opt-in" do
     repo_config = Application.fetch_env!(:office_graph, OfficeGraph.Repo)
 
-    inspect_config = ~S"""
-    IO.puts(
-      "REPO_QUERY_LOG=#{System.get_env("OFFICE_GRAPH_TEST_SQL_LOG")}:" <>
-        inspect(Application.fetch_env!(:office_graph, OfficeGraph.Repo)[:log])
-    )
-    """
-
     assert repo_config[:log] == false
 
-    {output, 0} =
-      System.cmd(
-        "mix",
-        [
-          "run",
-          "-e",
-          inspect_config
-        ],
-        env: [{"MIX_ENV", "test"}, {"OFFICE_GRAPH_TEST_SQL_LOG", "1"}],
-        stderr_to_stdout: true
-      )
+    previous_log_setting = System.get_env("OFFICE_GRAPH_TEST_SQL_LOG")
 
-    assert output =~ "REPO_QUERY_LOG=1::debug"
+    on_exit(fn ->
+      if previous_log_setting do
+        System.put_env("OFFICE_GRAPH_TEST_SQL_LOG", previous_log_setting)
+      else
+        System.delete_env("OFFICE_GRAPH_TEST_SQL_LOG")
+      end
+    end)
+
+    System.put_env("OFFICE_GRAPH_TEST_SQL_LOG", "1")
+
+    runtime_config = Config.Reader.read!("config/runtime.exs", env: :test)
+
+    assert get_in(runtime_config, [:office_graph, OfficeGraph.Repo, :log]) == :debug
   end
 
   test "canonical verification runs project boundaries exactly once through Credo" do

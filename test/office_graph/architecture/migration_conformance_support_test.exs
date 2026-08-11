@@ -32,6 +32,23 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> length() == 2
   end
 
+  test "dollar-quote-shaped identifier suffixes stay in the identifier token" do
+    assert PostgresDump.split_statements(
+             "CREATE TABLE object$tag$ (id integer); CREATE TABLE later (id integer);"
+           ) == [
+             "CREATE TABLE object$tag$ (id integer);",
+             "CREATE TABLE later (id integer);"
+           ]
+
+    assert PostgresDump.split_once_outside_quotes("object$tag$ ON target", " ON ") ==
+             {"object$tag$", "target"}
+
+    assert PostgresDump.normalize_definition("object$tag$   text") == "object$tag$ text"
+
+    assert PostgresDump.take_parenthesized("(object$tag$, next) trailing") ==
+             {"object$tag$, next", " trailing"}
+  end
+
   test "parses terminal schema dump object classes" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -685,6 +702,18 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            )
   end
 
+  test "quoted constraint remains a table column" do
+    inventory =
+      MigrationConformanceSupport.parse_dump(~S'''
+      CREATE TABLE public.literal_examples (
+          "constraint" text NOT NULL
+      );
+      ''')
+
+    assert inventory.columns ==
+             MapSet.new([{"literal_examples", "constraint", "text NOT NULL"}])
+  end
+
   test "terminal definitions normalize only PostgreSQL-generated not-null names" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -748,6 +777,34 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> synthetic_terminal_errors(%{
              "sequence_examples" =>
                {nil, OfficeGraph.TestSupport.MigrationConformanceSequenceResource}
+           })
+           |> without_framework_presence_errors() == []
+  end
+
+  test "all generated identifiers truncate by complete UTF-8 bytes" do
+    table = "éééééééééééééééééééééééééééééé"
+    generated_name = table <> "_id"
+
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public."#{table}" (
+          id bigint DEFAULT nextval('public."#{generated_name}"'::regclass) NOT NULL
+      );
+      CREATE SEQUENCE public."#{generated_name}"
+          AS bigint
+          START WITH 1
+          INCREMENT BY 1
+          NO MINVALUE
+          NO MAXVALUE
+          CACHE 1
+          NO CYCLE;
+      ALTER SEQUENCE public."#{generated_name}" OWNED BY public."#{table}".id;
+      ALTER TABLE ONLY public."#{table}" ADD CONSTRAINT "#{table}_pk" PRIMARY KEY (id);
+      """)
+
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             table => {nil, OfficeGraph.TestSupport.MigrationConformanceUtf8GeneratedNameResource}
            })
            |> without_framework_presence_errors() == []
   end
@@ -993,6 +1050,38 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
       )
 
     refute Enum.any?(errors, &String.contains?(&1, "composite_children_parent_fkey"))
+    refute Enum.any?(errors, &String.contains?(&1, "without a matching belongs_to"))
+  end
+
+  test "terminal constraints split quoted comma identifiers only outside quotes" do
+    inventory =
+      MigrationConformanceSupport.parse_dump(~S'''
+      CREATE TABLE public.quoted_comma_parents (
+          "tenant,id" uuid NOT NULL,
+          parent_scope uuid NOT NULL
+      );
+      CREATE TABLE public.quoted_comma_children (
+          id uuid NOT NULL,
+          "parent,id" uuid NOT NULL,
+          child_scope uuid NOT NULL
+      );
+      ALTER TABLE ONLY public.quoted_comma_parents ADD CONSTRAINT quoted_comma_parents_pkey PRIMARY KEY ("tenant,id");
+      ALTER TABLE ONLY public.quoted_comma_children ADD CONSTRAINT quoted_comma_children_pkey PRIMARY KEY (id);
+      ALTER TABLE ONLY public.quoted_comma_children ADD CONSTRAINT quoted_comma_children_parent_fkey FOREIGN KEY ("parent,id", child_scope) REFERENCES public.quoted_comma_parents("tenant,id", parent_scope);
+      ''')
+
+    errors =
+      MigrationConformanceSupport.terminal_database_errors(
+        %{
+          "quoted_comma_children" =>
+            {nil, OfficeGraph.TestSupport.MigrationConformanceQuotedCommaChildResource},
+          "quoted_comma_parents" =>
+            {nil, OfficeGraph.TestSupport.MigrationConformanceQuotedCommaParentResource}
+        },
+        inventory
+      )
+
+    refute Enum.any?(errors, &String.contains?(&1, "quoted_comma_children_parent_fkey"))
     refute Enum.any?(errors, &String.contains?(&1, "without a matching belongs_to"))
   end
 

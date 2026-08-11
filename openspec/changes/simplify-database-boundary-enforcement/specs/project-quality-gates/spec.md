@@ -88,10 +88,26 @@ construction, SQL bodies, macro output, or control flow.
 
 #### Scenario: Runtime execution namespaces are audited
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
-  Erlang runtime code loader, `:erpc.multicast` with a database target, or a
-  migration `@after_verify` callback
+  Erlang runtime code loader or expression evaluator, any supported
+  MFA-executing RPC form, `Postgrex.SimpleConnection`, a statically visible
+  supervisor child-spec start MFA, or a migration `@after_verify` callback
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
+
+#### Scenario: Uncompiled source invokes dependency macros
+- **WHEN** a tracked `.exs` source introduces an opaque dependency macro through
+  `require`, `import`, or `use` outside the explicitly recognized declarative
+  framework surfaces
+- **THEN** the source gate MUST reject the capability without expanding or
+  evaluating the macro, because no persisted application BEAM can audit its
+  emitted calls
+
+#### Scenario: Canonical verifier script changes
+- **WHEN** the test-only canonical verifier subprocess seam still has its exact
+  source locator and arguments but `bin/verify` or its invoked migration-baseline
+  script differs from the reviewed content
+- **THEN** the source gate MUST invalidate the exemption before executing the
+  script
 
 #### Scenario: Compiled environments are audited
 - **WHEN** canonical verification reaches the compiled database-boundary audit
@@ -180,10 +196,23 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   derived from that relationship
 
 #### Scenario: Generated identifier truncation crosses a multibyte character
-- **WHEN** PostgreSQL shortens an automatically named `NOT NULL` constraint whose
-  table or column contains multibyte UTF-8 characters
+- **WHEN** PostgreSQL shortens an automatically generated constraint, index, or
+  sequence identifier whose component names contain multibyte UTF-8 characters
 - **THEN** conformance MUST apply the PostgreSQL byte budget while clipping only
   at complete UTF-8 codepoint boundaries
+
+#### Scenario: Quoted identifier contains delimiter or keyword text
+- **WHEN** a valid quoted column is named `constraint`, contains a comma in a
+  composite foreign key, or an unquoted identifier contains dollar-quote-shaped
+  suffix text
+- **THEN** terminal parsing MUST preserve the identifier token and MUST NOT treat
+  its contents as a declaration keyword, list delimiter, or dollar-quote opener
+
+#### Scenario: Approved project enum is inventoried
+- **WHEN** an accepted change approves a non-framework enum type as an exact
+  terminal object
+- **THEN** the approval inventory MUST accept the `enum` class and terminal
+  conformance MUST still require its exact identity and statement fingerprint
 
 #### Scenario: Raw SQL changes ownership
 - **WHEN** a migration attempts to create, alter, or drop schema ownership

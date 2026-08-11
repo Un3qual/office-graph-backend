@@ -130,6 +130,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert DatabaseBoundaryGate.compare([occurrence("sha256:current")], [approved]) == []
   end
 
+  test "accepts exact enum terminal-object approval metadata" do
+    approved =
+      approved_entry("sha256:current")
+      |> Map.put("terminal_objects", [
+        %{
+          "class" => "enum",
+          "identity" => "review_status",
+          "fingerprint" =>
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ])
+
+    assert DatabaseBoundaryGate.compare([occurrence("sha256:current")], [approved]) == []
+  end
+
   test "rejects non-map approved exceptions without crashing the boundary gate" do
     [diagnostic] = DatabaseBoundaryGate.compare([], [nil])
 

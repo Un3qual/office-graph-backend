@@ -325,6 +325,74 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceCompositeChildResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedCommaParentResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "quoted_comma_parents"
+    repo OfficeGraph.Repo
+  end
+
+  attributes do
+    attribute :id, :uuid, source: :"tenant,id", primary_key?: true, allow_nil?: false
+    attribute :scope_id, :uuid, source: :parent_scope, allow_nil?: false
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedCommaChildResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "quoted_comma_children"
+    repo OfficeGraph.Repo
+
+    references do
+      reference :parent do
+        name "quoted_comma_children_parent_fkey"
+        match_with scope_id: :scope_id
+      end
+    end
+  end
+
+  attributes do
+    attribute :id, :uuid, primary_key?: true, allow_nil?: false
+    attribute :parent_id, :uuid, source: :"parent,id", allow_nil?: false
+    attribute :scope_id, :uuid, source: :child_scope, allow_nil?: false
+  end
+
+  relationships do
+    belongs_to :parent,
+               OfficeGraph.TestSupport.MigrationConformanceQuotedCommaParentResource do
+      source_attribute :parent_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? false
+    end
+  end
+end
+
+defmodule OfficeGraph.TestSupport.MigrationConformanceUtf8GeneratedNameResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "éééééééééééééééééééééééééééééé"
+    repo OfficeGraph.Repo
+  end
+
+  attributes do
+    attribute :id, :integer,
+      primary_key?: true,
+      allow_nil?: false,
+      generated?: true
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedResource do
   @moduledoc false
 

@@ -3,6 +3,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
 
   @unquoted_identifier ~r/^[\p{L}_][\p{L}\p{M}0-9_$]*/u
   @canonical_identifier ~r/^[\p{L}_][\p{L}\p{M}0-9_$]*\z/u
+  @identifier_continuation ~r/^[\p{L}\p{M}0-9_$]\z/u
   @dollar_delimiter ~r/^\$(?:[\p{L}_][\p{L}\p{M}0-9_]*)?\$/u
 
   def split_statements(dump) when is_binary(dump), do: split_sql(dump, :plain, [], [])
@@ -18,7 +19,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
   end
 
   def identifier_after_keyword(statement, keyword) do
-    case find_keyword(statement, keyword, :plain) do
+    case find_keyword(statement, keyword, :plain, false) do
       nil -> nil
       rest -> take_identifier(rest)
     end
@@ -80,13 +81,21 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
 
   def split_once_outside_quotes(input, keyword)
       when is_binary(input) and is_binary(keyword) and keyword != "" do
-    case find_keyword(input, keyword, :plain) do
+    case find_keyword(input, keyword, :plain, false) do
       nil ->
         nil
 
       rest ->
         prefix_size = byte_size(input) - byte_size(keyword) - byte_size(rest)
         {binary_part(input, 0, prefix_size), rest}
+    end
+  end
+
+  def split_outside_quotes(input, separator)
+      when is_binary(input) and is_binary(separator) and separator != "" do
+    case split_once_outside_quotes(input, separator) do
+      {head, rest} -> [String.trim(head) | split_outside_quotes(rest, separator)]
+      nil -> [String.trim(input)]
     end
   end
 
@@ -153,56 +162,66 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
 
   defp identifier_value(value), do: value
 
-  defp find_keyword(<<>>, _keyword, _state), do: nil
+  defp find_keyword(<<>>, _keyword, _state, _identifier_continuation?), do: nil
 
-  defp find_keyword(input, keyword, :plain) do
+  defp find_keyword(input, keyword, :plain, identifier_continuation?) do
     cond do
       String.starts_with?(input, keyword) ->
         binary_part(input, byte_size(keyword), byte_size(input) - byte_size(keyword))
 
       String.starts_with?(input, "'") ->
         <<"'", rest::binary>> = input
-        find_keyword(rest, keyword, :single_quote)
+        find_keyword(rest, keyword, :single_quote, false)
 
       String.starts_with?(input, "\"") ->
         <<"\"", rest::binary>> = input
-        find_keyword(rest, keyword, :double_quote)
+        find_keyword(rest, keyword, :double_quote, false)
 
-      delimiter = dollar_delimiter(input) ->
+      delimiter = dollar_delimiter(input, identifier_continuation?) ->
         rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
-        find_keyword(rest, keyword, {:dollar_quote, delimiter})
+        find_keyword(rest, keyword, {:dollar_quote, delimiter}, false)
 
       true ->
-        <<_character::utf8, rest::binary>> = input
-        find_keyword(rest, keyword, :plain)
+        <<character::utf8, rest::binary>> = input
+        find_keyword(rest, keyword, :plain, identifier_continuation?(character))
     end
   end
 
-  defp find_keyword(<<"''", rest::binary>>, keyword, :single_quote),
-    do: find_keyword(rest, keyword, :single_quote)
+  defp find_keyword(<<"''", rest::binary>>, keyword, :single_quote, _continuation?),
+    do: find_keyword(rest, keyword, :single_quote, false)
 
-  defp find_keyword(<<"'", rest::binary>>, keyword, :single_quote),
-    do: find_keyword(rest, keyword, :plain)
+  defp find_keyword(<<"'", rest::binary>>, keyword, :single_quote, _continuation?),
+    do: find_keyword(rest, keyword, :plain, false)
 
-  defp find_keyword(<<_character::utf8, rest::binary>>, keyword, :single_quote),
-    do: find_keyword(rest, keyword, :single_quote)
+  defp find_keyword(
+         <<_character::utf8, rest::binary>>,
+         keyword,
+         :single_quote,
+         _continuation?
+       ),
+       do: find_keyword(rest, keyword, :single_quote, false)
 
-  defp find_keyword(<<"\"\"", rest::binary>>, keyword, :double_quote),
-    do: find_keyword(rest, keyword, :double_quote)
+  defp find_keyword(<<"\"\"", rest::binary>>, keyword, :double_quote, _continuation?),
+    do: find_keyword(rest, keyword, :double_quote, false)
 
-  defp find_keyword(<<"\"", rest::binary>>, keyword, :double_quote),
-    do: find_keyword(rest, keyword, :plain)
+  defp find_keyword(<<"\"", rest::binary>>, keyword, :double_quote, _continuation?),
+    do: find_keyword(rest, keyword, :plain, false)
 
-  defp find_keyword(<<_character::utf8, rest::binary>>, keyword, :double_quote),
-    do: find_keyword(rest, keyword, :double_quote)
+  defp find_keyword(
+         <<_character::utf8, rest::binary>>,
+         keyword,
+         :double_quote,
+         _continuation?
+       ),
+       do: find_keyword(rest, keyword, :double_quote, false)
 
-  defp find_keyword(input, keyword, {:dollar_quote, delimiter} = state) do
+  defp find_keyword(input, keyword, {:dollar_quote, delimiter} = state, _continuation?) do
     if String.starts_with?(input, delimiter) do
       rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
-      find_keyword(rest, keyword, :plain)
+      find_keyword(rest, keyword, :plain, false)
     else
       <<_character::utf8, rest::binary>> = input
-      find_keyword(rest, keyword, state)
+      find_keyword(rest, keyword, state, false)
     end
   end
 
@@ -241,7 +260,11 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
             )
         end
 
-      delimiter = dollar_delimiter(input) ->
+      delimiter =
+          dollar_delimiter(
+            input,
+            not pending_space? and previous_identifier_continuation?(output)
+          ) ->
         rest = binary_part(input, byte_size(delimiter), byte_size(input) - byte_size(delimiter))
 
         normalize_whitespace(
@@ -320,7 +343,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
     do: take_parenthesized(rest, depth, :double_quote, ["\"" | current])
 
   defp take_parenthesized(<<"$", _rest::binary>> = input, depth, :plain, current) do
-    case dollar_delimiter(input) do
+    case dollar_delimiter(input, previous_identifier_continuation?(current)) do
       nil ->
         <<character::utf8, rest::binary>> = input
         take_parenthesized(rest, depth, :plain, [<<character::utf8>> | current])
@@ -375,7 +398,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
     do: split_sql(rest, :double_quote, ["\"" | current], statements)
 
   defp split_sql(<<"$", _rest::binary>> = input, :plain, current, statements) do
-    case dollar_delimiter(input) do
+    case dollar_delimiter(input, previous_identifier_continuation?(current)) do
       nil ->
         <<character::utf8, rest::binary>> = input
         split_sql(rest, :plain, [<<character::utf8>> | current], statements)
@@ -433,10 +456,27 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
     if statement == "", do: statements, else: [statement | statements]
   end
 
-  defp dollar_delimiter(input) do
+  defp dollar_delimiter(_input, true), do: nil
+
+  defp dollar_delimiter(input, false) do
     case Regex.run(@dollar_delimiter, input) do
       [delimiter] -> delimiter
       nil -> nil
     end
   end
+
+  defp previous_identifier_continuation?([head | _rest]) do
+    head
+    |> IO.iodata_to_binary()
+    |> String.last()
+    |> case do
+      nil -> false
+      character -> Regex.match?(@identifier_continuation, character)
+    end
+  end
+
+  defp previous_identifier_continuation?([]), do: false
+
+  defp identifier_continuation?(character),
+    do: Regex.match?(@identifier_continuation, <<character::utf8>>)
 end

@@ -255,32 +255,27 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
     end)
   end
 
-  test "the focused Credo invocation loads and selects the project boundary check" do
+  test "the focused Credo configuration loads and selects the project boundary check" do
     with_repository(fn root ->
       path = "docs/superpowers/plans/focused-check.md"
       write_file!(root, path, "# Parallel plan\n")
 
-      {output, status} =
-        System.cmd(
-          "mix",
-          [
-            "credo",
-            "--strict",
-            "--config-file",
-            Path.join(File.cwd!(), ".credo.exs"),
-            "--only",
-            inspect(@check),
-            "--working-dir",
-            root
-          ],
-          env: [{"MIX_ENV", "test"}],
-          stderr_to_stdout: true
-        )
+      issues =
+        [
+          "--strict",
+          "--mute-exit-status",
+          "--config-file",
+          Path.join(File.cwd!(), ".credo.exs"),
+          "--only",
+          inspect(@check),
+          "--working-dir",
+          root
+        ]
+        |> Credo.run()
+        |> Execution.get_issues()
 
-      assert status != 0
-      assert output =~ path
-      assert output =~ "parallel_planning"
-      assert length(:binary.matches(output, path)) == 1
+      assert [%{filename: ^path, message: message}] = issues
+      assert message =~ "parallel_planning"
     end)
   end
 

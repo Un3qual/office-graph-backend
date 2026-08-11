@@ -13,6 +13,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "verification"
   ]
   @terminal_object_classes [
+    "enum",
     "extension",
     "grant",
     "materialized view",

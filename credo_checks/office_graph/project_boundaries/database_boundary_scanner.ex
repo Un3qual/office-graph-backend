@@ -279,7 +279,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Ecto.Query.API",
     "OfficeGraph.Repo",
     "Postgrex",
-    "Postgrex.Notifications"
+    "Postgrex.Notifications",
+    "Postgrex.SimpleConnection"
   ]
   @private_persistence_modules [
     "Ecto.Adapters.Postgres.Connection",
@@ -326,6 +327,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "env",
     "fish",
     "ksh",
+    "mix",
     "mksh",
     "node",
     "nu",
@@ -342,9 +344,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "xonsh",
     "zsh"
   ]
-  @dynamic_dispatch_modules ["Function", "Task", "Task.Supervisor", "erpc", "rpc"]
+  @dynamic_dispatch_modules [
+    "DynamicSupervisor",
+    "Function",
+    "Supervisor",
+    "Task",
+    "Task.Supervisor",
+    "erpc",
+    "rpc"
+  ]
   @mfa_process_operations [:spawn, :spawn_link, :spawn_monitor, :spawn_opt, :spawn_request]
-  @mfa_rpc_operations [:async_call, :block_call, :call, :cast, :multicall]
+  @mfa_rpc_operations [
+    :async_call,
+    :block_call,
+    :call,
+    :cast,
+    :eval_everywhere,
+    :multicall,
+    :parallel_eval,
+    :pmap
+  ]
   @mfa_erpc_operations [:call, :cast, :multicall, :multicast, :send_request]
   @mfa_task_operations [:async, :async_stream, :start, :start_link]
   @mfa_task_supervisor_operations [
@@ -354,12 +373,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :async_stream_nolink,
     :start_child
   ]
+  @mfa_supervisor_operations [:start_child]
   @mfa_dispatch_operations Enum.uniq(
                              @mfa_process_operations ++
                                @mfa_rpc_operations ++
                                @mfa_erpc_operations ++
                                @mfa_task_operations ++
-                               @mfa_task_supervisor_operations
+                               @mfa_task_supervisor_operations ++
+                               @mfa_supervisor_operations
                            )
   @migration_callback_attributes [
     :after_compile,
@@ -368,7 +389,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :on_definition,
     :on_load
   ]
-  @reflection_modules ["Code", "Module", "code"]
+  @reflection_modules ["Code", "Module", "code", "erl_eval"]
   @reflection_operations %{
     "Code" => [
       :compile_file,
@@ -390,7 +411,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :load_file,
       :load_native_partial,
       :prepare_loading
-    ]
+    ],
+    "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause]
+  }
+  @allowed_uncompiled_macro_modules [
+    "Ash.Query",
+    "Ash.Resource",
+    "Config",
+    "Ecto.Migration",
+    "ExUnit.Case",
+    "Mix.Project",
+    "Oban.Testing"
+  ]
+  @canonical_verification_fingerprints %{
+    "bin/verify" => "sha256:4895bc9e15a8389b6fadf4b2913247b5a076d4de9c36943295cda211fe143b2f",
+    "bin/verify-migration-baseline" =>
+      "sha256:e3e7fba601c6a331cbc7b62acc48e5b8c49ebe6c3a6b48366a5c3a332ee75bd5"
   }
   @sql_payload_positions %{
     "Ecto.Adapters.SQL.execute" => nil,
@@ -474,7 +510,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> assign_ordinals()
   end
 
-  defp scan_source(%{path: path, source: source}, _root) do
+  defp scan_source(%{path: path, source: source}, root) do
     cond do
       sql_file?(path) ->
         [
@@ -490,7 +526,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         ]
 
       elixir_source?(path) ->
-        scan_elixir_source(path, source)
+        scan_elixir_source(path, source, root)
 
       true ->
         []
@@ -502,7 +538,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_source(%{path: path, source: source}, root)
   end
 
-  defp scan_elixir_source(path, source) do
+  defp scan_elixir_source(path, source, root) do
     case Code.string_to_quoted(source, file: path, columns: true) do
       {:ok, ast} ->
         env = %{
@@ -517,7 +553,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           path: path,
           quote_depth: 0,
           query_dsl?: false,
-          repository_module?: false
+          repository_module?: false,
+          root: root
         }
 
         {_env, occurrences} = scan_node(ast, env, [])
@@ -626,7 +663,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({:import, metadata, arguments}, env, occurrences) do
     {env, import_occurrences} = apply_import(arguments, metadata, env)
+
+    occurrences =
+      case uncompiled_macro_occurrence(:import, arguments, env) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
+
     {env, occurrences ++ import_occurrences}
+  end
+
+  defp scan_node({:require, _metadata, arguments}, env, occurrences) when is_list(arguments) do
+    occurrences =
+      case uncompiled_macro_occurrence(:require, arguments, env) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
+
+    {env, occurrences}
   end
 
   defp scan_node({:defdelegate, _metadata, arguments} = node, env, occurrences)
@@ -641,6 +695,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node({:use, _metadata, [target | _options]} = node, env, occurrences) do
+    occurrences =
+      case uncompiled_macro_occurrence(:use, [target], env) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
+
     case module_name(target, env) do
       "Ecto.Migration" ->
         {%{env | migration?: true}, occurrences}
@@ -1082,7 +1142,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_operation(receiver, operation, _arity, node, env)
        when {receiver, operation} in @process_execution_operations do
-    case process_command_status(receiver, operation, node, env.path) do
+    case process_command_status(receiver, operation, node, env) do
       :database_cli ->
         occurrence(env, line_from_node(node), :raw_sql, "process.database_cli", node,
           approval: :unresolved_sql
@@ -1116,6 +1176,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       line_from_node(node),
       :direct_ecto,
       "Postgrex.Notifications.#{operation}",
+      node,
+      approval: :unresolved_sql
+    )
+  end
+
+  defp classify_operation("Postgrex.SimpleConnection", operation, _arity, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :direct_ecto,
+      "Postgrex.SimpleConnection.#{operation}",
       node,
       approval: :unresolved_sql
     )
@@ -1303,6 +1374,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       {:multicall, [_nodes, target, target_operation, _arguments, _timeout]} ->
         [{target, target_operation}]
 
+      {:eval_everywhere, [target, target_operation, _arguments]} ->
+        [{target, target_operation}]
+
+      {:eval_everywhere, [_nodes, target, target_operation, _arguments]} ->
+        [{target, target_operation}]
+
+      {:parallel_eval, [calls]} ->
+        parallel_eval_targets(calls)
+
+      {:pmap, [function_spec, _extra_arguments, _list]} ->
+        [mfa_function_spec_target(function_spec)]
+
       _other ->
         []
     end
@@ -1324,7 +1407,59 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp mfa_dispatch_targets(receiver, :start_child, [_supervisor, child_spec])
+       when receiver in ["DynamicSupervisor", "Supervisor"] do
+    child_spec_start_targets(child_spec)
+  end
+
   defp mfa_dispatch_targets(_receiver, _operation, _arguments), do: []
+
+  defp parallel_eval_targets(calls) when is_list(calls),
+    do: Enum.map(calls, &mfa_call_target/1)
+
+  defp parallel_eval_targets({:cons, _annotation, call, rest}),
+    do: [mfa_call_target(call) | parallel_eval_targets(rest)]
+
+  defp parallel_eval_targets({nil, _annotation}), do: []
+  defp parallel_eval_targets(calls), do: [{calls, nil}]
+
+  defp mfa_call_target({:{}, _metadata, [target, operation, _arguments]}),
+    do: {target, operation}
+
+  defp mfa_call_target({:tuple, _annotation, [target, operation, _arguments]}),
+    do: {target, operation}
+
+  defp mfa_call_target(call), do: {call, nil}
+
+  defp mfa_function_spec_target({target, operation}), do: {target, operation}
+
+  defp mfa_function_spec_target({:{}, _metadata, [target, operation]}),
+    do: {target, operation}
+
+  defp mfa_function_spec_target({:tuple, _annotation, [target, operation]}),
+    do: {target, operation}
+
+  defp mfa_function_spec_target(function_spec), do: {function_spec, nil}
+
+  defp child_spec_start_targets({:%{}, _metadata, entries}) when is_list(entries) do
+    case List.keyfind(entries, :start, 0) do
+      {:start, start_mfa} -> [mfa_call_target(start_mfa)]
+      nil -> []
+    end
+  end
+
+  defp child_spec_start_targets({:map, _annotation, fields}) when is_list(fields) do
+    Enum.find_value(fields, [], fn
+      {kind, _field_annotation, {:atom, _key_annotation, :start}, start_mfa}
+      when kind in [:map_field_assoc, :map_field_exact] ->
+        [mfa_call_target(start_mfa)]
+
+      _field ->
+        nil
+    end)
+  end
+
+  defp child_spec_start_targets(_child_spec), do: []
 
   defp classify_dynamic_dispatch(receiver, operation, kind, node, env) do
     resolved_receiver = receiver_name(receiver, env)
@@ -1513,7 +1648,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp database_shaped_variable_receiver?(_receiver), do: false
 
-  defp uncompiled_elixir_source?(path), do: Path.extname(path) == ".exs"
+  defp uncompiled_elixir_source?(path), do: source_extension(path) == ".exs"
+
+  defp uncompiled_macro_occurrence(kind, [target | _options], env) do
+    module = module_name(target, env)
+
+    if uncompiled_elixir_source?(env.path) and
+         not (kind == :use and env.migration?) and
+         opaque_dependency_macro_module?(module) do
+      occurrence(
+        env,
+        line_from_node(target),
+        :direct_ecto,
+        "uncompiled_macro.#{kind}",
+        {kind, target},
+        approval: :unresolved_sql
+      )
+    end
+  end
+
+  defp uncompiled_macro_occurrence(_kind, _arguments, _env), do: nil
+
+  defp opaque_dependency_macro_module?(module) when is_binary(module) do
+    module not in @allowed_uncompiled_macro_modules and
+      module not in @database_modules and
+      module not in @private_persistence_modules and
+      module not in @process_execution_modules and
+      module not in @reflection_modules and
+      module not in @dynamic_dispatch_modules and
+      not project_module?(module)
+  end
+
+  defp opaque_dependency_macro_module?(_module), do: true
+
+  defp project_module?(module),
+    do:
+      module == "OfficeGraph" or String.starts_with?(module, "OfficeGraph.") or
+        module == "OfficeGraphWeb" or String.starts_with?(module, "OfficeGraphWeb.")
 
   defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
        when is_atom(name) and is_atom(context) do
@@ -1710,6 +1881,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: operation in @postgrex_raw_sql_operations or operation in @postgrex_direct_operations
 
   defp imported_operation?("Postgrex.Notifications", _operation), do: true
+  defp imported_operation?("Postgrex.SimpleConnection", _operation), do: true
 
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
   defp imported_operation?("Ecto.Migrator", operation), do: operation in @ecto_migrator_operations
@@ -1833,18 +2005,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp call_arguments(_node), do: []
 
-  defp process_command_status(receiver, operation, node, path) do
+  defp process_command_status(receiver, operation, node, env) do
     arguments = call_arguments(node)
 
     if (receiver == "Port" and operation == :open) or
          (receiver == "erlang" and operation == :open_port) do
       :dynamic
     else
-      process_command_status(receiver, operation, arguments, node, path)
+      process_command_status(receiver, operation, arguments, node, env)
     end
   end
 
-  defp process_command_status(receiver, operation, arguments, node, path) do
+  defp process_command_status(receiver, operation, arguments, node, env) do
     command_arguments =
       case {receiver, operation, arguments} do
         {"System", :cmd, [executable, args | _options]} -> [executable, args]
@@ -1861,7 +2033,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         :database_cli
 
       read_only_process_command?(receiver, operation, node) or
-          canonical_verification_command?(receiver, operation, node, path) ->
+          canonical_verification_command?(receiver, operation, node, env) ->
         :safe
 
       is_nil(executable) ->
@@ -1967,7 +2139,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          "System",
          :cmd,
          node,
-         "test/office_graph/project_quality_gate_test.exs"
+         %{path: "test/office_graph/project_quality_gate_test.exs", root: root}
        ) do
     case call_arguments(node) do
       [executable, arguments | _options] ->
@@ -1975,14 +2147,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           static_command_arguments(arguments) in [
             ["bin/verify"],
             ["bin/verify", "--print-environment"]
-          ]
+          ] and canonical_verification_sources_match?(root)
 
       _arguments ->
         false
     end
   end
 
-  defp canonical_verification_command?(_receiver, _operation, _node, _path), do: false
+  defp canonical_verification_command?(_receiver, _operation, _node, _env), do: false
+
+  defp canonical_verification_sources_match?(root) do
+    Enum.all?(@canonical_verification_fingerprints, fn {path, expected} ->
+      case File.read(Path.join(root, path)) do
+        {:ok, source} -> sha256(source) == expected
+        {:error, _reason} -> false
+      end
+    end)
+  end
+
+  defp sha256(value),
+    do: "sha256:" <> Base.encode16(:crypto.hash(:sha256, value), case: :lower)
 
   defp docker_read_only_arguments?(arguments) do
     docker_pg_dump_arguments?(arguments) or

@@ -407,6 +407,94 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects every supported RPC evaluator form that can execute a database MFA" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/rpc_evaluators.exs",
+          source: """
+          defmodule RpcEvaluatorScript do
+            def everywhere(sql), do: :rpc.eval_everywhere(OfficeGraph.Repo, :query!, [sql, []])
+            def everywhere_on(nodes, sql), do: :rpc.eval_everywhere(nodes, OfficeGraph.Repo, :query!, [sql, []])
+            def parallel(sql), do: :rpc.parallel_eval([{OfficeGraph.Repo, :query!, [sql, []]}])
+            def mapped(sql), do: :rpc.pmap({OfficeGraph.Repo, :query!}, [[]], [sql])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"OfficeGraph.Repo.eval_everywhere", "everywhere/1", :unresolved_sql},
+             {"OfficeGraph.Repo.eval_everywhere", "everywhere_on/2", :unresolved_sql},
+             {"OfficeGraph.Repo.parallel_eval", "parallel/1", :unresolved_sql},
+             {"OfficeGraph.Repo.pmap", "mapped/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects opaque runtime execution namespaces and supervisor start MFAs" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/runtime_execution.exs",
+          source: """
+          defmodule RuntimeExecutionScript do
+            def evaluate(forms), do: :erl_eval.exprs(forms, [])
+            def connect(options), do: Postgrex.SimpleConnection.start_link(__MODULE__, [], options)
+            def mix_eval(code), do: System.cmd("mix", ["run", "-e", code])
+
+            def supervised(supervisor, sql) do
+              Supervisor.start_child(supervisor, %{
+                id: :query,
+                start: {OfficeGraph.Repo, :query!, [sql, []]}
+              })
+            end
+
+            def dynamic_supervised(supervisor, sql) do
+              DynamicSupervisor.start_child(supervisor, %{
+                id: :query,
+                start: {OfficeGraph.Repo, :query!, [sql, []]}
+              })
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "reflection.erl_eval.exprs", "evaluate/1", :unresolved_sql},
+             {:direct_ecto, "Postgrex.SimpleConnection.start_link", "connect/1", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "mix_eval/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "dynamic_supervised/2", :unresolved_sql}
+           ]
+  end
+
+  test "rejects opaque dependency macro capabilities in uncompiled sources" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/dependency_macros.exs",
+          source: """
+          defmodule DependencyMacroScript do
+            require Dependency.QueryMacros
+            import Dependency.CommandMacros
+            use Dependency.PersistenceDSL
+
+            require Ash.Query
+            import Config
+            use ExUnit.Case
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"uncompiled_macro.require", 2, :unresolved_sql},
+             {"uncompiled_macro.import", 3, :unresolved_sql},
+             {"uncompiled_macro.use", 4, :unresolved_sql}
+           ]
+  end
+
   test "rejects function captures that target database dispatch" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -563,6 +651,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           """
         },
         %{
+          path: "scripts/expression_repo.EXS",
+          source: """
+          lookup_repo().query!(sql, [])
+          """
+        },
+        %{
           path: "priv/repo/migrations/20260801000000_expression_repo.exs",
           source: """
           defmodule ExpressionRepoMigration do
@@ -580,6 +674,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              occurrences,
              &{&1.class, &1.construct, &1.function, Map.get(&1, :approval)}
            ) == [
+             {:raw_sql, "expression_receiver.query!", nil, :unresolved_sql},
              {:raw_sql, "expression_receiver.query!", nil, :unresolved_sql},
              {:direct_ecto, "Repo.insert", "up/0", nil}
            ]
@@ -1317,6 +1412,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "invalidates the canonical verification seam when a reviewed script changes" do
+    root = temporary_root("canonical_verifier_fingerprint")
+    File.mkdir_p!(Path.join(root, "bin"))
+    File.cp!("bin/verify", Path.join(root, "bin/verify"))
+    File.cp!("bin/verify-migration-baseline", Path.join(root, "bin/verify-migration-baseline"))
+
+    source = [
+      %{
+        path: "test/office_graph/project_quality_gate_test.exs",
+        source: ~S|System.cmd("sh", ["bin/verify", "--print-environment"])|
+      }
+    ]
+
+    assert DatabaseBoundaryScanner.scan_sources(source, root: root) == []
+
+    File.write!(Path.join(root, "bin/verify"), File.read!("bin/verify") <> "\n# changed\n")
+
+    [occurrence] = DatabaseBoundaryScanner.scan_sources(source, root: root)
+    assert occurrence.construct == "process.dynamic_command"
+    assert occurrence.approval == :unresolved_sql
+  end
+
   test "preserves approved UUIDv7 fragment fingerprints" do
     occurrences =
       [
@@ -1545,8 +1662,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def port(command), do: Port.open({:spawn, command}, [])
       def busybox(command), do: System.cmd("busybox", ["sh", "-c", command])
       def multicast(nodes, sql), do: :erpc.multicast(nodes, OfficeGraph.Repo, :query!, [sql, []])
+      def evaluate_everywhere(sql), do: :rpc.eval_everywhere(OfficeGraph.Repo, :query!, [sql, []])
+      def parallel_evaluate(sql), do: :rpc.parallel_eval([{OfficeGraph.Repo, :query!, [sql, []]}])
+      def parallel_map(sql), do: :rpc.pmap({OfficeGraph.Repo, :query!}, [[]], [sql])
       def load_binary(module, path, beam), do: :code.load_binary(module, path, beam)
+      def evaluate_forms(forms), do: :erl_eval.exprs(forms, [])
       def listen(pid, channel), do: Postgrex.Notifications.listen(pid, channel)
+      def simple_connection(options), do: Postgrex.SimpleConnection.start_link(__MODULE__, [], options)
+      def mix_eval(code), do: System.cmd("mix", ["run", "-e", code])
+
+      def supervised(supervisor, sql) do
+        Supervisor.start_child(supervisor, %{
+          id: :query,
+          start: {OfficeGraph.Repo, :query!, [sql, []]}
+        })
+      end
     end
     """)
 
@@ -1567,8 +1697,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "process.dynamic_command", "port/1", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "busybox/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.multicast", "multicast/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.eval_everywhere", "evaluate_everywhere/1",
+              :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.parallel_eval", "parallel_evaluate/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.pmap", "parallel_map/1", :unresolved_sql},
              {:direct_ecto, "reflection.code.load_binary", "load_binary/3", :unresolved_sql},
-             {:direct_ecto, "Postgrex.Notifications.listen", "listen/2", :unresolved_sql}
+             {:direct_ecto, "reflection.erl_eval.exprs", "evaluate_forms/1", :unresolved_sql},
+             {:direct_ecto, "Postgrex.Notifications.listen", "listen/2", :unresolved_sql},
+             {:direct_ecto, "Postgrex.SimpleConnection.start_link", "simple_connection/1",
+              :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "mix_eval/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql}
            ]
   end
 
