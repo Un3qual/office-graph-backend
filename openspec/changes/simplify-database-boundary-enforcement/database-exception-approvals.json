@@ -1,35 +1,5 @@
 {
-  "exceptions": [
-    {
-      "approving_change": "normalize-ash-resources-and-identifiers",
-      "class": "raw_sql",
-      "construct": "fragment",
-      "fingerprint": "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b",
-      "function": "up/0",
-      "line": 4892,
-      "ordinal": 1,
-      "owner": "OfficeGraph.Repo.Migrations",
-      "path": "priv/repo/migrations/20260729233957_initial.exs",
-      "reason": "Declare the project-owner-approved PostgreSQL 18 native UUIDv7 default on durable Ash primary keys.",
-      "retirement_condition": "Retire if PostgreSQL's native UUIDv7 default is replaced by an approved identifier strategy.",
-      "terminal_objects": [],
-      "verification": "PostgreSQL 18 version gate, rollback and upgrade, empty-database migration, UUIDv7 create tests, and strict boundary Credo gate."
-    },
-    {
-      "approving_change": "integrate-workos-enterprise-identity",
-      "class": "raw_sql",
-      "construct": "fragment",
-      "fingerprint": "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8",
-      "function": "up/0",
-      "line": 340,
-      "ordinal": 1,
-      "owner": "OfficeGraph.Repo.Migrations",
-      "path": "priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs",
-      "reason": "Declare the project-owner-approved PostgreSQL 18 native UUIDv7 default on the new durable enterprise identity primary keys.",
-      "retirement_condition": "Retire if PostgreSQL's native UUIDv7 default is replaced by an approved identifier strategy.",
-      "terminal_objects": [],
-      "verification": "PostgreSQL 18 version gate, rollback and upgrade, empty-database migration, UUIDv7 create tests, migration drift, and strict boundary Credo gate."
-    },
+  "approvals": [
     {
       "approving_change": "simplify-database-boundary-enforcement",
       "class": "direct_ecto",

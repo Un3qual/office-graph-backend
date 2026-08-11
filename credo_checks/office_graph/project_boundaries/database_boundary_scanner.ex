@@ -353,6 +353,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Task",
     "Task.Supervisor",
     "erpc",
+    "proc_lib",
     "rpc",
     "timer"
   ]
@@ -377,6 +378,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :start_child
   ]
   @mfa_supervisor_operations [:start_child]
+  @mfa_proc_lib_operations [
+    :hibernate,
+    :spawn,
+    :spawn_link,
+    :spawn_opt,
+    :start,
+    :start_link,
+    :start_monitor
+  ]
   @mfa_scheduled_timer_operations [:apply_after, :apply_interval, :apply_repeatedly]
   @mfa_timer_operations [:tc | @mfa_scheduled_timer_operations]
   @mfa_dispatch_operations Enum.uniq(
@@ -386,6 +396,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                @mfa_task_operations ++
                                @mfa_task_supervisor_operations ++
                                @mfa_supervisor_operations ++
+                               @mfa_proc_lib_operations ++
                                @mfa_timer_operations
                            )
   @migration_callback_attributes [
@@ -395,7 +406,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :on_definition,
     :on_load
   ]
-  @reflection_modules ["Code", "Module", "code", "erl_eval"]
+  @reflection_modules ["Code", "Kernel.ParallelCompiler", "Module", "code", "erl_eval"]
   @reflection_operations %{
     "Code" => [
       :compile_file,
@@ -403,8 +414,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :compile_string,
       :eval_file,
       :eval_quoted,
+      :eval_quoted_with_env,
       :eval_string,
       :require_file
+    ],
+    "Kernel.ParallelCompiler" => [
+      :compile,
+      :compile_to_path,
+      :files,
+      :files_to_path,
+      :require
     ],
     "Module" => [:create, :eval_quoted],
     "code" => [
@@ -420,6 +439,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     ],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause]
   }
+  @reviewed_runtime_compiler_fixtures [
+    {"test/office_graph/project_quality/database_boundary_gate_test.exs", "compile_file!/2"},
+    {"test/office_graph/project_quality/database_boundary_scanner_test.exs", "compile_file!/2"},
+    {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs",
+     "compile_file!/2"}
+  ]
   @allowed_uncompiled_macro_modules [
     "Ash.Query",
     "Ash.Resource",
@@ -1264,7 +1289,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :direct_ecto, "Repo.#{operation}", node)
   end
 
-  defp classify_operation(receiver, operation, _arity, node, env)
+  defp classify_operation(receiver, operation, arity, node, env)
        when receiver in @reflection_modules do
     if operation in Map.fetch!(@reflection_operations, receiver) do
       occurrence(
@@ -1273,7 +1298,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         :direct_ecto,
         "reflection.#{receiver}.#{operation}",
         node,
-        approval: :unresolved_sql
+        approval:
+          if(reviewed_runtime_compiler_fixture?(receiver, operation, arity, env),
+            do: nil,
+            else: :unresolved_sql
+          )
       )
     end
   end
@@ -1299,6 +1328,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       )
     end
   end
+
+  defp reviewed_runtime_compiler_fixture?("Kernel.ParallelCompiler", :compile_to_path, 3, env) do
+    {env.path, occurrence_function(env.function)} in @reviewed_runtime_compiler_fixtures
+  end
+
+  defp reviewed_runtime_compiler_fixture?(_receiver, _operation, _arity, _env), do: false
 
   defp classify_apply(receiver, operation, node, env) do
     classify_dynamic_dispatch(receiver, operation, :apply, node, env)
@@ -1429,6 +1464,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp mfa_dispatch_targets("timer", :tc, [_unit, target, target_operation, _arguments]),
     do: [{target, target_operation}]
+
+  defp mfa_dispatch_targets("proc_lib", operation, arguments)
+       when operation in @mfa_proc_lib_operations do
+    case {operation, arguments} do
+      {operation, [target, target_operation, _arguments]}
+      when operation in [:hibernate, :spawn, :spawn_link, :start, :start_link, :start_monitor] ->
+        [{target, target_operation}]
+
+      {operation, [_node, target, target_operation, _arguments]}
+      when operation in [:spawn, :spawn_link] ->
+        [{target, target_operation}]
+
+      {:spawn_opt, [target, target_operation, _arguments, _options]} ->
+        [{target, target_operation}]
+
+      {:spawn_opt, [_node, target, target_operation, _arguments, _options]} ->
+        [{target, target_operation}]
+
+      {operation, [target, target_operation, _arguments, _timeout]}
+      when operation in [:start, :start_link, :start_monitor] ->
+        [{target, target_operation}]
+
+      {operation, [target, target_operation, _arguments, _timeout, _options]}
+      when operation in [:start, :start_link, :start_monitor] ->
+        [{target, target_operation}]
+
+      _other ->
+        []
+    end
+  end
 
   defp mfa_dispatch_targets(receiver, :start_child, [_supervisor, child_spec])
        when receiver in ["DynamicSupervisor", "Supervisor"] do
@@ -2304,7 +2369,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp static_command_literal(node) do
     case command_literals(node) do
-      {[literal], false} -> literal |> Path.basename() |> String.downcase()
+      {[literal], false} -> literal
       _literal -> nil
     end
   end

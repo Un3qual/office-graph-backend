@@ -695,6 +695,25 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            )
   end
 
+  test "terminal errors preserve supported map defaults and non-usec temporal precision" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.literal_defaults (
+          settings jsonb DEFAULT '{}'::jsonb NOT NULL,
+          naive_at timestamp(0) without time zone NOT NULL,
+          utc_at timestamp(0) without time zone NOT NULL,
+          local_time time(0) without time zone NOT NULL
+      );
+      """)
+
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "literal_defaults" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceLiteralDefaultsResource}
+           })
+           |> without_framework_presence_errors() == []
+  end
+
   test "terminal definitions retain named not-null constraints" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

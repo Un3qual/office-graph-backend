@@ -62,7 +62,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       |> stringify_keys()
       |> Map.merge(%{
         "owner" => "OfficeGraph.Example",
-        "approving_change" => "approved-change"
+        "approving_change" => "approved-change",
+        "terminal_objects" => []
       })
 
     [diagnostic] = DatabaseBoundaryGate.compare([occurrence("sha256:approved")], [approved])
@@ -113,6 +114,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert diagnostic.inventory == :approved_exceptions
     assert diagnostic.entry == 1
     assert diagnostic.invalid_fields == ["terminal_objects"]
+  end
+
+  test "requires every approved exception to declare terminal objects" do
+    approved = approved_entry("sha256:current") |> Map.delete("terminal_objects")
+
+    [diagnostic] = DatabaseBoundaryGate.compare([occurrence("sha256:current")], [approved])
+
+    assert diagnostic.kind == :invalid_inventory
+    assert diagnostic.inventory == :approved_exceptions
+    assert diagnostic.entry == 1
+    assert diagnostic.missing_fields == ["terminal_objects"]
   end
 
   test "accepts exact RLS state terminal-object approval metadata" do
@@ -525,6 +537,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       "owner" => "OfficeGraph.Example",
       "reason" => "Required by the approved test contract.",
       "retirement_condition" => "Remove when the approved mechanism is retired.",
+      "terminal_objects" => [],
       "verification" => "Covered by the strict boundary gate."
     })
   end

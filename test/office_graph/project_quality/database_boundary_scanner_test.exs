@@ -479,6 +479,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects proc_lib module-function-argument dispatch to database operations" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/proc_lib_repo.exs",
+          source: """
+          defmodule ProcLibRepoScript do
+            def spawn(sql), do: :proc_lib.spawn(OfficeGraph.Repo, :query!, [sql, []])
+            def spawn_on(node, sql), do: :proc_lib.spawn(node, OfficeGraph.Repo, :query!, [sql, []])
+            def linked(sql), do: :proc_lib.spawn_link(OfficeGraph.Repo, :query!, [sql, []])
+            def optimized(sql), do: :proc_lib.spawn_opt(OfficeGraph.Repo, :query!, [sql, []], [])
+            def start(sql), do: :proc_lib.start(OfficeGraph.Repo, :query!, [sql, []])
+            def start_link(sql), do: :proc_lib.start_link(OfficeGraph.Repo, :query!, [sql, []])
+            def start_monitor(sql), do: :proc_lib.start_monitor(OfficeGraph.Repo, :query!, [sql, []])
+            def hibernate(sql), do: :proc_lib.hibernate(OfficeGraph.Repo, :query!, [sql, []])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"OfficeGraph.Repo.spawn", "spawn/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn", "spawn_on/2", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn_link", "linked/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn_opt", "optimized/1", :unresolved_sql},
+             {"OfficeGraph.Repo.start", "start/1", :unresolved_sql},
+             {"OfficeGraph.Repo.start_link", "start_link/1", :unresolved_sql},
+             {"OfficeGraph.Repo.start_monitor", "start_monitor/1", :unresolved_sql},
+             {"OfficeGraph.Repo.hibernate", "hibernate/1", :unresolved_sql}
+           ]
+  end
+
   test "rejects opaque runtime execution namespaces and supervisor start MFAs" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -752,6 +784,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :direct_ecto
     assert occurrence.construct == "reflection.Code.eval_string"
     assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects environment-returning quoted evaluation and runtime parallel compilation" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/runtime_compilation.exs",
+          source: """
+          defmodule RuntimeCompilation do
+            def evaluate(quoted, env), do: Code.eval_quoted_with_env(quoted, [], env)
+            def compile(files), do: Kernel.ParallelCompiler.compile(files)
+            def compile_to_path(files, path), do: Kernel.ParallelCompiler.compile_to_path(files, path)
+            def files(files), do: Kernel.ParallelCompiler.files(files)
+            def files_to_path(files, path), do: Kernel.ParallelCompiler.files_to_path(files, path)
+            def require(files), do: Kernel.ParallelCompiler.require(files)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.Code.eval_quoted_with_env", "evaluate/2", :unresolved_sql},
+             {"reflection.Kernel.ParallelCompiler.compile", "compile/1", :unresolved_sql},
+             {"reflection.Kernel.ParallelCompiler.compile_to_path", "compile_to_path/2",
+              :unresolved_sql},
+             {"reflection.Kernel.ParallelCompiler.files", "files/1", :unresolved_sql},
+             {"reflection.Kernel.ParallelCompiler.files_to_path", "files_to_path/2",
+              :unresolved_sql},
+             {"reflection.Kernel.ParallelCompiler.require", "require/1", :unresolved_sql}
+           ]
   end
 
   test "rejects file-based runtime code loading as an unresolved reflection boundary" do
@@ -1412,6 +1474,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def dynamic(command, args), do: System.cmd(command, args)
             def stage, do: System.cmd("git", ["add", "tracked.ex"])
             def stage_intent(path), do: System.cmd("git", ["add", "--intent-to-add", "--", path])
+            def fake_git, do: System.cmd("/tmp/git", ["init", "--quiet"])
             def disguised(command), do: System.cmd("sh", [command, "pg_dump"])
             def static_shell, do: System.cmd("sh", ["/tmp/run-db.sh"])
             def static_python, do: System.cmd("python3", ["/tmp/run-db.py"])
@@ -1430,6 +1493,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "process.database_cli", "shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "dynamic/2", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "stage/0", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "fake_git/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "disguised/1", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "static_shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "static_python/0", :unresolved_sql}
@@ -1632,11 +1696,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       """
     )
 
-    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
-             Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
-               debug_info: true,
-               return_diagnostics: true
-             )
+    compile_file!(source_path, ebin, debug_info: true)
 
     [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
     [occurrence] = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
@@ -1685,6 +1745,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def current(repo), do: repo.get_dynamic_repo()
         def stop(repo), do: repo.stop()
         def evaluate(path), do: Code.eval_file(path)
+        def evaluate_with_env(quoted, env), do: Code.eval_quoted_with_env(quoted, [], env)
+        def compile_runtime(files), do: Kernel.ParallelCompiler.compile(files)
         def migrate(path), do: Ecto.Migrator.run(OfficeGraph.Repo, path, :up, all: true)
         def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
         def spawn_query(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
@@ -1692,6 +1754,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def rpc_async_query(sql), do: :rpc.async_call(node(), OfficeGraph.Repo, :query!, [sql, []])
         def start_repo(options), do: OfficeGraph.Repo.start_link(options)
         def process_spawn_query(sql), do: Process.spawn(OfficeGraph.Repo, :query!, [sql, []], [])
+        def proc_lib_query(sql), do: :proc_lib.spawn(OfficeGraph.Repo, :query!, [sql, []])
         def timed_query(sql), do: :timer.tc(OfficeGraph.Repo, :query!, [sql, []])
         def timed_query(unit, sql), do: :timer.tc(unit, OfficeGraph.Repo, :query!, [sql, []])
         def psql(sql), do: System.cmd("psql", ["-c", sql])
@@ -1700,11 +1763,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       """
     )
 
-    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
-             Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
-               debug_info: true,
-               return_diagnostics: true
-             )
+    compile_file!(source_path, ebin, debug_info: true)
 
     [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
     occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
@@ -1725,6 +1784,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "variable_receiver.get_dynamic_repo", :unresolved_sql},
                {:direct_ecto, "variable_receiver.stop", :unresolved_sql},
                {:direct_ecto, "reflection.Code.eval_file", :unresolved_sql},
+               {:direct_ecto, "reflection.Code.eval_quoted_with_env", :unresolved_sql},
+               {:direct_ecto, "reflection.Kernel.ParallelCompiler.compile", :unresolved_sql},
                {:direct_ecto, "Ecto.Migrator.run", :unresolved_sql},
                {:direct_ecto, "variable_receiver.up", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
@@ -1732,6 +1793,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:raw_sql, "OfficeGraph.Repo.async_call", :unresolved_sql},
                {:direct_ecto, "Repo.start_link", nil},
                {:raw_sql, "OfficeGraph.Repo.spawn_opt", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.tc", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.tc", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
@@ -2025,11 +2087,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       """
     )
 
-    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
-             Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
-               debug_info: true,
-               return_diagnostics: true
-             )
+    compile_file!(source_path, ebin, debug_info: true)
 
     [occurrence] =
       DatabaseBoundaryScanner.scan_compiled(root,
@@ -2201,11 +2259,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       """
     )
 
-    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
-             Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
-               debug_info: false,
-               return_diagnostics: true
-             )
+    compile_file!(source_path, ebin, debug_info: false)
 
     [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
     [occurrence] = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
@@ -2253,14 +2307,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert DatabaseBoundaryScanner.scan_repository(root) == []
   end
 
-  test "current repository scan only reports approved UUIDv7 fragments" do
+  test "current repository scan only reports exact reviewed occurrences" do
     assert DatabaseBoundaryScanner.scan_repository(File.cwd!())
            |> Enum.map(&{&1.path, &1.line, &1.construct, &1.fingerprint}) == [
              {"priv/repo/migrations/20260729233957_initial.exs", 4892, "fragment",
               "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b"},
              {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
               "fragment",
-              "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"}
+              "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"},
+             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 602,
+              "reflection.Kernel.ParallelCompiler.compile_to_path",
+              "sha256:a808358a0059becfb73cea3349ebf8cf0818c73b7c2442db8c1e5fa7af11fe45"},
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2384,
+              "reflection.Kernel.ParallelCompiler.compile_to_path",
+              "sha256:0cd3e07510e789078cb7bda626f8a2229b01fa454e60dfbe779a7e2b83b3ae9c"},
+             {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
+              "reflection.Kernel.ParallelCompiler.compile_to_path",
+              "sha256:d61ffc842538282854795c3cb4fd83ec26e5cc07a19caff5aca73327d7f5d6b5"}
            ]
   end
 
@@ -2312,14 +2375,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     compile_file!(source_path, ebin)
   end
 
-  defp compile_file!(source_path, ebin) do
+  defp compile_file!(source_path, ebin, options \\ []) do
     compiler_options = Code.compiler_options()
     Code.compiler_options(debug_info: true, ignore_module_conflict: true)
 
     try do
       assert {:ok, _modules, _diagnostics} =
-               Kernel.ParallelCompiler.compile_to_path([source_path], ebin,
-                 return_diagnostics: true
+               Kernel.ParallelCompiler.compile_to_path(
+                 [source_path],
+                 ebin,
+                 Keyword.put(options, :return_diagnostics, true)
                )
     after
       Code.compiler_options(compiler_options)

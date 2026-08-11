@@ -26,6 +26,10 @@ exception.
 - **WHEN** an accepted OpenSpec change explicitly approves repository-authored SQL
 - **THEN** the exception MUST identify its occurrence fingerprint, file, owner, reason, verification coverage, and retirement condition
 
+#### Scenario: Approved exception declares terminal ownership
+- **WHEN** any exact low-level exception is recorded in the approved inventory and its accepted-change evidence
+- **THEN** both records MUST include a `terminal_objects` list, using `[]` only when the accepted change explicitly records that the occurrence owns no stored database object
+
 #### Scenario: Direct Ecto appears necessary without raw SQL
 - **WHEN** a safe requirement cannot be expressed through built-in Ash behavior but can be expressed through typed Ecto constructs without SQL strings
 - **THEN** the accepted OpenSpec design MUST document the missing Ash capability, bounded scope, verification, and retirement condition
@@ -133,6 +137,14 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   CLI, a shell form containing that CLI, or a dynamic subprocess command
 - **THEN** canonical verification MUST reject the command as unresolved while
   retaining only the statically visible read-only `pg_dump` inspection seam
+
+#### Scenario: Runtime code execution or MFA dispatch appears
+
+- **WHEN** tracked source or compiled project code uses runtime source
+  compilation, quoted evaluation, or a public process-library MFA form
+- **THEN** canonical verification MUST reject the operation as unresolved
+  unless the exact occurrence is an approved private verification fixture with
+  matching fingerprint and behavior coverage
 - **AND** the existing test-only shell invocation of the tracked canonical
   `bin/verify` script MUST match its source path and argument shape exactly
 

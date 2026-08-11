@@ -128,3 +128,11 @@
 - [x] 18.2 Reject ordinary `git add` subprocesses and retain only the exact non-filtering intent-to-add fixture seam.
 - [x] 18.3 Preserve resource schema qualification in string, atom, and empty-array default casts.
 - [x] 18.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the cached review threads.
+
+## 19. Runtime Compiler And Literal-Definition Follow-Up
+
+- [x] 19.1 Add failing regressions for environment-returning quoted evaluation, runtime parallel compilation, `proc_lib` MFA dispatch, and executable-path spoofing.
+- [x] 19.2 Reject every public source-compilation entrypoint and `proc_lib` MFA form, while retaining only exact OpenSpec-recorded private compiled-audit fixture seams.
+- [x] 19.3 Preserve AshPostgres empty-map defaults and zero precision for non-usec datetime and time types in expected terminal definitions.
+- [x] 19.4 Require every approved exception and matching approval record to declare `terminal_objects`, allowing an explicit empty list.
+- [x] 19.5 Run focused source, compiled, approval, and terminal-conformance regressions before canonical verification.

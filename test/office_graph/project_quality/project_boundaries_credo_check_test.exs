@@ -82,6 +82,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
             "path" => "lib/removed.ex",
             "reason" => "Approved test occurrence.",
             "retirement_condition" => "Remove with the test occurrence.",
+            "terminal_objects" => [],
             "verification" => "Covered by this test."
           }
         ]
@@ -113,6 +114,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
             "path" => "lib/removed.ex",
             "reason" => "Approved test occurrence.",
             "retirement_condition" => "Remove with the test occurrence.",
+            "terminal_objects" => [],
             "verification" => "Covered by this test."
           }
         ]
@@ -387,6 +389,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       "path" => occurrence.path,
       "reason" => "Approved test occurrence.",
       "retirement_condition" => "Remove with the test occurrence.",
+      "terminal_objects" => [],
       "verification" => "Covered by this test."
     }
   end

@@ -1616,13 +1616,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp postgres_type(:integer), do: "integer"
   defp postgres_type(:jsonb), do: "jsonb"
   defp postgres_type(:map), do: "jsonb"
-  defp postgres_type(:naive_datetime), do: "timestamp without time zone"
+  defp postgres_type(:naive_datetime), do: "timestamp(0) without time zone"
   defp postgres_type(:naive_datetime_usec), do: "timestamp without time zone"
   defp postgres_type(:string), do: "text"
   defp postgres_type(:text), do: "text"
-  defp postgres_type(:time), do: "time without time zone"
+  defp postgres_type(:time), do: "time(0) without time zone"
   defp postgres_type(:time_usec), do: "time without time zone"
-  defp postgres_type(:utc_datetime), do: "timestamp without time zone"
+  defp postgres_type(:utc_datetime), do: "timestamp(0) without time zone"
   defp postgres_type(:utc_datetime_usec), do: "timestamp without time zone"
   defp postgres_type(:uuid), do: "uuid"
   defp postgres_type(type) when is_atom(type), do: Atom.to_string(type)
@@ -1711,6 +1711,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp format_resource_default(resource, %{default: []}, type),
     do: "ARRAY[]::#{postgres_type(type, resource)}"
+
+  defp format_resource_default(resource, %{default: default}, type) when default == %{},
+    do: "'{}'::#{postgres_type(type, resource)}"
 
   defp format_resource_default(resource, %{default: default}, type) when is_binary(default),
     do: "'#{String.replace(default, "'", "''")}'::#{postgres_type(type, resource)}"

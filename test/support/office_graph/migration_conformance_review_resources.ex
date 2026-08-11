@@ -249,6 +249,28 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceLiteralResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceLiteralDefaultsResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  resource do
+    require_primary_key? false
+  end
+
+  postgres do
+    table "literal_defaults"
+    repo OfficeGraph.Repo
+  end
+
+  attributes do
+    attribute :settings, :map, allow_nil?: false, default: %{}
+    attribute :naive_at, :naive_datetime, allow_nil?: false
+    attribute :utc_at, :utc_datetime, allow_nil?: false
+    attribute :local_time, :time, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceCustomTypeResource do
   @moduledoc false
 

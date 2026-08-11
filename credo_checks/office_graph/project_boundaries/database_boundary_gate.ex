@@ -181,7 +181,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
 
   defp inventory_errors(approved_exceptions) do
     required_fields =
-      ["class", "construct", "fingerprint", "line", "ordinal", "path"] ++
+      ["class", "construct", "fingerprint", "line", "ordinal", "path", "terminal_objects"] ++
         @approved_metadata_fields
 
     indexed_exceptions = Enum.with_index(approved_exceptions, 1)

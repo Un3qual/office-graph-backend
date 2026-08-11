@@ -12,6 +12,7 @@
       "path": "priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs",
       "reason": "Declare the project-owner-approved PostgreSQL 18 native UUIDv7 default on the new durable enterprise identity primary keys.",
       "retirement_condition": "Retire if PostgreSQL's native UUIDv7 default is replaced by an approved identifier strategy.",
+      "terminal_objects": [],
       "verification": "PostgreSQL 18 version gate, rollback and upgrade, empty-database migration, UUIDv7 create tests, migration drift, and strict boundary Credo gate."
     }
   ],
