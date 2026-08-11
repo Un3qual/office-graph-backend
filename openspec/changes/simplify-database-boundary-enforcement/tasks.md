@@ -153,3 +153,10 @@
 - [x] 21.4 Inline each generated-source byte guard into its exact approved compiler occurrence and remove the mutable helper.
 - [x] 21.5 Verify pinned AshPostgres behavior for unsupported nonempty array defaults and retain the generator-conformant terminal expectation.
 - [x] 21.6 Run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification after refreshing exact approval evidence.
+
+## 22. Imported Dispatch And Runtime Startup Follow-Up
+
+- [x] 22.1 Add failing source regressions for wildcard-imported MFA dispatch, standard supervisor child specs, private repository startup, IEx compilation helpers, and anonymous migration invocation.
+- [x] 22.2 Reuse the existing dispatcher, child-spec, private-namespace, and reflection inventories to reject those paths without dataflow or callback interpretation.
+- [x] 22.3 Add compiled regressions for static child-spec shorthands, `Ecto.Repo.Supervisor`, and IEx compilation helpers, and refresh the exact compiler-fixture fingerprint evidence.
+- [x] 22.4 Run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

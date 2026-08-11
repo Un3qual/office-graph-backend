@@ -70,6 +70,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                            {"get_by!/3", "Ecto.Repo.Queryable", :get_by!, 4},
                                            {"in_transaction?/0", "Ecto.Repo.Transaction",
                                             :in_transaction?, 1},
+                                           {"config/0", "Ecto.Repo.Supervisor", :init_config, 4},
+                                           {"start_link/1", "Ecto.Repo.Supervisor", :start_link,
+                                            4},
+                                           {"aggregate/3", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"aggregate/4", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"all/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"all_by/3", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"delete/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"delete!/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"delete_all/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"exists?/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"get/3", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"get!/3", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"get_by/3", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"get_by!/3", "Ecto.Repo.Supervisor", :tuplet, 2},
                                            {"insert/2", "Ecto.Repo.Schema", :insert, 4},
                                            {"insert!/2", "Ecto.Repo.Schema", :insert!, 4},
                                            {"insert_all/3", "Ecto.Repo.Schema", :insert_all, 5},
@@ -77,9 +92,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                             :insert_or_update, 4},
                                            {"insert_or_update!/2", "Ecto.Repo.Schema",
                                             :insert_or_update!, 4},
+                                           {"insert/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"insert!/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"insert_all/3", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"insert_or_update/2", "Ecto.Repo.Supervisor", :tuplet,
+                                            2},
+                                           {"insert_or_update!/2", "Ecto.Repo.Supervisor",
+                                            :tuplet, 2},
                                            {"load/2", "Ecto.Repo.Schema", :load, 3},
                                            {"one/2", "Ecto.Repo.Queryable", :one, 3},
                                            {"one!/2", "Ecto.Repo.Queryable", :one!, 3},
+                                           {"one/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"one!/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"preload/3", "Ecto.Repo.Supervisor", :tuplet, 2},
                                            {"query/3", "Ecto.Adapters.SQL", :query, 4},
                                            {"query!/3", "Ecto.Adapters.SQL", :query!, 4},
                                            {"query_many/3", "Ecto.Adapters.SQL", :query_many, 4},
@@ -87,12 +112,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                             4},
                                            {"reload/2", "Ecto.Repo.Queryable", :reload, 3},
                                            {"reload!/2", "Ecto.Repo.Queryable", :reload!, 3},
+                                           {"reload/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"reload!/2", "Ecto.Repo.Supervisor", :tuplet, 2},
                                            {"rollback/1", "Ecto.Repo.Transaction", :rollback, 2},
                                            {"stream/2", "Ecto.Repo.Queryable", :stream, 3},
+                                           {"stream/2", "Ecto.Repo.Supervisor", :tuplet, 2},
                                            {"transact/2", "Ecto.Repo.Transaction", :transact, 4},
+                                           {"transact/2", "Ecto.Repo.Supervisor", :tuplet, 2},
                                            {"update/2", "Ecto.Repo.Schema", :update, 4},
                                            {"update!/2", "Ecto.Repo.Schema", :update!, 4},
-                                           {"update_all/3", "Ecto.Repo.Queryable", :update_all, 4}
+                                           {"update_all/3", "Ecto.Repo.Queryable", :update_all,
+                                            4},
+                                           {"update/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"update!/2", "Ecto.Repo.Supervisor", :tuplet, 2},
+                                           {"update_all/3", "Ecto.Repo.Supervisor", :tuplet, 2}
                                          ])
   @generated_canonical_repo_dynamic_calls MapSet.new([
                                             {"checked_out?/0", :checked_out?, 1},
@@ -288,6 +321,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Ecto.Migration.Runner",
     "Ecto.Repo.Queryable",
     "Ecto.Repo.Schema",
+    "Ecto.Repo.Supervisor",
     "Ecto.Repo.Transaction"
   ]
   @process_execution_modules ["Port", "System", "erlang", "os"]
@@ -345,19 +379,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "xonsh",
     "zsh"
   ]
-  @dynamic_dispatch_modules [
-    "DynamicSupervisor",
-    "Function",
-    "Process",
-    "Supervisor",
-    "Task",
-    "Task.Supervisor",
-    "erpc",
-    "proc_lib",
-    "rpc",
-    "supervisor",
-    "timer"
-  ]
   @mfa_process_operations [
     :hibernate,
     :spawn,
@@ -397,6 +418,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @mfa_scheduled_timer_operations [:apply_after, :apply_interval, :apply_repeatedly]
   @mfa_timer_operations [:tc | @mfa_scheduled_timer_operations]
+  @dynamic_dispatch_operations %{
+    "DynamicSupervisor" => @mfa_supervisor_operations,
+    "Function" => [:capture],
+    "Process" => [:spawn],
+    "Supervisor" => @mfa_supervisor_operations,
+    "Task" => @mfa_task_operations,
+    "Task.Supervisor" => @mfa_task_supervisor_operations,
+    "erpc" => @mfa_erpc_operations,
+    "proc_lib" => @mfa_proc_lib_operations,
+    "rpc" => @mfa_rpc_operations,
+    "supervisor" => @mfa_supervisor_operations,
+    "timer" => @mfa_timer_operations
+  }
+  @dynamic_dispatch_modules Map.keys(@dynamic_dispatch_operations)
   @mfa_dispatch_operations Enum.uniq(
                              @mfa_process_operations ++
                                @mfa_rpc_operations ++
@@ -417,6 +452,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @reflection_modules [
     "Code",
     "EEx",
+    "IEx.Helpers",
     "Kernel.ParallelCompiler",
     "Module",
     "code",
@@ -442,6 +478,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :function_from_file,
       :function_from_string
     ],
+    "IEx.Helpers" => [:c, :r, :recompile],
     "Kernel.ParallelCompiler" => [
       :compile,
       :compile_to_path,
@@ -828,6 +865,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       if migration_execution_context?(env) do
         [
           occurrence(env, line(metadata), :direct_ecto, "migration.control_flow", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
+        occurrences
+      end
+
+    scan_children(node, env, occurrences)
+  end
+
+  defp scan_node({{:., dot_metadata, [_callback]}, metadata, arguments} = node, env, occurrences)
+       when is_list(arguments) do
+    occurrences =
+      if migration_execution_context?(env) do
+        [
+          occurrence(
+            env,
+            line(dot_metadata) || line(metadata),
+            :direct_ecto,
+            "migration.helper_call",
+            node,
             approval: :unresolved_sql
           )
           | occurrences
@@ -1578,6 +1637,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end)
   end
 
+  defp child_spec_start_targets({module, _argument}), do: [{module, nil}]
+
+  defp child_spec_start_targets({:tuple, _annotation, [module, _argument]}),
+    do: [{module, nil}]
+
+  defp child_spec_start_targets({:__aliases__, _metadata, parts} = module) when is_list(parts),
+    do: [{module, nil}]
+
+  defp child_spec_start_targets({:atom, _annotation, _module} = module),
+    do: [{module, nil}]
+
   defp child_spec_start_targets(_child_spec), do: []
 
   defp classify_dynamic_dispatch(receiver, operation, kind, node, env) do
@@ -2005,8 +2075,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
   defp imported_operation?("Ecto.Migrator", operation), do: operation in @ecto_migrator_operations
-  defp imported_operation?("Function", operation), do: operation == :capture
-  defp imported_operation?("Process", operation), do: operation == :spawn
+
+  defp imported_operation?(module, operation) when module in @dynamic_dispatch_modules,
+    do: operation in Map.fetch!(@dynamic_dispatch_operations, module)
+
   defp imported_operation?("Port", operation), do: operation == :open
   defp imported_operation?("System", operation), do: operation in [:cmd, :shell]
   defp imported_operation?("erlang", operation), do: operation == :open_port

@@ -88,11 +88,26 @@ construction, SQL bodies, macro output, or control flow.
 
 #### Scenario: Runtime execution namespaces are audited
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
-  Erlang runtime code loader or expression evaluator, any supported
-  MFA-executing RPC form, `Postgrex.SimpleConnection`, a statically visible
-  supervisor child-spec start MFA, or a migration `@after_verify` callback
+  Erlang runtime code loader or expression evaluator, IEx compilation or
+  recompilation helpers, any supported MFA-executing RPC form,
+  `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
+  supervisor child spec including standard module and `{module, argument}`
+  shorthands, or a migration `@after_verify` callback
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
+
+#### Scenario: Wildcard import exposes an MFA dispatcher
+- **WHEN** tracked source wildcard-imports a supported process, task,
+  supervisor, RPC, timer, or `proc_lib` dispatcher and invokes its local MFA
+  form
+- **THEN** the source scanner MUST resolve the operation against that
+  dispatcher's existing operation inventory and reject a database target
+
+#### Scenario: Migration invokes an anonymous function
+- **WHEN** a migration execution context invokes an anonymous function value
+  whose behavior would require capture or value-flow interpretation
+- **THEN** the scanner MUST reject the invocation as an unresolved helper call
+  without attempting to trace the function value
 
 #### Scenario: Uncompiled source invokes dependency macros
 - **WHEN** a tracked `.exs` source introduces an opaque dependency macro through

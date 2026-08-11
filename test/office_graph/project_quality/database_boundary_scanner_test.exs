@@ -2426,7 +2426,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:3e8d3892a9f1d906d4b2d52dd197cc50f14006f6112fe621550181afcb0e71f7"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2490,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:a72c84b51b58cf296c8d09d56ce4463821c8012cd2a7a8794477974ddbb691e5"},
+              "sha256:83c4d7b08b572470d904fbaa9cfa218fa5f0450db1a42f091711b375b80b2ca1"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2508,6 +2508,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                          "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
+                       compiled_reviewed_runtime_boundaries:
+                         "34361d4c87e71d073e1d4991347ed375616b966445ae53637cba084f8eba7946",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2548,5 +2550,154 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     after
       Code.compiler_options(compiler_options)
     end
+  end
+
+  test "resolves wildcard imports for runtime MFA dispatch" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/wildcard_task_dispatch.exs",
+          source: """
+          defmodule WildcardTaskDispatch do
+            import Task
+
+            def run(sql), do: async(OfficeGraph.Repo, :query!, [sql, []])
+          end
+          """
+        }
+      ])
+
+    assert {occurrence.class, occurrence.construct, occurrence.function, occurrence.approval} ==
+             {:raw_sql, "OfficeGraph.Repo.async", "run/1", :unresolved_sql}
+  end
+
+  test "rejects standard module and tuple supervisor child specs" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/supervisor_child_specs.exs",
+          source: """
+          defmodule SupervisorChildSpecs do
+            def tuple(supervisor, options),
+              do: Supervisor.start_child(supervisor, {OfficeGraph.Repo, options})
+
+            def module(supervisor),
+              do: DynamicSupervisor.start_child(supervisor, OfficeGraph.Repo)
+
+            def worker_tuple(supervisor, options),
+              do: Supervisor.start_child(supervisor, {Worker, options})
+
+            def worker_module(supervisor),
+              do: DynamicSupervisor.start_child(supervisor, Worker)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "OfficeGraph.Repo.start_child", "tuple/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "module/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects direct repository startup through Ecto.Repo.Supervisor" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/private_repo_supervisor.exs",
+          source: """
+          Ecto.Repo.Supervisor.start_link(
+            OfficeGraph.Repo,
+            :office_graph,
+            Ecto.Adapters.Postgres,
+            []
+          )
+          """
+        }
+      ])
+
+    assert {occurrence.class, occurrence.construct, occurrence.approval} ==
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", :unresolved_sql}
+  end
+
+  test "rejects IEx compilation and recompilation helpers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/iex_compilation.exs",
+          source: """
+          IEx.Helpers.c(path)
+          IEx.Helpers.c(path, output_path)
+          IEx.Helpers.r(module)
+          IEx.Helpers.recompile()
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
+             {"reflection.IEx.Helpers.c", :unresolved_sql},
+             {"reflection.IEx.Helpers.c", :unresolved_sql},
+             {"reflection.IEx.Helpers.r", :unresolved_sql},
+             {"reflection.IEx.Helpers.recompile", :unresolved_sql}
+           ]
+  end
+
+  test "rejects anonymous helper invocation in migration execution contexts" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260811000000_anonymous_helper.exs",
+          source: """
+          defmodule AnonymousHelperMigration do
+            use Ecto.Migration
+
+            def up do
+              callback = &execute/1
+              callback.("SELECT 1")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"migration.helper_call", "up/0", :unresolved_sql}
+           ]
+  end
+
+  test "compiled audit rejects private startup, IEx compilation, and child-spec shorthands" do
+    root = temporary_root("compiled_reviewed_runtime_boundaries")
+    source_path = Path.join(root, "lib/compiled_reviewed_runtime_boundaries.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    module = OfficeGraph.CompiledReviewedRuntimeBoundariesFixture
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def private_start(options),
+        do: Ecto.Repo.Supervisor.start_link(OfficeGraph.Repo, :office_graph, Ecto.Adapters.Postgres, options)
+
+      def compile(path), do: IEx.Helpers.c(path)
+      def recompile(module), do: IEx.Helpers.r(module)
+
+      def tuple(supervisor, options),
+        do: Supervisor.start_child(supervisor, {OfficeGraph.Repo, options})
+
+      def module(supervisor),
+        do: DynamicSupervisor.start_child(supervisor, OfficeGraph.Repo)
+    end
+    """)
+
+    beam_path = Path.join(ebin, "#{module}.beam")
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "private_start/1",
+              :unresolved_sql},
+             {:direct_ecto, "reflection.IEx.Helpers.c", "compile/1", :unresolved_sql},
+             {:direct_ecto, "reflection.IEx.Helpers.r", "recompile/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "tuple/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "module/1", :unresolved_sql}
+           ]
   end
 end
