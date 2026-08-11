@@ -40,6 +40,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :reload,
     :reload!,
     :rollback,
+    :start_link,
     :stream,
     :stop,
     :transaction,
@@ -312,7 +313,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "reindexdb",
     "vacuumdb"
   ]
-  @reviewed_git_operations ["add", "init", "ls-files", "mv"]
   @command_dispatch_executables [
     "ash",
     "bash",
@@ -348,6 +348,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @dynamic_dispatch_modules [
     "DynamicSupervisor",
     "Function",
+    "Process",
     "Supervisor",
     "Task",
     "Task.Supervisor",
@@ -376,7 +377,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :start_child
   ]
   @mfa_supervisor_operations [:start_child]
-  @mfa_timer_operations [:apply_after, :apply_interval, :apply_repeatedly]
+  @mfa_scheduled_timer_operations [:apply_after, :apply_interval, :apply_repeatedly]
+  @mfa_timer_operations [:tc | @mfa_scheduled_timer_operations]
   @mfa_dispatch_operations Enum.uniq(
                              @mfa_process_operations ++
                                @mfa_rpc_operations ++
@@ -1335,6 +1337,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp mfa_dispatch_targets("Process", :spawn, [target, target_operation, _arguments, _options]),
+    do: [{target, target_operation}]
+
   defp mfa_dispatch_targets("Task", operation, arguments)
        when operation in @mfa_task_operations do
     case {operation, arguments} do
@@ -1416,8 +1421,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp mfa_dispatch_targets("timer", operation, [_delay, target, target_operation, _arguments])
-       when operation in @mfa_timer_operations,
+       when operation in @mfa_scheduled_timer_operations,
        do: [{target, target_operation}]
+
+  defp mfa_dispatch_targets("timer", :tc, [target, target_operation, _arguments]),
+    do: [{target, target_operation}]
+
+  defp mfa_dispatch_targets("timer", :tc, [_unit, target, target_operation, _arguments]),
+    do: [{target, target_operation}]
 
   defp mfa_dispatch_targets(receiver, :start_child, [_supervisor, child_spec])
        when receiver in ["DynamicSupervisor", "Supervisor"] do
@@ -1898,6 +1909,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp imported_operation?("Ecto.Multi", operation), do: operation in @multi_operations
   defp imported_operation?("Ecto.Migrator", operation), do: operation in @ecto_migrator_operations
   defp imported_operation?("Function", operation), do: operation == :capture
+  defp imported_operation?("Process", operation), do: operation == :spawn
   defp imported_operation?("Port", operation), do: operation == :open
   defp imported_operation?("System", operation), do: operation in [:cmd, :shell]
   defp imported_operation?("erlang", operation), do: operation == :open_port
@@ -1935,8 +1947,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp module_name({:__aliases__, _metadata, parts}, env) do
     if Enum.all?(parts, &is_atom/1) do
       [first | rest] = Enum.map(parts, &to_string/1)
-      name = Enum.join([Map.get(env.aliases, first, first) | rest], ".")
-      Map.get(env.aliases, name, name)
+
+      name =
+        [Map.get(env.aliases, first, first) | rest] |> Enum.join(".") |> canonical_module_name()
+
+      env.aliases |> Map.get(name, name) |> canonical_module_name()
     end
   end
 
@@ -1945,10 +1960,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp module_name(atom, _env) when is_atom(atom) do
     atom
     |> Atom.to_string()
-    |> String.trim_leading("Elixir.")
+    |> canonical_module_name()
   end
 
   defp module_name(_node, _env), do: nil
+
+  defp canonical_module_name(module), do: String.trim_leading(module, "Elixir.")
 
   defp alias_name_for(module, options) do
     case keyword_option(options, :as) do
@@ -2150,9 +2167,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp reviewed_process_command?(_receiver, _operation, _node), do: false
 
   defp reviewed_git_arguments?(arguments) do
-    case command_first_argument(arguments) do
-      nil -> false
-      argument -> static_argument_literal(argument) in @reviewed_git_operations
+    case command_argument_nodes(arguments) do
+      [operation, option] ->
+        {static_argument_literal(operation), static_argument_literal(option)} in [
+          {"init", "--quiet"},
+          {"ls-files", "-z"}
+        ]
+
+      [operation, option, separator, _path] ->
+        case {
+          static_argument_literal(operation),
+          static_argument_literal(option),
+          static_argument_literal(separator)
+        } do
+          {"add", "--intent-to-add", "--"} -> true
+          {"mv", "--", _source} -> true
+          _arguments -> false
+        end
+
+      _arguments ->
+        false
     end
   end
 
@@ -2249,11 +2283,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp command_argument_nodes(_arguments), do: :dynamic
-
-  defp command_first_argument([{:|, _metadata, [head, _tail]}]), do: head
-  defp command_first_argument([head | _tail]), do: head
-  defp command_first_argument({:cons, _metadata, head, _tail}), do: head
-  defp command_first_argument(_arguments), do: nil
 
   defp static_command_arguments(arguments) do
     case command_argument_nodes(arguments) do

@@ -1000,11 +1000,11 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
-  test "terminal errors accept public-qualified custom migration types" do
+  test "terminal errors qualify custom migration types in default casts" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
       CREATE TABLE public.review_items (
-          "status" public."review_status" NOT NULL
+          "status" public."review_status" DEFAULT 'pending'::public.review_status NOT NULL
       );
       """)
 
@@ -1019,11 +1019,11 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
-  test "terminal errors quote custom migration types in configured schemas" do
+  test "terminal errors quote custom migration types and default casts in configured schemas" do
     inventory =
       MigrationConformanceSupport.parse_dump(~S'''
       CREATE TABLE "Audit Space"."Typed Reviews" (
-          status "Audit Space".review_status NOT NULL
+          status "Audit Space".review_status DEFAULT 'pending'::"Audit Space".review_status NOT NULL
       );
       ''')
 

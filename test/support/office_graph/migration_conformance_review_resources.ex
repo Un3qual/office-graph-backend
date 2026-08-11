@@ -265,7 +265,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceCustomTypeResource do
   end
 
   attributes do
-    attribute :status, :string, allow_nil?: false
+    attribute :status, :string, allow_nil?: false, default: "pending"
   end
 end
 
@@ -286,7 +286,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedCustomTypeResource d
   end
 
   attributes do
-    attribute :status, :string, allow_nil?: false
+    attribute :status, :string, allow_nil?: false, default: "pending"
   end
 end
 

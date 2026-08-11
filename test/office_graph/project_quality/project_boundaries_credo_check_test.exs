@@ -365,7 +365,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
 
   defp write_tracked!(root, path, contents) do
     write_file!(root, path, contents)
-    {_output, 0} = System.cmd("git", ["add", path], cd: root)
+    {_output, 0} = System.cmd("git", ["add", "--intent-to-add", "--", path], cd: root)
   end
 
   defp write_file!(root, path, contents) do

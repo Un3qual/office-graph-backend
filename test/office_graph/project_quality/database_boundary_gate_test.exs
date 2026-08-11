@@ -222,7 +222,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           source_path = Path.join(root, occurrence.path)
           File.mkdir_p!(Path.dirname(source_path))
           File.write!(source_path, source)
-          {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+          {_output, 0} =
+            System.cmd("git", ["add", "--intent-to-add", "--", "."], cd: root)
 
           [diagnostic] = DatabaseBoundaryGate.check_repository(root)
 
@@ -264,7 +266,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       source_path = Path.join(root, occurrence.path)
       File.mkdir_p!(Path.dirname(source_path))
       File.write!(source_path, source)
-      {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+      {_output, 0} = System.cmd("git", ["add", "--intent-to-add", "--", "."], cd: root)
 
       assert DatabaseBoundaryGate.check_repository(root) == []
     end)
@@ -339,7 +341,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     File.mkdir_p!(Path.dirname(evidence_path))
     File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
     File.write!(evidence_path, Jason.encode!(%{"version" => 1, "approvals" => [approved]}))
-    {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+    {_output, 0} = System.cmd("git", ["add", "--intent-to-add", "--", "."], cd: root)
 
     [diagnostic] = DatabaseBoundaryGate.check_repository(root)
 
@@ -426,7 +428,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     File.mkdir_p!(Path.dirname(evidence_path))
     File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => approved}))
     File.write!(evidence_path, Jason.encode!(%{"version" => 1, "approvals" => approved}))
-    {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+    {_output, 0} = System.cmd("git", ["add", "--intent-to-add", "--", "."], cd: root)
 
     assert DatabaseBoundaryGate.check_repository(root)
            |> Enum.map(&{&1.kind, &1.construct, &1.function})
@@ -459,7 +461,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       source_path = Path.join(root, occurrence.path)
       File.mkdir_p!(Path.dirname(source_path))
       File.write!(source_path, source)
-      {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+      {_output, 0} = System.cmd("git", ["add", "--intent-to-add", "--", "."], cd: root)
 
       assert DatabaseBoundaryGate.check_repository(root) == []
     end)

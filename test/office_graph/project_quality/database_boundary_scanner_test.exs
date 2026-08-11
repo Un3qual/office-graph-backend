@@ -124,6 +124,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.function == "load/0"
   end
 
+  test "normalizes absolute Elixir module aliases" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/absolute_repo.exs",
+          source: ~S|Elixir.OfficeGraph.Repo.query!("SELECT 1", [])|
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "Repo.query!"
+    assert Map.get(occurrence, :approval) == nil
+  end
+
   test "keeps aliases in nested lexical scopes from replacing outer aliases" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -362,8 +376,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           path: "scripts/spawned_repo.exs",
           source: """
           defmodule SpawnedRepoScript do
+            import Process, only: [spawn: 4]
+
             def local(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
             def linked(sql), do: Kernel.spawn_link(OfficeGraph.Repo, :query!, [sql, []])
+            def process(sql), do: Process.spawn(OfficeGraph.Repo, :query!, [sql, []], [])
+            def imported(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []], [])
             def tasked(sql), do: Task.start(OfficeGraph.Repo, :query!, [sql, []])
 
             def supervised(supervisor, sql),
@@ -376,6 +394,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"OfficeGraph.Repo.spawn", "local/1", :unresolved_sql},
              {"OfficeGraph.Repo.spawn_link", "linked/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn", "process/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn", "imported/1", :unresolved_sql},
              {"OfficeGraph.Repo.start", "tasked/1", :unresolved_sql},
              {"OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql}
            ]
@@ -443,6 +463,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def once(sql), do: :timer.apply_after(1, OfficeGraph.Repo, :query!, [sql, []])
             def interval(sql), do: :timer.apply_interval(1, OfficeGraph.Repo, :query!, [sql, []])
             def repeated(sql), do: :timer.apply_repeatedly(1, OfficeGraph.Repo, :query!, [sql, []])
+            def timed(sql), do: :timer.tc(OfficeGraph.Repo, :query!, [sql, []])
+            def timed_in(unit, sql), do: :timer.tc(unit, OfficeGraph.Repo, :query!, [sql, []])
           end
           """
         }
@@ -451,7 +473,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"OfficeGraph.Repo.apply_after", "once/1", :unresolved_sql},
              {"OfficeGraph.Repo.apply_interval", "interval/1", :unresolved_sql},
-             {"OfficeGraph.Repo.apply_repeatedly", "repeated/1", :unresolved_sql}
+             {"OfficeGraph.Repo.apply_repeatedly", "repeated/1", :unresolved_sql},
+             {"OfficeGraph.Repo.tc", "timed/1", :unresolved_sql},
+             {"OfficeGraph.Repo.tc", "timed_in/2", :unresolved_sql}
            ]
   end
 
@@ -1130,6 +1154,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def current, do: OfficeGraph.Repo.get_dynamic_repo()
             def disconnect, do: OfficeGraph.Repo.disconnect_all(1_000)
             def disconnect_adapter, do: Ecto.Adapters.SQL.disconnect_all(OfficeGraph.Repo, 1_000)
+            def start(options), do: OfficeGraph.Repo.start_link(options)
           end
           """
         }
@@ -1139,7 +1164,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Repo.put_dynamic_repo", "select/1"},
              {:direct_ecto, "Repo.get_dynamic_repo", "current/0"},
              {:direct_ecto, "Repo.disconnect_all", "disconnect/0"},
-             {:direct_ecto, "Ecto.Adapters.SQL.disconnect_all", "disconnect_adapter/0"}
+             {:direct_ecto, "Ecto.Adapters.SQL.disconnect_all", "disconnect_adapter/0"},
+             {:direct_ecto, "Repo.start_link", "start/1"}
            ]
   end
 
@@ -1384,6 +1410,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def direct(sql), do: ProcessRunner.cmd("psql", ["-c", sql])
             def shell, do: :os.cmd(~c"psql -c 'SELECT 1'")
             def dynamic(command, args), do: System.cmd(command, args)
+            def stage, do: System.cmd("git", ["add", "tracked.ex"])
+            def stage_intent(path), do: System.cmd("git", ["add", "--intent-to-add", "--", path])
             def disguised(command), do: System.cmd("sh", [command, "pg_dump"])
             def static_shell, do: System.cmd("sh", ["/tmp/run-db.sh"])
             def static_python, do: System.cmd("python3", ["/tmp/run-db.py"])
@@ -1401,6 +1429,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "process.database_cli", "direct/1", :unresolved_sql},
              {:raw_sql, "process.database_cli", "shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "dynamic/2", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "stage/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "disguised/1", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "static_shell/0", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "static_python/0", :unresolved_sql}
@@ -1661,6 +1690,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def spawn_query(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []])
         def rpc_query(sql), do: :rpc.call(node(), OfficeGraph.Repo, :query!, [sql, []])
         def rpc_async_query(sql), do: :rpc.async_call(node(), OfficeGraph.Repo, :query!, [sql, []])
+        def start_repo(options), do: OfficeGraph.Repo.start_link(options)
+        def process_spawn_query(sql), do: Process.spawn(OfficeGraph.Repo, :query!, [sql, []], [])
+        def timed_query(sql), do: :timer.tc(OfficeGraph.Repo, :query!, [sql, []])
+        def timed_query(unit, sql), do: :timer.tc(unit, OfficeGraph.Repo, :query!, [sql, []])
         def psql(sql), do: System.cmd("psql", ["-c", sql])
         def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
@@ -1697,6 +1730,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:raw_sql, "OfficeGraph.Repo.spawn", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.call", :unresolved_sql},
                {:raw_sql, "OfficeGraph.Repo.async_call", :unresolved_sql},
+               {:direct_ecto, "Repo.start_link", nil},
+               {:raw_sql, "OfficeGraph.Repo.spawn_opt", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.tc", :unresolved_sql},
+               {:raw_sql, "OfficeGraph.Repo.tc", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
@@ -2246,15 +2283,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   end
 
   defp git!(root, ["add" | paths]) do
-    assert {_output, 0} =
-             System.cmd("git", ["add" | paths], cd: root, stderr_to_stdout: true)
+    Enum.each(paths, fn path ->
+      assert {_output, 0} =
+               System.cmd("git", ["add", "--intent-to-add", "--", path],
+                 cd: root,
+                 stderr_to_stdout: true
+               )
+    end)
 
     :ok
   end
 
   defp git!(root, ["mv", source, destination]) do
     assert {_output, 0} =
-             System.cmd("git", ["mv", source, destination],
+             System.cmd("git", ["mv", "--", source, destination],
                cd: root,
                stderr_to_stdout: true
              )

@@ -121,3 +121,10 @@
 - [x] 17.2 Audit OTP timer MFA dispatch, zero-arity expression receivers, and every non-scanner BEAM whose name shares the scanner prefix.
 - [x] 17.3 Compare AshPostgres `:citext` columns with the public-qualified extension type emitted by `pg_dump`.
 - [x] 17.4 Add focused source, compiled, fingerprint-invalidation, and terminal-conformance regressions.
+
+## 18. Startup, Dispatch, And Default-Cast Follow-Up
+
+- [x] 18.1 Audit repository startup, `Process.spawn/4`, timer timing MFAs, and absolute `Elixir.` aliases in source and compiled code.
+- [x] 18.2 Reject ordinary `git add` subprocesses and retain only the exact non-filtering intent-to-add fixture seam.
+- [x] 18.3 Preserve resource schema qualification in string, atom, and empty-array default casts.
+- [x] 18.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the cached review threads.

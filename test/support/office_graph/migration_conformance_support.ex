@@ -1709,18 +1709,18 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        when is_nil(default) or is_function(default),
        do: nil
 
-  defp format_resource_default(_resource, %{default: []}, type),
-    do: "ARRAY[]::#{postgres_type(type)}"
+  defp format_resource_default(resource, %{default: []}, type),
+    do: "ARRAY[]::#{postgres_type(type, resource)}"
 
-  defp format_resource_default(_resource, %{default: default}, type) when is_binary(default),
-    do: "'#{String.replace(default, "'", "''")}'::#{postgres_type(type)}"
+  defp format_resource_default(resource, %{default: default}, type) when is_binary(default),
+    do: "'#{String.replace(default, "'", "''")}'::#{postgres_type(type, resource)}"
 
   defp format_resource_default(_resource, %{default: default}, _type)
        when is_boolean(default) or is_integer(default) or is_float(default),
        do: to_string(default)
 
-  defp format_resource_default(_resource, %{default: default}, type) when is_atom(default),
-    do: "'#{default}'::#{postgres_type(type)}"
+  defp format_resource_default(resource, %{default: default}, type) when is_atom(default),
+    do: "'#{default}'::#{postgres_type(type, resource)}"
 
   defp format_resource_default(_resource, _attribute, _type), do: nil
 
