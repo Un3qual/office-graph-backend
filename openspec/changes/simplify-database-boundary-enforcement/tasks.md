@@ -183,3 +183,10 @@
 - [x] 25.3 Extend the shared source/BEAM reflection inventory for direct Erlang compilation and the repository source inventory for compound SQL suffixes without adding evaluation or dataflow analysis.
 - [x] 25.4 Preserve PostgreSQL string-literal semantics when generating and normalizing sequence `regclass` defaults.
 - [x] 25.5 Run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 26. Agent, Mix Project, And Resource Index Follow-Up
+
+- [x] 26.1 Add failing source and compiled regressions for Agent MFA initialization, `Mix.Project.in_project/3,4`, and SQL-bearing AshPostgres custom indexes.
+- [x] 26.2 Extend the shared source/BEAM dispatcher and reflection inventories for Agent and Mix project-file evaluation without adding value-flow analysis.
+- [x] 26.3 Scope custom-index SQL detection to the `postgres.custom_indexes` section of tracked Ash resources and reject predicates, expression fields, and nonliteral option containers.
+- [x] 26.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

@@ -2426,7 +2426,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2490,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:861c12ace96bf0eb625a4eed83cb9de563aee787fcfa615cb568494a38bdf78c"},
+              "sha256:1c734c92706ff851121ee0e28cbff4b8ec14f16a6356943f7061fc11a3cd8483"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2509,7 +2509,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_reviewed_runtime_boundaries:
-                         "e8c35125ec372268f6a80be31a11642339ef263b6dca5b9f993e7094e5cdfdc6",
+                         "452111dca6979e187a032f79e32c770b334dff725b6789173953833afaa2a3b5",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2902,6 +2902,88 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects Agent module-function-argument initialization" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/agent_mfa_initialization.exs",
+          source: """
+          defmodule AgentMfaInitialization do
+            import Agent, only: [start: 4]
+
+            def start(sql), do: Agent.start(OfficeGraph.Repo, :query!, [sql, []])
+
+            def imported(sql),
+              do: start(OfficeGraph.Repo, :query!, [sql, []], name: __MODULE__)
+
+            def link(sql),
+              do: Agent.start_link(OfficeGraph.Repo, :query!, [sql, []], name: __MODULE__)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "OfficeGraph.Repo.start", "start/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start", "imported/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_link", "link/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects Mix project-file evaluation" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/external_mix_project.exs",
+          source: """
+          defmodule ExternalMixProject do
+            alias Mix.Project, as: Project
+
+            def three(path, callback), do: Project.in_project(:payload, path, callback)
+
+            def four(path, callback),
+              do: Mix.Project.in_project(:payload, path, callback, env: :prod)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.Mix.Project.in_project", "three/2", :unresolved_sql},
+             {"reflection.Mix.Project.in_project", "four/2", :unresolved_sql}
+           ]
+  end
+
+  test "rejects SQL-bearing AshPostgres custom index declarations only in resource DSL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/reviewed_resource.ex",
+          source: """
+          defmodule OfficeGraph.ReviewedResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              custom_indexes do
+                index [:email], where: "deleted_at IS NULL"
+                index ["lower(email)"], name: "reviewed_resource_email_index"
+              end
+            end
+          end
+
+          defmodule OfficeGraph.UnrelatedIndexCall do
+            def run(collection), do: index(collection, where: "not SQL")
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
+             {"resource.index.where", 6, nil},
+             {"resource.index.fields", 7, nil}
+           ]
+  end
+
   test "compiled audit rejects reviewed runtime startup and evaluation escape paths" do
     root = temporary_root("compiled_reviewed_runtime_boundaries")
     source_path = Path.join(root, "lib/compiled_reviewed_runtime_boundaries.ex")
@@ -2940,11 +3022,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def mix_eval(arguments), do: Mix.Tasks.Eval.run(arguments)
       def mix_task_run(arguments), do: Mix.Task.run("run", arguments)
       def mix_task_rerun(arguments), do: Mix.Task.rerun("eval", arguments)
+      def mix_project(path, callback), do: Mix.Project.in_project(:payload, path, callback)
       def erlang_compile(path), do: :c.c(path)
       def compiler_file(path, options), do: :compile.file(path, options)
       def config_read(path), do: Config.Reader.read!(path)
       def expand(ast, env), do: Macro.expand(ast, env)
       def shell(command), do: Mix.Shell.IO.cmd(command)
+      def agent(sql), do: Agent.start(OfficeGraph.Repo, :query!, [sql, []])
+      def agent_link(sql), do: Agent.start_link(OfficeGraph.Repo, :query!, [sql, []], name: __MODULE__)
     end
     """)
 
@@ -2965,11 +3050,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "reflection.Mix.Tasks.Eval.run", "mix_eval/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Task.run", "mix_task_run/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Task.rerun", "mix_task_rerun/1", :unresolved_sql},
+             {:direct_ecto, "reflection.Mix.Project.in_project", "mix_project/2",
+              :unresolved_sql},
              {:direct_ecto, "reflection.c.c", "erlang_compile/1", :unresolved_sql},
              {:direct_ecto, "reflection.compile.file", "compiler_file/2", :unresolved_sql},
              {:direct_ecto, "reflection.Config.Reader.read!", "config_read/1", :unresolved_sql},
              {:direct_ecto, "reflection.Macro.expand", "expand/2", :unresolved_sql},
-             {:raw_sql, "process.dynamic_command", "shell/1", :unresolved_sql}
+             {:raw_sql, "process.dynamic_command", "shell/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start", "agent/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_link", "agent_link/1", :unresolved_sql}
            ]
   end
 end

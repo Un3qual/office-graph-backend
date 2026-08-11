@@ -389,6 +389,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :spawn_opt,
     :spawn_request
   ]
+  @mfa_agent_operations [:start, :start_link]
   @mfa_rpc_operations [
     :async_call,
     :block_call,
@@ -422,6 +423,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @mfa_scheduled_timer_operations [:apply_after, :apply_interval, :apply_repeatedly]
   @mfa_timer_operations [:tc | @mfa_scheduled_timer_operations]
   @dynamic_dispatch_operations %{
+    "Agent" => @mfa_agent_operations,
     "DynamicSupervisor" => @mfa_supervisor_operations,
     "Function" => [:capture],
     "Process" => [:spawn],
@@ -436,7 +438,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   }
   @dynamic_dispatch_modules Map.keys(@dynamic_dispatch_operations)
   @mfa_dispatch_operations Enum.uniq(
-                             @mfa_process_operations ++
+                             @mfa_agent_operations ++
+                               @mfa_process_operations ++
                                @mfa_rpc_operations ++
                                @mfa_erpc_operations ++
                                @mfa_task_operations ++
@@ -459,6 +462,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "IEx.Helpers",
     "Kernel.ParallelCompiler",
     "Macro",
+    "Mix.Project",
     "Mix.Task",
     "Mix.Tasks.Eval",
     "Mix.Tasks.Run",
@@ -499,6 +503,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :require
     ],
     "Macro" => [:compile_apply, :expand, :expand_once],
+    "Mix.Project" => [:in_project],
     "Mix.Task" => [:rerun, :run],
     "Mix.Tasks.Eval" => [:run],
     "Mix.Tasks.Run" => [:run],
@@ -735,6 +740,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           aliases: %{},
           ambiguous_expansion_depth: 0,
           approved_migration_loops: approved_migration_loops(path, ast),
+          ash_postgres_custom_indexes?: false,
+          ash_postgres?: false,
+          ash_resource?: false,
           compiled_source?: MapSet.member?(compiled_source_paths, path),
           function: nil,
           imports: %{},
@@ -767,6 +775,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     module_env = %{
       env
       | aliases: %{},
+        ash_postgres_custom_indexes?: false,
+        ash_postgres?: false,
+        ash_resource?: false,
         imports: %{},
         local_definitions: local_definitions(body),
         migration?: migration_path?(env.path),
@@ -894,6 +905,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       end
 
     case module_name(target, env) do
+      "Ash.Resource" ->
+        {%{env | ash_resource?: true}, occurrences}
+
       "Ecto.Migration" ->
         {%{env | migration?: true}, occurrences}
 
@@ -932,6 +946,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
         scan_children(node, env, occurrences)
     end
+  end
+
+  defp scan_node(
+         {:postgres, _metadata, [[do: body]]},
+         %{ash_resource?: true} = env,
+         occurrences
+       ) do
+    child_env = %{env | ash_postgres?: true}
+    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
+    {env, occurrences}
+  end
+
+  defp scan_node(
+         {:custom_indexes, _metadata, [[do: body]]},
+         %{ash_postgres?: true} = env,
+         occurrences
+       ) do
+    child_env = %{env | ash_postgres_custom_indexes?: true}
+    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
+    {env, occurrences}
   end
 
   defp scan_node({:for, metadata, arguments} = node, env, occurrences)
@@ -1090,6 +1124,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrences =
       operation
       |> migration_sql_option_occurrences(arguments, node, env)
+      |> Enum.reduce(occurrences, &[&1 | &2])
+
+    occurrences =
+      operation
+      |> resource_index_sql_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
 
     imported_receiver = imported_receiver(env, operation, length(arguments))
@@ -1584,6 +1623,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       _other ->
         []
+    end
+  end
+
+  defp mfa_dispatch_targets("Agent", operation, arguments)
+       when operation in @mfa_agent_operations do
+    case arguments do
+      [target, target_operation, _arguments] -> [{target, target_operation}]
+      [target, target_operation, _arguments, _options] -> [{target, target_operation}]
+      _other -> []
     end
   end
 
@@ -2768,6 +2816,72 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     else
       []
     end
+  end
+
+  defp resource_index_sql_occurrences(
+         :index,
+         arguments,
+         node,
+         %{ash_postgres_custom_indexes?: true} = env
+       ) do
+    option_occurrences =
+      case Enum.fetch(arguments, 1) do
+        {:ok, options} when is_list(options) ->
+          if Keyword.keyword?(options) do
+            options
+            |> sql_option_entries([:where])
+            |> Enum.map(fn {:where, value} ->
+              occurrence(
+                env,
+                line_from_node(node),
+                :raw_sql,
+                "resource.index.where",
+                {:index, :where, value},
+                approval: approval_marker(:raw_sql, "resource.index.where", [value])
+              )
+            end)
+          else
+            [unresolved_resource_index_options(options, node, env)]
+          end
+
+        {:ok, options} ->
+          [unresolved_resource_index_options(options, node, env)]
+
+        :error ->
+          []
+      end
+
+    option_occurrences ++ resource_index_field_occurrences(arguments, node, env)
+  end
+
+  defp resource_index_sql_occurrences(_operation, _arguments, _node, _env), do: []
+
+  defp unresolved_resource_index_options(options, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :raw_sql,
+      "resource.index.options",
+      {:index, :options, options},
+      approval: :unresolved_sql
+    )
+  end
+
+  defp resource_index_field_occurrences(arguments, node, env) do
+    arguments
+    |> List.first()
+    |> List.wrap()
+    |> Enum.reject(&is_atom/1)
+    |> Enum.map(fn field ->
+      occurrence(
+        env,
+        line_from_node(node),
+        :raw_sql,
+        "resource.index.fields",
+        {:index, :fields, field},
+        approval: approval_marker(:raw_sql, "resource.index.fields", [field])
+      )
+    end)
   end
 
   defp migration_sql_option_entries(operation, {:ok, options}, option_keys, node, env)

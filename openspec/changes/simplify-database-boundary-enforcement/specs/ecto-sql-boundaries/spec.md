@@ -54,6 +54,13 @@ approved exceptions SHALL remain exact and fingerprinted.
   relationship, aggregate, calculation, query lock, atomic change, bulk API, or
   other built-in Ash/AshPostgres interface
 
+#### Scenario: AshPostgres resource DSL embeds SQL
+
+- **WHEN** a custom index declaration contains a SQL predicate, expression
+  field, or unresolved option container
+- **THEN** canonical verification MUST require an exact approved occurrence or
+  reject the declaration before macro expansion can erase it
+
 #### Scenario: Terminal repository scan completes
 
 - **WHEN** canonical verification scans the current repository
@@ -143,8 +150,9 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 
 - **WHEN** tracked source or compiled project code uses runtime source
   compilation, EEx compilation or evaluation, quoted evaluation, an OTP file
-  evaluator, or a public process-library or supervisor MFA form including
-  `:erlang.hibernate/3` and `:supervisor.start_child/2`
+  evaluator, `Mix.Project.in_project/3,4`, Agent MFA initialization, or a public
+  process-library or supervisor MFA form including `:erlang.hibernate/3` and
+  `:supervisor.start_child/2`
 - **THEN** canonical verification MUST reject the operation as unresolved
   unless the exact occurrence is an approved private verification fixture with
   matching fingerprint and behavior coverage
