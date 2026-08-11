@@ -1,6 +1,10 @@
 defmodule OfficeGraph.TestSupport.PostgresDump do
   @moduledoc false
 
+  @unquoted_identifier ~r/^[\p{L}_][\p{L}\p{M}0-9_$]*/u
+  @canonical_identifier ~r/^[\p{L}_][\p{L}\p{M}0-9_$]*\z/u
+  @dollar_delimiter ~r/^\$(?:[\p{L}_][\p{L}\p{M}0-9_]*)?\$/u
+
   def split_statements(dump) when is_binary(dump), do: split_sql(dump, :plain, [], [])
 
   def identifier_after(statement, prefix) do
@@ -110,7 +114,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
     do: take_quoted_identifier(rest, [])
 
   defp take_identifier_part(input) do
-    case Regex.run(~r/^[A-Za-z_][A-Za-z0-9_$]*/, input) do
+    case Regex.run(@unquoted_identifier, input) do
       [part] ->
         rest = binary_part(input, byte_size(part), byte_size(input) - byte_size(part))
         {:ok, String.downcase(part), rest}
@@ -134,7 +138,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
   defp take_quoted_identifier(<<>>, _current), do: :error
 
   defp canonical_identifier(value) do
-    if Regex.match?(~r/^[a-z_][a-z0-9_$]*$/, value) do
+    if Regex.match?(@canonical_identifier, value) and value == String.downcase(value) do
       value
     else
       "\"#{String.replace(value, "\"", "\"\"")}\""
@@ -430,7 +434,7 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
   end
 
   defp dollar_delimiter(input) do
-    case Regex.run(~r/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/, input) do
+    case Regex.run(@dollar_delimiter, input) do
       [delimiter] -> delimiter
       nil -> nil
     end

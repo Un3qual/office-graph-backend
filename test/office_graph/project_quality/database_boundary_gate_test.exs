@@ -339,7 +339,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert diagnostic.ordinal == 2
   end
 
-  test "quoted source data cannot suppress a live compiled macro expansion" do
+  test "non-executable source calls cannot suppress live compiled macro expansions" do
     root =
       Path.join(
         System.tmp_dir!(),
@@ -368,6 +368,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           OfficeGraph.Repo.transaction(fn -> unquote(value) end)
         end
       end
+
+      defmacro replace(_discarded) do
+        line = __CALLER__.line
+
+        quote line: line do
+          OfficeGraph.Repo.query!("SELECT generated", [])
+        end
+      end
     end
     """)
 
@@ -381,7 +389,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     source = """
     defmodule #{inspect(target_module)} do
       require #{inspect(macro_module)}
-      def persist(value), do: (quote(do: OfficeGraph.Repo.transaction(fn -> :quoted end)); #{inspect(macro_module)}.persist(value))
+      def quoted(value), do: (quote(do: OfficeGraph.Repo.transaction(fn -> :quoted end)); #{inspect(macro_module)}.persist(value))
+      def replaced, do: #{inspect(macro_module)}.replace(OfficeGraph.Repo.query!("SELECT approved", []))
     end
     """
 
@@ -399,10 +408,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
                )
     end
 
-    [occurrence] =
+    occurrences =
       DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
-    approved = approved_entry(occurrence)
+    approved = Enum.map(occurrences, &approved_entry/1)
 
     inventory_path =
       Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
@@ -412,15 +421,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
 
     File.mkdir_p!(Path.dirname(inventory_path))
     File.mkdir_p!(Path.dirname(evidence_path))
-    File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
-    File.write!(evidence_path, Jason.encode!(%{"version" => 1, "approvals" => [approved]}))
+    File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => approved}))
+    File.write!(evidence_path, Jason.encode!(%{"version" => 1, "approvals" => approved}))
     {_output, 0} = System.cmd("git", ["add", "."], cd: root)
 
-    [diagnostic] = DatabaseBoundaryGate.check_repository(root)
-
-    assert diagnostic.kind == :compiled_reference
-    assert diagnostic.construct == "Repo.transaction"
-    assert diagnostic.function == "persist/1"
+    assert DatabaseBoundaryGate.check_repository(root)
+           |> Enum.map(&{&1.kind, &1.construct, &1.function})
+           |> Enum.sort() ==
+             [
+               {:compiled_reference, "Repo.query!", "replaced/0"},
+               {:compiled_reference, "Repo.transaction", "quoted/1"}
+             ]
   end
 
   test "accepts exact approval evidence from the active OpenSpec change before archival" do

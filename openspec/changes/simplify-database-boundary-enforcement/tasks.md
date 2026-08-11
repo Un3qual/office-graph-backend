@@ -93,3 +93,10 @@
 - [x] 13.4 Remove framework-table trigger exemptions and require exact dependency-owned or approved trigger definitions.
 - [x] 13.5 Remove the blanket Reach exclusion, address substantive findings, and keep modules split only along approved enforcement responsibilities.
 - [x] 13.6 Run focused and canonical verification, perform a final anti-slop diff review, commit, and push the branch.
+
+## 14. Compiled Identity And PostgreSQL Lexical Follow-Up
+
+- [x] 14.1 Prevent source primitives beneath opaque expansion contexts from suppressing unrelated compiled calls at the same locator.
+- [x] 14.2 Audit private migration runner entrypoints and reject nonliteral migration SQL-option containers.
+- [x] 14.3 Normalize Unicode identifiers, quoted generated `NOT NULL` constraint names, and schema-qualified custom migration types through the PostgreSQL lexical boundary.
+- [x] 14.4 Run focused and canonical verification, perform a final anti-slop diff review, commit, push, and reply to the review threads.

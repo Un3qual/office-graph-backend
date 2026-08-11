@@ -113,6 +113,27 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceCustomTypeResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedCustomTypeResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  resource do
+    require_primary_key? false
+  end
+
+  postgres do
+    table "Typed Reviews"
+    schema "Audit Space"
+    repo OfficeGraph.Repo
+    migration_types status: :review_status
+  end
+
+  attributes do
+    attribute :status, :string, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceCompositeParentResource do
   @moduledoc false
 

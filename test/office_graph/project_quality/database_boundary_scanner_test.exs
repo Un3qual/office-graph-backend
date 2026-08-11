@@ -292,6 +292,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def load(repo, query), do: Queryable.all(repo, query, [])
             def insert(repo, schema, fields), do: Ecto.Repo.Schema.insert_all(repo, schema, fields, [])
             def execute(connection, query), do: Ecto.Adapters.Postgres.Connection.execute(connection, query, [])
+            def run_migration(repo, migration), do: Ecto.Migration.Runner.run(repo, migration)
             def drop_database(config), do: Ecto.Adapters.Postgres.storage_down(config)
             def load_structure(path, config), do: Ecto.Adapters.Postgres.structure_load(path, config)
           end
@@ -303,6 +304,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Ecto.Repo.Queryable.all", "load/2"},
              {:direct_ecto, "Ecto.Repo.Schema.insert_all", "insert/3"},
              {:direct_ecto, "Ecto.Adapters.Postgres.Connection.execute", "execute/2"},
+             {:direct_ecto, "Ecto.Migration.Runner.run", "run_migration/2"},
              {:direct_ecto, "Ecto.Adapters.Postgres.storage_down", "drop_database/1"},
              {:direct_ecto, "Ecto.Adapters.Postgres.structure_load", "load_structure/2"}
            ]
@@ -1004,6 +1006,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects nonliteral migration SQL option containers" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260801000000_indirect_sql_options.exs",
+          source: """
+          defmodule IndirectSqlOptions do
+            use Ecto.Migration
+
+            @index_options [where: "deleted_at IS NULL"]
+
+            def change do
+              create index(:items, [:deleted_at], @index_options)
+            end
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "migration.index.options"
+    assert occurrence.function == "change/0"
+    assert occurrence.approval == :unresolved_sql
+  end
+
   test "rejects a reversible migration when either SQL payload is dynamic" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -1476,6 +1503,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def spawn_call(target, operation, arguments), do: spawn(target, operation, arguments)
       def private_load(repo, query), do: Ecto.Repo.Queryable.all(repo, query, [])
       def private_insert(repo, schema, fields), do: Ecto.Repo.Schema.insert_all(repo, schema, fields, [])
+      def run_migration(repo, migration), do: Ecto.Migration.Runner.run(repo, migration)
       def drop_database(config), do: Ecto.Adapters.Postgres.storage_down(config)
       def static_shell, do: System.cmd("sh", ["/tmp/run-db.sh"])
       def port(command), do: Port.open({:spawn, command}, [])
@@ -1492,6 +1520,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "dynamic_dispatch.spawn", "spawn_call/3", :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Queryable.all", "private_load/2", :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Schema.insert_all", "private_insert/3", :unresolved_sql},
+             {:direct_ecto, "Ecto.Migration.Runner.run", "run_migration/2", :unresolved_sql},
              {:direct_ecto, "Ecto.Adapters.Postgres.storage_down", "drop_database/1",
               :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "static_shell/0", :unresolved_sql},

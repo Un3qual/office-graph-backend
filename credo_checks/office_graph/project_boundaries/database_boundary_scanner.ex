@@ -164,13 +164,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @migration_raw_sql_operations [:execute, :execute_file]
   @migration_direct_operations [:insert]
   @migration_sql_option_operations %{
-    add: [:generated],
-    add_if_not_exists: [:generated],
-    constraint: [:check, :exclude, :where],
-    index: [:where],
-    modify: [:generated],
-    table: [:options],
-    unique_index: [:where]
+    add: {2, [:generated]},
+    add_if_not_exists: {2, [:generated]},
+    constraint: {2, [:check, :exclude, :where]},
+    index: {2, [:where]},
+    modify: {2, [:generated]},
+    table: {1, [:options]},
+    unique_index: {2, [:where]}
   }
   @query_sql_option_operations %{
     from: [:hints, :lock],
@@ -237,6 +237,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @private_persistence_modules [
     "Ecto.Adapters.Postgres.Connection",
+    "Ecto.Migration.Runner",
     "Ecto.Repo.Queryable",
     "Ecto.Repo.Schema",
     "Ecto.Repo.Transaction"
@@ -428,6 +429,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       {:ok, ast} ->
         env = %{
           aliases: %{},
+          ambiguous_expansion_depth: 0,
           approved_migration_loops: approved_migration_loops(path, ast),
           function: nil,
           imports: %{},
@@ -644,8 +646,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when is_atom(operation) and is_list(arguments) do
     receiver_name = receiver_name(receiver, env)
 
+    classified_occurrence = classify_remote_call(receiver, operation, arguments, node, env)
+
     occurrences =
-      case classify_remote_call(receiver, operation, arguments, node, env) do
+      case classified_occurrence do
         nil ->
           if remote_migration_helper_escape?(receiver, operation, env) do
             [
@@ -721,7 +725,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         env
       end
 
-    scan_children(node, child_env, occurrences)
+    scan_call_children(
+      node,
+      child_env,
+      occurrences,
+      is_nil(classified_occurrence) and opaque_remote_call?(receiver_name)
+    )
   end
 
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
@@ -742,8 +751,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
+    classified_occurrence = classify_local_call(operation, arguments, node, env)
+
     occurrences =
-      case classify_local_call(operation, arguments, node, env) do
+      case classified_occurrence do
         nil -> occurrences
         occurrence -> [occurrence | occurrences]
       end
@@ -767,7 +778,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         env
       end
 
-    scan_children(node, child_env, occurrences)
+    scan_call_children(
+      node,
+      child_env,
+      occurrences,
+      is_nil(classified_occurrence) and opaque_local_call?(operation)
+    )
   end
 
   defp scan_node(nodes, env, occurrences) when is_list(nodes) do
@@ -793,6 +809,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> scan_node(env, occurrences)
 
     {env, occurrences}
+  end
+
+  defp scan_call_children(node, env, occurrences, false),
+    do: scan_children(node, env, occurrences)
+
+  defp scan_call_children(node, env, occurrences, true) do
+    child_env = %{env | ambiguous_expansion_depth: env.ambiguous_expansion_depth + 1}
+    {_child_env, occurrences} = scan_children(node, child_env, occurrences)
+    {env, occurrences}
+  end
+
+  defp opaque_remote_call?(receiver),
+    do:
+      receiver not in (@database_modules ++
+                         @private_persistence_modules ++
+                         @process_execution_modules ++
+                         @reflection_modules)
+
+  defp opaque_local_call?(operation) do
+    operation == :|> or
+      (operation not in @syntax_operations and not operator?(operation))
   end
 
   defp classify_remote_call(receiver, :apply, [target, operation | _rest] = arguments, node, env) do
@@ -2032,26 +2069,60 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp keyword_option(_options, _key), do: nil
 
   defp migration_sql_option_occurrences(operation, arguments, node, env) do
-    option_keys = Map.get(@migration_sql_option_operations, operation, [])
-
     if env.migration? do
       option_occurrences =
-        arguments
-        |> List.last()
-        |> sql_option_entries(option_keys)
-        |> Enum.map(fn {key, value} ->
-          construct = "migration.#{operation}.#{key}"
-          approval = approval_marker(:raw_sql, construct, [value])
+        case Map.fetch(@migration_sql_option_operations, operation) do
+          {:ok, {position, option_keys}} ->
+            migration_sql_option_entries(
+              operation,
+              Enum.fetch(arguments, position),
+              option_keys,
+              node,
+              env
+            )
 
-          occurrence(env, line_from_node(node), :raw_sql, construct, {operation, key, value},
-            approval: approval
-          )
-        end)
+          :error ->
+            []
+        end
 
       option_occurrences ++ migration_index_field_occurrences(operation, arguments, node, env)
     else
       []
     end
+  end
+
+  defp migration_sql_option_entries(operation, {:ok, options}, option_keys, node, env)
+       when is_list(options) do
+    if Keyword.keyword?(options) do
+      options
+      |> sql_option_entries(option_keys)
+      |> Enum.map(fn {key, value} ->
+        construct = "migration.#{operation}.#{key}"
+        approval = approval_marker(:raw_sql, construct, [value])
+
+        occurrence(env, line_from_node(node), :raw_sql, construct, {operation, key, value},
+          approval: approval
+        )
+      end)
+    else
+      [unresolved_migration_options(operation, options, node, env)]
+    end
+  end
+
+  defp migration_sql_option_entries(operation, {:ok, options}, _option_keys, node, env),
+    do: [unresolved_migration_options(operation, options, node, env)]
+
+  defp migration_sql_option_entries(_operation, :error, _option_keys, _node, _env), do: []
+
+  defp unresolved_migration_options(operation, options, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :raw_sql,
+      "migration.#{operation}.options",
+      {operation, :options, options},
+      approval: :unresolved_sql
+    )
   end
 
   defp migration_index_field_occurrences(operation, arguments, node, env)
@@ -2112,7 +2183,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp occurrence(env, line, class, construct, node, opts \\ []) do
     env.path
     |> occurrence(line, env.function, class, construct, node, opts)
-    |> Map.put(:compiled_match?, Map.get(env, :quote_depth, 0) == 0)
+    |> Map.put(
+      :compiled_match?,
+      Map.get(env, :quote_depth, 0) == 0 and Map.get(env, :ambiguous_expansion_depth, 0) == 0
+    )
   end
 
   defp occurrence(path, line, function, class, construct, node, opts) do

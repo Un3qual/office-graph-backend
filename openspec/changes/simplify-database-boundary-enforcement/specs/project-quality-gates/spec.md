@@ -74,7 +74,8 @@ construction, SQL bodies, macro output, or control flow.
 
 #### Scenario: Private persistence execution namespace is called
 - **WHEN** repository-authored source or non-generated BEAM code directly calls
-  a private Ecto repository or PostgreSQL adapter execution namespace
+  a private Ecto repository, migration runner, or PostgreSQL adapter execution
+  namespace
 - **THEN** the scanner MUST classify the call as a low-level persistence
   primitive regardless of its function name
 
@@ -199,6 +200,13 @@ those paths are outside Credo's configured Elixir source list.
   class, and construct
 - **THEN** the quoted occurrence MUST NOT suppress the compiled diagnostic, and
   source-to-BEAM matching MUST retain enclosing function provenance
+
+#### Scenario: Opaque expansion replaces an approved source call
+- **WHEN** a low-level source primitive is nested beneath a call whose
+  compile-time behavior the scanner cannot prove, and compiled code reports a
+  primitive at the same source locator
+- **THEN** the nested source occurrence MUST NOT suppress the compiled diagnostic,
+  even when the source occurrence has an exact approval
 
 #### Scenario: An inventory violation is found
 - **WHEN** a database-access entry is stale or malformed

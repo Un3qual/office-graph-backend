@@ -19,6 +19,18 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              {~S|$body$text ) and ($body$|, " trailing"}
   end
 
+  test "PostgreSQL identifiers and dollar-quote tags accept Unicode letters" do
+    assert PostgresDump.normalize_identifier("名字") == "名字"
+    assert PostgresDump.configured_identifier("δelta") == "δelta"
+
+    assert PostgresDump.split_statements("""
+           CREATE FUNCTION public.unicode_body() RETURNS integer
+           LANGUAGE plpgsql AS $函数$ BEGIN; RETURN 1; END $函数$;
+           CREATE TABLE public.after_unicode_body (id uuid);
+           """)
+           |> length() == 2
+  end
+
   test "parses terminal schema dump object classes" do
     inventory =
       MigrationConformanceSupport.parse_dump("""
@@ -417,7 +429,7 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     inventory =
       MigrationConformanceSupport.parse_dump(~S'''
       CREATE TABLE "Audit Space"."Review Items" (
-          "External ID" uuid NOT NULL,
+          "External ID" uuid CONSTRAINT "Review Items_External ID_not_null" NOT NULL,
           "Display Label" text NOT NULL
       );
       CREATE UNIQUE INDEX "Review Items_unique_label_index" ON "Audit Space"."Review Items" USING btree ("Display Label");
@@ -776,6 +788,25 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              %{
                "review_items" =>
                  {nil, OfficeGraph.TestSupport.MigrationConformanceCustomTypeResource}
+             },
+             []
+           )
+           |> without_framework_presence_errors() == []
+  end
+
+  test "terminal errors quote custom migration types in configured schemas" do
+    inventory =
+      MigrationConformanceSupport.parse_dump(~S'''
+      CREATE TABLE "Audit Space"."Typed Reviews" (
+          status "Audit Space".review_status NOT NULL
+      );
+      ''')
+
+    assert inventory
+           |> synthetic_terminal_errors(
+             %{
+               "Typed Reviews" =>
+                 {nil, OfficeGraph.TestSupport.MigrationConformanceQuotedCustomTypeResource}
              },
              []
            )

@@ -1071,25 +1071,36 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp normalize_column_definition(table, column, definition) do
     definition = normalize_definition(definition)
+    expected_name = generated_not_null_constraint_name(table, column)
 
-    case Regex.named_captures(
-           ~r/\bCONSTRAINT (?<name>[A-Za-z_][A-Za-z0-9_$]*) NOT NULL\b/,
-           definition
-         ) do
-      %{"name" => name} ->
-        if name == generated_not_null_constraint_name(table, column) do
-          String.replace(definition, "CONSTRAINT #{name} NOT NULL", "NOT NULL")
-        else
-          definition
-        end
+    case PostgresDump.split_once_outside_quotes(definition, "CONSTRAINT ") do
+      {prefix, rest} ->
+        normalize_generated_not_null(prefix, rest, expected_name, definition)
 
       nil ->
         definition
     end
   end
 
+  defp normalize_generated_not_null(prefix, rest, expected_name, definition) do
+    expected_name = PostgresDump.configured_identifier(expected_name)
+
+    case PostgresDump.take_identifier(rest) do
+      {^expected_name, <<" NOT NULL", suffix::binary>>} ->
+        if suffix == "" or String.starts_with?(suffix, " ") do
+          prefix <> "NOT NULL" <> suffix
+        else
+          definition
+        end
+
+      _other ->
+        definition
+    end
+  end
+
   defp generated_not_null_constraint_name(table, column) do
     table = table_name(table)
+    column = PostgresDump.unqualified_identifier_value(column) || to_string(column)
     label = "not_null"
     available = 63 - byte_size(label) - 2
 
@@ -1542,13 +1553,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp postgres_type(type, resource)
        when is_atom(type) and type not in @builtin_migration_types do
-    type = Atom.to_string(type)
+    type_parts = type |> Atom.to_string() |> String.split(".")
 
-    if String.contains?(type, ".") do
-      type
-    else
-      schema = AshPostgres.DataLayer.Info.schema(resource) || "public"
-      "#{schema}.#{type}"
+    case type_parts do
+      [type] ->
+        schema = AshPostgres.DataLayer.Info.schema(resource) || "public"
+
+        "#{PostgresDump.configured_identifier(schema)}.#{PostgresDump.configured_identifier(type)}"
+
+      parts ->
+        Enum.map_join(parts, ".", &PostgresDump.configured_identifier/1)
     end
   end
 
