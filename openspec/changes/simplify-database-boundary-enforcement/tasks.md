@@ -175,3 +175,11 @@
 - [x] 24.3 Audit opaque dependency macros in every tracked source regardless of BEAM coverage, using exact trusted framework modules and tracked project module definitions instead of expansion or dataflow analysis.
 - [x] 24.4 Normalize the complete PostgreSQL 18 object-identifier and system-identifier type family as unqualified catalog-owned migration types.
 - [x] 24.5 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 25. Root-Anchored Trust And SQL-Identifier Follow-Up
+
+- [x] 25.1 Add failing regressions for relative and alias-spoofed config reads, direct `:compile` entrypoints in source and BEAMs, namespace-only macro providers, compound SQL-like suffixes, and apostrophes in generated sequence identities.
+- [x] 25.2 Trust config reads only when an exact source-anchored path resolves to a canonical project config file, and derive project macro trust from repository-wide tracked definitions.
+- [x] 25.3 Extend the shared source/BEAM reflection inventory for direct Erlang compilation and the repository source inventory for compound SQL suffixes without adding evaluation or dataflow analysis.
+- [x] 25.4 Preserve PostgreSQL string-literal semantics when generating and normalizing sequence `regclass` defaults.
+- [x] 25.5 Run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

@@ -66,7 +66,11 @@ defmodule OfficeGraph.GitHubIntegration.GitHubAdapterTest do
   end
 
   test "non-test configuration selects the live GitHub adapter" do
-    config = Config.Reader.read!("config/config.exs", env: :prod, target: :host)
+    config =
+      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__),
+        env: :prod,
+        target: :host
+      )
 
     assert config[:office_graph][:github_adapter] == GitHub
   end

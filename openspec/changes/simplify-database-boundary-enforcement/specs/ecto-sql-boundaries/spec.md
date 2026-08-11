@@ -42,7 +42,8 @@ exception.
 
 Office Graph SHALL have zero unapproved raw-SQL, direct-Ecto, direct repository,
 or low-level persistence-primitive occurrences in runtime code, tests, test
-support, Mix tasks, scripts, tracked SQL-like files, or seeds. Explicitly
+support, Mix tasks, scripts, tracked SQL-like files including compound SQL
+template suffixes, or seeds. Explicitly
 approved exceptions SHALL remain exact and fingerprinted.
 
 #### Scenario: Non-migration source is scanned
@@ -164,6 +165,8 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 - **THEN** canonical verification MUST reject the macro capability as unresolved
   regardless of matching BEAM coverage rather than assuming the compiled audit
   can prove transient expansion side effects did not occur
+- **AND** a project namespace prefix without a repository-wide tracked module
+  definition MUST NOT make the macro provider trusted
 
 #### Scenario: Low-level execution is hidden behind private APIs or ports
 

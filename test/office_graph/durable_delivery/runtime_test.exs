@@ -15,7 +15,9 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   end
 
   test "production retains terminal jobs for the operator history window" do
-    production_config = Config.Reader.read!("config/config.exs", env: :prod)
+    production_config =
+      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
+
     oban_config = production_config[:office_graph][Oban]
 
     assert {Oban.Plugins.Pruner, pruner_options} =
@@ -28,7 +30,9 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   end
 
   test "production recovers execution jobs orphaned by node loss" do
-    production_config = Config.Reader.read!("config/config.exs", env: :prod)
+    production_config =
+      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
+
     oban_config = production_config[:office_graph][Oban]
 
     assert {Oban.Plugins.Lifeline, lifeline_options} =
@@ -41,7 +45,9 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   end
 
   test "production worker deadlines expire before orphan recovery" do
-    production_config = Config.Reader.read!("config/config.exs", env: :prod)
+    production_config =
+      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
+
     oban_config = production_config[:office_graph][Oban]
 
     {Oban.Plugins.Lifeline, lifeline_options} =

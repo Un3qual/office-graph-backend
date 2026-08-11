@@ -465,6 +465,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Module",
     "c",
     "code",
+    "compile",
     "erl_eval",
     "file"
   ]
@@ -514,6 +515,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :load_native_partial,
       :prepare_loading
     ],
+    "compile" => [:file, :forms, :noenv_file, :noenv_forms],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
     "file" => [:eval, :path_eval, :path_script, :script]
   }
@@ -594,7 +596,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Postgrex.stream" => nil
   }
   @sql_file_extensions [".pgsql", ".psql", ".sql"]
-  @source_extensions [".ex", ".exs" | @sql_file_extensions]
   @tracked_config_reader_paths ["config/config.exs", "config/runtime.exs"]
 
   @preserved_fingerprints %{
@@ -633,9 +634,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   def scan_sources(sources, opts \\ []) do
     root = Keyword.get(opts, :root, File.cwd!())
     compiled_source_paths = Keyword.get(opts, :compiled_source_paths, MapSet.new())
+    project_modules = tracked_project_modules(sources, root)
 
     sources
-    |> Enum.flat_map(&scan_source(&1, root, compiled_source_paths))
+    |> Enum.flat_map(&scan_source(&1, root, compiled_source_paths, project_modules))
     |> assign_ordinals()
   end
 
@@ -661,7 +663,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> assign_ordinals()
   end
 
-  defp scan_source(%{path: path, source: source}, root, compiled_source_paths) do
+  defp scan_source(%{path: path, source: source}, root, compiled_source_paths, project_modules) do
     cond do
       sql_file?(path) ->
         [
@@ -677,16 +679,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         ]
 
       elixir_source?(path) ->
-        scan_elixir_source(path, source, root, compiled_source_paths)
+        scan_elixir_source(path, source, root, compiled_source_paths, project_modules)
 
       true ->
         []
     end
   end
 
-  defp scan_source(%{path: path}, root, compiled_source_paths) do
+  defp scan_source(%{path: path}, root, compiled_source_paths, project_modules) do
     source = root |> Path.join(path) |> File.read!()
-    scan_source(%{path: path, source: source}, root, compiled_source_paths)
+    scan_source(%{path: path, source: source}, root, compiled_source_paths, project_modules)
+  end
+
+  defp tracked_project_modules(sources, root) do
+    Enum.reduce(sources, MapSet.new(), fn %{path: path} = source, modules ->
+      if elixir_source?(path) do
+        contents = Map.get_lazy(source, :source, fn -> File.read!(Path.join(root, path)) end)
+
+        case Code.string_to_quoted(contents, file: path, columns: true) do
+          {:ok, ast} -> MapSet.union(modules, defined_module_names(ast))
+          {:error, _reason} -> modules
+        end
+      else
+        modules
+      end
+    end)
   end
 
   defp defined_module_names(ast) do
@@ -711,7 +728,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp literal_module_name(_module), do: nil
 
-  defp scan_elixir_source(path, source, root, compiled_source_paths) do
+  defp scan_elixir_source(path, source, root, compiled_source_paths, project_modules) do
     case Code.string_to_quoted(source, file: path, columns: true) do
       {:ok, ast} ->
         env = %{
@@ -725,7 +742,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           migration?: migration_path?(path),
           module: nil,
           path: path,
-          project_modules: defined_module_names(ast),
+          project_modules: project_modules,
           quote_depth: 0,
           query_dsl?: false,
           repository_module?: false,
@@ -1454,7 +1471,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_operation(receiver, operation, arity, node, env)
        when receiver in @reflection_modules do
     if operation in Map.fetch!(@reflection_operations, receiver) and
-         not trusted_reflection_call?(receiver, operation, node) do
+         not trusted_reflection_call?(receiver, operation, node, env) do
       occurrence(
         env,
         line_from_node(node),
@@ -1498,16 +1515,37 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp reviewed_runtime_compiler_fixture?(_receiver, _operation, _arity, _env), do: false
 
-  defp trusted_reflection_call?("Config.Reader", operation, node)
+  defp trusted_reflection_call?("Config.Reader", operation, node, env)
        when operation in [:read!, :read_imports!] do
     node
     |> call_arguments()
     |> List.first()
-    |> static_command_literal()
-    |> then(&(&1 in @tracked_config_reader_paths))
+    |> tracked_config_reader_path?(env)
   end
 
-  defp trusted_reflection_call?(_receiver, _operation, _node), do: false
+  defp trusted_reflection_call?(_receiver, _operation, _node, _env), do: false
+
+  defp tracked_config_reader_path?(
+         {{:., _dot_metadata, [path_module, :expand]}, _metadata,
+          [path, {:__DIR__, _dir_metadata, context}]},
+         env
+       )
+       when is_atom(context) or is_nil(context) do
+    case {module_name(path_module, env), static_command_literal(path)} do
+      {"Path", path} when is_binary(path) ->
+        source_directory = env.root |> Path.join(env.path) |> Path.dirname()
+        resolved_path = Path.expand(path, source_directory)
+
+        Enum.any?(@tracked_config_reader_paths, fn tracked_path ->
+          resolved_path == Path.expand(tracked_path, env.root)
+        end)
+
+      _untrusted_path ->
+        false
+    end
+  end
+
+  defp tracked_config_reader_path?(_path, _env), do: false
 
   defp classify_apply(receiver, operation, node, env) do
     classify_dynamic_dispatch(receiver, operation, :apply, node, env)
@@ -1989,10 +2027,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp opaque_dependency_macro_module?(_module, _env), do: true
 
   defp project_module?(module, env),
-    do:
-      MapSet.member?(env.project_modules, module) or module == "OfficeGraph" or
-        String.starts_with?(module, "OfficeGraph.") or module == "OfficeGraphWeb" or
-        String.starts_with?(module, "OfficeGraphWeb.")
+    do: MapSet.member?(env.project_modules, module)
 
   defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
        when is_atom(name) and is_atom(context) do
@@ -2958,11 +2993,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp boundary_source?(path) do
-    source_extension(path) in @source_extensions
+    elixir_source?(path) or sql_file?(path)
   end
 
   defp elixir_source?(path), do: source_extension(path) in [".ex", ".exs"]
-  defp sql_file?(path), do: source_extension(path) in @sql_file_extensions
+
+  defp sql_file?(path) do
+    basename = path |> Path.basename() |> String.downcase()
+
+    Enum.any?(@sql_file_extensions, fn extension ->
+      String.ends_with?(basename, extension) or String.contains?(basename, extension <> ".")
+    end)
+  end
+
   defp source_extension(path), do: path |> Path.extname() |> String.downcase()
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
 

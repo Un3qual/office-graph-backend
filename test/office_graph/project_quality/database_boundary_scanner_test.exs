@@ -2421,12 +2421,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
               "fragment",
               "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"},
-             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 603,
+             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 618,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:3e8d3892a9f1d906d4b2d52dd197cc50f14006f6112fe621550181afcb0e71f7"},
+              "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2490,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:e42d99a1baf6533199695ea8d2558bd454173526e88c5b94aa7de8e461f6c215"},
+              "sha256:861c12ace96bf0eb625a4eed83cb9de563aee787fcfa615cb568494a38bdf78c"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2509,7 +2509,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_reviewed_runtime_boundaries:
-                         "3aed62880d19499b253f82ae90618988ad88d1dc6eb2c725a56802e20c87237e",
+                         "e8c35125ec372268f6a80be31a11642339ef263b6dca5b9f993e7094e5cdfdc6",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2759,6 +2759,101 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "trusts project macros only when their modules are defined in tracked sources" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/tracked_macro.ex",
+          source:
+            "defmodule OfficeGraph.TrackedMacro do\n  defmacro __using__(_options), do: quote(do: :ok)\nend"
+        },
+        %{
+          path: "lib/macro_consumers.ex",
+          source: """
+          defmodule OfficeGraph.MacroConsumers do
+            use OfficeGraph.TrackedMacro
+            use OfficeGraph.DependencyPersistenceMacro
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"dependency_macro.use", 3, :unresolved_sql}
+           ]
+  end
+
+  test "tracks compound SQL-like source suffixes as unapproved raw SQL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{path: "priv/repo/patch.sql.eex", source: "SELECT 1"},
+        %{path: "scripts/report.PSQL.template", source: "SELECT 2"},
+        %{path: "scripts/not_sql.sqlx.eex", source: "SELECT 3"}
+      ])
+
+    assert Enum.map(occurrences, &{&1.path, &1.construct, &1.approval}) == [
+             {"priv/repo/patch.sql.eex", "tracked_sql_file", :unresolved_sql},
+             {"scripts/report.PSQL.template", "tracked_sql_file", :unresolved_sql}
+           ]
+  end
+
+  test "rejects direct Erlang compiler entrypoints" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/erlang_compiler.exs",
+          source: """
+          :compile.file(path)
+          :compile.file(path, options)
+          :compile.forms(forms)
+          :compile.forms(forms, options)
+          :compile.noenv_file(path, options)
+          :compile.noenv_forms(forms, options)
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
+             {"reflection.compile.file", :unresolved_sql},
+             {"reflection.compile.file", :unresolved_sql},
+             {"reflection.compile.forms", :unresolved_sql},
+             {"reflection.compile.forms", :unresolved_sql},
+             {"reflection.compile.noenv_file", :unresolved_sql},
+             {"reflection.compile.noenv_forms", :unresolved_sql}
+           ]
+  end
+
+  test "trusts Config.Reader only for project-root files anchored to the source directory" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources(
+        [
+          %{
+            path: "test/office_graph/runtime_config_test.exs",
+            source: """
+            Config.Reader.read!("config/config.exs")
+            Config.Reader.read!(Path.expand("../../config/config.exs", __DIR__))
+            Config.Reader.read_imports!(Path.expand("../../config/runtime.exs", __DIR__))
+            Config.Reader.read!(Path.expand("../../external/config.exs", __DIR__))
+            """
+          },
+          %{
+            path: "scripts/spoofed_config_reader.exs",
+            source: """
+            alias Dependency.Path, as: Path
+            Config.Reader.read!(Path.expand("../config/config.exs", __DIR__))
+            """
+          }
+        ],
+        root: "/workspace/office_graph"
+      )
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"reflection.Config.Reader.read!", 1, :unresolved_sql},
+             {"reflection.Config.Reader.read!", 4, :unresolved_sql},
+             {"reflection.Config.Reader.read!", 2, :unresolved_sql}
+           ]
+  end
+
   test "rejects opaque dependency macros even when the tracked source compiled" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources(
@@ -2846,6 +2941,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def mix_task_run(arguments), do: Mix.Task.run("run", arguments)
       def mix_task_rerun(arguments), do: Mix.Task.rerun("eval", arguments)
       def erlang_compile(path), do: :c.c(path)
+      def compiler_file(path, options), do: :compile.file(path, options)
       def config_read(path), do: Config.Reader.read!(path)
       def expand(ast, env), do: Macro.expand(ast, env)
       def shell(command), do: Mix.Shell.IO.cmd(command)
@@ -2870,6 +2966,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "reflection.Mix.Task.run", "mix_task_run/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Task.rerun", "mix_task_rerun/1", :unresolved_sql},
              {:direct_ecto, "reflection.c.c", "erlang_compile/1", :unresolved_sql},
+             {:direct_ecto, "reflection.compile.file", "compiler_file/2", :unresolved_sql},
              {:direct_ecto, "reflection.Config.Reader.read!", "config_read/1", :unresolved_sql},
              {:direct_ecto, "reflection.Macro.expand", "expand/2", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "shell/1", :unresolved_sql}

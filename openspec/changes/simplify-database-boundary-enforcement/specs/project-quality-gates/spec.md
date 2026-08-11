@@ -33,9 +33,10 @@ escape path, or stale approved exception.
 
 - **WHEN** the database-boundary scan runs
 - **THEN** it MUST include every tracked Elixir and SQL-like source regardless
-  of directory or extension casing, including runtime code, tests, test support, Mix tasks,
-  configuration, seeds, migrations, and scripts, while excluding dependency
-  source and untracked build artifacts
+  of directory or extension casing, including compound SQL template suffixes,
+  runtime code, tests, test support, Mix tasks, configuration, seeds,
+  migrations, and scripts, while excluding dependency source and untracked
+  build artifacts
 
 #### Scenario: Verification runs from a clean checkout
 
@@ -90,8 +91,9 @@ construction, SQL bodies, macro output, or control flow.
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
   Erlang runtime code loader or expression evaluator, IEx compilation or
   recompilation helpers, `Mix.Tasks.Run`, `Mix.Tasks.Eval`, or `Mix.Task`
-  dispatch, Erlang shell compilation/loading, `Config.Reader` evaluation or
-  nonliteral/external config reads, runtime macro expansion, Mix shell command
+  dispatch, Erlang shell or `:compile` source compilation/loading,
+  `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
+  config reads, runtime macro expansion, Mix shell command
   execution, any supported MFA-executing RPC form,
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
   supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
@@ -120,6 +122,16 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the source gate MUST reject the capability without expanding or
   evaluating the macro, regardless of whether a matching BEAM exists, because
   compilation can erase transient macro side effects
+- **AND** project-authored trust MUST come from the repository-wide tracked
+  module-definition set rather than an `OfficeGraph` namespace prefix
+
+#### Scenario: Canonical config read is source-anchored
+- **WHEN** tracked source reads `config/config.exs` or `config/runtime.exs`
+  through `Config.Reader`
+- **THEN** the source gate MUST trust only an exact `Path.expand/2` form anchored
+  to that source's `__DIR__` that resolves to the project-root file
+- **AND** a relative literal, aliased path module, or resolved external path
+  MUST remain unresolved
 
 #### Scenario: Canonical verifier script changes
 - **WHEN** the test-only canonical verifier subprocess seam still has its exact
@@ -219,6 +231,11 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   sequence identifier whose component names contain multibyte UTF-8 characters
 - **THEN** conformance MUST apply the PostgreSQL byte budget while clipping only
   at complete UTF-8 codepoint boundaries
+
+#### Scenario: Generated sequence identity contains an apostrophe
+- **WHEN** a generated integer sequence identity contains an apostrophe
+- **THEN** expected and dumped `regclass` defaults MUST preserve the identifier
+  while escaping the apostrophe as a PostgreSQL string literal
 
 #### Scenario: Quoted identifier contains delimiter or keyword text
 - **WHEN** a valid quoted column is named `constraint`, contains a comma in a

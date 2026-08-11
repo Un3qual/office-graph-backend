@@ -484,6 +484,24 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceUtf8GeneratedNameResource 
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceApostropheSequenceResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "people's"
+    repo OfficeGraph.Repo
+  end
+
+  attributes do
+    attribute :id, :integer,
+      primary_key?: true,
+      allow_nil?: false,
+      generated?: true
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceQuotedResource do
   @moduledoc false
 

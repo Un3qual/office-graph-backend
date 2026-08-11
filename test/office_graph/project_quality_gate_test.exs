@@ -51,7 +51,8 @@ defmodule OfficeGraph.ProjectQualityGateTest do
 
     System.put_env("OFFICE_GRAPH_TEST_SQL_LOG", "1")
 
-    runtime_config = Config.Reader.read!("config/runtime.exs", env: :test)
+    runtime_config =
+      Config.Reader.read!(Path.expand("../../config/runtime.exs", __DIR__), env: :test)
 
     assert get_in(runtime_config, [:office_graph, OfficeGraph.Repo, :log]) == :debug
   end

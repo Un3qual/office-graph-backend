@@ -817,6 +817,35 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
+  test "terminal errors accept apostrophes in generated sequence regclass defaults" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public."people's" (
+          id bigint DEFAULT nextval('public."people''s_id_seq"'::regclass) NOT NULL
+      );
+      CREATE SEQUENCE public."people's_id_seq"
+          AS bigint
+          START WITH 1
+          INCREMENT BY 1
+          NO MINVALUE
+          NO MAXVALUE
+          CACHE 1
+          NO CYCLE;
+      ALTER SEQUENCE public."people's_id_seq" OWNED BY public."people's".id;
+      ALTER TABLE ONLY public."people's" ADD CONSTRAINT "people's_pkey" PRIMARY KEY (id);
+      """)
+
+    assert {"\"people's\"", "id",
+            "bigint DEFAULT nextval('\"people''s_id_seq\"'::regclass) NOT NULL"} in inventory.columns
+
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "\"people's\"" =>
+               {nil, OfficeGraph.TestSupport.MigrationConformanceApostropheSequenceResource}
+           })
+           |> without_framework_presence_errors() == []
+  end
+
   test "all generated identifiers truncate by complete UTF-8 bytes" do
     table = "éééééééééééééééééééééééééééééé"
     generated_name = table <> "_id"

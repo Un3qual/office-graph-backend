@@ -1725,7 +1725,11 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     default =
       if sequence_backed_generated?(attribute, type, default) do
         table = resource_table_identity(resource)
-        "nextval('#{sequence_identity(table, attribute)}'::regclass)"
+
+        table
+        |> sequence_identity(attribute)
+        |> postgres_string_literal()
+        |> then(&"nextval('#{&1}'::regclass)")
       else
         default
       end
@@ -2283,11 +2287,21 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   defp normalize_sequence_regclass(definition) do
     Regex.replace(
-      ~r/nextval\('(?<identity>[^']+)'::regclass\)/,
+      ~r/nextval\('(?<identity>(?:''|[^'])+)'::regclass\)/,
       definition,
-      fn _match, identity -> "nextval('#{normalize_identity(identity)}'::regclass)" end
+      fn _match, identity ->
+        identity =
+          identity
+          |> String.replace("''", "'")
+          |> normalize_identity()
+          |> postgres_string_literal()
+
+        "nextval('#{identity}'::regclass)"
+      end
     )
   end
+
+  defp postgres_string_literal(value), do: String.replace(value, "'", "''")
 
   defp normalize_foreign_key_definition(definition) do
     case foreign_key_definition_parts(definition) do

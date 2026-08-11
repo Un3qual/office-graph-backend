@@ -15,7 +15,9 @@ defmodule OfficeGraph.RuntimeConfigTest do
         ] do
       restore_env("PHX_SERVER", value)
 
-      runtime_config = Config.Reader.read!("config/runtime.exs", env: :test)
+      runtime_config =
+        Config.Reader.read!(Path.expand("../../config/runtime.exs", __DIR__), env: :test)
+
       endpoint_config = runtime_config[:office_graph][OfficeGraphWeb.Endpoint]
 
       assert Keyword.get(endpoint_config, :server, false) == expected?,
@@ -37,7 +39,9 @@ defmodule OfficeGraph.RuntimeConfigTest do
     on_exit(fn -> Enum.each(originals, fn {name, value} -> restore_env(name, value) end) end)
     Enum.each(env, fn {name, value} -> System.put_env(name, value) end)
 
-    test_config = Config.Reader.read!("config/config.exs", env: :test)
+    test_config =
+      Config.Reader.read!(Path.expand("../../config/config.exs", __DIR__), env: :test)
+
     repo_config = test_config[:office_graph][OfficeGraph.Repo]
 
     assert repo_config[:hostname] == "db.internal"

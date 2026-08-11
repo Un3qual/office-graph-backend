@@ -295,6 +295,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     macro_module = OfficeGraph.BoundaryMultiplicityMacroFixture
     target_module = OfficeGraph.BoundaryMultiplicityTargetFixture
     macro_path = Path.join(System.tmp_dir!(), "office_graph_boundary_macro_#{suffix}.ex")
+    tracked_macro_path = Path.join(root, "lib/tracked_boundary_macro.ex")
     source_path = Path.join(root, "lib/example.ex")
     current_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
     prod_ebin = Path.join(root, "_build/prod/lib/office_graph/ebin")
@@ -329,7 +330,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     end
     """
 
+    tracked_macro_source = "defmodule #{inspect(macro_module)} do\nend\n"
+
     File.mkdir_p!(Path.dirname(source_path))
+    File.write!(tracked_macro_path, tracked_macro_source)
     File.write!(source_path, source)
 
     for ebin <- [current_ebin, prod_ebin] do
@@ -339,7 +343,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     end
 
     [occurrence] =
-      DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+      DatabaseBoundaryScanner.scan_sources([
+        %{path: "lib/tracked_boundary_macro.ex", source: tracked_macro_source},
+        %{path: "lib/example.ex", source: source}
+      ])
 
     approved = approved_entry(occurrence)
 
@@ -373,6 +380,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     macro_module = OfficeGraph.QuotedBoundaryMacroFixture
     target_module = OfficeGraph.QuotedBoundaryTargetFixture
     macro_path = Path.join(System.tmp_dir!(), "office_graph_quoted_boundary_macro_#{suffix}.ex")
+    tracked_macro_path = Path.join(root, "lib/tracked_quoted_boundary_macro.ex")
     source_path = Path.join(root, "lib/example.ex")
     current_ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
     prod_ebin = Path.join(root, "_build/prod/lib/office_graph/ebin")
@@ -416,9 +424,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     end
     """
 
+    tracked_macro_source = "defmodule #{inspect(macro_module)} do\nend\n"
+
     File.mkdir_p!(Path.dirname(source_path))
     File.mkdir_p!(current_ebin)
     File.mkdir_p!(prod_ebin)
+    File.write!(tracked_macro_path, tracked_macro_source)
     File.write!(source_path, source)
 
     for ebin <- [current_ebin, prod_ebin] do
@@ -426,7 +437,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     end
 
     occurrences =
-      DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+      DatabaseBoundaryScanner.scan_sources([
+        %{path: "lib/tracked_quoted_boundary_macro.ex", source: tracked_macro_source},
+        %{path: "lib/example.ex", source: source}
+      ])
 
     approved = Enum.map(occurrences, &approved_entry/1)
 
@@ -500,6 +514,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           "lib/office_graph/runs.ex",
           "lib/office_graph/tenancy.ex",
           "lib/office_graph/verification.ex",
+          "lib/office_graph/verification/command_support.ex",
           "lib/office_graph/verification/waiver.ex",
           "lib/office_graph/work_graph/changes/validate_evidence_candidate_references.ex",
           "lib/office_graph/work_graph/commands/command_support.ex",
