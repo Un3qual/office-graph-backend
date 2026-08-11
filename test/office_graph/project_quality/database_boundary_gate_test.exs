@@ -509,7 +509,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
         fn path -> %{path: path, source: File.read!(path)} end
       )
 
-    assert DatabaseBoundaryScanner.scan_sources(sources) == []
+    assert DatabaseBoundaryScanner.scan_sources(sources,
+             compiled_source_paths: MapSet.new(sources, & &1.path)
+           ) == []
   end
 
   defp occurrence(fingerprint) do
@@ -600,9 +602,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       assert {:ok, _modules, _diagnostics} =
                Kernel.ParallelCompiler.compile_to_path(
                  [
-                   OfficeGraph.TestSupport.CompiledBoundaryFixture.approved_source_path!(
-                     source_path,
-                     %{
+                   source_path
+                   |> File.read!()
+                   |> then(fn source ->
+                     fingerprint =
+                       source
+                       |> then(&:crypto.hash(:sha256, &1))
+                       |> Base.encode16(case: :lower)
+
+                     approved_sources = %{
                        boundary_environment_marker:
                          "0c08560abd6ef73e0c3cfab9760f7d262e0ecdd04700228cbc5f2e4d9d764f92",
                        multiplicity_macro:
@@ -614,7 +622,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
                        quoted_target:
                          "8aa0bd1144ce65cb661375595d71581718450f20c1a3e3dfd6248b1b384edfdd"
                      }
-                   )
+
+                     if fingerprint in Map.values(approved_sources) do
+                       source_path
+                     else
+                       raise ArgumentError,
+                             "generated compiler fixture source is not approved: sha256:#{fingerprint}"
+                     end
+                   end)
                  ],
                  ebin,
                  return_diagnostics: true

@@ -191,26 +191,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
   test "audits local query fragments when use macros provide the import" do
     [occurrence] =
-      DatabaseBoundaryScanner.scan_sources([
-        %{
-          path: "lib/example.ex",
-          source: """
-          defmodule QueryDSL do
-            defmacro __using__(_options) do
-              quote do
-                import Ecto.Query
+      DatabaseBoundaryScanner.scan_sources(
+        [
+          %{
+            path: "lib/example.ex",
+            source: """
+            defmodule QueryDSL do
+              defmacro __using__(_options) do
+                quote do
+                  import Ecto.Query
+                end
               end
             end
-          end
 
-          defmodule Example do
-            use QueryDSL
+            defmodule Example do
+              use QueryDSL
 
-            def delayed, do: fragment("pg_sleep(1)")
-          end
-          """
-        }
-      ])
+              def delayed, do: fragment("pg_sleep(1)")
+            end
+            """
+          }
+        ],
+        compiled_source_paths: MapSet.new(["lib/example.ex"])
+      )
 
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "fragment"
@@ -552,6 +555,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                 start: {OfficeGraph.Repo, :query!, [sql, []]}
               })
             end
+
+            def otp_supervised(supervisor, sql) do
+              :supervisor.start_child(supervisor, %{
+                id: :query,
+                start: {OfficeGraph.Repo, :query!, [sql, []]}
+              })
+            end
           end
           """
         }
@@ -562,7 +572,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Postgrex.SimpleConnection.start_link", "connect/1", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "mix_eval/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql},
-             {:raw_sql, "OfficeGraph.Repo.start_child", "dynamic_supervised/2", :unresolved_sql}
+             {:raw_sql, "OfficeGraph.Repo.start_child", "dynamic_supervised/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "otp_supervised/2", :unresolved_sql}
            ]
   end
 
@@ -590,6 +601,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"uncompiled_macro.import", 3, :unresolved_sql},
              {"uncompiled_macro.use", 4, :unresolved_sql}
            ]
+  end
+
+  test "rejects opaque dependency macros in .ex sources without compiled evidence" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources(
+        [
+          %{
+            path: "scripts/dependency_macros.ex",
+            source: "require Dependency.QueryMacros"
+          }
+        ],
+        compiled_source_paths: MapSet.new()
+      )
+
+    assert {occurrence.construct, occurrence.line, occurrence.approval} ==
+             {"uncompiled_macro.require", 1, :unresolved_sql}
   end
 
   test "rejects function captures that target database dispatch" do
@@ -699,18 +726,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
   test "audits unqualified repository calls authored inside a Repo module" do
     occurrences =
-      DatabaseBoundaryScanner.scan_sources([
-        %{
-          path: "lib/office_graph/repo.ex",
-          source: """
-          defmodule OfficeGraph.Repo do
-            use AshPostgres.Repo, otp_app: :office_graph
+      DatabaseBoundaryScanner.scan_sources(
+        [
+          %{
+            path: "lib/office_graph/repo.ex",
+            source: """
+            defmodule OfficeGraph.Repo do
+              use AshPostgres.Repo, otp_app: :office_graph
 
-            def unsafe(sql), do: query!(sql, [])
-          end
-          """
-        }
-      ])
+              def unsafe(sql), do: query!(sql, [])
+            end
+            """
+          }
+        ],
+        compiled_source_paths: MapSet.new(["lib/office_graph/repo.ex"])
+      )
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
              {:raw_sql, "Repo.query!", "unsafe/1", :unresolved_sql}
@@ -719,18 +749,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
   test "rejects additional Ecto.Repo modules and audits their authored calls" do
     occurrences =
-      DatabaseBoundaryScanner.scan_sources([
-        %{
-          path: "lib/secondary_repo.ex",
-          source: """
-          defmodule SecondaryRepo do
-            use Ecto.Repo, otp_app: :office_graph, adapter: Ecto.Adapters.Postgres
+      DatabaseBoundaryScanner.scan_sources(
+        [
+          %{
+            path: "lib/secondary_repo.ex",
+            source: """
+            defmodule SecondaryRepo do
+              use Ecto.Repo, otp_app: :office_graph, adapter: Ecto.Adapters.Postgres
 
-            def unsafe(sql), do: query!(sql, [])
-          end
-          """
-        }
-      ])
+              def unsafe(sql), do: query!(sql, [])
+            end
+            """
+          }
+        ],
+        compiled_source_paths: MapSet.new(["lib/secondary_repo.ex"])
+      )
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
              {:direct_ecto, "Ecto.Repo.use", nil, :unresolved_sql},
@@ -801,6 +834,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :direct_ecto
     assert occurrence.construct == "reflection.Code.eval_string"
     assert occurrence.approval == :unresolved_sql
+  end
+
+  test "rejects EEx runtime evaluation as an unresolved reflection boundary" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/evaluate_template.exs",
+          source: """
+          defmodule TemplateEvaluator do
+            def string(template), do: EEx.eval_string(template, assigns: [])
+            def file(path), do: EEx.eval_file(path, assigns: [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.EEx.eval_string", "string/1", :unresolved_sql},
+             {"reflection.EEx.eval_file", "file/1", :unresolved_sql}
+           ]
   end
 
   test "rejects environment-returning quoted evaluation and runtime parallel compilation" do
@@ -1790,6 +1843,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def stop(repo), do: repo.stop()
         def evaluate(path), do: Code.eval_file(path)
         def evaluate_with_env(quoted, env), do: Code.eval_quoted_with_env(quoted, [], env)
+        def evaluate_eex_string(template), do: EEx.eval_string(template, assigns: [])
+        def evaluate_eex_file(path), do: EEx.eval_file(path, assigns: [])
         def compile_runtime(files), do: Kernel.ParallelCompiler.compile(files)
         def migrate(path), do: Ecto.Migrator.run(OfficeGraph.Repo, path, :up, all: true)
         def migrate_dynamic(migrator, repo, module), do: migrator.up(repo, 1, module, [])
@@ -1838,6 +1893,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "variable_receiver.stop", :unresolved_sql},
                {:direct_ecto, "reflection.Code.eval_file", :unresolved_sql},
                {:direct_ecto, "reflection.Code.eval_quoted_with_env", :unresolved_sql},
+               {:direct_ecto, "reflection.EEx.eval_string", :unresolved_sql},
+               {:direct_ecto, "reflection.EEx.eval_file", :unresolved_sql},
                {:direct_ecto, "reflection.Kernel.ParallelCompiler.compile", :unresolved_sql},
                {:direct_ecto, "Ecto.Migrator.run", :unresolved_sql},
                {:direct_ecto, "variable_receiver.up", :unresolved_sql},
@@ -1900,6 +1957,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           start: {OfficeGraph.Repo, :query!, [sql, []]}
         })
       end
+
+      def otp_supervised(supervisor, sql) do
+        :supervisor.start_child(supervisor, %{
+          id: :query,
+          start: {OfficeGraph.Repo, :query!, [sql, []]}
+        })
+      end
     end
     """)
 
@@ -1931,7 +1995,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Postgrex.SimpleConnection.start_link", "simple_connection/1",
               :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "mix_eval/1", :unresolved_sql},
-             {:raw_sql, "OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql}
+             {:raw_sql, "OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.start_child", "otp_supervised/2", :unresolved_sql}
            ]
   end
 
@@ -2356,15 +2421,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
               "fragment",
               "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"},
-             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 601,
+             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 603,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:170a41471cf5a1356b83e72500b14dc3c915b422743de729d507bb682f3e98ec"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2425,
+              "sha256:3e8d3892a9f1d906d4b2d52dd197cc50f14006f6112fe621550181afcb0e71f7"},
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2490,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:6f709dbf1525e727b7176c1bcfec4d3b537f666e904cdf77553be319cfe70789"},
+              "sha256:a72c84b51b58cf296c8d09d56ce4463821c8012cd2a7a8794477974ddbb691e5"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:9ac92b5392725775ea53aa56d63bc1ff285a7aede1c7569e26aba73f9eb26a5b"}
+              "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
            ]
   end
 
@@ -2424,21 +2489,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       assert {:ok, _modules, _diagnostics} =
                Kernel.ParallelCompiler.compile_to_path(
                  [
-                   OfficeGraph.TestSupport.CompiledBoundaryFixture.approved_source_path!(
-                     source_path,
-                     %{
+                   source_path
+                   |> File.read!()
+                   |> then(fn source ->
+                     fingerprint =
+                       source
+                       |> then(&:crypto.hash(:sha256, &1))
+                       |> Base.encode16(case: :lower)
+
+                     approved_sources = %{
                        canonical_repo_macro:
                          "8e31d5061a4eb59adb27e1ea51582028ad68982fcd7de0745fd08ba79e116ad9",
                        compiled_boundary:
                          "e97785c4198e1b316c535066697961dc04342975d13248b80a51a56ee21a929b",
                        compiled_dynamic_boundary:
-                         "6b8e950f0c612e26cf518bc3ddbb6bc75913332308810144c450dce5924742b8",
+                         "da9fd37f9522df00058eaab060ddad7ab654e684845d17919255665d313571b1",
                        compiled_expression_boundary:
                          "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_strict_boundary:
-                         "fefbce1732cb039171d4d86125bf27b737bbf9dd11724f470c574833574b8fd2",
+                         "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
                          "51da408a16c40a07129763d7f89926d2758405fd69d92f2f22e05ba0830d5286",
                        generated_persistence_macro:
@@ -2462,7 +2533,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        test_environment:
                          "0f93bd491507c0845b6a608aaa1f7eab6cd65f785fc136514c6953768f683c42"
                      }
-                   )
+
+                     if fingerprint in Map.values(approved_sources) do
+                       source_path
+                     else
+                       raise ArgumentError,
+                             "generated compiler fixture source is not approved: sha256:#{fingerprint}"
+                     end
+                   end)
                  ],
                  ebin,
                  Keyword.put(options, :return_diagnostics, true)

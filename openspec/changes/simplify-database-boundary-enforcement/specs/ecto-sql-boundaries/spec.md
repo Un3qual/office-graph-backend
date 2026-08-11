@@ -141,16 +141,28 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 #### Scenario: Runtime code execution or MFA dispatch appears
 
 - **WHEN** tracked source or compiled project code uses runtime source
-  compilation, quoted evaluation, an OTP file evaluator, or a public
-  process-library MFA form including `:erlang.hibernate/3`
+  compilation, EEx compilation or evaluation, quoted evaluation, an OTP file
+  evaluator, or a public process-library or supervisor MFA form including
+  `:erlang.hibernate/3` and `:supervisor.start_child/2`
 - **THEN** canonical verification MUST reject the operation as unresolved
   unless the exact occurrence is an approved private verification fixture with
   matching fingerprint and behavior coverage
 - **AND** an approved generated-source compiler fixture MUST reject source whose
   exact content fingerprint is absent from the fingerprinted compiler
   occurrence
+- **AND** the generated-source byte guard and compiled path MUST be contained
+  directly in that exact approved compiler occurrence rather than delegated to
+  mutable helper code
 - **AND** the existing test-only shell invocation of the tracked canonical
   `bin/verify` script MUST match its source path and argument shape exactly
+
+#### Scenario: Tracked Elixir source lacks compiled coverage
+
+- **WHEN** a tracked `.ex` or `.exs` source introduces an opaque dependency
+  macro through `require`, `import`, or `use` and no matching compiler-recorded
+  BEAM source path exists
+- **THEN** canonical verification MUST reject the macro capability as unresolved
+  rather than assuming the compiled audit will inspect its expansion
 
 #### Scenario: Low-level execution is hidden behind private APIs or ports
 

@@ -341,13 +341,26 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       assert {:ok, _modules, _diagnostics} =
                Kernel.ParallelCompiler.compile_to_path(
                  [
-                   OfficeGraph.TestSupport.CompiledBoundaryFixture.approved_source_path!(
-                     source_path,
-                     %{
+                   source_path
+                   |> File.read!()
+                   |> then(fn source ->
+                     fingerprint =
+                       source
+                       |> then(&:crypto.hash(:sha256, &1))
+                       |> Base.encode16(case: :lower)
+
+                     approved_sources = %{
                        sentinel:
                          "56951246228ec4501c98eea5b58626b89a98e18f3a612a904577e650ff6806f1"
                      }
-                   )
+
+                     if fingerprint in Map.values(approved_sources) do
+                       source_path
+                     else
+                       raise ArgumentError,
+                             "generated compiler fixture source is not approved: sha256:#{fingerprint}"
+                     end
+                   end)
                  ],
                  ebin,
                  return_diagnostics: true

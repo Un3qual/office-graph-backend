@@ -144,3 +144,12 @@
 - [x] 20.3 Bind each private runtime-compiler exception to the exact generated-source SHA-256 allowlist embedded in its approved occurrence.
 - [x] 20.4 Verify that nonempty map defaults remain omitted when the pinned AshPostgres migration generator reports them unsupported.
 - [x] 20.5 Run focused scanner, gate, Credo, OpenSpec, and repository verification after refreshing exact approval evidence.
+
+## 21. Compiled Coverage And Runtime Evaluation Follow-Up
+
+- [x] 21.1 Add failing source and compiled regressions for OTP supervisor child specs, EEx evaluation, and opaque macros in `.ex` sources without matching BEAM evidence.
+- [x] 21.2 Reject OTP supervisor dispatch and EEx execution through the shared source and compiled inventories.
+- [x] 21.3 Derive tracked `.ex` compile coverage from compiler-recorded BEAM source paths and fail closed when the compiled fallback is absent.
+- [x] 21.4 Inline each generated-source byte guard into its exact approved compiler occurrence and remove the mutable helper.
+- [x] 21.5 Verify pinned AshPostgres behavior for unsupported nonempty array defaults and retain the generator-conformant terminal expectation.
+- [x] 21.6 Run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification after refreshing exact approval evidence.

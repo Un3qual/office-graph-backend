@@ -355,6 +355,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "erpc",
     "proc_lib",
     "rpc",
+    "supervisor",
     "timer"
   ]
   @mfa_process_operations [
@@ -413,7 +414,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :on_definition,
     :on_load
   ]
-  @reflection_modules ["Code", "Kernel.ParallelCompiler", "Module", "code", "erl_eval", "file"]
+  @reflection_modules [
+    "Code",
+    "EEx",
+    "Kernel.ParallelCompiler",
+    "Module",
+    "code",
+    "erl_eval",
+    "file"
+  ]
   @reflection_operations %{
     "Code" => [
       :compile_file,
@@ -424,6 +433,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :eval_quoted_with_env,
       :eval_string,
       :require_file
+    ],
+    "EEx" => [
+      :compile_file,
+      :compile_string,
+      :eval_file,
+      :eval_string,
+      :function_from_file,
+      :function_from_string
     ],
     "Kernel.ParallelCompiler" => [
       :compile,
@@ -517,17 +534,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   @spec scan_repository(Path.t()) :: [map()]
   def scan_repository(root \\ File.cwd!()) do
-    root
-    |> tracked_sources()
-    |> scan_sources(root: root)
+    scan_sources(tracked_sources(root),
+      root: root,
+      compiled_source_paths: compiled_source_path_set(root)
+    )
   end
 
   @spec scan_sources([map()], keyword()) :: [map()]
   def scan_sources(sources, opts \\ []) do
     root = Keyword.get(opts, :root, File.cwd!())
+    compiled_source_paths = Keyword.get(opts, :compiled_source_paths, MapSet.new())
 
     sources
-    |> Enum.flat_map(&scan_source(&1, root))
+    |> Enum.flat_map(&scan_source(&1, root, compiled_source_paths))
     |> assign_ordinals()
   end
 
@@ -553,7 +572,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> assign_ordinals()
   end
 
-  defp scan_source(%{path: path, source: source}, root) do
+  defp scan_source(%{path: path, source: source}, root, compiled_source_paths) do
     cond do
       sql_file?(path) ->
         [
@@ -569,25 +588,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         ]
 
       elixir_source?(path) ->
-        scan_elixir_source(path, source, root)
+        scan_elixir_source(path, source, root, compiled_source_paths)
 
       true ->
         []
     end
   end
 
-  defp scan_source(%{path: path}, root) do
+  defp scan_source(%{path: path}, root, compiled_source_paths) do
     source = root |> Path.join(path) |> File.read!()
-    scan_source(%{path: path, source: source}, root)
+    scan_source(%{path: path, source: source}, root, compiled_source_paths)
   end
 
-  defp scan_elixir_source(path, source, root) do
+  defp scan_elixir_source(path, source, root, compiled_source_paths) do
     case Code.string_to_quoted(source, file: path, columns: true) do
       {:ok, ast} ->
         env = %{
           aliases: %{},
           ambiguous_expansion_depth: 0,
           approved_migration_loops: approved_migration_loops(path, ast),
+          compiled_source?: MapSet.member?(compiled_source_paths, path),
           function: nil,
           imports: %{},
           local_definitions: MapSet.new(),
@@ -1507,7 +1527,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp mfa_dispatch_targets(receiver, :start_child, [_supervisor, child_spec])
-       when receiver in ["DynamicSupervisor", "Supervisor"] do
+       when receiver in ["DynamicSupervisor", "Supervisor", "supervisor"] do
     child_spec_start_targets(child_spec)
   end
 
@@ -1723,7 +1743,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_expression_receiver(receiver, operation, node, env) do
-    if uncompiled_elixir_source?(env.path) and receiver_name(receiver, env) == nil and
+    if uncompiled_elixir_source?(env) and receiver_name(receiver, env) == nil and
          not variable_receiver?(receiver) and
          not dynamic_module_receiver?(receiver, env) and
          database_operation_arity?(operation, length(call_arguments(node))) do
@@ -1747,12 +1767,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp database_shaped_variable_receiver?(_receiver), do: false
 
-  defp uncompiled_elixir_source?(path), do: source_extension(path) == ".exs"
+  defp uncompiled_elixir_source?(%{path: path, compiled_source?: compiled_source?}),
+    do: source_extension(path) == ".exs" or not compiled_source?
 
   defp uncompiled_macro_occurrence(kind, [target | _options], env) do
     module = module_name(target, env)
 
-    if uncompiled_elixir_source?(env.path) and
+    if uncompiled_elixir_source?(env) and
          not (kind == :use and env.migration?) and
          opaque_dependency_macro_module?(module) do
       occurrence(
@@ -2775,6 +2796,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> then(fn {paths, missing_environments} ->
       {Enum.reverse(paths), Enum.reverse(missing_environments)}
     end)
+  end
+
+  defp compiled_source_path_set(root) do
+    {paths, _missing_environments} = compiled_beam_paths(root)
+
+    paths
+    |> Enum.map(&compiled_source(&1, root))
+    |> MapSet.new()
   end
 
   defp compiled_environment_missing_occurrence(environment) do
