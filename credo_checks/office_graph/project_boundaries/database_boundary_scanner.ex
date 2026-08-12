@@ -392,6 +392,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @mfa_agent_initialization_operations [:start, :start_link]
   @mfa_agent_state_operations [:cast, :get, :get_and_update, :update]
   @mfa_agent_operations @mfa_agent_initialization_operations ++ @mfa_agent_state_operations
+  @mfa_gen_server_operations [:start, :start_link]
   @mfa_rpc_operations [
     :async_call,
     :block_call,
@@ -436,6 +437,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Agent" => @mfa_agent_operations,
     "DynamicSupervisor" => @mfa_supervisor_operations,
     "Function" => [:capture],
+    "GenServer" => @mfa_gen_server_operations,
     "Process" => [:spawn],
     "Supervisor" => @mfa_elixir_supervisor_operations,
     "Task" => @mfa_task_operations,
@@ -449,6 +451,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @dynamic_dispatch_modules Map.keys(@dynamic_dispatch_operations)
   @mfa_dispatch_operations Enum.uniq(
                              @mfa_agent_operations ++
+                               @mfa_gen_server_operations ++
                                @mfa_process_operations ++
                                @mfa_rpc_operations ++
                                @mfa_erpc_operations ++
@@ -706,9 +709,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           {paths, tracked_path_set(root), missing_environments}
       end
 
+    project_modules = compiled_project_modules(paths, root, tracked_paths)
+
     compiled_occurrences =
       paths
-      |> Enum.map(fn path -> {Path.basename(path), scan_beam(path, root, tracked_paths)} end)
+      |> Enum.map(fn path ->
+        {Path.basename(path), scan_beam(path, root, tracked_paths, project_modules)}
+      end)
       |> merge_compiled_beam_scans()
 
     (compiled_occurrences ++
@@ -820,6 +827,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     collect_defined_module_names(body, modules, 0, module)
   end
 
+  defp collect_defined_module_names(
+         {:__block__, _metadata, expressions},
+         modules,
+         quote_depth,
+         current_module
+       )
+       when is_list(expressions),
+       do: collect_defined_module_names(expressions, modules, quote_depth, current_module)
+
   defp collect_defined_module_names(nodes, modules, quote_depth, current_module)
        when is_list(nodes),
        do:
@@ -830,7 +846,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          )
 
   defp collect_defined_module_names(node, modules, quote_depth, current_module)
-       when is_tuple(node) do
+       when is_tuple(node) and quote_depth > 0 do
     node
     |> Tuple.to_list()
     |> collect_defined_module_names(modules, quote_depth, current_module)
@@ -1363,10 +1379,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
        when is_atom(operation) and is_list(arguments) do
+    imported_receiver = imported_receiver(env, operation, length(arguments))
+
     occurrences =
-      operation
-      |> migration_sql_option_occurrences(arguments, node, env)
-      |> Enum.reduce(occurrences, &[&1 | &2])
+      if env.migration? or imported_receiver == "Ecto.Migration" do
+        operation
+        |> migration_sql_option_occurrences(arguments, node, env)
+        |> Enum.reduce(occurrences, &[&1 | &2])
+      else
+        occurrences
+      end
 
     occurrences =
       operation
@@ -1392,8 +1414,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       operation
       |> resource_custom_statement_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
-
-    imported_receiver = imported_receiver(env, operation, length(arguments))
 
     occurrences =
       if imported_receiver in ["Ecto.Query", "Ecto.Query.API"] do
@@ -1999,11 +2019,52 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_mfa_dispatch(receiver, operation, arguments, node, env) do
-    receiver
-    |> mfa_dispatch_targets(operation, arguments)
-    |> Enum.find_value(fn {target, target_operation} ->
+    targets = mfa_dispatch_targets(receiver, operation, arguments)
+
+    Enum.find_value(targets, fn {target, target_operation} ->
       classify_dynamic_dispatch(target, target_operation, operation, node, env)
-    end)
+    end) || classify_opaque_callback_provider(receiver, operation, targets, node, env)
+  end
+
+  defp classify_opaque_callback_provider(
+         "GenServer",
+         operation,
+         [{target, :init}],
+         node,
+         env
+       )
+       when operation in @mfa_gen_server_operations do
+    case module_name(target, env) do
+      module when is_binary(module) ->
+        if project_module?(module, env) do
+          nil
+        else
+          opaque_callback_occurrence("GenServer", operation, node, env)
+        end
+
+      _dynamic ->
+        opaque_callback_occurrence("GenServer", operation, node, env)
+    end
+  end
+
+  defp classify_opaque_callback_provider(
+         _receiver,
+         _operation,
+         _targets,
+         _node,
+         _env
+       ),
+       do: nil
+
+  defp opaque_callback_occurrence(receiver, operation, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :direct_ecto,
+      "runtime_callback.#{receiver}.#{operation}",
+      node,
+      approval: :unresolved_sql
+    )
   end
 
   defp mfa_dispatch_targets(receiver, operation, arguments)
@@ -2042,6 +2103,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     case arguments do
       [target, target_operation, _arguments] -> [{target, target_operation}]
       [target, target_operation, _arguments, _options] -> [{target, target_operation}]
+      _other -> []
+    end
+  end
+
+  defp mfa_dispatch_targets("GenServer", operation, arguments)
+       when operation in @mfa_gen_server_operations do
+    case arguments do
+      [target, _init_arg] -> [{target, :init}]
+      [target, _init_arg, _options] -> [{target, :init}]
       _other -> []
     end
   end
@@ -3434,26 +3504,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp keyword_option(_options, _key), do: nil
 
   defp migration_sql_option_occurrences(operation, arguments, node, env) do
-    if env.migration? do
-      option_occurrences =
-        case Map.fetch(@migration_sql_option_operations, operation) do
-          {:ok, {position, option_keys}} ->
-            migration_sql_option_entries(
-              operation,
-              Enum.fetch(arguments, position),
-              option_keys,
-              node,
-              env
-            )
+    option_occurrences =
+      case Map.fetch(@migration_sql_option_operations, operation) do
+        {:ok, {position, option_keys}} ->
+          migration_sql_option_entries(
+            operation,
+            Enum.fetch(arguments, position),
+            option_keys,
+            node,
+            env
+          )
 
-          :error ->
-            []
-        end
+        :error ->
+          []
+      end
 
-      option_occurrences ++ migration_index_field_occurrences(operation, arguments, node, env)
-    else
-      []
-    end
+    option_occurrences ++ migration_index_field_occurrences(operation, arguments, node, env)
   end
 
   defp resource_index_sql_occurrences(
@@ -3987,6 +4053,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> MapSet.new()
   end
 
+  defp compiled_project_modules(paths, root, tracked_paths) do
+    Enum.reduce(paths, MapSet.new(), fn path, modules ->
+      source = compiled_source(path, root)
+
+      if is_nil(tracked_paths) or MapSet.member?(tracked_paths, source) do
+        module = path |> Path.basename(".beam") |> canonical_module_name()
+        MapSet.put(modules, module)
+      else
+        modules
+      end
+    end)
+  end
+
   defp compiled_environment_missing_occurrence(environment) do
     occurrence(
       "mix.exs",
@@ -3999,19 +4078,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     )
   end
 
-  defp scan_beam(path, root, tracked_paths) do
+  defp scan_beam(path, root, tracked_paths, project_modules) do
     source = compiled_source(path, root)
 
     if tracked_paths && not MapSet.member?(tracked_paths, source),
       do: [],
-      else: scan_beam_abstract_code(path, source, root)
+      else: scan_beam_abstract_code(path, source, root, project_modules)
   end
 
-  defp scan_beam_abstract_code(path, source, root) do
+  defp scan_beam_abstract_code(path, source, root, project_modules) do
     case :beam_lib.chunks(String.to_charlist(path), [:abstract_code]) do
       {:ok, {_module, [abstract_code: {:raw_abstract_v1, forms}]}} ->
         behaviours = compiled_behaviours(forms)
-        Enum.flat_map(forms, &compiled_form_occurrences(&1, source, behaviours))
+
+        Enum.flat_map(
+          forms,
+          &compiled_form_occurrences(&1, source, behaviours, project_modules)
+        )
 
       error ->
         [compiled_metadata_unavailable_occurrence(path, source, root, error)]
@@ -4089,25 +4172,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp compiled_form_occurrences(
          {:function, annotation, name, arity, _clauses} = form,
          source,
-         behaviours
+         behaviours,
+         project_modules
        ) do
     function = {"#{name}/#{arity}", :erl_anno.generated(annotation), line(annotation)}
 
     if generated_non_persistence_callback?(form, behaviours) do
       form
-      |> compiled_node_occurrences(source, function, [])
+      |> compiled_node_occurrences(source, function, project_modules, [])
       |> Enum.reject(&(&1.construct == "dynamic_dispatch.apply"))
       |> Enum.reverse()
     else
       form
-      |> compiled_node_occurrences(source, function, [])
+      |> compiled_node_occurrences(source, function, project_modules, [])
       |> Enum.reverse()
     end
   end
 
-  defp compiled_form_occurrences(form, source, _behaviours) do
+  defp compiled_form_occurrences(form, source, _behaviours, project_modules) do
     form
-    |> compiled_node_occurrences(source, nil, [])
+    |> compiled_node_occurrences(source, nil, project_modules, [])
     |> Enum.reverse()
   end
 
@@ -4133,11 +4217,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          {:call, _line, {:atom, _fun_line, :apply}, arguments} = node,
          source,
          function,
+         project_modules,
          occurrences
        ) do
     occurrences = compiled_apply_occurrences(arguments, node, source, function, occurrences)
 
-    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, function, project_modules, occurrences)
   end
 
   defp compiled_node_occurrences(
@@ -4146,11 +4231,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           arguments} = node,
          source,
          function,
+         project_modules,
          occurrences
        ) do
     occurrences = compiled_apply_occurrences(arguments, node, source, function, occurrences)
 
-    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, function, project_modules, occurrences)
   end
 
   defp compiled_node_occurrences(
@@ -4159,11 +4245,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           arguments} = node,
          source,
          function,
+         project_modules,
          occurrences
        ) do
     occurrences = compiled_capture_occurrences(arguments, node, source, function, occurrences)
 
-    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, function, project_modules, occurrences)
   end
 
   defp compiled_node_occurrences(
@@ -4171,6 +4258,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
            node,
          source,
          function,
+         project_modules,
          occurrences
        )
        when not is_tuple(receiver) or elem(receiver, 0) != :atom do
@@ -4190,7 +4278,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
-    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, function, project_modules, occurrences)
   end
 
   defp compiled_node_occurrences(
@@ -4198,6 +4286,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           arguments} = node,
          source,
          function,
+         project_modules,
          occurrences
        )
        when not is_tuple(receiver) or elem(receiver, 0) != :atom do
@@ -4230,7 +4319,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
-    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, function, project_modules, occurrences)
   end
 
   defp compiled_node_occurrences(
@@ -4239,6 +4328,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           arguments} = node,
          source,
          function,
+         project_modules,
          occurrences
        ) do
     module = module |> Atom.to_string() |> String.trim_leading("Elixir.")
@@ -4251,6 +4341,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         node,
         source,
         function,
+        project_modules,
         occurrences
       )
 
@@ -4274,20 +4365,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       end
 
     occurrences = if occurrence, do: [occurrence | occurrences], else: occurrences
-    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+    compiled_node_occurrences(Tuple.to_list(node), source, function, project_modules, occurrences)
   end
 
-  defp compiled_node_occurrences(nodes, source, function, occurrences) when is_list(nodes) do
-    Enum.reduce(nodes, occurrences, &compiled_node_occurrences(&1, source, function, &2))
+  defp compiled_node_occurrences(nodes, source, function, project_modules, occurrences)
+       when is_list(nodes) do
+    Enum.reduce(
+      nodes,
+      occurrences,
+      &compiled_node_occurrences(&1, source, function, project_modules, &2)
+    )
   end
 
-  defp compiled_node_occurrences(node, source, function, occurrences) when is_tuple(node) do
+  defp compiled_node_occurrences(node, source, function, project_modules, occurrences)
+       when is_tuple(node) do
     node
     |> Tuple.to_list()
-    |> compiled_node_occurrences(source, function, occurrences)
+    |> compiled_node_occurrences(source, function, project_modules, occurrences)
   end
 
-  defp compiled_node_occurrences(_node, _source, _function, occurrences), do: occurrences
+  defp compiled_node_occurrences(
+         _node,
+         _source,
+         _function,
+         _project_modules,
+         occurrences
+       ),
+       do: occurrences
 
   defp compiled_unresolved_receiver_operation?(receiver, operation, arguments) do
     arity = length(arguments)
@@ -4347,21 +4451,86 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          node,
          source,
          function,
+         project_modules,
          occurrences
        ) do
-    receiver
-    |> mfa_dispatch_targets(operation, arguments)
-    |> Enum.reduce(occurrences, fn {target, target_operation}, occurrences ->
-      compiled_dynamic_dispatch_occurrences(
-        target,
-        target_operation,
-        operation,
-        node,
-        source,
-        function,
-        occurrences
-      )
-    end)
+    targets = mfa_dispatch_targets(receiver, operation, arguments)
+
+    dispatch_occurrences =
+      Enum.reduce(targets, occurrences, fn {target, target_operation}, occurrences ->
+        compiled_dynamic_dispatch_occurrences(
+          target,
+          target_operation,
+          operation,
+          node,
+          source,
+          function,
+          occurrences
+        )
+      end)
+
+    if dispatch_occurrences == occurrences do
+      case compiled_opaque_callback_provider_occurrence(
+             receiver,
+             operation,
+             targets,
+             node,
+             source,
+             function,
+             project_modules
+           ) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
+    else
+      dispatch_occurrences
+    end
+  end
+
+  defp compiled_opaque_callback_provider_occurrence(
+         "GenServer",
+         operation,
+         [{target, :init}],
+         node,
+         source,
+         function,
+         project_modules
+       )
+       when operation in @mfa_gen_server_operations do
+    case compiled_module(target) do
+      module when is_binary(module) ->
+        if MapSet.member?(project_modules, module) do
+          nil
+        else
+          compiled_opaque_callback_occurrence("GenServer", operation, node, source, function)
+        end
+
+      _dynamic ->
+        compiled_opaque_callback_occurrence("GenServer", operation, node, source, function)
+    end
+  end
+
+  defp compiled_opaque_callback_provider_occurrence(
+         _receiver,
+         _operation,
+         _targets,
+         _node,
+         _source,
+         _function,
+         _project_modules
+       ),
+       do: nil
+
+  defp compiled_opaque_callback_occurrence(receiver, operation, node, source, function) do
+    occurrence(
+      source,
+      line_from_node(node),
+      function,
+      :direct_ecto,
+      "runtime_callback.#{receiver}.#{operation}",
+      node,
+      approval: :unresolved_sql
+    )
   end
 
   defp compiled_dynamic_dispatch_occurrences(

@@ -56,6 +56,18 @@ execution-capable namespaces. Project-module trust resolves nested shorthand
 definitions against their executable enclosing module, so a nested provider
 cannot authorize an unrelated top-level dependency module.
 
+Provider trust is limited to unconditional lexical module definitions in
+tracked source. Definitions beneath conditionals, function bodies, callbacks,
+or other unresolved execution contexts do not grant trust; the collector does
+not evaluate those contexts. Known GenServer startup calls inspect their
+literal callback provider in both source and BEAM abstract code: tracked
+project modules remain ordinary callbacks, while dependency-owned or dynamic
+providers fail closed without evaluating `init/1`. Compiled provider trust
+excludes BEAMs whose compiler-recorded source is no longer tracked. SQL-bearing
+migration options are selected by a resolved `Ecto.Migration` receiver or
+import as well as by migration lexical context, so moving a migration module
+outside `priv/repo/migrations` cannot suppress exact SQL occurrence inventory.
+
 Runtime dependency installation through `Mix.install/1,2`, native library loading through `:erlang.load_nif/2`, and dynamic driver loading or reloading through `:erl_ddll.load/2`, `load_driver/2`, `try_load/3`, `reload/2`, or `reload_driver/2` are unresolved execution capabilities, as are Erlang `:core_transform` and `:parse_transform` compiler callbacks. Static non-callback `@compile` options remain inert, while a dynamic `@compile` value fails closed because proving that it cannot select a transform would require evaluation.
 
 The eleven external `cmd` entries that remain in the canonical `mix.exs` aliases are independent exact OpenSpec exceptions with empty terminal-object inventories. Their fingerprints and ordinals bind each command separately. The pinned toolchain requires `mix hex.audit` to run in an external Mix process because the dependency task is not resolvable as an in-process alias task; the avoidable inline `run -e` alias is replaced by a scanned literal callback. Any command edit, insertion, reordering, dynamic container, or additional executable alias therefore invalidates the inventory instead of widening one shared command seam.

@@ -74,6 +74,18 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the scanner MUST NOT use that inert definition to trust an opaque
   provider or suppress a live migration primitive
 
+#### Scenario: Conditional definitions do not grant provider trust
+- **WHEN** a tracked source contains a module definition beneath conditional,
+  function, callback, or other unresolved execution control flow
+- **THEN** the scanner MUST NOT treat that module as an executable tracked
+  provider without evaluating whether the enclosing path runs
+
+#### Scenario: Stale compiled modules do not grant provider trust
+- **WHEN** a BEAM module's compiler-recorded source is no longer tracked at
+  that path
+- **THEN** the compiled audit MUST exclude that module from callback-provider
+  trust as well as from occurrence scanning
+
 #### Scenario: Nested project provider uses lexical module identity
 - **WHEN** tracked source defines a shorthand `defmodule` inside another
   executable module body
@@ -109,6 +121,13 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the scanner MUST classify the call as a low-level persistence
   primitive regardless of its function name
 
+#### Scenario: Migration SQL options resolve outside migration paths
+- **WHEN** tracked source invokes a SQL-bearing Ecto migration option through a
+  qualified, aliased, or imported `Ecto.Migration` receiver outside the
+  conventional migrations directory
+- **THEN** the scanner MUST emit the same exact raw-SQL occurrence as it would
+  inside a migration path while leaving unrelated local functions unclassified
+
 #### Scenario: Process launcher can conceal database execution
 - **WHEN** tracked source or compiled code uses a dynamic executable, shell or
   interpreter wrapper, unknown command dispatcher, or process port
@@ -138,9 +157,10 @@ construction, SQL bodies, macro output, or control flow.
   including standard module and
   `{module, argument}` shorthands, a statically visible persistence callback
   module passed to `Supervisor.start_link/3`, `DynamicSupervisor.start_link/3`,
-  or `:supervisor.start_link/2,3`, or a compile/verification callback attribute
-  or Erlang `:core_transform`/`:parse_transform` compiler option in any tracked
-  module
+  or `:supervisor.start_link/2,3`, an opaque or dynamic callback provider passed
+  to `GenServer.start/2,3` or `GenServer.start_link/2,3`, or a
+  compile/verification callback attribute or Erlang
+  `:core_transform`/`:parse_transform` compiler option in any tracked module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
 

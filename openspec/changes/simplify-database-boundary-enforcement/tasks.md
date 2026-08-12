@@ -253,3 +253,10 @@
 - [x] 35.1 Add failing source and compiled regressions for both `:erlang.spawn_request/4` MFA layouts and every source-compiling `:make` entrypoint.
 - [x] 35.2 Distinguish both `spawn_request/4` layouts in the shared dispatcher and reject the complete `:make` compilation capability through the shared reflection inventory.
 - [x] 35.3 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.
+
+## 36. Provider Trust, GenServer, And Migration Option Follow-Up
+
+- [x] 36.1 Add failing regressions for conditional provider definitions, stale compiled providers, opaque and dynamic GenServer callback providers, and migration SQL options outside migration paths.
+- [x] 36.2 Limit module-provider trust to unconditional lexical definitions and currently tracked BEAM sources while preserving direct nested modules and explicit unquote boundaries.
+- [x] 36.3 Extend the shared source/BEAM dispatcher inventory for GenServer startup and inspect migration options from resolved Ecto.Migration receivers or imports without callback, control-flow, or SQL-body evaluation.
+- [x] 36.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.

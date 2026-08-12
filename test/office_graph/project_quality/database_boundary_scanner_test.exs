@@ -1448,6 +1448,38 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "audits qualified and imported migration SQL options outside migration paths" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/reviewed_migration.ex",
+          source: """
+          defmodule ReviewedMigration do
+            import Ecto.Migration, only: [constraint: 3]
+
+            def qualified do
+              Ecto.Migration.constraint(:items, :positive_amount, check: "amount > 0")
+            end
+
+            def imported do
+              constraint(:items, :active, check: "deleted_at IS NULL")
+            end
+          end
+
+          defmodule OrdinaryConstraint do
+            def constraint(_table, _name, _options), do: :ok
+            def local, do: constraint(:items, :local, check: "not migration SQL")
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, Map.get(&1, :approval)}) == [
+             {"migration.constraint.check", "qualified/0", nil},
+             {"migration.constraint.check", "imported/0", nil}
+           ]
+  end
+
   test "rejects a reversible migration when either SQL payload is dynamic" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -2535,9 +2567,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"test/office_graph/project_quality/database_boundary_gate_test.exs", 627,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2601,
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2633,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:1b37357e6654ac26124477843cfaf8b754e3f21307bb5e2d086bcb7ffc35fd24"},
+              "sha256:b4582c3212a7ed29cea31078767bac161668b2593eae94822f61a6a6f2f2d262"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2623,8 +2655,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_runtime_dependency_execution:
                          "9f0aa6a9eba4c17f493cd789bce3687bc2cee1888e415de8b058988ca2d64fa2",
+                       compiled_stale_callback_provider:
+                         "0bc7dfd4e477e2569e336074f39e62ea053238036d3ab9fba066a69155cb070a",
+                       compiled_tracked_callback_consumer:
+                         "047731b4270c4e3d246391a03ece1951d9cb9ddf5aab46468ecd2c653427f0dd",
                        compiled_reviewed_runtime_boundaries:
-                         "4d32829ad4ad38fa94af6a7ce4edd34a8f3fbc38a1a20575de42fcec6144329f",
+                         "67e2dfc3f0c8d78078af326b87a4957f32cd5f0c4cac70ad570af79f05ec1ed0",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2665,6 +2701,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     after
       Code.compiler_options(compiler_options)
     end
+  end
+
+  test "compiled callback trust excludes stale BEAM modules" do
+    root = temporary_root("compiled_stale_callback_provider")
+    provider_path = Path.join(root, "lib/stale_callback_provider.ex")
+    consumer_path = Path.join(root, "lib/tracked_callback_consumer.ex")
+    provider = OfficeGraph.StaleCallbackProviderFixture
+    consumer = OfficeGraph.TrackedCallbackConsumerFixture
+
+    init_git_repo!(root)
+
+    provider_source = """
+    defmodule #{inspect(provider)} do
+      def init(arg), do: {:ok, arg}
+    end
+    """
+
+    consumer_source = """
+    defmodule #{inspect(consumer)} do
+      def start_link(arg), do: GenServer.start_link(#{inspect(provider)}, arg, [])
+    end
+    """
+
+    for env <- [Mix.env(), :prod] |> Enum.uniq() do
+      ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
+      compile_source!(provider_path, ebin, provider_source)
+      compile_source!(consumer_path, ebin, consumer_source)
+    end
+
+    git!(root, ["add", "lib/stale_callback_provider.ex", "lib/tracked_callback_consumer.ex"])
+    git!(root, ["mv", "lib/stale_callback_provider.ex", "lib/current_callback_provider.ex"])
+
+    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root)
+
+    assert {occurrence.construct, occurrence.function, occurrence.approval} ==
+             {"runtime_callback.GenServer.start_link", "start_link/1", :unresolved_sql}
   end
 
   test "resolves wildcard imports for runtime MFA dispatch" do
@@ -2767,6 +2839,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "dynamic/1", :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "erlang/1", :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "named/2", :unresolved_sql}
+           ]
+  end
+
+  test "rejects opaque GenServer callback providers but trusts tracked project modules" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/tracked_server.ex",
+          source: """
+          defmodule OfficeGraph.TrackedServer do
+            def start(arg), do: GenServer.start(__MODULE__, arg)
+            def start_link(arg), do: GenServer.start_link(__MODULE__, arg, [])
+          end
+          """
+        },
+        %{
+          path: "scripts/external_server.exs",
+          source: """
+          defmodule ExternalServerScript do
+            import GenServer, only: [start_link: 3]
+
+            def start(arg), do: GenServer.start(Dependency.PersistenceServer, arg, [])
+            def start_link(arg), do: start_link(Dependency.PersistenceServer, arg, [])
+            def dynamic(module, arg), do: GenServer.start_link(module, arg, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"runtime_callback.GenServer.start", "start/1", :unresolved_sql},
+             {"runtime_callback.GenServer.start_link", "start_link/1", :unresolved_sql},
+             {"runtime_callback.GenServer.start_link", "dynamic/2", :unresolved_sql}
            ]
   end
 
@@ -2956,6 +3061,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           end
 
           defmodule OfficeGraph.QuotedProviderConsumer do
+            use Dependency.PersistenceDSL
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "dependency_macro.use"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "does not trust provider modules defined only inside control flow" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/conditional_provider.ex",
+          source: """
+          if System.get_env("ENABLE_PERSISTENCE_PROVIDER") do
+            defmodule Dependency.PersistenceDSL do
+              defmacro __using__(_options), do: quote(do: :ok)
+            end
+          end
+
+          defmodule OfficeGraph.ConditionalProviderConsumer do
             use Dependency.PersistenceDSL
           end
           """
@@ -3619,6 +3747,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def named_erlang_supervisor_callback(name, init_arg),
         do: :supervisor.start_link({:local, name}, Ecto.Repo.Supervisor, init_arg)
 
+      def gen_server_external(init_arg),
+        do: GenServer.start_link(Dependency.PersistenceServer, init_arg, [])
+
+      def gen_server_internal(init_arg),
+        do: GenServer.start_link(__MODULE__, init_arg, [])
+
       def constructed(supervisor),
         do:
           Supervisor.start_child(
@@ -3683,6 +3817,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               :unresolved_sql},
              {:direct_ecto, "Ecto.Repo.Supervisor.start_link",
               "named_erlang_supervisor_callback/2", :unresolved_sql},
+             {:direct_ecto, "runtime_callback.GenServer.start_link", "gen_server_external/1",
+              :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_child", "constructed/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.child_spec", "constructed/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.child_spec", "direct_child_spec/1", :unresolved_sql},
