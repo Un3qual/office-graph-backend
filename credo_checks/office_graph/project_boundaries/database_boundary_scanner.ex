@@ -489,7 +489,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "erlang",
     "erl_ddll",
     "erl_eval",
-    "file"
+    "file",
+    "make"
   ]
   @reflection_operations %{
     "Code" => [
@@ -562,7 +563,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "erlang" => [:load_nif],
     "erl_ddll" => [:load, :load_driver, :reload, :reload_driver, :try_load],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
-    "file" => [:eval, :path_eval, :path_script, :script]
+    "file" => [:eval, :path_eval, :path_script, :script],
+    "make" => [:all, :all_or_nothing, :files]
   }
   @reviewed_runtime_compiler_fixtures [
     {"test/office_graph/project_quality/database_boundary_gate_test.exs", "compile_file!/2"},
@@ -2015,8 +2017,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         [{target, target_operation}]
 
       {operation, [_node, target, target_operation, _arguments]}
-      when operation in [:spawn, :spawn_link, :spawn_monitor, :spawn_request] ->
+      when operation in [:spawn, :spawn_link, :spawn_monitor] ->
         [{target, target_operation}]
+
+      {:spawn_request, [first, second, third, _fourth]} ->
+        spawn_request_targets(first, second, third)
 
       {:spawn_opt, [target, target_operation, _arguments, _options]} ->
         [{target, target_operation}]
@@ -2203,6 +2208,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp mfa_dispatch_targets(_receiver, _operation, _arguments), do: []
+
+  defp spawn_request_targets(first, second, third) when is_list(third),
+    do: [{first, second}]
+
+  defp spawn_request_targets(_first, second, third) when is_atom(third),
+    do: [{second, third}]
+
+  defp spawn_request_targets(first, second, {:cons, annotation, _head, _tail})
+       when not is_list(annotation),
+       do: [{first, second}]
+
+  defp spawn_request_targets(first, second, {nil, annotation})
+       when not is_list(annotation),
+       do: [{first, second}]
+
+  defp spawn_request_targets(_first, second, {:atom, annotation, operation} = third)
+       when not is_list(annotation) and is_atom(operation),
+       do: [{second, third}]
+
+  defp spawn_request_targets(first, second, third),
+    do: [{second, third}, {first, second}]
 
   defp parallel_eval_targets(calls) when is_list(calls),
     do: Enum.map(calls, &mfa_call_target/1)

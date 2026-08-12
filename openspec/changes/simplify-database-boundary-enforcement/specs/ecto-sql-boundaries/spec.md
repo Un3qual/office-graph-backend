@@ -162,7 +162,9 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   runtime dependency installation through `Mix.install/1,2`, native library
   loading through `:erlang.load_nif/2`, dynamic driver loading or reloading
   through `:erl_ddll.load/2`, `load_driver/2`, `try_load/3`, `reload/2`, or
-  `reload_driver/2`, `Mix.Project.in_project/3,4`, an
+  `reload_driver/2`, Erlang source compilation through `:make.all/0,1`,
+  `:make.all_or_nothing/0`, or `:make.files/1,2`,
+  `Mix.Project.in_project/3,4`, an
   executable or dynamic project alias string
   including `mix do` task composition, a command dispatched through
   `Mix.shell/0`, an untrusted or dynamic `@derive` provider,
@@ -170,7 +172,9 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   compile callback or Erlang `:core_transform`/`:parse_transform` compiler
   option in any tracked module, or a public process-library or
   supervisor MFA form including `:erlang.hibernate/3` and
-  `:supervisor.start_child/2`, a statically visible persistence callback
+  `:supervisor.start_child/2`, including both valid MFA layouts of the
+  overloaded `:erlang.spawn_request/4`, a statically visible persistence
+  callback
   invoked directly through `Supervisor.child_spec/2`, or a statically visible
   persistence callback module passed to `Supervisor.start_link/3`,
   `DynamicSupervisor.start_link/3`, or `:supervisor.start_link/2,3`

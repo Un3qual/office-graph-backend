@@ -126,7 +126,8 @@ construction, SQL bodies, macro output, or control flow.
   `:compile` source compilation/loading, `Mix.install/1,2`,
   `:erlang.load_nif/2`, `:erl_ddll.load/2`, `:erl_ddll.load_driver/2`,
   `:erl_ddll.try_load/3`, `:erl_ddll.reload/2`, or
-  `:erl_ddll.reload_driver/2`,
+  `:erl_ddll.reload_driver/2`, `:make.all/0,1`,
+  `:make.all_or_nothing/0`, or `:make.files/1,2`,
   `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
   config reads, runtime macro expansion, Mix shell command execution including
   expression receivers returned by `Mix.shell/0`, untrusted or dynamic
@@ -142,6 +143,17 @@ construction, SQL bodies, macro output, or control flow.
   module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
+
+#### Scenario: Overloaded spawn request preserves both MFA targets
+
+- **WHEN** tracked source or BEAM abstract code invokes the overloaded
+  `:erlang.spawn_request/4`
+- **THEN** the scanner MUST select the local-with-options or
+  remote-without-options target layout from the static third-argument shape
+- **AND** an unresolved discriminator MUST fail closed by inspecting both
+  candidate target layouts
+- **AND** a database target in either layout MUST remain an unresolved
+  low-level persistence occurrence
 
 #### Scenario: Compile-time file import is constrained
 - **WHEN** tracked source invokes an IEx file-import helper or imports Config

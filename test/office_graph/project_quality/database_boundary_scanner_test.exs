@@ -406,6 +406,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def linked(sql), do: Kernel.spawn_link(OfficeGraph.Repo, :query!, [sql, []])
             def process(sql), do: Process.spawn(OfficeGraph.Repo, :query!, [sql, []], [])
             def imported(sql), do: spawn(OfficeGraph.Repo, :query!, [sql, []], [])
+            def request_local(sql), do: :erlang.spawn_request(OfficeGraph.Repo, :query!, [sql, []], [])
+
+            def request_remote(node, sql),
+              do: :erlang.spawn_request(node, OfficeGraph.Repo, :query!, [sql, []])
+
+            def remote_node_named_repo,
+              do: :erlang.spawn_request(OfficeGraph.Repo, __MODULE__, :noop, [])
+
             def tasked(sql), do: Task.start(OfficeGraph.Repo, :query!, [sql, []])
 
             def supervised(supervisor, sql),
@@ -420,6 +428,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"OfficeGraph.Repo.spawn_link", "linked/1", :unresolved_sql},
              {"OfficeGraph.Repo.spawn", "process/1", :unresolved_sql},
              {"OfficeGraph.Repo.spawn", "imported/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn_request", "request_local/1", :unresolved_sql},
+             {"OfficeGraph.Repo.spawn_request", "request_remote/2", :unresolved_sql},
              {"OfficeGraph.Repo.start", "tasked/1", :unresolved_sql},
              {"OfficeGraph.Repo.start_child", "supervised/2", :unresolved_sql}
            ]
@@ -2525,9 +2535,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"test/office_graph/project_quality/database_boundary_gate_test.exs", 627,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2591,
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2601,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:3c7b6d1aa37c941b6ad7f2f6e313c7ec95ea3247f22ada02db399c3380349b51"},
+              "sha256:1b37357e6654ac26124477843cfaf8b754e3f21307bb5e2d086bcb7ffc35fd24"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2612,9 +2622,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_runtime_dependency_execution:
-                         "f878227c0176a3f906975f69e569237a578c47adc6dd3a4e5edb4f20c8c91ca1",
+                         "9f0aa6a9eba4c17f493cd789bce3687bc2cee1888e415de8b058988ca2d64fa2",
                        compiled_reviewed_runtime_boundaries:
-                         "b7051f09487873071150cdd1baad9891fbdb302815f1dbd19add1bc021d2e3bc",
+                         "4d32829ad4ad38fa94af6a7ce4edd34a8f3fbc38a1a20575de42fcec6144329f",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -3352,7 +3362,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "rejects runtime dependency installation and native library loading" do
+  test "rejects runtime dependency installation, native loading, and Erlang make compilation" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{
@@ -3367,6 +3377,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def try_load(path, name, options), do: :erl_ddll.try_load(path, name, options)
             def reload(path, name), do: :erl_ddll.reload(path, name)
             def reload_driver(path, name), do: :erl_ddll.reload_driver(path, name)
+            def make_all, do: :make.all()
+            def make_all(options), do: :make.all(options)
+            def make_all_or_nothing, do: :make.all_or_nothing()
+            def make_files(files), do: :make.files(files)
+            def make_files(files, options), do: :make.files(files, options)
           end
           """
         }
@@ -3380,7 +3395,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"reflection.erl_ddll.load", "load/2", :unresolved_sql},
              {"reflection.erl_ddll.try_load", "try_load/3", :unresolved_sql},
              {"reflection.erl_ddll.reload", "reload/2", :unresolved_sql},
-             {"reflection.erl_ddll.reload_driver", "reload_driver/2", :unresolved_sql}
+             {"reflection.erl_ddll.reload_driver", "reload_driver/2", :unresolved_sql},
+             {"reflection.make.all", "make_all/0", :unresolved_sql},
+             {"reflection.make.all", "make_all/1", :unresolved_sql},
+             {"reflection.make.all_or_nothing", "make_all_or_nothing/0", :unresolved_sql},
+             {"reflection.make.files", "make_files/1", :unresolved_sql},
+             {"reflection.make.files", "make_files/2", :unresolved_sql}
            ]
   end
 
@@ -3629,6 +3649,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def agent_get_and_update(agent, sql), do: Agent.get_and_update(agent, OfficeGraph.Repo, :query!, [[sql, []]])
       def agent_update(agent, sql), do: Agent.update(agent, OfficeGraph.Repo, :query!, [[sql, []]])
       def agent_cast(agent, sql), do: Agent.cast(agent, OfficeGraph.Repo, :query!, [[sql, []]])
+      def request_local(sql), do: :erlang.spawn_request(OfficeGraph.Repo, :query!, [sql, []], [])
+      def request_remote(node, sql), do: :erlang.spawn_request(node, OfficeGraph.Repo, :query!, [sql, []])
+      def remote_node_named_repo, do: :erlang.spawn_request(OfficeGraph.Repo, __MODULE__, :noop, [])
       def erpc_call(sql), do: :erpc.execute_call(OfficeGraph.Repo, :query!, [sql, []])
       def erpc_referenced(ref, sql), do: :erpc.execute_call(ref, OfficeGraph.Repo, :query!, [sql, []])
       def erpc_cast(sql), do: :erpc.execute_cast(OfficeGraph.Repo, :query!, [sql, []])
@@ -3682,6 +3705,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.update", "agent_update/2", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.cast", "agent_cast/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.spawn_request", "request_local/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.spawn_request", "request_remote/2", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.execute_call", "erpc_call/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.execute_call", "erpc_referenced/2", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.execute_cast", "erpc_cast/1", :unresolved_sql},
@@ -3696,7 +3721,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "compiled audit rejects runtime dependency installation and native library loading" do
+  test "compiled audit rejects runtime dependency installation, native loading, and Erlang make compilation" do
     root = temporary_root("compiled_runtime_dependency_execution")
     source_path = Path.join(root, "lib/compiled_runtime_dependency_execution.ex")
     ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
@@ -3705,6 +3730,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     compile_source!(source_path, ebin, """
     defmodule #{inspect(module)} do
+      @compile {:no_warn_undefined, :make}
+
       def install(dependencies), do: Mix.install(dependencies)
       def install_with_options(dependencies, options), do: Mix.install(dependencies, options)
       def load_native(path, options), do: :erlang.load_nif(path, options)
@@ -3713,6 +3740,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def try_load(path, name, options), do: :erl_ddll.try_load(path, name, options)
       def reload(path, name), do: :erl_ddll.reload(path, name)
       def reload_driver(path, name), do: :erl_ddll.reload_driver(path, name)
+      def make_all, do: :make.all()
+      def make_all(options), do: :make.all(options)
+      def make_all_or_nothing, do: :make.all_or_nothing()
+      def make_files(files), do: :make.files(files)
+      def make_files(files, options), do: :make.files(files, options)
     end
     """)
 
@@ -3727,7 +3759,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"reflection.erl_ddll.load", "load/2", :unresolved_sql},
              {"reflection.erl_ddll.try_load", "try_load/3", :unresolved_sql},
              {"reflection.erl_ddll.reload", "reload/2", :unresolved_sql},
-             {"reflection.erl_ddll.reload_driver", "reload_driver/2", :unresolved_sql}
+             {"reflection.erl_ddll.reload_driver", "reload_driver/2", :unresolved_sql},
+             {"reflection.make.all", "make_all/0", :unresolved_sql},
+             {"reflection.make.all", "make_all/1", :unresolved_sql},
+             {"reflection.make.all_or_nothing", "make_all_or_nothing/0", :unresolved_sql},
+             {"reflection.make.files", "make_files/1", :unresolved_sql},
+             {"reflection.make.files", "make_files/2", :unresolved_sql}
            ]
   end
 

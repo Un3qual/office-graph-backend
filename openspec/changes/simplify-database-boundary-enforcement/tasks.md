@@ -247,3 +247,9 @@
 - [x] 34.2 Extend the shared dispatcher and reflection inventories without treating ordinary static worker modules as database operations.
 - [x] 34.3 Normalize PostgreSQL's built-in `name` migration type as an unqualified catalog-owned type with focused terminal-conformance coverage.
 - [x] 34.4 Run focused scanner and conformance tests, refresh exact compiler-fixture approval evidence, validate OpenSpec strictly, run canonical verification, perform final anti-slop review, commit, push, and reply to the cached review threads.
+
+## 35. Spawn Request And Erlang Make Follow-Up
+
+- [x] 35.1 Add failing source and compiled regressions for both `:erlang.spawn_request/4` MFA layouts and every source-compiling `:make` entrypoint.
+- [x] 35.2 Distinguish both `spawn_request/4` layouts in the shared dispatcher and reject the complete `:make` compilation capability through the shared reflection inventory.
+- [x] 35.3 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.
