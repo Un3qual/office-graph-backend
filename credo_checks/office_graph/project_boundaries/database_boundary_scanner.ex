@@ -645,7 +645,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Postgrex.prepare_execute!" => 2,
     "Postgrex.query" => 1,
     "Postgrex.query!" => 1,
-    "Postgrex.stream" => nil
+    "Postgrex.stream" => nil,
+    "query.lock" => 1
   }
   @sql_file_extensions [".pgsql", ".psql", ".sql"]
   @tracked_config_reader_paths ["config/config.exs", "config/runtime.exs"]
@@ -753,6 +754,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           project_modules,
           tracked_source_paths
         )
+
+      erlang_source?(path) ->
+        [
+          occurrence(
+            path,
+            1,
+            nil,
+            :direct_ecto,
+            "unmodeled_erlang_source",
+            source,
+            approval: :unresolved_sql
+          )
+        ]
 
       true ->
         []
@@ -938,14 +952,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     module_env = %{
       env
-      | aliases: %{},
-        ash_postgres_check_constraints?: false,
+      | ash_postgres_check_constraints?: false,
         ash_postgres_custom_indexes?: false,
         ash_postgres_custom_statements?: false,
         ash_postgres?: false,
         ash_resource?: false,
         function_line: nil,
-        imports: %{},
         local_definitions: local_definitions(body),
         migration?: migration_path?(env.path),
         mix_aliases?: false,
@@ -4005,10 +4017,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp boundary_source?(path) do
-    elixir_source?(path) or sql_file?(path)
+    elixir_source?(path) or erlang_source?(path) or sql_file?(path)
   end
 
   defp elixir_source?(path), do: source_extension(path) in [".ex", ".exs"]
+  defp erlang_source?(path), do: source_extension(path) == ".erl"
 
   defp sql_file?(path) do
     basename = path |> Path.basename() |> String.downcase()

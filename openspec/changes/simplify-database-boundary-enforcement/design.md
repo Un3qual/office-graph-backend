@@ -68,6 +68,17 @@ migration options are selected by a resolved `Ecto.Migration` receiver or
 import as well as by migration lexical context, so moving a migration module
 outside `priv/repo/migrations` cannot suppress exact SQL occurrence inventory.
 
+Nested module bodies inherit aliases and imports from their enclosing lexical
+scope, while module-owned Ash, Ecto, and local-definition state is reset and
+directives declared by the nested module do not leak back out. Qualified
+`Ecto.Query.lock/2` calls select the second argument as their SQL payload, so a
+static lock clause is exact-approvable and a dynamic clause remains unresolved.
+Tracked Erlang source is not interpreted by a partial Erlang analyzer: every
+`.erl` file is a single unresolved executable-source occurrence. This keeps
+parse/core transforms and direct Erlang execution fail-closed until a complete
+dedicated Erlang boundary is proposed instead of covering only the latest
+escape shape.
+
 Runtime dependency installation through `Mix.install/1,2`, native library loading through `:erlang.load_nif/2`, and dynamic driver loading or reloading through `:erl_ddll.load/2`, `load_driver/2`, `try_load/3`, `reload/2`, or `reload_driver/2` are unresolved execution capabilities, as are Erlang `:core_transform` and `:parse_transform` compiler callbacks. Static non-callback `@compile` options remain inert, while a dynamic `@compile` value fails closed because proving that it cannot select a transform would require evaluation.
 
 The eleven external `cmd` entries that remain in the canonical `mix.exs` aliases are independent exact OpenSpec exceptions with empty terminal-object inventories. Their fingerprints and ordinals bind each command separately. The pinned toolchain requires `mix hex.audit` to run in an external Mix process because the dependency task is not resolvable as an in-process alias task; the avoidable inline `run -e` alias is replaced by a scanned literal callback. Any command edit, insertion, reordering, dynamic container, or additional executable alias therefore invalidates the inventory instead of widening one shared command seam.

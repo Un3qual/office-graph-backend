@@ -32,11 +32,18 @@ escape path, or stale approved exception.
 #### Scenario: Verification examines project scope
 
 - **WHEN** the database-boundary scan runs
-- **THEN** it MUST include every tracked Elixir and SQL-like source regardless
-  of directory or extension casing, including compound SQL template suffixes,
-  runtime code, tests, test support, Mix tasks, configuration, seeds,
+- **THEN** it MUST include every tracked Elixir, Erlang, and SQL-like source
+  regardless of directory or extension casing, including compound SQL template
+  suffixes, runtime code, tests, test support, Mix tasks, configuration, seeds,
   migrations, and scripts, while excluding dependency source and untracked
   build artifacts
+
+#### Scenario: Tracked Erlang source fails closed
+
+- **WHEN** the repository contains a tracked `.erl` source file
+- **THEN** the source gate MUST reject the complete file as an unresolved
+  executable surface instead of implementing a partial analyzer that can miss
+  compiler transforms or direct persistence calls
 
 #### Scenario: Verification runs from a clean checkout
 
@@ -92,6 +99,22 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** project-provider trust MUST use the fully nested module identity and
   MUST NOT authorize an unrelated top-level dependency module with the same
   shorthand name
+
+#### Scenario: Nested modules inherit lexical directives
+
+- **WHEN** an executable enclosing scope declares an alias or import before a
+  nested module definition
+- **THEN** the source scanner MUST resolve uses of that alias or import inside
+  the nested module while preventing directives declared inside it from
+  leaking back to the enclosing scope
+
+#### Scenario: Qualified query lock selects its SQL payload
+
+- **WHEN** tracked source calls `Ecto.Query.lock/2` through a qualified or
+  aliased receiver
+- **THEN** the scanner MUST select the second argument as the authored SQL
+  payload so a static clause is exact-approvable and a dynamic clause fails
+  closed
 
 #### Scenario: Dynamic database operation survives compilation
 - **WHEN** BEAM abstract code contains `apply`, module-function-argument

@@ -260,3 +260,10 @@
 - [x] 36.2 Limit module-provider trust to unconditional lexical definitions and currently tracked BEAM sources while preserving direct nested modules and explicit unquote boundaries.
 - [x] 36.3 Extend the shared source/BEAM dispatcher inventory for GenServer startup and inspect migration options from resolved Ecto.Migration receivers or imports without callback, control-flow, or SQL-body evaluation.
 - [x] 36.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.
+
+## 37. Erlang Source, Nested Scope, And Query Lock Follow-Up
+
+- [x] 37.1 Add failing regressions for tracked Erlang source, inherited aliases and imports in nested modules, and qualified query-lock payload selection.
+- [x] 37.2 Reject tracked Erlang files as one unresolved executable surface, preserve only lexical aliases/imports at nested-module entry, and select the second `Ecto.Query.lock/2` argument without adding language or dataflow interpretation.
+- [x] 37.3 Verify that constant short-circuit source calls remain represented independently in pinned BEAM abstract code and do not suppress same-line macro-generated compiled occurrences.
+- [x] 37.4 Run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.

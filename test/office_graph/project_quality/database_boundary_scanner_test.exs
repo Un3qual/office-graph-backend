@@ -3490,6 +3490,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects tracked Erlang source as an unmodeled executable surface" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "src/reviewed_transform.erl",
+          source: """
+          -module(reviewed_transform).
+          -compile({parse_transform, external_persistence}).
+          run() -> ok.
+          """
+        }
+      ])
+
+    assert {occurrence.class, occurrence.construct, occurrence.line, occurrence.approval} ==
+             {:direct_ecto, "unmodeled_erlang_source", 1, :unresolved_sql}
+  end
+
   test "rejects runtime dependency installation, native loading, and Erlang make compilation" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -4053,6 +4070,53 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
              {"dependency_macro.use", 3, :unresolved_sql}
            ]
+  end
+
+  test "preserves outer aliases and imports inside nested module bodies" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/nested_lexical_scope.ex",
+          source: """
+          defmodule OuterScope do
+            alias OfficeGraph.Repo, as: Persistence
+            import Ecto.Query, only: [lock: 2]
+
+            defmodule InnerScope do
+              def transact(callback), do: Persistence.transaction(callback)
+              def lock_query(query), do: lock(query, "FOR UPDATE")
+            end
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, Map.get(&1, :approval)}) ==
+             [
+               {:direct_ecto, "Repo.transaction", "transact/1", nil},
+               {:raw_sql, "query.lock", "lock_query/1", nil}
+             ]
+  end
+
+  test "fingerprints the SQL argument of qualified Ecto query locks" do
+    [static, dynamic] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/query_locks.ex",
+          source: """
+          defmodule QueryLocks do
+            def static(query), do: Ecto.Query.lock(query, "FOR UPDATE")
+            def dynamic(query, clause), do: Ecto.Query.lock(query, clause)
+          end
+          """
+        }
+      ])
+
+    assert {static.construct, static.function, Map.get(static, :approval)} ==
+             {"query.lock", "static/1", nil}
+
+    assert {dynamic.construct, dynamic.function, dynamic.approval} ==
+             {"query.lock", "dynamic/2", :unresolved_sql}
   end
 
   test "compiled audit rejects process and reflection function captures" do
