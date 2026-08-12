@@ -98,7 +98,7 @@ defmodule OfficeGraph.MixProject do
       "ecto.setup": [
         "ecto.create",
         "ecto.migrate",
-        "run -e \"OfficeGraph.Release.setup!()\""
+        fn _arguments -> OfficeGraph.Release.setup!() end
       ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       "demo.seed": ["run priv/repo/seeds.exs"],

@@ -389,7 +389,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :spawn_opt,
     :spawn_request
   ]
-  @mfa_agent_operations [:start, :start_link]
+  @mfa_agent_initialization_operations [:start, :start_link]
+  @mfa_agent_state_operations [:cast, :get, :get_and_update, :update]
+  @mfa_agent_operations @mfa_agent_initialization_operations ++ @mfa_agent_state_operations
   @mfa_rpc_operations [
     :async_call,
     :block_call,
@@ -400,7 +402,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :parallel_eval,
     :pmap
   ]
-  @mfa_erpc_operations [:call, :cast, :multicall, :multicast, :send_request]
+  @mfa_erpc_operations [
+    :call,
+    :cast,
+    :execute_call,
+    :execute_cast,
+    :multicall,
+    :multicast,
+    :send_request
+  ]
   @mfa_task_operations [:async, :async_stream, :start, :start_link]
   @mfa_task_supervisor_operations [
     :async,
@@ -448,7 +458,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                @mfa_proc_lib_operations ++
                                @mfa_timer_operations
                            )
-  @migration_callback_attributes [
+  @compile_callback_attributes [
     :after_compile,
     :after_verify,
     :before_compile,
@@ -470,6 +480,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "c",
     "code",
     "compile",
+    "elixir",
     "erl_eval",
     "file"
   ]
@@ -537,6 +548,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :set_path
     ],
     "compile" => [:file, :forms, :noenv_file, :noenv_forms],
+    "elixir" => [:eval_forms, :eval_quoted],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
     "file" => [:eval, :path_eval, :path_script, :script]
   }
@@ -656,9 +668,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     root = Keyword.get(opts, :root, File.cwd!())
     compiled_source_paths = Keyword.get(opts, :compiled_source_paths, MapSet.new())
     project_modules = tracked_project_modules(sources, root)
+    tracked_source_paths = MapSet.new(sources, & &1.path)
 
     sources
-    |> Enum.flat_map(&scan_source(&1, root, compiled_source_paths, project_modules))
+    |> Enum.flat_map(
+      &scan_source(&1, root, compiled_source_paths, project_modules, tracked_source_paths)
+    )
     |> assign_ordinals()
   end
 
@@ -684,7 +699,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> assign_ordinals()
   end
 
-  defp scan_source(%{path: path, source: source}, root, compiled_source_paths, project_modules) do
+  defp scan_source(
+         %{path: path, source: source},
+         root,
+         compiled_source_paths,
+         project_modules,
+         tracked_source_paths
+       ) do
     cond do
       sql_file?(path) ->
         [
@@ -700,16 +721,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         ]
 
       elixir_source?(path) ->
-        scan_elixir_source(path, source, root, compiled_source_paths, project_modules)
+        scan_elixir_source(
+          path,
+          source,
+          root,
+          compiled_source_paths,
+          project_modules,
+          tracked_source_paths
+        )
 
       true ->
         []
     end
   end
 
-  defp scan_source(%{path: path}, root, compiled_source_paths, project_modules) do
+  defp scan_source(
+         %{path: path},
+         root,
+         compiled_source_paths,
+         project_modules,
+         tracked_source_paths
+       ) do
     source = root |> Path.join(path) |> File.read!()
-    scan_source(%{path: path, source: source}, root, compiled_source_paths, project_modules)
+
+    scan_source(
+      %{path: path, source: source},
+      root,
+      compiled_source_paths,
+      project_modules,
+      tracked_source_paths
+    )
   end
 
   defp tracked_project_modules(sources, root) do
@@ -749,7 +790,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp literal_module_name(_module), do: nil
 
-  defp scan_elixir_source(path, source, root, compiled_source_paths, project_modules) do
+  defp scan_elixir_source(
+         path,
+         source,
+         root,
+         compiled_source_paths,
+         project_modules,
+         tracked_source_paths
+       ) do
     case Code.string_to_quoted(source, file: path, columns: true) do
       {:ok, ast} ->
         env = %{
@@ -761,16 +809,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           ash_resource?: false,
           compiled_source?: MapSet.member?(compiled_source_paths, path),
           function: nil,
+          function_line: nil,
           imports: %{},
           local_definitions: MapSet.new(),
           migration?: migration_path?(path),
+          mix_aliases?: false,
           module: nil,
           path: path,
           project_modules: project_modules,
           quote_depth: 0,
           query_dsl?: false,
           repository_module?: false,
-          root: root
+          root: root,
+          tracked_source_paths: tracked_source_paths
         }
 
         {_env, occurrences} = scan_node(ast, env, [])
@@ -794,9 +845,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         ash_postgres_custom_indexes?: false,
         ash_postgres?: false,
         ash_resource?: false,
+        function_line: nil,
         imports: %{},
         local_definitions: local_definitions(body),
         migration?: migration_path?(env.path),
+        mix_aliases?: false,
         module: module,
         repository_module?: module == "OfficeGraph.Repo"
     }
@@ -811,7 +864,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     function = if name, do: "#{name}/#{arity}"
     body = function_body(arguments)
 
-    child_env = %{env | function: function}
+    child_env = %{
+      env
+      | function: function,
+        function_line: line(metadata),
+        mix_aliases?: env.path == "mix.exs" and name == :aliases and arity == 0
+    }
 
     occurrences =
       if guarded? and migration_entrypoint?(child_env) do
@@ -842,9 +900,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({:@, metadata, [{name, _name_metadata, [value]}]} = node, env, occurrences) do
     occurrences =
-      if name in @migration_callback_attributes and migration_execution_context?(env) do
+      if name in @compile_callback_attributes do
+        construct =
+          if migration_execution_context?(env),
+            do: "migration.compile_callback",
+            else: "reflection.compile_callback"
+
         [
-          occurrence(env, line(metadata), :direct_ecto, "migration.compile_callback", node,
+          occurrence(env, line(metadata), :direct_ecto, construct, node,
             approval: :unresolved_sql
           )
           | occurrences
@@ -856,9 +919,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_node(value, env, occurrences)
   end
 
+  defp scan_node(
+         {:aliases, value},
+         %{path: "mix.exs", function: "project/0"} = env,
+         occurrences
+       ) do
+    if local_mix_aliases_call?(value, env) do
+      scan_node(value, env, occurrences)
+    else
+      scan_mix_alias_command(value, %{env | mix_aliases?: true}, occurrences)
+    end
+  end
+
+  defp scan_node({name, command}, %{mix_aliases?: true} = env, occurrences)
+       when is_atom(name) or is_binary(name) do
+    {env, scan_mix_alias_command(command, env, occurrences)}
+  end
+
   defp scan_node({:__block__, _metadata, expressions}, env, occurrences)
        when is_list(expressions) do
     scan_expressions(expressions, env, occurrences)
+  end
+
+  defp scan_node(node, %{mix_aliases?: true} = env, occurrences) when is_tuple(node) do
+    {env, scan_mix_alias_command(node, env, occurrences)}
   end
 
   defp scan_node({:quote, _metadata, arguments}, env, occurrences)
@@ -1231,6 +1315,109 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {_child_env, occurrences} = scan_children(node, child_env, occurrences)
     {env, occurrences}
   end
+
+  defp local_mix_aliases_call?({:aliases, _metadata, []}, env),
+    do: MapSet.member?(env.local_definitions, {:aliases, 0})
+
+  defp local_mix_aliases_call?(_value, _env), do: false
+
+  defp scan_mix_alias_command(commands, env, occurrences) when is_list(commands) do
+    if Enum.all?(commands, &is_integer/1) do
+      [mix_alias_occurrence(List.to_string(commands), :dynamic, env) | occurrences]
+    else
+      Enum.reduce(commands, occurrences, &scan_mix_alias_command(&1, env, &2))
+    end
+  end
+
+  defp scan_mix_alias_command({:fn, _metadata, _clauses} = callback, env, occurrences) do
+    {_env, occurrences} = scan_node(callback, %{env | mix_aliases?: false}, occurrences)
+    occurrences
+  end
+
+  defp scan_mix_alias_command(command, env, occurrences) do
+    case static_command_literal(command) do
+      nil ->
+        occurrence = mix_alias_occurrence(command, :dynamic, env)
+        {_env, occurrences} = scan_node(command, %{env | mix_aliases?: false}, occurrences)
+        [occurrence | occurrences]
+
+      literal ->
+        case mix_alias_escape(literal, env) do
+          nil -> occurrences
+          operation -> [mix_alias_occurrence(command, operation, env) | occurrences]
+        end
+    end
+  end
+
+  defp mix_alias_escape(command, env) do
+    case OptionParser.split(command) do
+      ["cmd" | _arguments] ->
+        :cmd
+
+      ["eval" | _arguments] ->
+        :eval
+
+      ["run" | arguments] ->
+        cond do
+          Enum.any?(arguments, &inline_mix_evaluation_argument?/1) -> :run
+          tracked_mix_run_script?(arguments, env) -> nil
+          Enum.any?(arguments, &mix_run_script?/1) -> :run
+          true -> nil
+        end
+
+      _task ->
+        nil
+    end
+  end
+
+  defp inline_mix_evaluation_argument?(argument),
+    do:
+      argument == "-e" or argument == "--eval" or String.starts_with?(argument, "-e") or
+        String.starts_with?(argument, "--eval=")
+
+  defp tracked_mix_run_script?(arguments, env) do
+    Enum.any?(arguments, fn argument ->
+      if mix_run_script?(argument) do
+        path =
+          argument
+          |> Path.expand(env.root)
+          |> Path.relative_to(env.root)
+
+        MapSet.member?(env.tracked_source_paths, path)
+      else
+        false
+      end
+    end)
+  end
+
+  defp mix_run_script?(argument),
+    do: String.ends_with?(String.downcase(argument), [".ex", ".exs"])
+
+  defp mix_alias_occurrence(node, operation, env) do
+    {class, approval} =
+      case {operation, static_command_literal(node)} do
+        {:cmd, literal} when is_binary(literal) ->
+          class = if database_cli_reference?(literal), do: :raw_sql, else: :direct_ecto
+          {class, nil}
+
+        _escape ->
+          {:direct_ecto, :unresolved_sql}
+      end
+
+    occurrence(
+      env,
+      mix_alias_line(node, env),
+      class,
+      "reflection.Mix.Project.alias.#{operation}",
+      node,
+      approval: approval
+    )
+  end
+
+  defp mix_alias_line(node, env) when is_tuple(node) and tuple_size(node) in [3, 4],
+    do: line_from_node(node) || env.function_line || 1
+
+  defp mix_alias_line(_node, env), do: env.function_line || 1
 
   defp opaque_remote_call?(receiver),
     do:
@@ -1648,10 +1835,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp mfa_dispatch_targets("Agent", operation, arguments)
-       when operation in @mfa_agent_operations do
+       when operation in @mfa_agent_initialization_operations do
     case arguments do
       [target, target_operation, _arguments] -> [{target, target_operation}]
       [target, target_operation, _arguments, _options] -> [{target, target_operation}]
+      _other -> []
+    end
+  end
+
+  defp mfa_dispatch_targets("Agent", operation, arguments)
+       when operation in @mfa_agent_state_operations do
+    case arguments do
+      [_agent, target, target_operation, _arguments] -> [{target, target_operation}]
+      [_agent, target, target_operation, _arguments, _timeout] -> [{target, target_operation}]
       _other -> []
     end
   end
@@ -1726,6 +1922,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp mfa_dispatch_targets("erpc", operation, arguments)
        when operation in @mfa_erpc_operations do
     case {operation, arguments} do
+      {operation, [target, target_operation, _arguments]}
+      when operation in [:execute_call, :execute_cast] ->
+        [{target, target_operation}]
+
+      {:execute_call, [_reference, target, target_operation, _arguments]} ->
+        [{target, target_operation}]
+
       {operation, [_node, target, target_operation, _arguments | _options]}
       when operation in [:call, :cast, :multicall, :multicast, :send_request] ->
         [{target, target_operation}]
@@ -2530,7 +2733,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp command_literals({:sigil_c, _metadata, [{:<<>>, _, segments}, []]}) do
+  defp command_literals({sigil, _metadata, [{:<<>>, _, segments}, modifiers]})
+       when sigil in [:sigil_c, :sigil_s, :sigil_S] and is_list(modifiers) do
     command_literals({:<<>>, [], segments})
   end
 

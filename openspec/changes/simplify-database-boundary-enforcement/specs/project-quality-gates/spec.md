@@ -92,17 +92,31 @@ construction, SQL bodies, macro output, or control flow.
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
   Erlang runtime code loader, code-path mutator, or expression evaluator, IEx
   compilation or recompilation helpers, `Mix.Tasks.Run`, `Mix.Tasks.Eval`, or `Mix.Task`
-  dispatch, `Mix.Project.in_project/3,4`, Agent MFA initialization, Erlang shell
-  or `:compile` source compilation/loading,
+  dispatch, `Mix.Project.in_project/3,4`, every Agent MFA executor, exported
+  `:erpc.execute_call/3,4` or `:erpc.execute_cast/3`, low-level `:elixir`
+  quoted/form evaluation, Erlang shell or `:compile` source compilation/loading,
   `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
   config reads, runtime macro expansion, Mix shell command
   execution, any supported MFA-executing RPC form,
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
   supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
   or `Supervisor.child_spec/2`, including standard module and
-  `{module, argument}` shorthands, or a migration `@after_verify` callback
+  `{module, argument}` shorthands, or a compile/verification callback attribute
+  in any tracked module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
+
+#### Scenario: Mix project alias contains an executable escape
+- **WHEN** the tracked `mix.exs` project `:aliases` configuration contains a
+  static `cmd` task
+- **THEN** the source scanner MUST emit a fingerprinted occurrence requiring
+  exact approval without interpreting its shell body
+- **AND** a statically visible database CLI in that command MUST be classified
+  as raw SQL
+- **AND** an inline `run -e` or `eval` task, dynamic command string, or dynamic
+  command container MUST remain unresolved and unapprovable
+- **AND** ordinary static task aliases and static tracked `run` script paths
+  MUST remain covered by their independently scanned implementations
 
 #### Scenario: AshPostgres custom index contains authored SQL
 - **WHEN** a tracked Ash resource declares a custom index with a SQL predicate,

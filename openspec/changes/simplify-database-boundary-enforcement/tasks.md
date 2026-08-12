@@ -197,3 +197,10 @@
 - [x] 27.2 Extend the shared source/BEAM reflection inventory to reject code-path mutation without interpreting later module loading.
 - [x] 27.3 Fingerprint static `postgres.migration_defaults` entries, fail dynamic containers closed, and replace the unapproved conformance fixture override with a built-in Ash attribute default.
 - [x] 27.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 28. Runtime Executor And Mix Alias Follow-Up
+
+- [x] 28.1 Add failing source and compiled regressions for every Agent MFA executor, exported `:erpc` executors, and low-level `:elixir` evaluators.
+- [x] 28.2 Add failing source regressions for executable or dynamic project alias strings and compile callbacks outside migrations.
+- [x] 28.3 Extend the existing shared inventories and add one lexical `mix.exs` alias rule without callback, command-body, code-body, or dataflow interpretation.
+- [x] 28.4 Refresh exact approval evidence as required; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

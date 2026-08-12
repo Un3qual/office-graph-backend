@@ -151,8 +151,11 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 
 - **WHEN** tracked source or compiled project code uses runtime source
   compilation, EEx compilation or evaluation, quoted evaluation, an OTP file
-  evaluator, `Mix.Project.in_project/3,4`, Agent MFA initialization, or a public
-  process-library or supervisor MFA form including `:erlang.hibernate/3` and
+  evaluator including low-level `:elixir` entrypoints,
+  `Mix.Project.in_project/3,4`, an executable or dynamic project alias string,
+  any Agent MFA executor, exported `:erpc.execute_call`/`execute_cast`, a
+  compile callback in any tracked module, or a public process-library or
+  supervisor MFA form including `:erlang.hibernate/3` and
   `:supervisor.start_child/2`
 - **THEN** canonical verification MUST reject the operation as unresolved
   unless the exact occurrence is an approved private verification fixture with
