@@ -475,14 +475,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @reflection_operations %{
     "Code" => [
+      :append_path,
+      :append_paths,
       :compile_file,
       :compile_quoted,
       :compile_string,
+      :delete_path,
+      :delete_paths,
       :eval_file,
       :eval_quoted,
       :eval_quoted_with_env,
       :eval_string,
       :load_file,
+      :prepend_path,
+      :prepend_paths,
       :require_file
     ],
     "Config.Reader" => [:eval!, :load, :read!, :read_imports!],
@@ -510,7 +516,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Module" => [:create, :eval_quoted],
     "c" => [:appcall, :c, :erlangrc, :l, :lc, :lc_batch, :nc, :nl],
     "code" => [
+      :add_path,
+      :add_patha,
+      :add_paths,
+      :add_pathsa,
+      :add_pathsz,
+      :add_pathz,
       :atomic_load,
+      :del_path,
+      :del_paths,
       :ensure_loaded,
       :ensure_modules_loaded,
       :finish_loading,
@@ -518,7 +532,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :load_binary,
       :load_file,
       :load_native_partial,
-      :prepare_loading
+      :prepare_loading,
+      :replace_path,
+      :set_path
     ],
     "compile" => [:file, :forms, :noenv_file, :noenv_forms],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
@@ -1129,6 +1145,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrences =
       operation
       |> resource_index_sql_occurrences(arguments, node, env)
+      |> Enum.reduce(occurrences, &[&1 | &2])
+
+    occurrences =
+      operation
+      |> resource_migration_default_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
 
     imported_receiver = imported_receiver(env, operation, length(arguments))
@@ -2773,6 +2794,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       {:<<>>, _metadata, segments} ->
         static_binary_segments?(segments)
 
+      {sigil, _metadata, [{:<<>>, _binary_metadata, segments}, modifiers]}
+      when sigil in [:sigil_s, :sigil_S] and is_list(modifiers) ->
+        static_binary_segments?(segments)
+
       _value ->
         false
     end
@@ -2855,6 +2880,52 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resource_index_sql_occurrences(_operation, _arguments, _node, _env), do: []
+
+  defp resource_migration_default_occurrences(
+         :migration_defaults,
+         [defaults],
+         node,
+         %{ash_postgres?: true} = env
+       )
+       when is_list(defaults) do
+    if Keyword.keyword?(defaults) do
+      Enum.map(defaults, fn {attribute, value} ->
+        approval = if static_sql_payload?(value), do: nil, else: :unresolved_sql
+
+        occurrence(
+          env,
+          line_from_node(node),
+          :raw_sql,
+          "resource.migration_defaults.value",
+          {:migration_defaults, attribute, value},
+          approval: approval
+        )
+      end)
+    else
+      [unresolved_resource_migration_defaults(defaults, node, env)]
+    end
+  end
+
+  defp resource_migration_default_occurrences(
+         :migration_defaults,
+         arguments,
+         node,
+         %{ash_postgres?: true} = env
+       ),
+       do: [unresolved_resource_migration_defaults(arguments, node, env)]
+
+  defp resource_migration_default_occurrences(_operation, _arguments, _node, _env), do: []
+
+  defp unresolved_resource_migration_defaults(value, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :raw_sql,
+      "resource.migration_defaults.options",
+      {:migration_defaults, :options, value},
+      approval: :unresolved_sql
+    )
+  end
 
   defp unresolved_resource_index_options(options, node, env) do
     occurrence(

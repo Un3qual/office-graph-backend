@@ -325,7 +325,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
   defp prepare_compiled_environments!(root) do
     source_path = Path.join(root, "lib/sentinel.ex")
 
-    for env <- [:dev, :test, :prod] do
+    for env <- [Mix.env(), :prod] |> Enum.uniq() do
       ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
       File.mkdir_p!(ebin)
 

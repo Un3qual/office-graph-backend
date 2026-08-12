@@ -291,11 +291,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceLiteralResource do
   postgres do
     table "literal_examples"
     repo OfficeGraph.Repo
-    migration_defaults label: ~S|fragment("'a b'::text")|
   end
 
   attributes do
-    attribute :label, :string, allow_nil?: false
+    attribute :label, :string, allow_nil?: false, default: "a b"
   end
 end
 

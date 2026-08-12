@@ -190,3 +190,10 @@
 - [x] 26.2 Extend the shared source/BEAM dispatcher and reflection inventories for Agent and Mix project-file evaluation without adding value-flow analysis.
 - [x] 26.3 Scope custom-index SQL detection to the `postgres.custom_indexes` section of tracked Ash resources and reject predicates, expression fields, and nonliteral option containers.
 - [x] 26.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 27. Code Path And Migration Default Follow-Up
+
+- [x] 27.1 Add failing source and compiled regressions for Elixir/Erlang code-path mutation and a source regression for AshPostgres migration-default overrides.
+- [x] 27.2 Extend the shared source/BEAM reflection inventory to reject code-path mutation without interpreting later module loading.
+- [x] 27.3 Fingerprint static `postgres.migration_defaults` entries, fail dynamic containers closed, and replace the unapproved conformance fixture override with a built-in Ash attribute default.
+- [x] 27.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

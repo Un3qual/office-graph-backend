@@ -57,9 +57,10 @@ approved exceptions SHALL remain exact and fingerprinted.
 #### Scenario: AshPostgres resource DSL embeds SQL
 
 - **WHEN** a custom index declaration contains a SQL predicate, expression
-  field, or unresolved option container
+  field, or unresolved option container, or `migration_defaults` configures
+  verbatim generated-migration source
 - **THEN** canonical verification MUST require an exact approved occurrence or
-  reject the declaration before macro expansion can erase it
+  reject a dynamic declaration before macro expansion can erase it
 
 #### Scenario: Terminal repository scan completes
 

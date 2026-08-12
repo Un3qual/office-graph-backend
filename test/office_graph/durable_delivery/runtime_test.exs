@@ -15,10 +15,7 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   end
 
   test "production retains terminal jobs for the operator history window" do
-    production_config =
-      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
-
-    oban_config = production_config[:office_graph][Oban]
+    oban_config = production_oban_config()
 
     assert {Oban.Plugins.Pruner, pruner_options} =
              Enum.find(oban_config[:plugins], fn
@@ -30,10 +27,7 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   end
 
   test "production recovers execution jobs orphaned by node loss" do
-    production_config =
-      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
-
-    oban_config = production_config[:office_graph][Oban]
+    oban_config = production_oban_config()
 
     assert {Oban.Plugins.Lifeline, lifeline_options} =
              Enum.find(oban_config[:plugins], fn
@@ -45,10 +39,7 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   end
 
   test "production worker deadlines expire before orphan recovery" do
-    production_config =
-      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
-
-    oban_config = production_config[:office_graph][Oban]
+    oban_config = production_oban_config()
 
     {Oban.Plugins.Lifeline, lifeline_options} =
       Enum.find(oban_config[:plugins], fn
@@ -66,6 +57,13 @@ defmodule OfficeGraph.DurableDelivery.RuntimeTest do
     refute worker_deadlines == []
     assert Enum.all?(worker_deadlines, &is_integer/1)
     assert Enum.max(worker_deadlines) < lifeline_options[:rescue_after]
+  end
+
+  defp production_oban_config do
+    production_config =
+      Config.Reader.read!(Path.expand("../../../config/config.exs", __DIR__), env: :prod)
+
+    production_config[:office_graph][Oban]
   end
 
   defp production_oban_worker?(module) do

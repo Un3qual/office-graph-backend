@@ -931,6 +931,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects runtime code path mutation as an unresolved reflection boundary" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/mutate_code_path.exs",
+          source: """
+          defmodule RuntimeCodePathMutation do
+            alias Code, as: RuntimeCode
+            import Code, only: [prepend_path: 1]
+
+            def append(path), do: RuntimeCode.append_path(path)
+            def prepend(path), do: prepend_path(path)
+            def add_first(path), do: :code.add_patha(path)
+            def replace(application, path), do: :code.replace_path(application, path)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.Code.append_path", "append/1", :unresolved_sql},
+             {"reflection.Code.prepend_path", "prepend/1", :unresolved_sql},
+             {"reflection.code.add_patha", "add_first/1", :unresolved_sql},
+             {"reflection.code.replace_path", "replace/2", :unresolved_sql}
+           ]
+  end
+
   test "rejects file loading even when the target source is independently scanned" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -1865,6 +1892,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         def path_eval(path, name, bindings), do: :file.path_eval(path, name, bindings)
         def path_script(path, name), do: :file.path_script(path, name)
         def path_script(path, name, bindings), do: :file.path_script(path, name, bindings)
+        def prepend_code_path(path), do: Code.prepend_path(path)
+        def add_code_path(path), do: :code.add_patha(path)
         def psql(sql), do: System.cmd("psql", ["-c", sql])
         def inspect_schema, do: System.cmd("pg_dump", ["--schema-only"])
       end
@@ -1915,6 +1944,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "reflection.file.path_eval", :unresolved_sql},
                {:direct_ecto, "reflection.file.path_script", :unresolved_sql},
                {:direct_ecto, "reflection.file.path_script", :unresolved_sql},
+               {:direct_ecto, "reflection.Code.prepend_path", :unresolved_sql},
+               {:direct_ecto, "reflection.code.add_patha", :unresolved_sql},
                {:raw_sql, "process.database_cli", :unresolved_sql}
              ]
              |> Enum.sort()
@@ -2424,9 +2455,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"test/office_graph/project_quality/database_boundary_gate_test.exs", 618,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2490,
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2521,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:1c734c92706ff851121ee0e28cbff4b8ec14f16a6356943f7061fc11a3cd8483"},
+              "sha256:07ae3ee4082c155bfd9837213418624614820c73d39c116256122b10fe39718a"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2503,7 +2534,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_boundary:
                          "e97785c4198e1b316c535066697961dc04342975d13248b80a51a56ee21a929b",
                        compiled_dynamic_boundary:
-                         "da9fd37f9522df00058eaab060ddad7ab654e684845d17919255665d313571b1",
+                         "402ca70a4a384ff4b8fbf133dca499b12342e4573cb25bb8fc930f6596b11cef",
                        compiled_expression_boundary:
                          "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
                        compiled_multiplicity:
@@ -2981,6 +3012,36 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
              {"resource.index.where", 6, nil},
              {"resource.index.fields", 7, nil}
+           ]
+  end
+
+  test "requires exact approval for AshPostgres migration defaults" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/reviewed_defaults_resource.ex",
+          source: """
+          defmodule OfficeGraph.ReviewedDefaultsResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              migration_defaults label: ~S|nil|
+              migration_defaults inserted_at: configured_default()
+              migration_defaults configured_defaults()
+            end
+          end
+
+          defmodule OfficeGraph.UnrelatedMigrationDefaultsCall do
+            def run(defaults), do: migration_defaults(defaults)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
+             {"resource.migration_defaults.value", 5, nil},
+             {"resource.migration_defaults.value", 6, :unresolved_sql},
+             {"resource.migration_defaults.options", 7, :unresolved_sql}
            ]
   end
 

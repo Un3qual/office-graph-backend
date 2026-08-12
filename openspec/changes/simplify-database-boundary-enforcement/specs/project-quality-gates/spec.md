@@ -55,8 +55,8 @@ construction, SQL bodies, macro output, or control flow.
   known repository, SQL adapter, Ecto.Migrator, Postgrex, Ecto.Multi, migration
   SQL, query fragment, SQL-bearing query lock or hint, migration expression
   field, SQL-bearing AshPostgres custom-index predicate or expression field,
-  direct repository transaction/connection primitive, or mutable database CLI
-  subprocess
+  verbatim AshPostgres migration-default override, direct repository
+  transaction/connection primitive, or mutable database CLI subprocess
 - **THEN** the scanner MUST emit a fingerprinted occurrence requiring exact
   approval
 
@@ -90,8 +90,8 @@ construction, SQL bodies, macro output, or control flow.
 
 #### Scenario: Runtime execution namespaces are audited
 - **WHEN** tracked source or compiled code uses `Postgrex.Notifications`, an
-  Erlang runtime code loader or expression evaluator, IEx compilation or
-  recompilation helpers, `Mix.Tasks.Run`, `Mix.Tasks.Eval`, or `Mix.Task`
+  Erlang runtime code loader, code-path mutator, or expression evaluator, IEx
+  compilation or recompilation helpers, `Mix.Tasks.Run`, `Mix.Tasks.Eval`, or `Mix.Task`
   dispatch, `Mix.Project.in_project/3,4`, Agent MFA initialization, Erlang shell
   or `:compile` source compilation/loading,
   `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
@@ -110,6 +110,14 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the source scanner MUST emit an exact raw-SQL occurrence or fail the
   dynamic container closed without classifying unrelated application functions
   named `index`
+
+#### Scenario: AshPostgres migration default injects migration source
+- **WHEN** a tracked Ash resource declares `migration_defaults` in its
+  `postgres` section
+- **THEN** the source scanner MUST fingerprint every static attribute override
+  for exact approval and reject a dynamic value or option container without
+  interpreting it or classifying unrelated application functions named
+  `migration_defaults`
 
 #### Scenario: Wildcard import exposes an MFA dispatcher
 - **WHEN** tracked source wildcard-imports a supported process, task,
