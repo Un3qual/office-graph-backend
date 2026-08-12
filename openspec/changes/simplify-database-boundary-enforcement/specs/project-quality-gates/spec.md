@@ -97,7 +97,8 @@ construction, SQL bodies, macro output, or control flow.
   dispatch, `Mix.Project.in_project/3,4`, every Agent MFA executor, exported
   `:erpc.execute_call/3,4` or `:erpc.execute_cast/3`, low-level `:elixir`
   quoted/form evaluation or `:elixir_compiler` execution, Erlang shell or
-  `:compile` source compilation/loading,
+  `:compile` source compilation/loading, `Mix.install/1,2`,
+  `:erlang.load_nif/2`,
   `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
   config reads, runtime macro expansion, Mix shell command execution including
   expression receivers returned by `Mix.shell/0`, untrusted or dynamic
@@ -108,7 +109,8 @@ construction, SQL bodies, macro output, or control flow.
   `{module, argument}` shorthands, a statically visible persistence callback
   module passed to `Supervisor.start_link/3`, `DynamicSupervisor.start_link/3`,
   or `:supervisor.start_link/2,3`, or a compile/verification callback attribute
-  in any tracked module
+  or Erlang `:core_transform`/`:parse_transform` compiler option in any tracked
+  module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
 
@@ -238,7 +240,8 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 
 #### Scenario: Terminal database ownership is derived
 - **WHEN** conformance compares database objects after real migrations run
-- **THEN** it MUST derive regular, foreign, and unlogged tables, columns, keys,
+- **THEN** it MUST derive regular, foreign, unlogged, partitioned-parent, and
+  attached-partition tables, columns, keys,
   constraints, indexes, sequences, enum types, views, materialized views,
   functions, procedures, ordinary, constraint, and event triggers and their
   firing modes, RLS policies and table enable/force state, direct and
@@ -260,7 +263,8 @@ consumer-visible behavior rather than synthetic evaluator semantics.
   normalizing only database-equivalent spelling outside quoted payloads
 
 #### Scenario: Relation and sequence definitions drift
-- **WHEN** an owned relation changes between regular, unlogged, or foreign kind,
+- **WHEN** an owned relation changes between regular, unlogged, foreign,
+  partitioned-parent, or attached-partition kind,
   or an owned sequence changes type, range, start, increment, min/max, cache,
   cycle, or column ownership
 - **THEN** terminal conformance MUST report the definition mismatch even when
@@ -348,6 +352,8 @@ those paths are outside Credo's configured Elixir source list.
   current checked-out boundary sources with warnings as errors
 - **AND** Credo configuration MUST avoid redefining the resulting modules so
   compiled-audit BEAM provenance remains available
+- **AND** canonical verification MUST build production BEAMs before static
+  analysis invokes the compiled audit
 
 #### Scenario: A source violation is found
 - **WHEN** a new, changed, unresolved, or prohibited database occurrence is detected

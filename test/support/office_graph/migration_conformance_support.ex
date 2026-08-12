@@ -933,6 +933,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
+  defp partition_attachment(line) do
+    with {parent, rest} <- PostgresDump.identifier_after(line, "ALTER TABLE ONLY "),
+         {child, _rest} <- PostgresDump.identifier_after(rest, "ATTACH PARTITION ") do
+      {parent, child}
+    else
+      _not_partition_attachment -> nil
+    end
+  end
+
   defp prefixed_identity(statement, prefix) do
     case PostgresDump.identifier_after(statement, prefix) do
       {identity, _rest} -> identity
@@ -976,6 +985,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       match?({:create_table, _table}, current_table) &&
           String.starts_with?(String.trim_leading(line), ")") ->
+        {:create_table, table} = current_table
+
+        inventory =
+          if Regex.match?(~r/^\)\s+PARTITION BY(?:\s|$)/i, String.trim_leading(line)) do
+            Map.update!(inventory, :relations, &Map.put(&1, table, :partitioned))
+          else
+            inventory
+          end
+
         {inventory, nil}
 
       match?({:create_table, _table}, current_table) ->
@@ -984,6 +1002,19 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       alter_default = parse_alter_column_default(line) ->
         {put_column_default(inventory, alter_default), current_table}
+
+      partition = partition_attachment(line) ->
+        {parent, child} = partition
+
+        inventory =
+          inventory
+          |> Map.update!(:tables, &(&1 |> MapSet.put(parent) |> MapSet.put(child)))
+          |> Map.update!(
+            :relations,
+            &(&1 |> Map.put(parent, :partitioned) |> Map.put(child, :partition))
+          )
+
+        {inventory, current_table}
 
       constraint_table = alter_table_header(line) ->
         {inventory, {:alter_table, constraint_table}}

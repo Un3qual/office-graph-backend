@@ -83,6 +83,11 @@ defmodule OfficeGraph.BoundaryLayoutTest do
     assert "dependency.audit" in aliases[:verify]
     assert "spec.verify" in aliases[:verify]
     assert "frontend.verify.precompiled" in aliases[:verify]
+    assert "production.build" in aliases[:verify]
+    assert "static.analysis" in aliases[:verify]
+
+    assert Enum.find_index(aliases[:verify], &(&1 == "production.build")) <
+             Enum.find_index(aliases[:verify], &(&1 == "static.analysis"))
 
     assert aliases[:"frontend.verify.precompiled"] == [
              "assets.setup",

@@ -466,6 +466,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :on_definition,
     :on_load
   ]
+  @compile_transform_options [:core_transform, :parse_transform]
   @reflection_modules [
     "Code",
     "Config.Reader",
@@ -473,6 +474,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "IEx.Helpers",
     "Kernel.ParallelCompiler",
     "Macro",
+    "Mix",
     "Mix.Project",
     "Mix.Task",
     "Mix.Tasks.Eval",
@@ -483,6 +485,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "compile",
     "elixir",
     "elixir_compiler",
+    "erlang",
     "erl_eval",
     "file"
   ]
@@ -522,6 +525,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :require
     ],
     "Macro" => [:compile_apply, :expand, :expand_once],
+    "Mix" => [:install],
     "Mix.Project" => [:in_project],
     "Mix.Task" => [:rerun, :run],
     "Mix.Tasks.Eval" => [:run],
@@ -552,6 +556,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "compile" => [:file, :forms, :noenv_file, :noenv_forms],
     "elixir" => [:eval_forms, :eval_quoted],
     "elixir_compiler" => [:compile, :file, :interpret, :quoted, :string],
+    "erlang" => [:load_nif],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
     "file" => [:eval, :path_eval, :path_script, :script]
   }
@@ -925,6 +930,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           value
           |> derive_occurrences(node, env)
           |> Enum.reduce(occurrences, &[&1 | &2])
+
+        name == :compile and compile_attribute_callback?(value) ->
+          construct =
+            if migration_execution_context?(env),
+              do: "migration.compile_callback",
+              else: "reflection.compile_callback"
+
+          [
+            occurrence(env, line(metadata), :direct_ecto, construct, node,
+              approval: :unresolved_sql
+            )
+            | occurrences
+          ]
 
         true ->
           occurrences
@@ -2367,6 +2385,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp trusted_derive_module?(module, env),
     do: module in @allowed_derive_modules or project_module?(module, env)
 
+  defp compile_attribute_callback?(value),
+    do: compile_transform_option?(value) or not static_compile_option?(value)
+
+  defp compile_transform_option?(options) when is_list(options) do
+    Enum.any?(options, fn
+      {key, _value} when key in @compile_transform_options -> true
+      option -> compile_transform_option?(option)
+    end)
+  end
+
+  defp compile_transform_option?({:{}, _metadata, values}),
+    do: compile_transform_option?(values)
+
+  defp compile_transform_option?({key, value}) when is_atom(key),
+    do: key in @compile_transform_options or compile_transform_option?(value)
+
+  defp compile_transform_option?(_value), do: false
+
+  defp static_compile_option?(value)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: true
+
+  defp static_compile_option?({:__aliases__, _metadata, parts}),
+    do: Enum.all?(parts, &is_atom/1)
+
+  defp static_compile_option?({:{}, _metadata, values}),
+    do: Enum.all?(values, &static_compile_option?/1)
+
+  defp static_compile_option?({key, value}) when is_atom(key),
+    do: static_compile_option?(value)
+
+  defp static_compile_option?(values) when is_list(values),
+    do: Enum.all?(values, &static_compile_option?/1)
+
+  defp static_compile_option?(_value), do: false
+
   defp variable_receiver?({name, _metadata, context})
        when is_atom(name) and is_atom(context),
        do: true
@@ -2619,7 +2673,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp imported_operation?("Port", operation), do: operation == :open
   defp imported_operation?("System", operation), do: operation in [:cmd, :shell]
-  defp imported_operation?("erlang", operation), do: operation == :open_port
+
+  defp imported_operation?("erlang", operation),
+    do: operation == :open_port or operation in Map.fetch!(@reflection_operations, "erlang")
+
   defp imported_operation?("os", operation), do: operation == :cmd
 
   defp imported_operation?(module, operation) when module in ["Ecto.Query", "Ecto.Query.API"],

@@ -2479,7 +2479,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2543,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:338a63260e31098d26fc82808b245099cb5d7f10d2fa0c9b876dd74371e55e68"},
+              "sha256:3beadf196d458e883035e0ff147f1281c366b215d7963cd39bfb18da7e2688d2"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2561,6 +2561,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                          "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
+                       compiled_runtime_dependency_execution:
+                         "9f644565c4cc3c662eb1227399c6a6168504a8dc8e4870766fac3eef039ba4ee",
                        compiled_reviewed_runtime_boundaries:
                          "e0a6fb9089e20c8818e53728c8066eebe0c8820fa7eb222706a10ce1b7c4352c",
                        compiled_strict_boundary:
@@ -3242,6 +3244,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects Erlang compiler transform callbacks" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/reviewed_compiler_transforms.ex",
+          source: """
+          defmodule ReviewedCompilerTransforms do
+            @compile {:core_transform, ExternalCoreTransform}
+            @compile [parse_transform: :external_parse_transform]
+            @compile transform_options()
+            @compile {:no_warn_undefined, OptionalDependency}
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"reflection.compile_callback", 2, :unresolved_sql},
+             {"reflection.compile_callback", 3, :unresolved_sql},
+             {"reflection.compile_callback", 4, :unresolved_sql}
+           ]
+  end
+
+  test "rejects runtime dependency installation and native library loading" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/runtime_dependency_execution.exs",
+          source: """
+          defmodule RuntimeDependencyExecution do
+            def install(dependencies), do: Mix.install(dependencies)
+            def install_with_options(dependencies, options), do: Mix.install(dependencies, options)
+            def load_native(path, options), do: :erlang.load_nif(path, options)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.Mix.install", "install/1", :unresolved_sql},
+             {"reflection.Mix.install", "install_with_options/2", :unresolved_sql},
+             {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql}
+           ]
+  end
+
   test "rejects untrusted and dynamic derive providers" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -3546,6 +3593,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               :unresolved_sql},
              {:direct_ecto, "reflection.elixir_compiler.quoted", "elixir_compiler_quoted/3",
               :unresolved_sql}
+           ]
+  end
+
+  test "compiled audit rejects runtime dependency installation and native library loading" do
+    root = temporary_root("compiled_runtime_dependency_execution")
+    source_path = Path.join(root, "lib/compiled_runtime_dependency_execution.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+
+    module = OfficeGraph.CompiledRuntimeDependencyExecutionFixture
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def install(dependencies), do: Mix.install(dependencies)
+      def install_with_options(dependencies, options), do: Mix.install(dependencies, options)
+      def load_native(path, options), do: :erlang.load_nif(path, options)
+    end
+    """)
+
+    beam_path = Path.join(ebin, "#{module}.beam")
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.Mix.install", "install/1", :unresolved_sql},
+             {"reflection.Mix.install", "install_with_options/2", :unresolved_sql},
+             {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql}
            ]
   end
 end

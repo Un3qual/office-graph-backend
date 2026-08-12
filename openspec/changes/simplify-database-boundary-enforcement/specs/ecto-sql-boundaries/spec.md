@@ -153,11 +153,14 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 - **WHEN** tracked source or compiled project code uses runtime source
   compilation, EEx compilation or evaluation, quoted evaluation, an OTP file
   evaluator including low-level `:elixir` and `:elixir_compiler` entrypoints,
-  `Mix.Project.in_project/3,4`, an executable or dynamic project alias string
+  runtime dependency installation through `Mix.install/1,2`, native library
+  loading through `:erlang.load_nif/2`, `Mix.Project.in_project/3,4`, an
+  executable or dynamic project alias string
   including `mix do` task composition, a command dispatched through
   `Mix.shell/0`, an untrusted or dynamic `@derive` provider,
   any Agent MFA executor, exported `:erpc.execute_call`/`execute_cast`, a
-  compile callback in any tracked module, or a public process-library or
+  compile callback or Erlang `:core_transform`/`:parse_transform` compiler
+  option in any tracked module, or a public process-library or
   supervisor MFA form including `:erlang.hibernate/3` and
   `:supervisor.start_child/2`, including a statically visible persistence
   callback module passed to `Supervisor.start_link/3`,

@@ -464,6 +464,43 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            )
   end
 
+  test "terminal errors reject partitioned parents and attached partition children" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.shapes (
+          id uuid NOT NULL,
+          name text NOT NULL
+      ) PARTITION BY HASH (id);
+      CREATE TABLE public.shape_partition (
+          id uuid NOT NULL,
+          name text NOT NULL
+      );
+      ALTER TABLE ONLY public.shapes ATTACH PARTITION public.shape_partition FOR VALUES WITH (modulus 2, remainder 0);
+      CREATE UNIQUE INDEX shapes_unique_name_index ON public.shapes USING btree (name);
+      ALTER TABLE ONLY public.shapes ADD CONSTRAINT shapes_pkey PRIMARY KEY (id);
+      """)
+
+    assert inventory.relations == %{
+             "shape_partition" => :partition,
+             "shapes" => :partitioned
+           }
+
+    errors =
+      MigrationConformanceSupport.terminal_database_errors(
+        %{
+          "shape_partition" =>
+            {nil, OfficeGraph.TestSupport.MigrationConformancePartitionShapeResource},
+          "shapes" => {nil, OfficeGraph.TestSupport.MigrationConformanceShapeResource}
+        },
+        inventory,
+        []
+      )
+
+    assert "relation kind mismatch for Ash-owned table shapes: expected regular, got partitioned" in errors
+
+    assert "relation kind mismatch for Ash-owned table shape_partition: expected regular, got partition" in errors
+  end
+
   test "terminal inventory treats imported foreign tables as owned tables" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

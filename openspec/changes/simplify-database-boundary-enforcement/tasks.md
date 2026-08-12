@@ -219,3 +219,10 @@
 - [x] 30.3 Extend the existing execution inventory and lexical resource rules without parsing command bodies, expanding derives, or interpreting SQL.
 - [x] 30.4 Force-compile current project-boundary sources before standalone static analysis, preserve loaded BEAM provenance in Credo, and cover the alias ordering.
 - [x] 30.5 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 31. Compiler Transform, Native Loading, And Partition Follow-Up
+
+- [x] 31.1 Add failing source and compiled regressions for Erlang compiler transforms, runtime dependency installation, native library loading, and partitioned relation state.
+- [x] 31.2 Extend the shared source/BEAM execution inventories and compile-attribute classifier without evaluating callback providers or generated code.
+- [x] 31.3 Preserve partitioned-parent and attached-partition relation kinds and assert production BEAM construction precedes canonical static analysis.
+- [x] 31.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
