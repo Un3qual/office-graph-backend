@@ -2527,7 +2527,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2591,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:1d5453d5d500b7c89680835622e49bec8ee6c731599fb21bb0d0592b80d0fb18"},
+              "sha256:a90dfb37a687f5370f84fd5b6a63d32aa26466051713f42ae858dd9883bd2468"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2605,6 +2605,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                          "e97785c4198e1b316c535066697961dc04342975d13248b80a51a56ee21a929b",
                        compiled_dynamic_boundary:
                          "402ca70a4a384ff4b8fbf133dca499b12342e4573cb25bb8fc930f6596b11cef",
+                       compiled_execution_captures:
+                         "6d4f7b8cfd90e8087dd38aa7447ff51dd9f0c85d56ba64cf8321a64b57579259",
                        compiled_expression_boundary:
                          "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
                        compiled_multiplicity:
@@ -3689,6 +3691,179 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"reflection.Mix.install", "install/1", :unresolved_sql},
              {"reflection.Mix.install", "install_with_options/2", :unresolved_sql},
              {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql}
+           ]
+  end
+
+  test "rejects IEx file-import evaluators" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/iex_file_imports.exs",
+          source: """
+          require IEx.Helpers
+          IEx.Helpers.import_file(path)
+          IEx.Helpers.import_file_if_available(optional_path)
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.approval}) == [
+             {"reflection.IEx.Helpers.import_file", :unresolved_sql},
+             {"reflection.IEx.Helpers.import_file_if_available", :unresolved_sql}
+           ]
+  end
+
+  test "allows only tracked Config imports and the canonical environment import" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "config/config.exs",
+          source: ~S'''
+          import Config
+          import_config "dev.exs"
+          import_config "#{config_env()}.exs"
+          import_config "/tmp/payload.exs"
+          import_config configured_path()
+          '''
+        },
+        %{path: "config/dev.exs", source: "import Config"},
+        %{path: "config/prod.exs", source: "import Config"},
+        %{path: "config/test.exs", source: "import Config"}
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"reflection.Config.import_config", 4, :unresolved_sql},
+             {"reflection.Config.import_config", 5, :unresolved_sql}
+           ]
+
+    [missing_environment] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "config/config.exs",
+          source: ~S'''
+          import Config
+          import_config "#{config_env()}.exs"
+          '''
+        },
+        %{path: "config/dev.exs", source: "import Config"},
+        %{path: "config/prod.exs", source: "import Config"}
+      ])
+
+    assert {missing_environment.construct, missing_environment.approval} ==
+             {"reflection.Config.import_config", :unresolved_sql}
+  end
+
+  test "fingerprints AshPostgres custom statement payloads and rejects dynamic values" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/custom_statement_resource.ex",
+          source: ~S'''
+          defmodule OfficeGraph.CustomStatementResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              custom_statements do
+                statement :seed do
+                  up "INSERT INTO audit_events (id) VALUES (1)"
+                  down "DELETE FROM audit_events WHERE id = 1"
+                end
+
+                statement :dynamic do
+                  up configured_up()
+                  down configured_down()
+                end
+              end
+            end
+          end
+
+          defmodule OfficeGraph.UnrelatedCustomStatementCall do
+            def up(value), do: value
+            def down(value), do: value
+          end
+          '''
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
+             {"resource.custom_statement.up", 7, nil},
+             {"resource.custom_statement.down", 8, nil},
+             {"resource.custom_statement.up", 12, :unresolved_sql},
+             {"resource.custom_statement.down", 13, :unresolved_sql}
+           ]
+  end
+
+  test "rejects process and reflection operations hidden behind function captures" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/execution_captures.exs",
+          source: """
+          defmodule ExecutionCaptures do
+            def process, do: Function.capture(System, :cmd, 2)
+            def reflection, do: Function.capture(Code, :eval_file, 1)
+            def dynamic_process(operation), do: Function.capture(System, operation, 2)
+            def safe, do: Function.capture(System, :get_env, 1)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "process.dynamic_command", "process/0", :unresolved_sql},
+             {:direct_ecto, "reflection.Code.eval_file", "reflection/0", :unresolved_sql},
+             {:raw_sql, "process.dynamic_dispatch", "dynamic_process/1", :unresolved_sql}
+           ]
+  end
+
+  test "resolves nested shorthand module definitions before granting provider trust" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/parent.ex",
+          source: """
+          defmodule Parent do
+            defmodule ExternalPersistence do
+              defmacro __using__(_options), do: quote(do: :ok)
+            end
+          end
+          """
+        },
+        %{
+          path: "lib/consumers.ex",
+          source: """
+          defmodule Consumers do
+            use Parent.ExternalPersistence
+            use ExternalPersistence
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"dependency_macro.use", 3, :unresolved_sql}
+           ]
+  end
+
+  test "compiled audit rejects process and reflection function captures" do
+    root = temporary_root("compiled_execution_captures")
+    source_path = Path.join(root, "lib/compiled_execution_captures.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+    module = OfficeGraph.CompiledExecutionCapturesFixture
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def process, do: Function.capture(System, :cmd, 2)
+      def reflection, do: Function.capture(Code, :eval_file, 1)
+    end
+    """)
+
+    beam_path = Path.join(ebin, "#{module}.beam")
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "process.dynamic_command", "process/0", :unresolved_sql},
+             {:direct_ecto, "reflection.Code.eval_file", "reflection/0", :unresolved_sql}
            ]
   end
 end

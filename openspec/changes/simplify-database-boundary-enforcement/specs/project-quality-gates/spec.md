@@ -74,6 +74,13 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the scanner MUST NOT use that inert definition to trust an opaque
   provider or suppress a live migration primitive
 
+#### Scenario: Nested project provider uses lexical module identity
+- **WHEN** tracked source defines a shorthand `defmodule` inside another
+  executable module body
+- **THEN** project-provider trust MUST use the fully nested module identity and
+  MUST NOT authorize an unrelated top-level dependency module with the same
+  shorthand name
+
 #### Scenario: Dynamic database operation survives compilation
 - **WHEN** BEAM abstract code contains `apply`, module-function-argument
   process/task dispatch, or a dynamic receiver with a statically visible
@@ -87,6 +94,13 @@ construction, SQL bodies, macro output, or control flow.
   target and operation expressions
 - **THEN** the scanner MUST reject the dispatch primitive without relying on
   database-shaped variable names or dataflow interpretation
+
+#### Scenario: Function capture targets an execution namespace
+- **WHEN** tracked source or BEAM abstract code captures a forbidden process or
+  reflection operation, or captures a dynamic operation from one of those
+  execution-capable namespaces
+- **THEN** the scanner MUST reject the capture through the existing process or
+  reflection inventory without interpreting later invocation dataflow
 
 #### Scenario: Private persistence execution namespace is called
 - **WHEN** repository-authored source or non-generated BEAM code directly calls
@@ -125,6 +139,15 @@ construction, SQL bodies, macro output, or control flow.
   module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
+
+#### Scenario: Compile-time file import is constrained
+- **WHEN** tracked source invokes an IEx file-import helper or imports Config
+  from a path that is external, untracked, or dynamically unresolved
+- **THEN** the source scanner MUST reject the compile-time loader before macro
+  expansion can erase its execution from compiled metadata
+- **AND** `Config.import_config/1` MAY remain unreported only when its lexical
+  target is a tracked project config source or the canonical tracked
+  `config_env()` import in `config/config.exs`
 
 #### Scenario: Mix project alias contains an executable escape
 - **WHEN** the tracked `mix.exs` project `:aliases` configuration contains a
@@ -168,6 +191,13 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the source scanner MUST fingerprint every static SQL value for exact
   approval and reject dynamic values or containers without classifying
   unrelated application functions with the same names
+
+#### Scenario: AshPostgres custom statement contains authored SQL
+- **WHEN** a tracked Ash resource declares `up` or `down` payloads inside
+  `postgres.custom_statements`
+- **THEN** the source scanner MUST fingerprint each static payload for exact
+  approval and reject dynamic payloads or section containers without
+  classifying unrelated application functions named `up` or `down`
 
 #### Scenario: Wildcard import exposes an MFA dispatcher
 - **WHEN** tracked source wildcard-imports a supported process, task,

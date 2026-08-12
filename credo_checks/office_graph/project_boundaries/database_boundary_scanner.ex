@@ -469,6 +469,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @compile_transform_options [:core_transform, :parse_transform]
   @reflection_modules [
     "Code",
+    "Config",
     "Config.Reader",
     "EEx",
     "IEx.Helpers",
@@ -507,6 +508,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :prepend_paths,
       :require_file
     ],
+    "Config" => [:import_config],
     "Config.Reader" => [:eval!, :load, :read!, :read_imports!],
     "EEx" => [
       :compile_file,
@@ -516,7 +518,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       :function_from_file,
       :function_from_string
     ],
-    "IEx.Helpers" => [:c, :r, :recompile],
+    "IEx.Helpers" => [:c, :import_file, :import_file_if_available, :r, :recompile],
     "Kernel.ParallelCompiler" => [
       :compile,
       :compile_to_path,
@@ -640,6 +642,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   }
   @sql_file_extensions [".pgsql", ".psql", ".sql"]
   @tracked_config_reader_paths ["config/config.exs", "config/runtime.exs"]
+  @config_environment_paths ["config/dev.exs", "config/prod.exs", "config/test.exs"]
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
@@ -778,47 +781,81 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end)
   end
 
-  defp defined_module_names(ast), do: collect_defined_module_names(ast, MapSet.new(), 0)
+  defp defined_module_names(ast),
+    do: collect_defined_module_names(ast, MapSet.new(), 0, nil)
 
-  defp collect_defined_module_names({:quote, _metadata, arguments}, modules, quote_depth)
+  defp collect_defined_module_names(
+         {:quote, _metadata, arguments},
+         modules,
+         quote_depth,
+         current_module
+       )
        when is_list(arguments),
-       do: collect_defined_module_names(arguments, modules, quote_depth + 1)
+       do: collect_defined_module_names(arguments, modules, quote_depth + 1, current_module)
 
   defp collect_defined_module_names(
          {operation, _metadata, arguments},
          modules,
-         quote_depth
+         quote_depth,
+         current_module
        )
        when operation in [:unquote, :unquote_splicing] and quote_depth > 0 and
               is_list(arguments),
-       do: collect_defined_module_names(arguments, modules, quote_depth - 1)
+       do: collect_defined_module_names(arguments, modules, quote_depth - 1, current_module)
 
   defp collect_defined_module_names(
-         {:defmodule, _metadata, [module | _body]} = node,
+         {:defmodule, _metadata, [module, body]},
          modules,
-         0
+         0,
+         current_module
        ) do
-    modules =
-      case literal_module_name(module) do
-        nil -> modules
-        module -> MapSet.put(modules, module)
-      end
+    module = defined_module_name(module, current_module)
+    modules = if module, do: MapSet.put(modules, module), else: modules
+    body = if is_list(body), do: Keyword.get(body, :do), else: nil
 
-    node
-    |> Tuple.to_list()
-    |> collect_defined_module_names(modules, 0)
+    collect_defined_module_names(body, modules, 0, module)
   end
 
-  defp collect_defined_module_names(nodes, modules, quote_depth) when is_list(nodes),
-    do: Enum.reduce(nodes, modules, &collect_defined_module_names(&1, &2, quote_depth))
+  defp collect_defined_module_names(nodes, modules, quote_depth, current_module)
+       when is_list(nodes),
+       do:
+         Enum.reduce(
+           nodes,
+           modules,
+           &collect_defined_module_names(&1, &2, quote_depth, current_module)
+         )
 
-  defp collect_defined_module_names(node, modules, quote_depth) when is_tuple(node) do
+  defp collect_defined_module_names(node, modules, quote_depth, current_module)
+       when is_tuple(node) do
     node
     |> Tuple.to_list()
-    |> collect_defined_module_names(modules, quote_depth)
+    |> collect_defined_module_names(modules, quote_depth, current_module)
   end
 
-  defp collect_defined_module_names(_node, modules, _quote_depth), do: modules
+  defp collect_defined_module_names(_node, modules, _quote_depth, _current_module), do: modules
+
+  defp defined_module_name({:__aliases__, _metadata, [:"Elixir" | parts]}, _current_module),
+    do: Enum.map_join(parts, ".", &to_string/1)
+
+  defp defined_module_name(module, _current_module) when is_atom(module),
+    do: literal_module_name(module)
+
+  defp defined_module_name(module, current_module) do
+    case literal_module_name(module) do
+      nil -> nil
+      module when is_binary(current_module) -> current_module <> "." <> module
+      module -> module
+    end
+  end
+
+  defp scanned_module_name(module, env) do
+    literal_module = literal_module_name(module)
+    resolved_module = module_name(module, env)
+
+    if resolved_module != literal_module,
+      do: resolved_module,
+      else: defined_module_name(module, env.module)
+  end
 
   defp literal_module_name({:__aliases__, _metadata, parts}) when is_list(parts),
     do: Enum.map_join(parts, ".", &to_string/1)
@@ -844,6 +881,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           approved_migration_loops: approved_migration_loops(path, ast),
           ash_postgres_check_constraints?: false,
           ash_postgres_custom_indexes?: false,
+          ash_postgres_custom_statements?: false,
           ash_postgres?: false,
           ash_resource?: false,
           compiled_source?: MapSet.member?(compiled_source_paths, path),
@@ -876,13 +914,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node({:defmodule, _metadata, [module, [do: body]]}, env, occurrences) do
-    module = module_name(module, env)
+    module = scanned_module_name(module, env)
 
     module_env = %{
       env
       | aliases: %{},
         ash_postgres_check_constraints?: false,
         ash_postgres_custom_indexes?: false,
+        ash_postgres_custom_statements?: false,
         ash_postgres?: false,
         ash_resource?: false,
         function_line: nil,
@@ -1138,6 +1177,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {env, occurrences}
   end
 
+  defp scan_node(
+         {:custom_statements, _metadata, [[do: body]]},
+         %{ash_postgres?: true} = env,
+         occurrences
+       ) do
+    child_env = %{env | ash_postgres_custom_statements?: true}
+    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
+    {env, occurrences}
+  end
+
+  defp scan_node(
+         {:custom_statements, metadata, arguments} = node,
+         %{ash_postgres?: true} = env,
+         occurrences
+       )
+       when is_list(arguments) do
+    occurrence =
+      occurrence(
+        env,
+        line(metadata),
+        :raw_sql,
+        "resource.custom_statements.options",
+        node,
+        approval: :unresolved_sql
+      )
+
+    scan_children(node, env, [occurrence | occurrences])
+  end
+
   defp scan_node({:for, metadata, arguments} = node, env, occurrences)
        when is_list(arguments) do
     occurrences =
@@ -1314,6 +1382,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrences =
       operation
       |> resource_postgres_sql_setting_occurrences(arguments, node, env)
+      |> Enum.reduce(occurrences, &[&1 | &2])
+
+    occurrences =
+      operation
+      |> resource_custom_statement_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
 
     imported_receiver = imported_receiver(env, operation, length(arguments))
@@ -1853,6 +1926,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> tracked_config_reader_path?(env)
   end
 
+  defp trusted_reflection_call?("Config", :import_config, node, env) do
+    node
+    |> call_arguments()
+    |> List.first()
+    |> tracked_config_import_path?(env)
+  end
+
   defp trusted_reflection_call?(_receiver, _operation, _node, _env), do: false
 
   defp tracked_config_reader_path?(
@@ -1876,6 +1956,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp tracked_config_reader_path?(_path, _env), do: false
+
+  defp tracked_config_import_path?(path, env) do
+    tracked_literal_config_import?(path, env) or canonical_environment_config_import?(path, env)
+  end
+
+  defp tracked_literal_config_import?(path, env) do
+    with path when is_binary(path) <- static_command_literal(path),
+         source_directory <- env.root |> Path.join(env.path) |> Path.dirname(),
+         relative_path <- path |> Path.expand(source_directory) |> Path.relative_to(env.root) do
+      MapSet.member?(env.tracked_source_paths, relative_path) and
+        Path.dirname(relative_path) == "config"
+    else
+      _dynamic_path -> false
+    end
+  end
+
+  defp canonical_environment_config_import?(
+         {:<<>>, _metadata,
+          [
+            {:"::", _segment_metadata,
+             [
+               {{:., _dot_metadata, [Kernel, :to_string]}, _call_metadata,
+                [{:config_env, _env_metadata, []}]},
+               {:binary, _binary_metadata, nil}
+             ]},
+            ".exs"
+          ]},
+         %{path: "config/config.exs"} = env
+       ) do
+    Enum.all?(@config_environment_paths, &MapSet.member?(env.tracked_source_paths, &1))
+  end
+
+  defp canonical_environment_config_import?(_path, _env), do: false
 
   defp classify_apply(receiver, operation, node, env) do
     classify_dynamic_dispatch(receiver, operation, :apply, node, env)
@@ -2175,8 +2288,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_dynamic_dispatch(receiver, operation, kind, node, env) do
     resolved_receiver = receiver_name(receiver, env)
     resolved_operation = static_atom(operation)
+    execution_dispatch = execution_dispatch_classification(resolved_receiver, resolved_operation)
 
     cond do
+      not is_nil(execution_dispatch) ->
+        {class, construct} = execution_dispatch
+        occurrence(env, line_from_node(node), class, construct, node, approval: :unresolved_sql)
+
       resolved_receiver in @database_modules or private_persistence_module?(resolved_receiver) ->
         class =
           if private_persistence_module?(resolved_receiver),
@@ -2203,6 +2321,26 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrence(env, line_from_node(node), :raw_sql, "dynamic_dispatch.#{kind}", node,
           approval: :unresolved_sql
         )
+
+      true ->
+        nil
+    end
+  end
+
+  defp execution_dispatch_classification(receiver, operation) do
+    cond do
+      {receiver, operation} in @process_execution_operations ->
+        {:raw_sql, "process.dynamic_command"}
+
+      receiver in @process_execution_modules and is_nil(operation) ->
+        {:raw_sql, "process.dynamic_dispatch"}
+
+      receiver in @reflection_modules and
+          operation in Map.fetch!(@reflection_operations, receiver) ->
+        {:direct_ecto, "reflection.#{receiver}.#{operation}"}
+
+      receiver in @reflection_modules and is_nil(operation) ->
+        {:direct_ecto, "reflection.#{receiver}.dynamic_dispatch"}
 
       true ->
         nil
@@ -2611,7 +2749,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       imports = apply_imported_operations(env.imports, module, imported)
 
       occurrences =
-        if match?({:all, _excluded}, imported) and module != "Ecto.Query" and
+        if match?({:all, _excluded}, imported) and module not in ["Config", "Ecto.Query"] and
              module not in @dynamic_dispatch_modules do
           [
             occurrence(env, line(metadata), :direct_ecto, "#{module}.import", target,
@@ -3459,6 +3597,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp resource_postgres_sql_setting_occurrences(_operation, _arguments, _node, _env), do: []
 
+  defp resource_custom_statement_occurrences(
+         operation,
+         arguments,
+         node,
+         %{ash_postgres_custom_statements?: true} = env
+       )
+       when operation in [:up, :down] do
+    construct = "resource.custom_statement.#{operation}"
+
+    approval =
+      case arguments do
+        [value] -> if static_sql_payload?(value), do: nil, else: :unresolved_sql
+        _arguments -> :unresolved_sql
+      end
+
+    [
+      occurrence(env, line_from_node(node), :raw_sql, construct, {operation, arguments},
+        approval: approval
+      )
+    ]
+  end
+
+  defp resource_custom_statement_occurrences(_operation, _arguments, _node, _env), do: []
+
   defp unresolved_resource_postgres_sql_setting(operation, value, node, env) do
     occurrence(
       env,
@@ -4168,8 +4330,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        ) do
     receiver = compiled_module(receiver_node)
     operation = compiled_operation(operation_node)
+    execution_dispatch = execution_dispatch_classification(receiver, operation)
 
     cond do
+      not is_nil(execution_dispatch) ->
+        {class, construct} = execution_dispatch
+
+        [
+          occurrence(
+            source,
+            line_from_node(node),
+            function,
+            class,
+            construct,
+            node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+
       receiver in @database_modules or private_persistence_module?(receiver) ->
         class =
           if private_persistence_module?(receiver),

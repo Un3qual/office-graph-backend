@@ -64,7 +64,8 @@ approved exceptions SHALL remain exact and fingerprinted.
 - **WHEN** a custom index declaration contains a SQL predicate, expression
   field, or unresolved option container, `migration_defaults` configures
   verbatim generated-migration source, or `calculations_to_sql`,
-  `identity_wheres_to_sql`, or `base_filter_sql` contains authored SQL
+  `identity_wheres_to_sql`, `base_filter_sql`, or a custom-statement `up` or
+  `down` payload contains authored SQL
 - **THEN** canonical verification MUST require an exact approved occurrence or
   reject a dynamic declaration before macro expansion can erase it
 
@@ -181,6 +182,10 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   mutable helper code
 - **AND** the existing test-only shell invocation of the tracked canonical
   `bin/verify` script MUST match its source path and argument shape exactly
+- **AND** IEx file-import helpers, external or unresolved Config imports, and
+  captures of process or reflection execution operations MUST remain visible
+  to the source or compiled gate even when macro expansion or later invocation
+  would erase the original call shape
 
 #### Scenario: Tracked Elixir source invokes an opaque dependency macro
 

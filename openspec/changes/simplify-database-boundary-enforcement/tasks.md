@@ -233,3 +233,10 @@
 - [x] 32.2 Make static SQL files exact-approvable, preserve import exclusions, and stop trust/local-definition discovery at quote boundaries without adding expansion or dataflow analysis.
 - [x] 32.3 Make standalone static analysis construct production BEAMs and limit Docker dump fallback to loopback database hosts.
 - [x] 32.4 Refresh exact compiler-fixture approval evidence; run focused, full-suite, strict OpenSpec, static-analysis, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 33. Compile-Time Loader, Custom Statement, And Capture Follow-Up
+
+- [x] 33.1 Add failing source regressions for IEx file imports, constrained Config imports, AshPostgres custom statements, process/reflection captures, and nested provider identity.
+- [x] 33.2 Add an independent compiled regression for process and reflection function captures.
+- [x] 33.3 Extend the existing lexical contexts, execution inventories, capture classifiers, and module-name collector without macro expansion, payload evaluation, or dataflow analysis.
+- [x] 33.4 Run focused scanner and gate tests, strict OpenSpec validation, static analysis, full canonical verification, and final anti-slop review; commit, push, and reply to the cached review threads.
