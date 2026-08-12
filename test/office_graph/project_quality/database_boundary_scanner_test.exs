@@ -2479,7 +2479,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2543,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:8169bcffd29128a4e341c4a1ea227b46c6f8ede0ee4c7fead0db57eaef7d8fa5"},
+              "sha256:50cf73cb09ffe5ea27f1e582c07514108c1f7a3effb1e2ca0f02afe7070d12cc"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2562,7 +2562,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_reviewed_runtime_boundaries:
-                         "7c2301f88f85482e353859814262b73069e30bfaa0d41d6c71cdb25e3d1df719",
+                         "3dcc6f3fe3f24a016a0aa1e1ceb3cccd59e99cbdd39eb411894c2e29c200d16a",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2672,6 +2672,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
              {:raw_sql, "OfficeGraph.Repo.start_link", "repo/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects static persistence callback modules passed to supervisor startup" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/supervisor_callback_startup.exs",
+          source: """
+          defmodule SupervisorCallbackStartup do
+            def elixir(init_arg),
+              do: Supervisor.start_link(Ecto.Repo.Supervisor, init_arg, [])
+
+            def dynamic(init_arg),
+              do: DynamicSupervisor.start_link(Ecto.Repo.Supervisor, init_arg, [])
+
+            def erlang(init_arg),
+              do: :supervisor.start_link(Ecto.Repo.Supervisor, init_arg)
+
+            def named(name, init_arg),
+              do: :supervisor.start_link({:local, name}, Ecto.Repo.Supervisor, init_arg)
+
+            def worker(init_arg), do: :supervisor.start_link(Worker, init_arg)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "elixir/1", :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "dynamic/1", :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "erlang/1", :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "named/2", :unresolved_sql}
            ]
   end
 
@@ -3210,6 +3243,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects SQL-bearing AshPostgres check constraints only in resource DSL" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/reviewed_check_resource.ex",
+          source: """
+          defmodule OfficeGraph.ReviewedCheckResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              check_constraints do
+                check_constraint :amount, "positive_amount", check: "amount > 0"
+                check_constraint :state, check: configured_check(), name: "valid_state"
+                check_constraint :count, "positive_count", check_options()
+                check_constraint :label, "label_present", message: "is required"
+              end
+            end
+          end
+
+          defmodule OfficeGraph.UnrelatedCheckConstraintCall do
+            def run(value), do: check_constraint(value, check: "not SQL")
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
+             {"resource.check_constraint.check", 6, nil},
+             {"resource.check_constraint.check", 7, :unresolved_sql},
+             {"resource.check_constraint.options", 8, :unresolved_sql}
+           ]
+  end
+
   test "requires exact approval for AshPostgres migration defaults" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
@@ -3264,6 +3330,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def supervisor_start_link(options),
         do: Supervisor.start_link([{OfficeGraph.Repo, options}], strategy: :one_for_one)
 
+      def supervisor_callback(init_arg),
+        do: Supervisor.start_link(Ecto.Repo.Supervisor, init_arg, [])
+
+      def dynamic_supervisor_callback(init_arg),
+        do: DynamicSupervisor.start_link(Ecto.Repo.Supervisor, init_arg, [])
+
+      def erlang_supervisor_callback(init_arg),
+        do: :supervisor.start_link(Ecto.Repo.Supervisor, init_arg)
+
+      def named_erlang_supervisor_callback(name, init_arg),
+        do: :supervisor.start_link({:local, name}, Ecto.Repo.Supervisor, init_arg)
+
       def constructed(supervisor),
         do:
           Supervisor.start_child(
@@ -3310,6 +3388,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "OfficeGraph.Repo.start_child", "module/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_link", "supervisor_start_link/1",
               :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "supervisor_callback/1",
+              :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "dynamic_supervisor_callback/1",
+              :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link", "erlang_supervisor_callback/1",
+              :unresolved_sql},
+             {:direct_ecto, "Ecto.Repo.Supervisor.start_link",
+              "named_erlang_supervisor_callback/2", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_child", "constructed/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Tasks.Run.run", "mix_run/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Tasks.Eval.run", "mix_eval/1", :unresolved_sql},

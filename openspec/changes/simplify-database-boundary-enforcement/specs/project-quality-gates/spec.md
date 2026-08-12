@@ -101,7 +101,9 @@ construction, SQL bodies, macro output, or control flow.
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
   supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
   or `Supervisor.child_spec/2`, including standard module and
-  `{module, argument}` shorthands, or a compile/verification callback attribute
+  `{module, argument}` shorthands, a statically visible persistence callback
+  module passed to `Supervisor.start_link/3`, `DynamicSupervisor.start_link/3`,
+  or `:supervisor.start_link/2,3`, or a compile/verification callback attribute
   in any tracked module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
   persistence or runtime-execution path
@@ -124,6 +126,13 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the source scanner MUST emit an exact raw-SQL occurrence or fail the
   dynamic container closed without classifying unrelated application functions
   named `index`
+
+#### Scenario: AshPostgres check constraint contains authored SQL
+- **WHEN** a tracked Ash resource declares a check constraint with a static or
+  dynamic `check` expression or a nonliteral option container
+- **THEN** the source scanner MUST emit an exact raw-SQL occurrence or fail the
+  dynamic container closed without classifying unrelated application functions
+  named `check_constraint`
 
 #### Scenario: AshPostgres migration default injects migration source
 - **WHEN** a tracked Ash resource declares `migration_defaults` in its

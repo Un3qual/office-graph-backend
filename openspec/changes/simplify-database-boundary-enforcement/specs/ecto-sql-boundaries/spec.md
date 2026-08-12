@@ -156,7 +156,9 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   any Agent MFA executor, exported `:erpc.execute_call`/`execute_cast`, a
   compile callback in any tracked module, or a public process-library or
   supervisor MFA form including `:erlang.hibernate/3` and
-  `:supervisor.start_child/2`
+  `:supervisor.start_child/2`, including a statically visible persistence
+  callback module passed to `Supervisor.start_link/3`,
+  `DynamicSupervisor.start_link/3`, or `:supervisor.start_link/2,3`
 - **THEN** canonical verification MUST reject the operation as unresolved
   unless the exact occurrence is an approved private verification fixture with
   matching fingerprint and behavior coverage

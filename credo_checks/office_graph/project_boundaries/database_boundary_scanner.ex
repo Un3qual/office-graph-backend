@@ -419,7 +419,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :async_stream_nolink,
     :start_child
   ]
-  @mfa_supervisor_operations [:start_child]
+  @mfa_supervisor_operations [:start_child, :start_link]
   @mfa_elixir_supervisor_operations [:start_child, :start_link]
   @mfa_proc_lib_operations [
     :hibernate,
@@ -454,6 +454,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                                @mfa_erpc_operations ++
                                @mfa_task_operations ++
                                @mfa_task_supervisor_operations ++
+                               @mfa_supervisor_operations ++
                                @mfa_elixir_supervisor_operations ++
                                @mfa_proc_lib_operations ++
                                @mfa_timer_operations
@@ -804,6 +805,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           aliases: %{},
           ambiguous_expansion_depth: 0,
           approved_migration_loops: approved_migration_loops(path, ast),
+          ash_postgres_check_constraints?: false,
           ash_postgres_custom_indexes?: false,
           ash_postgres?: false,
           ash_resource?: false,
@@ -842,6 +844,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     module_env = %{
       env
       | aliases: %{},
+        ash_postgres_check_constraints?: false,
         ash_postgres_custom_indexes?: false,
         ash_postgres?: false,
         ash_resource?: false,
@@ -1068,6 +1071,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     {env, occurrences}
   end
 
+  defp scan_node(
+         {:check_constraints, _metadata, [[do: body]]},
+         %{ash_postgres?: true} = env,
+         occurrences
+       ) do
+    child_env = %{env | ash_postgres_check_constraints?: true}
+    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
+    {env, occurrences}
+  end
+
   defp scan_node({:for, metadata, arguments} = node, env, occurrences)
        when is_list(arguments) do
     occurrences =
@@ -1229,6 +1242,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrences =
       operation
       |> resource_index_sql_occurrences(arguments, node, env)
+      |> Enum.reduce(occurrences, &[&1 | &2])
+
+    occurrences =
+      operation
+      |> resource_check_constraint_sql_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
 
     occurrences =
@@ -1987,6 +2005,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     child_spec_start_targets(child_spec)
   end
 
+  defp mfa_dispatch_targets(receiver, :start_link, [target, _init_arg, _options])
+       when receiver in ["DynamicSupervisor", "Supervisor"],
+       do: [{target, :init}]
+
+  defp mfa_dispatch_targets("supervisor", :start_link, [target, _init_arg]),
+    do: [{target, :init}]
+
+  defp mfa_dispatch_targets("supervisor", :start_link, [_name, target, _init_arg]),
+    do: [{target, :init}]
+
   defp mfa_dispatch_targets("Supervisor", :start_link, [children, _options]) do
     child_specs_start_targets(children)
   end
@@ -2084,8 +2112,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     resolved_operation = static_atom(operation)
 
     cond do
-      resolved_receiver in @database_modules ->
-        class = dynamic_dispatch_class(resolved_receiver)
+      resolved_receiver in @database_modules or private_persistence_module?(resolved_receiver) ->
+        class =
+          if private_persistence_module?(resolved_receiver),
+            do: :direct_ecto,
+            else: dynamic_dispatch_class(resolved_receiver)
 
         occurrence(env, line_from_node(node), class, "#{resolved_receiver}.#{kind}", node,
           approval: :unresolved_sql
@@ -3085,6 +3116,67 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp resource_index_sql_occurrences(_operation, _arguments, _node, _env), do: []
 
+  defp resource_check_constraint_sql_occurrences(
+         :check_constraint,
+         arguments,
+         node,
+         %{ash_postgres_check_constraints?: true} = env
+       ) do
+    case arguments do
+      [_attribute, options] when is_list(options) ->
+        resource_check_constraint_option_occurrences(options, node, env)
+
+      [_attribute, name] when is_binary(name) ->
+        []
+
+      [_attribute, _name, options] ->
+        resource_check_constraint_option_occurrences(options, node, env)
+
+      _arguments ->
+        [unresolved_resource_check_constraint_options(arguments, node, env)]
+    end
+  end
+
+  defp resource_check_constraint_sql_occurrences(_operation, _arguments, _node, _env),
+    do: []
+
+  defp resource_check_constraint_option_occurrences(options, node, env)
+       when is_list(options) do
+    if Keyword.keyword?(options) do
+      options
+      |> sql_option_entries([:check])
+      |> Enum.map(fn {:check, value} ->
+        construct = "resource.check_constraint.check"
+        approval = approval_marker(:raw_sql, construct, [value])
+
+        occurrence(
+          env,
+          line_from_node(node),
+          :raw_sql,
+          construct,
+          {:check_constraint, :check, value},
+          approval: approval
+        )
+      end)
+    else
+      [unresolved_resource_check_constraint_options(options, node, env)]
+    end
+  end
+
+  defp resource_check_constraint_option_occurrences(options, node, env),
+    do: [unresolved_resource_check_constraint_options(options, node, env)]
+
+  defp unresolved_resource_check_constraint_options(options, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :raw_sql,
+      "resource.check_constraint.options",
+      {:check_constraint, :options, options},
+      approval: :unresolved_sql
+    )
+  end
+
   defp resource_migration_default_occurrences(
          :migration_defaults,
          [defaults],
@@ -3793,8 +3885,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     operation = compiled_operation(operation_node)
 
     cond do
-      receiver in @database_modules ->
-        class = dynamic_dispatch_class(receiver)
+      receiver in @database_modules or private_persistence_module?(receiver) ->
+        class =
+          if private_persistence_module?(receiver),
+            do: :direct_ecto,
+            else: dynamic_dispatch_class(receiver)
 
         [
           occurrence(source, line_from_node(node), function, class, "#{receiver}.#{kind}", node,

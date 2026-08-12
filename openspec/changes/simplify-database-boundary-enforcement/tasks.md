@@ -204,3 +204,10 @@
 - [x] 28.2 Add failing source regressions for executable or dynamic project alias strings and compile callbacks outside migrations.
 - [x] 28.3 Extend the existing shared inventories and add one lexical `mix.exs` alias rule without callback, command-body, code-body, or dataflow interpretation.
 - [x] 28.4 Refresh exact approval evidence as required; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 29. Supervisor Callback And Check Constraint Follow-Up
+
+- [x] 29.1 Add failing source and compiled regressions for static persistence callback modules passed to Elixir, Dynamic, and Erlang supervisor startup forms.
+- [x] 29.2 Add a failing source regression for SQL-bearing AshPostgres check constraints and nonliteral option containers.
+- [x] 29.3 Extend the shared source/BEAM dispatcher inventory and add one lexically scoped `postgres.check_constraints` rule without callback or SQL-body interpretation.
+- [x] 29.4 Refresh exact approval evidence as required; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
