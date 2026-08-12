@@ -210,6 +210,26 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceNetworkResource do
   end
 end
 
+defmodule OfficeGraph.TestSupport.MigrationConformanceNameResource do
+  @moduledoc false
+
+  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+  resource do
+    require_primary_key? false
+  end
+
+  postgres do
+    table "catalog_names"
+    repo OfficeGraph.Repo
+    migration_types catalog_name: :name
+  end
+
+  attributes do
+    attribute :catalog_name, :string, allow_nil?: false
+  end
+end
+
 defmodule OfficeGraph.TestSupport.MigrationConformanceSmallintResource do
   @moduledoc false
 

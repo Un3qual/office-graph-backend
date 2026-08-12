@@ -1643,6 +1643,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     :macaddr => "macaddr",
     :macaddr8 => "macaddr8",
     :money => "money",
+    :name => "name",
     :numeric => "numeric",
     :decimal => "numeric",
     :oid => "oid",

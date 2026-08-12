@@ -1095,6 +1095,21 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
            |> without_framework_presence_errors() == []
   end
 
+  test "terminal errors keep PostgreSQL name types catalog-owned" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE TABLE public.catalog_names (
+          catalog_name name NOT NULL
+      );
+      """)
+
+    assert inventory
+           |> synthetic_terminal_errors(%{
+             "catalog_names" => {nil, OfficeGraph.TestSupport.MigrationConformanceNameResource}
+           })
+           |> without_framework_presence_errors() == []
+  end
+
   test "terminal errors canonicalize built-in PostgreSQL migration types and aliases" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

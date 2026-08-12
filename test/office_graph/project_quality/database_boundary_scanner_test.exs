@@ -2527,7 +2527,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2591,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:a90dfb37a687f5370f84fd5b6a63d32aa26466051713f42ae858dd9883bd2468"},
+              "sha256:3c7b6d1aa37c941b6ad7f2f6e313c7ec95ea3247f22ada02db399c3380349b51"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2612,9 +2612,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_runtime_dependency_execution:
-                         "9f644565c4cc3c662eb1227399c6a6168504a8dc8e4870766fac3eef039ba4ee",
+                         "f878227c0176a3f906975f69e569237a578c47adc6dd3a4e5edb4f20c8c91ca1",
                        compiled_reviewed_runtime_boundaries:
-                         "e0a6fb9089e20c8818e53728c8066eebe0c8820fa7eb222706a10ce1b7c4352c",
+                         "b7051f09487873071150cdd1baad9891fbdb302815f1dbd19add1bc021d2e3bc",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -2781,6 +2781,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                   Supervisor.child_spec({Worker, options}, id: :worker)
                 )
 
+            def direct_repo(options),
+              do: Supervisor.child_spec({OfficeGraph.Repo, options}, id: :direct_review_repo)
+
+            def direct_repo_module,
+              do: Supervisor.child_spec(OfficeGraph.Repo, id: :direct_review_repo_module)
+
+            def direct_worker(options),
+              do: Supervisor.child_spec({Worker, options}, id: :direct_worker)
+
             def unresolved(supervisor, child_spec),
               do: Supervisor.start_child(supervisor, child_spec)
           end
@@ -2789,7 +2798,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       ])
 
     assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
-             {:raw_sql, "OfficeGraph.Repo.start_child", "repo/2", :unresolved_sql}
+             {:raw_sql, "OfficeGraph.Repo.start_child", "repo/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.child_spec", "repo/2", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.child_spec", "direct_repo/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.child_spec", "direct_repo_module/0", :unresolved_sql}
            ]
   end
 
@@ -3350,6 +3362,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             def install(dependencies), do: Mix.install(dependencies)
             def install_with_options(dependencies, options), do: Mix.install(dependencies, options)
             def load_native(path, options), do: :erlang.load_nif(path, options)
+            def load_driver(path, name), do: :erl_ddll.load_driver(path, name)
+            def load(path, name), do: :erl_ddll.load(path, name)
+            def try_load(path, name, options), do: :erl_ddll.try_load(path, name, options)
+            def reload(path, name), do: :erl_ddll.reload(path, name)
+            def reload_driver(path, name), do: :erl_ddll.reload_driver(path, name)
           end
           """
         }
@@ -3358,7 +3375,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"reflection.Mix.install", "install/1", :unresolved_sql},
              {"reflection.Mix.install", "install_with_options/2", :unresolved_sql},
-             {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql}
+             {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql},
+             {"reflection.erl_ddll.load_driver", "load_driver/2", :unresolved_sql},
+             {"reflection.erl_ddll.load", "load/2", :unresolved_sql},
+             {"reflection.erl_ddll.try_load", "try_load/3", :unresolved_sql},
+             {"reflection.erl_ddll.reload", "reload/2", :unresolved_sql},
+             {"reflection.erl_ddll.reload_driver", "reload_driver/2", :unresolved_sql}
            ]
   end
 
@@ -3584,6 +3606,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             Supervisor.child_spec(OfficeGraph.Repo, id: :review_repo)
           )
 
+      def direct_child_spec(options),
+        do: Supervisor.child_spec({OfficeGraph.Repo, options}, id: :direct_review_repo)
+
       def unresolved(supervisor, child_spec),
         do: Supervisor.start_child(supervisor, child_spec)
 
@@ -3636,6 +3661,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "Ecto.Repo.Supervisor.start_link",
               "named_erlang_supervisor_callback/2", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_child", "constructed/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.child_spec", "constructed/1", :unresolved_sql},
+             {:raw_sql, "OfficeGraph.Repo.child_spec", "direct_child_spec/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Tasks.Run.run", "mix_run/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Tasks.Eval.run", "mix_eval/1", :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Task.run", "mix_task_run/1", :unresolved_sql},
@@ -3681,6 +3708,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def install(dependencies), do: Mix.install(dependencies)
       def install_with_options(dependencies, options), do: Mix.install(dependencies, options)
       def load_native(path, options), do: :erlang.load_nif(path, options)
+      def load_driver(path, name), do: :erl_ddll.load_driver(path, name)
+      def load(path, name), do: :erl_ddll.load(path, name)
+      def try_load(path, name, options), do: :erl_ddll.try_load(path, name, options)
+      def reload(path, name), do: :erl_ddll.reload(path, name)
+      def reload_driver(path, name), do: :erl_ddll.reload_driver(path, name)
     end
     """)
 
@@ -3690,7 +3722,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
              {"reflection.Mix.install", "install/1", :unresolved_sql},
              {"reflection.Mix.install", "install_with_options/2", :unresolved_sql},
-             {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql}
+             {"reflection.erlang.load_nif", "load_native/2", :unresolved_sql},
+             {"reflection.erl_ddll.load_driver", "load_driver/2", :unresolved_sql},
+             {"reflection.erl_ddll.load", "load/2", :unresolved_sql},
+             {"reflection.erl_ddll.try_load", "try_load/3", :unresolved_sql},
+             {"reflection.erl_ddll.reload", "reload/2", :unresolved_sql},
+             {"reflection.erl_ddll.reload_driver", "reload_driver/2", :unresolved_sql}
            ]
   end
 

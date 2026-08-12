@@ -420,7 +420,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :start_child
   ]
   @mfa_supervisor_operations [:start_child, :start_link]
-  @mfa_elixir_supervisor_operations [:start_child, :start_link]
+  @mfa_elixir_supervisor_operations [:child_spec, :start_child, :start_link]
   @mfa_proc_lib_operations [
     :hibernate,
     :spawn,
@@ -487,6 +487,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "elixir",
     "elixir_compiler",
     "erlang",
+    "erl_ddll",
     "erl_eval",
     "file"
   ]
@@ -559,6 +560,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "elixir" => [:eval_forms, :eval_quoted],
     "elixir_compiler" => [:compile, :file, :interpret, :quoted, :string],
     "erlang" => [:load_nif],
+    "erl_ddll" => [:load, :load_driver, :reload, :reload_driver, :try_load],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
     "file" => [:eval, :path_eval, :path_script, :script]
   }
@@ -2183,6 +2185,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     child_spec_start_targets(child_spec)
   end
 
+  defp mfa_dispatch_targets("Supervisor", :child_spec, [child_spec, _overrides]),
+    do: child_spec_callback_targets(child_spec)
+
   defp mfa_dispatch_targets(receiver, :start_link, [target, _init_arg, _options])
        when receiver in ["DynamicSupervisor", "Supervisor"],
        do: [{target, :init}]
@@ -2284,6 +2289,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     do: [{module, nil}]
 
   defp child_spec_start_targets(_child_spec), do: []
+
+  defp child_spec_callback_targets({module, _argument}), do: [{module, nil}]
+
+  defp child_spec_callback_targets({:tuple, _annotation, [module, _argument]}),
+    do: [{module, nil}]
+
+  defp child_spec_callback_targets({:__aliases__, _metadata, parts} = module)
+       when is_list(parts),
+       do: [{module, nil}]
+
+  defp child_spec_callback_targets({:atom, _annotation, _module} = module),
+    do: [{module, nil}]
+
+  defp child_spec_callback_targets(_child_spec), do: []
 
   defp classify_dynamic_dispatch(receiver, operation, kind, node, env) do
     resolved_receiver = receiver_name(receiver, env)

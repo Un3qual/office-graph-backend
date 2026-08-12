@@ -240,3 +240,10 @@
 - [x] 33.2 Add an independent compiled regression for process and reflection function captures.
 - [x] 33.3 Extend the existing lexical contexts, execution inventories, capture classifiers, and module-name collector without macro expansion, payload evaluation, or dataflow analysis.
 - [x] 33.4 Run focused scanner and gate tests, strict OpenSpec validation, static analysis, full canonical verification, and final anti-slop review; commit, push, and reply to the cached review threads.
+
+## 34. Direct Child Spec, Native Driver, And Catalog Name Follow-Up
+
+- [x] 34.1 Add failing source and compiled regressions for direct persistence callbacks through `Supervisor.child_spec/2` and OTP dynamic driver loading or reloading.
+- [x] 34.2 Extend the shared dispatcher and reflection inventories without treating ordinary static worker modules as database operations.
+- [x] 34.3 Normalize PostgreSQL's built-in `name` migration type as an unqualified catalog-owned type with focused terminal-conformance coverage.
+- [x] 34.4 Run focused scanner and conformance tests, refresh exact compiler-fixture approval evidence, validate OpenSpec strictly, run canonical verification, perform final anti-slop review, commit, push, and reply to the cached review threads.

@@ -124,14 +124,17 @@ construction, SQL bodies, macro output, or control flow.
   `:erpc.execute_call/3,4` or `:erpc.execute_cast/3`, low-level `:elixir`
   quoted/form evaluation or `:elixir_compiler` execution, Erlang shell or
   `:compile` source compilation/loading, `Mix.install/1,2`,
-  `:erlang.load_nif/2`,
+  `:erlang.load_nif/2`, `:erl_ddll.load/2`, `:erl_ddll.load_driver/2`,
+  `:erl_ddll.try_load/3`, `:erl_ddll.reload/2`, or
+  `:erl_ddll.reload_driver/2`,
   `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
   config reads, runtime macro expansion, Mix shell command execution including
   expression receivers returned by `Mix.shell/0`, untrusted or dynamic
   protocol derivation through `@derive`, any supported MFA-executing RPC form,
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
-  supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
-  or `Supervisor.child_spec/2`, including standard module and
+  supervisor child spec passed through `start_child` or `Supervisor.start_link/2`,
+  or a persistence callback invoked directly through `Supervisor.child_spec/2`,
+  including standard module and
   `{module, argument}` shorthands, a statically visible persistence callback
   module passed to `Supervisor.start_link/3`, `DynamicSupervisor.start_link/3`,
   or `:supervisor.start_link/2,3`, or a compile/verification callback attribute
@@ -351,7 +354,7 @@ consumer-visible behavior rather than synthetic evaluator semantics.
 
 #### Scenario: Built-in migration type remains catalog-owned
 - **WHEN** an AshPostgres resource configures a PostgreSQL 18 built-in migration
-  type or alias such as `:smallint`, `:oid`, or `:regclass`
+  type or alias such as `:name`, `:smallint`, `:oid`, or `:regclass`
 - **THEN** terminal conformance MUST compare its canonical unqualified
   `pg_catalog` type while continuing to resource-schema-qualify unknown custom
   type atoms
