@@ -55,6 +55,8 @@ construction, SQL bodies, macro output, or control flow.
   known repository, SQL adapter, Ecto.Migrator, Postgrex, Ecto.Multi, migration
   SQL, query fragment, SQL-bearing query lock or hint, migration expression
   field, SQL-bearing AshPostgres custom-index predicate or expression field,
+  SQL-bearing AshPostgres resource-level calculation, identity predicate, or
+  base filter,
   verbatim AshPostgres migration-default override, direct repository
   transaction/connection primitive, or mutable database CLI subprocess
 - **THEN** the scanner MUST emit a fingerprinted occurrence requiring exact
@@ -94,10 +96,12 @@ construction, SQL bodies, macro output, or control flow.
   compilation or recompilation helpers, `Mix.Tasks.Run`, `Mix.Tasks.Eval`, or `Mix.Task`
   dispatch, `Mix.Project.in_project/3,4`, every Agent MFA executor, exported
   `:erpc.execute_call/3,4` or `:erpc.execute_cast/3`, low-level `:elixir`
-  quoted/form evaluation, Erlang shell or `:compile` source compilation/loading,
+  quoted/form evaluation or `:elixir_compiler` execution, Erlang shell or
+  `:compile` source compilation/loading,
   `Config.Reader` evaluation or nonliteral, relative, aliased-path, or external
-  config reads, runtime macro expansion, Mix shell command
-  execution, any supported MFA-executing RPC form,
+  config reads, runtime macro expansion, Mix shell command execution including
+  expression receivers returned by `Mix.shell/0`, untrusted or dynamic
+  protocol derivation through `@derive`, any supported MFA-executing RPC form,
   `Postgrex.SimpleConnection`, `Ecto.Repo.Supervisor`, a statically visible
   supervisor child spec passed through `start_child`, `Supervisor.start_link/2`,
   or `Supervisor.child_spec/2`, including standard module and
@@ -117,6 +121,8 @@ construction, SQL bodies, macro output, or control flow.
   as raw SQL
 - **AND** an inline `run -e` or `eval` task, dynamic command string, or dynamic
   command container MUST remain unresolved and unapprovable
+- **AND** `mix do` task composition MUST remain unresolved instead of parsing
+  or interpreting its nested task sequence
 - **AND** ordinary static task aliases and static tracked `run` script paths
   MUST remain covered by their independently scanned implementations
 
@@ -141,6 +147,13 @@ construction, SQL bodies, macro output, or control flow.
   for exact approval and reject a dynamic value or option container without
   interpreting it or classifying unrelated application functions named
   `migration_defaults`
+
+#### Scenario: AshPostgres resource setting contains authored SQL
+- **WHEN** a tracked Ash resource declares `calculations_to_sql`,
+  `identity_wheres_to_sql`, or `base_filter_sql` in its `postgres` section
+- **THEN** the source scanner MUST fingerprint every static SQL value for exact
+  approval and reject dynamic values or containers without classifying
+  unrelated application functions with the same names
 
 #### Scenario: Wildcard import exposes an MFA dispatcher
 - **WHEN** tracked source wildcard-imports a supported process, task,
@@ -328,6 +341,13 @@ those paths are outside Credo's configured Elixir source list.
 #### Scenario: Focused project-boundary linting runs
 - **WHEN** a contributor selects only the project-boundary Credo check
 - **THEN** it MUST apply the same repository-wide source, compiled-module, and inventory semantics as canonical verification
+
+#### Scenario: A compiled boundary module is already loaded
+- **WHEN** Credo starts after an older project-boundary BEAM has been loaded
+- **THEN** the standalone static-analysis workflow MUST first force-compile the
+  current checked-out boundary sources with warnings as errors
+- **AND** Credo configuration MUST avoid redefining the resulting modules so
+  compiled-audit BEAM provenance remains available
 
 #### Scenario: A source violation is found
 - **WHEN** a new, changed, unresolved, or prohibited database occurrence is detected

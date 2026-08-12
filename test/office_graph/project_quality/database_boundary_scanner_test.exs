@@ -2479,7 +2479,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2543,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:50cf73cb09ffe5ea27f1e582c07514108c1f7a3effb1e2ca0f02afe7070d12cc"},
+              "sha256:338a63260e31098d26fc82808b245099cb5d7f10d2fa0c9b876dd74371e55e68"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2562,7 +2562,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_reviewed_runtime_boundaries:
-                         "3dcc6f3fe3f24a016a0aa1e1ceb3cccd59e99cbdd39eb411894c2e29c200d16a",
+                         "e0a6fb9089e20c8818e53728c8066eebe0c8820fa7eb222706a10ce1b7c4352c",
                        compiled_strict_boundary:
                          "f3fa046ea2e6761141e06322341712ebd629f12d04c56dd18a81e77444d9562d",
                        current_environment:
@@ -3133,6 +3133,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                 inline: ["run -e \"OfficeGraph.Repo.query!(sql, [])\""],
                 inline_long: ["run --eval=\"OfficeGraph.Repo.query!(sql, [])\""],
                 evaluated: ["eval OfficeGraph.Repo.query!(sql, [])"],
+                composed: ["do cmd psql -c 'SELECT 1' + test"],
                 interpolated: ["cmd #{executable}"],
                 indirect: configured_aliases()
               ]
@@ -3157,9 +3158,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "reflection.Mix.Project.alias.run", 6, :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Project.alias.run", 6, :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Project.alias.eval", 6, :unresolved_sql},
-             {:direct_ecto, "reflection.Mix.Project.alias.dynamic", 13, :unresolved_sql},
+             {:direct_ecto, "reflection.Mix.Project.alias.do", 6, :unresolved_sql},
              {:direct_ecto, "reflection.Mix.Project.alias.dynamic", 14, :unresolved_sql},
-             {:direct_ecto, "reflection.Mix.Project.alias.dynamic", 22, :unresolved_sql}
+             {:direct_ecto, "reflection.Mix.Project.alias.dynamic", 15, :unresolved_sql},
+             {:direct_ecto, "reflection.Mix.Project.alias.dynamic", 23, :unresolved_sql}
            ]
   end
 
@@ -3182,6 +3184,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"reflection.elixir.eval_quoted", "quoted/1", :unresolved_sql},
              {"reflection.elixir.eval_quoted", "quoted_with_options/1", :unresolved_sql},
              {"reflection.elixir.eval_forms", "forms/1", :unresolved_sql}
+           ]
+  end
+
+  test "rejects every low-level Elixir compiler execution entrypoint" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "scripts/elixir_compiler_execution.exs",
+          source: """
+          defmodule ElixirCompilerExecution do
+            def file(path, callback), do: :elixir_compiler.file(path, callback)
+            def string(source, file, callback), do: :elixir_compiler.string(source, file, callback)
+            def quoted(forms, file, callback), do: :elixir_compiler.quoted(forms, file, callback)
+            def interpret(forms, file, callback), do: :elixir_compiler.interpret(forms, file, callback)
+            def compile(forms, file, callback, options),
+              do: :elixir_compiler.compile(forms, file, callback, options)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"reflection.elixir_compiler.file", "file/2", :unresolved_sql},
+             {"reflection.elixir_compiler.string", "string/3", :unresolved_sql},
+             {"reflection.elixir_compiler.quoted", "quoted/3", :unresolved_sql},
+             {"reflection.elixir_compiler.interpret", "interpret/3", :unresolved_sql},
+             {"reflection.elixir_compiler.compile", "compile/4", :unresolved_sql}
            ]
   end
 
@@ -3210,6 +3239,56 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"reflection.compile_callback", 4, :unresolved_sql},
              {"reflection.compile_callback", 5, :unresolved_sql},
              {"reflection.compile_callback", 6, :unresolved_sql}
+           ]
+  end
+
+  test "rejects untrusted and dynamic derive providers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/reviewed_derives.ex",
+          source: """
+          defmodule OfficeGraph.LocalDeriver do
+          end
+
+          defmodule OfficeGraph.ReviewedDerives do
+            @derive Jason.Encoder
+            @derive {Jason.Encoder, only: [:id]}
+            @derive OfficeGraph.LocalDeriver
+            @derive ExternalProtocol
+            @derive {ExternalConfiguredProtocol, only: [:id]}
+            @derive configured_protocol()
+
+            defstruct [:id]
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, &1.approval}) == [
+             {"reflection.derive", 8, :unresolved_sql},
+             {"reflection.derive", 9, :unresolved_sql},
+             {"reflection.derive", 10, :unresolved_sql}
+           ]
+  end
+
+  test "rejects commands dispatched through the configured Mix shell" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "mix/tasks/reviewed_shell.ex",
+          source: """
+          defmodule Mix.Tasks.ReviewedShell do
+            def dynamic(command), do: Mix.shell().cmd(command)
+            def database, do: Mix.shell().cmd("psql -c 'SELECT 1'")
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function, &1.approval}) == [
+             {:raw_sql, "process.dynamic_command", "dynamic/1", :unresolved_sql},
+             {:raw_sql, "process.database_cli", "database/0", :unresolved_sql}
            ]
   end
 
@@ -3306,6 +3385,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "requires exact approval for AshPostgres resource-level SQL settings" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/reviewed_sql_settings_resource.ex",
+          source: """
+          defmodule OfficeGraph.ReviewedSqlSettingsResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              calculations_to_sql score: "coalesce(score, 0)", dynamic: configured_sql()
+              identity_wheres_to_sql active: "status = 'active'", dynamic: configured_sql()
+              identity_wheres_to_sql configured_wheres()
+              base_filter_sql "tenant_id IS NOT NULL"
+              base_filter_sql configured_sql()
+            end
+          end
+
+          defmodule OfficeGraph.UnrelatedSqlSettingsCall do
+            def run(value), do: base_filter_sql(value)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
+             {"resource.calculations_to_sql.value", 5, nil},
+             {"resource.calculations_to_sql.value", 5, :unresolved_sql},
+             {"resource.identity_wheres_to_sql.value", 6, nil},
+             {"resource.identity_wheres_to_sql.value", 6, :unresolved_sql},
+             {"resource.identity_wheres_to_sql.options", 7, :unresolved_sql},
+             {"resource.base_filter_sql.value", 8, nil},
+             {"resource.base_filter_sql.value", 9, :unresolved_sql}
+           ]
+  end
+
   test "compiled audit rejects reviewed runtime startup and evaluation escape paths" do
     root = temporary_root("compiled_reviewed_runtime_boundaries")
     source_path = Path.join(root, "lib/compiled_reviewed_runtime_boundaries.ex")
@@ -3362,6 +3477,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def config_read(path), do: Config.Reader.read!(path)
       def expand(ast, env), do: Macro.expand(ast, env)
       def shell(command), do: Mix.Shell.IO.cmd(command)
+      def configured_shell(command), do: Mix.shell().cmd(command)
       def agent(sql), do: Agent.start(OfficeGraph.Repo, :query!, [sql, []])
       def agent_link(sql), do: Agent.start_link(OfficeGraph.Repo, :query!, [sql, []], name: __MODULE__)
       def agent_get(agent, sql), do: Agent.get(agent, OfficeGraph.Repo, :query!, [[sql, []]])
@@ -3373,6 +3489,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def erpc_cast(sql), do: :erpc.execute_cast(OfficeGraph.Repo, :query!, [sql, []])
       def elixir_quoted(ast), do: :elixir.eval_quoted(ast, [], __ENV__)
       def elixir_forms(forms), do: :elixir.eval_forms(forms, [], __ENV__)
+      def elixir_compiler_file(path, callback), do: :elixir_compiler.file(path, callback)
+      def elixir_compiler_string(source, file, callback), do: :elixir_compiler.string(source, file, callback)
+      def elixir_compiler_quoted(forms, file, callback), do: :elixir_compiler.quoted(forms, file, callback)
     end
     """)
 
@@ -3408,6 +3527,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:direct_ecto, "reflection.Config.Reader.read!", "config_read/1", :unresolved_sql},
              {:direct_ecto, "reflection.Macro.expand", "expand/2", :unresolved_sql},
              {:raw_sql, "process.dynamic_command", "shell/1", :unresolved_sql},
+             {:raw_sql, "process.dynamic_command", "configured_shell/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start", "agent/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.start_link", "agent_link/1", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.get", "agent_get/2", :unresolved_sql},
@@ -3419,7 +3539,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "OfficeGraph.Repo.execute_call", "erpc_referenced/2", :unresolved_sql},
              {:raw_sql, "OfficeGraph.Repo.execute_cast", "erpc_cast/1", :unresolved_sql},
              {:direct_ecto, "reflection.elixir.eval_quoted", "elixir_quoted/1", :unresolved_sql},
-             {:direct_ecto, "reflection.elixir.eval_forms", "elixir_forms/1", :unresolved_sql}
+             {:direct_ecto, "reflection.elixir.eval_forms", "elixir_forms/1", :unresolved_sql},
+             {:direct_ecto, "reflection.elixir_compiler.file", "elixir_compiler_file/2",
+              :unresolved_sql},
+             {:direct_ecto, "reflection.elixir_compiler.string", "elixir_compiler_string/3",
+              :unresolved_sql},
+             {:direct_ecto, "reflection.elixir_compiler.quoted", "elixir_compiler_quoted/3",
+              :unresolved_sql}
            ]
   end
 end

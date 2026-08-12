@@ -482,6 +482,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "code",
     "compile",
     "elixir",
+    "elixir_compiler",
     "erl_eval",
     "file"
   ]
@@ -550,6 +551,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     ],
     "compile" => [:file, :forms, :noenv_file, :noenv_forms],
     "elixir" => [:eval_forms, :eval_quoted],
+    "elixir_compiler" => [:compile, :file, :interpret, :quoted, :string],
     "erl_eval" => [:eval_str, :expr, :expr_list, :exprs, :match_clause],
     "file" => [:eval, :path_eval, :path_script, :script]
   }
@@ -603,6 +605,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Supervisor",
     "Telemetry.Metrics"
   ]
+  @allowed_derive_modules ["Jason.Encoder"]
+  @resource_keyword_sql_settings [:calculations_to_sql, :identity_wheres_to_sql]
   @canonical_verification_fingerprints %{
     "bin/verify" => "sha256:4895bc9e15a8389b6fadf4b2913247b5a076d4de9c36943295cda211fe143b2f",
     "bin/verify-migration-baseline" =>
@@ -903,20 +907,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp scan_node({:@, metadata, [{name, _name_metadata, [value]}]} = node, env, occurrences) do
     occurrences =
-      if name in @compile_callback_attributes do
-        construct =
-          if migration_execution_context?(env),
-            do: "migration.compile_callback",
-            else: "reflection.compile_callback"
+      cond do
+        name in @compile_callback_attributes ->
+          construct =
+            if migration_execution_context?(env),
+              do: "migration.compile_callback",
+              else: "reflection.compile_callback"
 
-        [
-          occurrence(env, line(metadata), :direct_ecto, construct, node,
-            approval: :unresolved_sql
-          )
-          | occurrences
-        ]
-      else
-        occurrences
+          [
+            occurrence(env, line(metadata), :direct_ecto, construct, node,
+              approval: :unresolved_sql
+            )
+            | occurrences
+          ]
+
+        name == :derive ->
+          value
+          |> derive_occurrences(node, env)
+          |> Enum.reduce(occurrences, &[&1 | &2])
+
+        true ->
+          occurrences
       end
 
     scan_node(value, env, occurrences)
@@ -1254,6 +1265,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       |> resource_migration_default_occurrences(arguments, node, env)
       |> Enum.reduce(occurrences, &[&1 | &2])
 
+    occurrences =
+      operation
+      |> resource_postgres_sql_setting_occurrences(arguments, node, env)
+      |> Enum.reduce(occurrences, &[&1 | &2])
+
     imported_receiver = imported_receiver(env, operation, length(arguments))
 
     occurrences =
@@ -1374,6 +1390,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
       ["eval" | _arguments] ->
         :eval
+
+      ["do" | _arguments] ->
+        :do
 
       ["run" | arguments] ->
         cond do
@@ -2273,17 +2292,80 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_expression_receiver(receiver, operation, node, env) do
-    if uncompiled_elixir_source?(env) and receiver_name(receiver, env) == nil and
-         not variable_receiver?(receiver) and
-         not dynamic_module_receiver?(receiver, env) and
-         database_operation_arity?(operation, length(call_arguments(node))) do
-      class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
+    cond do
+      operation == :cmd and mix_shell_receiver?(receiver, env) ->
+        classify_operation("Mix.Shell.IO", operation, length(call_arguments(node)), node, env)
 
-      occurrence(env, line_from_node(node), class, "expression_receiver.#{operation}", node,
-        approval: :unresolved_sql
-      )
+      uncompiled_elixir_source?(env) and receiver_name(receiver, env) == nil and
+        not variable_receiver?(receiver) and
+        not dynamic_module_receiver?(receiver, env) and
+          database_operation_arity?(operation, length(call_arguments(node))) ->
+        class = if raw_sql_operation?(operation), do: :raw_sql, else: :direct_ecto
+
+        occurrence(env, line_from_node(node), class, "expression_receiver.#{operation}", node,
+          approval: :unresolved_sql
+        )
+
+      true ->
+        nil
     end
   end
+
+  defp mix_shell_receiver?(
+         {{:., _dot_metadata, [module, :shell]}, _metadata, arguments},
+         env
+       )
+       when arguments in [[], nil],
+       do: module_name(module, env) == "Mix"
+
+  defp mix_shell_receiver?(_receiver, _env), do: false
+
+  defp derive_occurrences(value, node, env) do
+    case derive_providers(value, env) do
+      {:ok, providers} ->
+        providers
+        |> Enum.reject(fn {module, _provider} -> trusted_derive_module?(module, env) end)
+        |> Enum.map(fn {_module, provider} ->
+          occurrence(env, line_from_node(node), :direct_ecto, "reflection.derive", provider,
+            approval: :unresolved_sql
+          )
+        end)
+
+      :dynamic ->
+        [
+          occurrence(env, line_from_node(node), :direct_ecto, "reflection.derive", node,
+            approval: :unresolved_sql
+          )
+        ]
+    end
+  end
+
+  defp derive_providers({provider, options}, env) when is_list(options),
+    do: derive_providers(provider, env)
+
+  defp derive_providers(providers, env) when is_list(providers) do
+    providers
+    |> Enum.reduce_while({:ok, []}, fn provider, {:ok, collected} ->
+      case derive_providers(provider, env) do
+        {:ok, resolved} -> {:cont, {:ok, Enum.reverse(resolved, collected)}}
+        :dynamic -> {:halt, :dynamic}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      :dynamic -> :dynamic
+    end
+  end
+
+  defp derive_providers(provider, env) do
+    case module_name(provider, env) do
+      module when is_binary(module) -> {:ok, [{module, provider}]}
+      _dynamic -> :dynamic
+    end
+  end
+
+  defp trusted_derive_module?(module, env),
+    do: module in @allowed_derive_modules or project_module?(module, env)
 
   defp variable_receiver?({name, _metadata, context})
        when is_atom(name) and is_atom(context),
@@ -3212,6 +3294,69 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp resource_migration_default_occurrences(_operation, _arguments, _node, _env), do: []
 
+  defp resource_postgres_sql_setting_occurrences(
+         operation,
+         [entries],
+         node,
+         %{ash_postgres?: true} = env
+       )
+       when operation in @resource_keyword_sql_settings and is_list(entries) do
+    if Keyword.keyword?(entries) do
+      Enum.map(entries, fn {name, value} ->
+        construct = "resource.#{operation}.value"
+        approval = if static_sql_payload?(value), do: nil, else: :unresolved_sql
+
+        occurrence(env, line_from_node(node), :raw_sql, construct, {operation, name, value},
+          approval: approval
+        )
+      end)
+    else
+      [unresolved_resource_postgres_sql_setting(operation, entries, node, env)]
+    end
+  end
+
+  defp resource_postgres_sql_setting_occurrences(
+         :base_filter_sql,
+         [value],
+         node,
+         %{ash_postgres?: true} = env
+       ) do
+    approval = if static_sql_payload?(value), do: nil, else: :unresolved_sql
+
+    [
+      occurrence(
+        env,
+        line_from_node(node),
+        :raw_sql,
+        "resource.base_filter_sql.value",
+        {:base_filter_sql, value},
+        approval: approval
+      )
+    ]
+  end
+
+  defp resource_postgres_sql_setting_occurrences(
+         operation,
+         arguments,
+         node,
+         %{ash_postgres?: true} = env
+       )
+       when operation in [:base_filter_sql | @resource_keyword_sql_settings],
+       do: [unresolved_resource_postgres_sql_setting(operation, arguments, node, env)]
+
+  defp resource_postgres_sql_setting_occurrences(_operation, _arguments, _node, _env), do: []
+
+  defp unresolved_resource_postgres_sql_setting(operation, value, node, env) do
+    occurrence(
+      env,
+      line_from_node(node),
+      :raw_sql,
+      "resource.#{operation}.options",
+      {operation, :options, value},
+      approval: :unresolved_sql
+    )
+  end
+
   defp unresolved_resource_migration_defaults(value, node, env) do
     occurrence(
       env,
@@ -3702,6 +3847,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_node_occurrences(
+         {:call, _line, {:remote, _remote_line, receiver, {:atom, _fun_line, :cmd}}, arguments} =
+           node,
+         source,
+         function,
+         occurrences
+       )
+       when not is_tuple(receiver) or elem(receiver, 0) != :atom do
+    occurrences =
+      if compiled_mix_shell_receiver?(receiver) do
+        occurrence =
+          classify_operation(
+            "Mix.Shell.IO",
+            :cmd,
+            length(arguments),
+            node,
+            %{path: source, function: function, migration?: false}
+          )
+
+        [occurrence | occurrences]
+      else
+        occurrences
+      end
+
+    compiled_node_occurrences(Tuple.to_list(node), source, function, occurrences)
+  end
+
+  defp compiled_node_occurrences(
          {:call, _line, {:remote, _remote_line, receiver, {:atom, _fun_line, operation}},
           arguments} = node,
          source,
@@ -3952,6 +4124,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_module(_node), do: nil
+
+  defp compiled_mix_shell_receiver?(
+         {:call, _line, {:remote, _remote_line, module, {:atom, _function_line, :shell}}, []}
+       ),
+       do: compiled_module(module) == "Mix"
+
+  defp compiled_mix_shell_receiver?(_receiver), do: false
 
   defp compiled_variable_receiver?({:var, _line, name}) when is_atom(name), do: true
   defp compiled_variable_receiver?(_receiver), do: false

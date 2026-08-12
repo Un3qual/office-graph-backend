@@ -125,6 +125,7 @@ defmodule OfficeGraph.MixProject do
         "cmd openspec validate --changes --strict"
       ],
       "static.analysis": [
+        "compile --force --warnings-as-errors",
         "credo --strict",
         "reach.check --arch --smells --strict",
         "reach.check --smells --strict credo_checks"

@@ -211,3 +211,11 @@
 - [x] 29.2 Add a failing source regression for SQL-bearing AshPostgres check constraints and nonliteral option containers.
 - [x] 29.3 Extend the shared source/BEAM dispatcher inventory and add one lexically scoped `postgres.check_constraints` rule without callback or SQL-body interpretation.
 - [x] 29.4 Refresh exact approval evidence as required; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 30. Compiler, Resource SQL, And Static Analysis Follow-Up
+
+- [x] 30.1 Add failing source and compiled regressions for low-level `:elixir_compiler` entrypoints and `Mix.shell/0` expression-receiver dispatch.
+- [x] 30.2 Add failing source regressions for `mix do` alias composition, untrusted or dynamic `@derive` providers, and AshPostgres resource-level SQL settings.
+- [x] 30.3 Extend the existing execution inventory and lexical resource rules without parsing command bodies, expanding derives, or interpreting SQL.
+- [x] 30.4 Force-compile current project-boundary sources before standalone static analysis, preserve loaded BEAM provenance in Credo, and cover the alias ordering.
+- [x] 30.5 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

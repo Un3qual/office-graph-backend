@@ -57,8 +57,9 @@ approved exceptions SHALL remain exact and fingerprinted.
 #### Scenario: AshPostgres resource DSL embeds SQL
 
 - **WHEN** a custom index declaration contains a SQL predicate, expression
-  field, or unresolved option container, or `migration_defaults` configures
-  verbatim generated-migration source
+  field, or unresolved option container, `migration_defaults` configures
+  verbatim generated-migration source, or `calculations_to_sql`,
+  `identity_wheres_to_sql`, or `base_filter_sql` contains authored SQL
 - **THEN** canonical verification MUST require an exact approved occurrence or
   reject a dynamic declaration before macro expansion can erase it
 
@@ -151,8 +152,10 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
 
 - **WHEN** tracked source or compiled project code uses runtime source
   compilation, EEx compilation or evaluation, quoted evaluation, an OTP file
-  evaluator including low-level `:elixir` entrypoints,
-  `Mix.Project.in_project/3,4`, an executable or dynamic project alias string,
+  evaluator including low-level `:elixir` and `:elixir_compiler` entrypoints,
+  `Mix.Project.in_project/3,4`, an executable or dynamic project alias string
+  including `mix do` task composition, a command dispatched through
+  `Mix.shell/0`, an untrusted or dynamic `@derive` provider,
   any Agent MFA executor, exported `:erpc.execute_call`/`execute_cast`, a
   compile callback in any tracked module, or a public process-library or
   supervisor MFA form including `:erlang.hibernate/3` and
