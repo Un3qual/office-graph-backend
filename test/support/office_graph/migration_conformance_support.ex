@@ -846,32 +846,33 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp dump_with_docker_or_raise!(config, local_output, local_status) do
-    with {:ok, container} <- postgres_container_for_port(Keyword.fetch!(config, :port)),
+    with true <- docker_fallback_allowed?(Keyword.get(config, :hostname)),
+         {:ok, container} <- compose_postgres_container(),
          {:ok, dump} <- docker_pg_dump(container, config) do
       parse_dump(dump)
     else
+      false ->
+        raise "pg_dump failed with status #{local_status}; Docker fallback is limited to loopback database hosts:\n#{local_output}"
+
       {:error, reason} ->
         raise "pg_dump failed with status #{local_status} and Docker fallback failed (#{reason}):\n#{local_output}"
     end
   end
 
-  defp postgres_container_for_port(port) do
-    case System.cmd("docker", ["ps", "--format", "{{.ID}} {{.Ports}}"], stderr_to_stdout: true) do
+  @doc false
+  def docker_fallback_allowed?(hostname), do: hostname in ["localhost", "127.0.0.1", "::1"]
+
+  defp compose_postgres_container do
+    case System.cmd("docker", ["compose", "ps", "-q", "postgres"], stderr_to_stdout: true) do
       {output, 0} ->
-        output
-        |> String.split("\n", trim: true)
-        |> Enum.find_value(fn line ->
-          if String.contains?(line, ":#{port}->5432/tcp") do
-            line |> String.split(" ", parts: 2) |> List.first()
-          end
-        end)
-        |> case do
-          nil -> {:error, "no running PostgreSQL container maps host port #{port}"}
-          container -> {:ok, container}
+        case String.split(output, "\n", trim: true) do
+          [container] -> {:ok, container}
+          [] -> {:error, "the current Compose project has no running postgres service"}
+          _containers -> {:error, "the current Compose project has multiple postgres containers"}
         end
 
       {output, status} ->
-        {:error, "docker ps failed with status #{status}: #{String.trim(output)}"}
+        {:error, "docker compose ps failed with status #{status}: #{String.trim(output)}"}
     end
   end
 

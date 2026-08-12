@@ -226,3 +226,10 @@
 - [x] 31.2 Extend the shared source/BEAM execution inventories and compile-attribute classifier without evaluating callback providers or generated code.
 - [x] 31.3 Preserve partitioned-parent and attached-partition relation kinds and assert production BEAM construction precedes canonical static analysis.
 - [x] 31.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, OpenSpec, full-suite, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.
+
+## 32. Exact SQL Approval, Quote Boundaries, And Dump Target Follow-Up
+
+- [x] 32.1 Add failing regressions for exact tracked-SQL approval, import exclusions, inert quoted providers and migration locals, standalone production BEAM construction, and remote-host dump fallback.
+- [x] 32.2 Make static SQL files exact-approvable, preserve import exclusions, and stop trust/local-definition discovery at quote boundaries without adding expansion or dataflow analysis.
+- [x] 32.3 Make standalone static analysis construct production BEAMs and limit Docker dump fallback to loopback database hosts.
+- [x] 32.4 Refresh exact compiler-fixture approval evidence; run focused, full-suite, strict OpenSpec, static-analysis, and canonical verification; perform a final anti-slop diff review; commit, push, and reply to the cached review threads.

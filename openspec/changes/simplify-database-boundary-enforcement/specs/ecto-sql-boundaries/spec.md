@@ -26,6 +26,11 @@ exception.
 - **WHEN** an accepted OpenSpec change explicitly approves repository-authored SQL
 - **THEN** the exception MUST identify its occurrence fingerprint, file, owner, reason, verification coverage, and retirement condition
 
+#### Scenario: User approves a tracked SQL-like file
+- **WHEN** an accepted OpenSpec change explicitly approves a tracked SQL-like file
+- **THEN** the complete file contents MUST produce the exact source fingerprint matched by the approved exception
+- **AND** any unapproved or changed tracked SQL-like file MUST fail verification
+
 #### Scenario: Approved exception declares terminal ownership
 - **WHEN** any exact low-level exception is recorded in the approved inventory and its accepted-change evidence
 - **THEN** both records MUST include a `terminal_objects` list, using `[]` only when the accepted change explicitly records that the occurrence owns no stored database object

@@ -726,7 +726,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
             :raw_sql,
             "tracked_sql_file",
             source,
-            approval: :unresolved_sql
+            []
           )
         ]
 
@@ -778,19 +778,47 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end)
   end
 
-  defp defined_module_names(ast) do
-    {_ast, modules} =
-      Macro.prewalk(ast, MapSet.new(), fn
-        {:defmodule, _metadata, [module | _body]} = node, modules ->
-          module = literal_module_name(module)
-          {node, if(module, do: MapSet.put(modules, module), else: modules)}
+  defp defined_module_names(ast), do: collect_defined_module_names(ast, MapSet.new(), 0)
 
-        node, modules ->
-          {node, modules}
-      end)
+  defp collect_defined_module_names({:quote, _metadata, arguments}, modules, quote_depth)
+       when is_list(arguments),
+       do: collect_defined_module_names(arguments, modules, quote_depth + 1)
 
-    modules
+  defp collect_defined_module_names(
+         {operation, _metadata, arguments},
+         modules,
+         quote_depth
+       )
+       when operation in [:unquote, :unquote_splicing] and quote_depth > 0 and
+              is_list(arguments),
+       do: collect_defined_module_names(arguments, modules, quote_depth - 1)
+
+  defp collect_defined_module_names(
+         {:defmodule, _metadata, [module | _body]} = node,
+         modules,
+         0
+       ) do
+    modules =
+      case literal_module_name(module) do
+        nil -> modules
+        module -> MapSet.put(modules, module)
+      end
+
+    node
+    |> Tuple.to_list()
+    |> collect_defined_module_names(modules, 0)
   end
+
+  defp collect_defined_module_names(nodes, modules, quote_depth) when is_list(nodes),
+    do: Enum.reduce(nodes, modules, &collect_defined_module_names(&1, &2, quote_depth))
+
+  defp collect_defined_module_names(node, modules, quote_depth) when is_tuple(node) do
+    node
+    |> Tuple.to_list()
+    |> collect_defined_module_names(modules, quote_depth)
+  end
+
+  defp collect_defined_module_names(_node, modules, _quote_depth), do: modules
 
   defp literal_module_name({:__aliases__, _metadata, parts}) when is_list(parts),
     do: Enum.map_join(parts, ".", &to_string/1)
@@ -2193,11 +2221,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_defdelegate(_arguments, _node, _env), do: nil
 
-  defp migration_helper_escape?(operation, _arguments, env) do
+  defp migration_helper_escape?(operation, arguments, env) do
     migration_execution_context?(env) and operation not in @allowed_migration_locals and
       operation not in @syntax_operations and
       not operator?(operation) and
-      not imported?(env, operation)
+      not imported?(env, operation, length(arguments))
   end
 
   defp migration_execution_context?(%{migration?: true, function: nil}), do: true
@@ -2580,14 +2608,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          module in @reflection_modules or module in @process_execution_modules do
       imported = imported_operations(module, options)
 
-      imports =
-        Enum.reduce(imported, env.imports, fn
-          :all, imports -> Map.put(imports, {:all, module}, module)
-          operation, imports -> Map.put(imports, operation, module)
-        end)
+      imports = apply_imported_operations(env.imports, module, imported)
 
       occurrences =
-        if imported == [:all] and module != "Ecto.Query" and
+        if match?({:all, _excluded}, imported) and module != "Ecto.Query" and
              module not in @dynamic_dispatch_modules do
           [
             occurrence(env, line(metadata), :direct_ecto, "#{module}.import", target,
@@ -2607,38 +2631,56 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp apply_import(_arguments, _metadata, env), do: {env, []}
 
   defp imported_operations(_module, options) do
-    options
-    |> keyword_option(:only)
-    |> case do
+    case keyword_option(options, :only) do
       nil ->
-        [:all]
+        {:all, excluded_import_operations(options)}
 
       mode when mode in [:functions, :macros] ->
-        [:all]
+        {:all, excluded_import_operations(options)}
 
       operations ->
-        Enum.map(operations, fn {operation, arity} -> {operation, arity} end)
+        {:only, Enum.map(operations, fn {operation, arity} -> {operation, arity} end)}
     end
+  end
+
+  defp excluded_import_operations(options) do
+    options
+    |> keyword_option(:except)
+    |> case do
+      nil -> MapSet.new()
+      operations -> MapSet.new(operations, fn {operation, arity} -> {operation, arity} end)
+    end
+  end
+
+  defp apply_imported_operations(imports, module, {:all, excluded}) do
+    Map.put(imports, {:all, module}, {module, excluded})
+  end
+
+  defp apply_imported_operations(imports, module, {:only, operations}) do
+    Enum.reduce(operations, imports, &Map.put(&2, &1, module))
   end
 
   defp imported_receiver(env, operation, arity) do
     Map.get(env.imports, {operation, arity}) ||
       Enum.find_value(env.imports, fn
-        {{:all, module}, imported_module} when imported_module == module ->
-          if imported_operation?(module, operation), do: module
+        {{:all, module}, {imported_module, excluded}} when imported_module == module ->
+          if imported_operation?(module, operation) and
+               not MapSet.member?(excluded, {operation, arity}),
+             do: module
 
         _entry ->
           nil
       end)
   end
 
-  defp imported?(env, operation) do
+  defp imported?(env, operation, arity) do
     Enum.any?(env.imports, fn
-      {{^operation, _arity}, _module} ->
+      {{^operation, ^arity}, _module} ->
         true
 
-      {{:all, module}, imported_module} when imported_module == module ->
-        imported_operation?(module, operation)
+      {{:all, module}, {imported_module, excluded}} when imported_module == module ->
+        imported_operation?(module, operation) and
+          not MapSet.member?(excluded, {operation, arity})
 
       _entry ->
         false
@@ -2824,13 +2866,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     executable = arguments |> List.first() |> command_literals() |> elem(0) |> List.first()
 
     cond do
-      Enum.any?(literals, &database_cli_reference?/1) ->
-        :database_cli
-
       reviewed_process_command?(receiver, operation, node) or
         canonical_terminal_dump_command?(receiver, operation, node, env) or
           canonical_verification_command?(receiver, operation, node, env) ->
         :safe
+
+      Enum.any?(literals, &database_cli_reference?/1) ->
+        :database_cli
 
       is_nil(executable) ->
         :dynamic
@@ -3017,6 +3059,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     docker_pg_dump_arguments?(arguments) or
       static_command_arguments(arguments) in [
         ["compose", "config", "--format", "json"],
+        ["compose", "ps", "-q", "postgres"],
         ["ps", "--format", "{{.id}} {{.ports}}"]
       ]
   end
@@ -3085,12 +3128,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp private_persistence_module?(module), do: module in @private_persistence_modules
 
-  defp local_definitions(body), do: collect_local_definitions(body, MapSet.new())
+  defp local_definitions(body), do: collect_local_definitions(body, MapSet.new(), 0)
 
-  defp collect_local_definitions({:defmodule, _metadata, _arguments}, definitions),
+  defp collect_local_definitions({:quote, _metadata, arguments}, definitions, quote_depth)
+       when is_list(arguments),
+       do: collect_local_definitions(arguments, definitions, quote_depth + 1)
+
+  defp collect_local_definitions(
+         {operation, _metadata, arguments},
+         definitions,
+         quote_depth
+       )
+       when operation in [:unquote, :unquote_splicing] and quote_depth > 0 and
+              is_list(arguments),
+       do: collect_local_definitions(arguments, definitions, quote_depth - 1)
+
+  defp collect_local_definitions({:defmodule, _metadata, _arguments}, definitions, 0),
     do: definitions
 
-  defp collect_local_definitions({kind, _metadata, arguments} = node, definitions)
+  defp collect_local_definitions({kind, _metadata, arguments} = node, definitions, 0)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(arguments) do
     definitions =
       arguments
@@ -3099,19 +3155,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     node
     |> Tuple.to_list()
-    |> collect_local_definitions(definitions)
+    |> collect_local_definitions(definitions, 0)
   end
 
-  defp collect_local_definitions(nodes, definitions) when is_list(nodes),
-    do: Enum.reduce(nodes, definitions, &collect_local_definitions/2)
+  defp collect_local_definitions(nodes, definitions, quote_depth) when is_list(nodes),
+    do: Enum.reduce(nodes, definitions, &collect_local_definitions(&1, &2, quote_depth))
 
-  defp collect_local_definitions(node, definitions) when is_tuple(node) do
+  defp collect_local_definitions(node, definitions, quote_depth) when is_tuple(node) do
     node
     |> Tuple.to_list()
-    |> collect_local_definitions(definitions)
+    |> collect_local_definitions(definitions, quote_depth)
   end
 
-  defp collect_local_definitions(_node, definitions), do: definitions
+  defp collect_local_definitions(_node, definitions, _quote_depth), do: definitions
 
   defp function_signatures([{:when, _metadata, [head | _guards]} | _rest]),
     do: function_signatures([head])

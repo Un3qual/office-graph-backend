@@ -62,6 +62,18 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the scanner MUST emit a fingerprinted occurrence requiring exact
   approval
 
+#### Scenario: Database import excludes a local operation
+- **WHEN** tracked source imports a database module with an arity-specific
+  `except` list and defines or calls the excluded operation locally
+- **THEN** the scanner MUST preserve the exclusion instead of classifying the
+  local call as an imported database primitive
+
+#### Scenario: Quoted definitions are inert
+- **WHEN** tracked source contains a module or local function definition only
+  inside quoted syntax
+- **THEN** the scanner MUST NOT use that inert definition to trust an opaque
+  provider or suppress a live migration primitive
+
 #### Scenario: Dynamic database operation survives compilation
 - **WHEN** BEAM abstract code contains `apply`, module-function-argument
   process/task dispatch, or a dynamic receiver with a statically visible
@@ -349,7 +361,8 @@ those paths are outside Credo's configured Elixir source list.
 #### Scenario: A compiled boundary module is already loaded
 - **WHEN** Credo starts after an older project-boundary BEAM has been loaded
 - **THEN** the standalone static-analysis workflow MUST first force-compile the
-  current checked-out boundary sources with warnings as errors
+  production environment and then the current checked-out test boundary
+  sources with warnings as errors
 - **AND** Credo configuration MUST avoid redefining the resulting modules so
   compiled-audit BEAM provenance remains available
 - **AND** canonical verification MUST build production BEAMs before static
@@ -416,6 +429,15 @@ required application setup remain synchronized and usable on PostgreSQL 18.
   constraints, indexes, sequences, enum types, views, materialized views,
   functions/procedures, triggers, RLS policies, grants, and extensions as
   applicable
+
+#### Scenario: Database dump falls back to a container
+- **WHEN** the local PostgreSQL dump command fails and the configured database
+  host is loopback
+- **THEN** verification MAY use only the current Compose project's `postgres`
+  service container
+- **AND** a non-loopback configured host MUST surface the original dump failure
+  without querying Docker
+- **AND** verification MUST NOT select an unrelated local container by port
 
 #### Scenario: Baseline verification succeeds
 

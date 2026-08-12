@@ -189,6 +189,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "honors import exclusions when classifying local database-shaped calls" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/example.ex",
+          source: """
+          defmodule Example do
+            import Ecto.Query, except: [fragment: 1]
+
+            def fragment(value), do: {:text, value}
+            def local_fragment, do: fragment("safe")
+            def database_fragment, do: unsafe_fragment("dynamic")
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "unsafe_fragment"
+    assert occurrence.function == "database_fragment/0"
+  end
+
   test "audits local query fragments when use macros provide the import" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources(
@@ -1016,6 +1037,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     refute Map.has_key?(occurrence, :approval)
   end
 
+  test "does not let quoted local definitions hide live migration fragments" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "priv/repo/migrations/20260812000000_quoted_fragment.exs",
+          source: """
+          defmodule QuotedFragmentMigration do
+            use Ecto.Migration
+
+            quote do
+              def fragment(value), do: value
+            end
+
+            def up, do: fragment("now()")
+          end
+          """
+        }
+      ])
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "fragment"
+    assert occurrence.function == "up/0"
+  end
+
   test "allows the declarative migration timestamps helper" do
     assert DatabaseBoundaryScanner.scan_sources([
              %{
@@ -1613,16 +1658,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "tracks SQL-like files as unapproved raw SQL" do
+  test "tracks SQL-like files as exact-approvable raw SQL" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{path: "priv/repo/manual_patch.sql", source: "SELECT pg_notify('events', 'changed');"},
         %{path: "priv/repo/manual_patch.SQL", source: "SELECT pg_notify('events', 'changed');"}
       ])
 
-    assert Enum.map(occurrences, &{&1.path, &1.class, &1.construct, &1.approval, &1.line}) == [
-             {"priv/repo/manual_patch.sql", :raw_sql, "tracked_sql_file", :unresolved_sql, 1},
-             {"priv/repo/manual_patch.SQL", :raw_sql, "tracked_sql_file", :unresolved_sql, 1}
+    assert Enum.map(
+             occurrences,
+             &{&1.path, &1.class, &1.construct, Map.get(&1, :approval), &1.line}
+           ) == [
+             {"priv/repo/manual_patch.sql", :raw_sql, "tracked_sql_file", nil, 1},
+             {"priv/repo/manual_patch.SQL", :raw_sql, "tracked_sql_file", nil, 1}
            ]
   end
 
@@ -2474,12 +2522,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
               "fragment",
               "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8"},
-             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 618,
+             {"test/office_graph/project_quality/database_boundary_gate_test.exs", 627,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:e1f7cd55f322b02454f7c17e7e623568e53a0ae234e4ad8482803b9a75289ce0"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2543,
+              "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2591,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:3beadf196d458e883035e0ff147f1281c366b215d7963cd39bfb18da7e2688d2"},
+              "sha256:1d5453d5d500b7c89680835622e49bec8ee6c731599fb21bb0d0592b80d0fb18"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2871,7 +2919,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
-  test "tracks compound SQL-like source suffixes as unapproved raw SQL" do
+  test "does not trust provider modules defined only inside quoted data" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/quoted_provider.ex",
+          source: """
+          quote do
+            defmodule Dependency.PersistenceDSL do
+              defmacro __using__(_options), do: quote(do: :ok)
+            end
+          end
+
+          defmodule OfficeGraph.QuotedProviderConsumer do
+            use Dependency.PersistenceDSL
+          end
+          """
+        }
+      ])
+
+    assert occurrence.construct == "dependency_macro.use"
+    assert occurrence.approval == :unresolved_sql
+  end
+
+  test "tracks compound SQL-like source suffixes as exact-approvable raw SQL" do
     occurrences =
       DatabaseBoundaryScanner.scan_sources([
         %{path: "priv/repo/patch.sql.eex", source: "SELECT 1"},
@@ -2879,9 +2950,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
         %{path: "scripts/not_sql.sqlx.eex", source: "SELECT 3"}
       ])
 
-    assert Enum.map(occurrences, &{&1.path, &1.construct, &1.approval}) == [
-             {"priv/repo/patch.sql.eex", "tracked_sql_file", :unresolved_sql},
-             {"scripts/report.PSQL.template", "tracked_sql_file", :unresolved_sql}
+    assert Enum.map(occurrences, &{&1.path, &1.construct, Map.get(&1, :approval)}) == [
+             {"priv/repo/patch.sql.eex", "tracked_sql_file", nil},
+             {"scripts/report.PSQL.template", "tracked_sql_file", nil}
            ]
   end
 

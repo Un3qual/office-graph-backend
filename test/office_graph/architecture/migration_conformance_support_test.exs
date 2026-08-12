@@ -12,6 +12,16 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
                                "missing framework table schema_migrations"
                              ])
 
+  test "Docker pg_dump fallback is limited to loopback database hosts" do
+    for host <- ["localhost", "127.0.0.1", "::1"] do
+      assert MigrationConformanceSupport.docker_fallback_allowed?(host)
+    end
+
+    for host <- ["db.internal", "postgres", "192.0.2.10", nil] do
+      refute MigrationConformanceSupport.docker_fallback_allowed?(host)
+    end
+  end
+
   test "parenthesized SQL keeps parentheses inside dollar-quoted strings" do
     assert PostgresDump.take_parenthesized(~S|($$text ) and ($$) trailing|) ==
              {~S|$$text ) and ($$|, " trailing"}

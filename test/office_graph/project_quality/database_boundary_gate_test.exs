@@ -21,6 +21,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert diagnostic.fingerprint == "sha256:current"
   end
 
+  test "accepts an exactly approved tracked SQL file" do
+    [current] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{path: "priv/repo/manual_patch.sql", source: "SELECT 1;"}
+      ])
+
+    assert DatabaseBoundaryGate.compare([current], [approved_entry(current)]) == []
+  end
+
   test "accepts nullable function metadata for module-level occurrences" do
     current = [occurrence("sha256:current") |> Map.put(:function, nil)]
     approved = [approved_entry("sha256:current") |> Map.put("function", nil)]
