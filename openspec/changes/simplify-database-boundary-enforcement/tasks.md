@@ -4,7 +4,7 @@
 - [x] 1.2 Preserve the two exact UUIDv7 fingerprints and approval provenance
 - [x] 1.3 Reject low-level delegates, captures, reflection, dynamic SQL, and executable-script database tokens without interpretation
 - [x] 1.4 Add a module-level test and production BEAM import audit with only explicit repository infrastructure owners
-- [ ] 1.5 Run focused tests, strict OpenSpec validation, and canonical verification
+- [x] 1.5 Run focused tests, strict OpenSpec validation, and canonical verification
 - [ ] 1.6 Publish `codex/database-boundary-foundation` against `main`
 
 ## 2. Migration Conformance PR
