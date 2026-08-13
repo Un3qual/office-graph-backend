@@ -60,6 +60,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       defmodule Example do
         def run(changeset, multi, connection) do
           OfficeGraph.Repo.insert(changeset)
+          OfficeGraph.Repo.explain(:all, query)
           Ecto.Multi.update(multi, :record, changeset)
           Postgrex.query(connection, "SELECT 1", [])
           DBConnection.prepare(connection, "query", [])
@@ -77,6 +78,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert MapSet.new(occurrences, &{&1.class, &1.construct}) ==
              MapSet.new([
                {:direct_ecto, "Repo.insert"},
+               {:direct_ecto, "Repo.explain"},
                {:direct_ecto, "Ecto.Multi.update"},
                {:raw_sql, "Postgrex.query"},
                {:raw_sql, "DBConnection.prepare"},
@@ -276,6 +278,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.all?(occurrences, &(&1.function == "up/0"))
   end
 
+  test "rejects bare zero-arity migration helper calls" do
+    [occurrence] =
+      scan("priv/repo/migrations/20260801000000_bare_helper.exs", """
+      defmodule BareHelperMigration do
+        use Ecto.Migration
+
+        def up, do: create_objects
+        defp create_objects, do: create(table(:examples))
+      end
+      """)
+
+    assert occurrence.construct == "migration.helper_call"
+    assert occurrence.function == "up/0"
+    assert occurrence.line == 4
+  end
+
   test "classifies migration constraint SQL and index expression fields" do
     occurrences =
       scan("priv/repo/migrations/20260801000000_sql_fields.exs", """
@@ -304,6 +322,61 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert Enum.at(raw_sql_occurrences, 1).approval == :unresolved_sql
     refute Map.has_key?(Enum.at(raw_sql_occurrences, 2), :approval)
     assert Enum.at(raw_sql_occurrences, 3).approval == :unresolved_sql
+  end
+
+  test "classifies generated-column SQL in migration options" do
+    occurrences =
+      scan("priv/repo/migrations/20260801000000_generated_columns.exs", """
+      defmodule GeneratedColumnsMigration do
+        use Ecto.Migration
+
+        def change do
+          alter table(:examples) do
+            add :slug, :text, generated: "lower(name)"
+            modify :search_text, :text, generated: generated_expression()
+          end
+        end
+      end
+      """)
+
+    raw_sql_occurrences = Enum.filter(occurrences, &(&1.class == :raw_sql))
+
+    assert Enum.map(raw_sql_occurrences, & &1.construct) == [
+             "migration.add_options",
+             "migration.modify_options"
+           ]
+
+    refute Map.has_key?(Enum.at(raw_sql_occurrences, 0), :approval)
+    assert Enum.at(raw_sql_occurrences, 1).approval == :unresolved_sql
+    assert Enum.any?(occurrences, &(&1.construct == "migration.helper_call"))
+  end
+
+  test "classifies SQL-bearing AshPostgres custom indexes in their DSL context" do
+    occurrences =
+      scan("lib/example_resource.ex", """
+      defmodule ExampleResource do
+        use Ash.Resource, data_layer: AshPostgres.DataLayer
+
+        postgres do
+          custom_indexes do
+            index [:organization_id], name: "typed_index"
+            index [:email], where: "deleted_at IS NULL"
+            index ["lower(email)"], name: "email_expression_index"
+            index dynamic_fields(), where: dynamic_predicate()
+          end
+        end
+      end
+      """)
+
+    assert MapSet.new(occurrences, fn occurrence ->
+             {occurrence.line, occurrence.construct, Map.get(occurrence, :approval)}
+           end) ==
+             MapSet.new([
+               {7, "ash_postgres.custom_index", nil},
+               {8, "ash_postgres.custom_index_expression", nil},
+               {9, "ash_postgres.custom_index", :unresolved_sql},
+               {9, "ash_postgres.custom_index_expression", :unresolved_sql}
+             ])
   end
 
   test "rejects fully qualified nondeclarative Ecto migration calls" do
@@ -447,6 +520,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert scan("assets/src/database-copy.ts", "const label = 'psql documentation';") == []
   end
 
+  test "rejects multiline JavaScript clients while leaving block comments inert" do
+    [occurrence] =
+      scan("assets/scripts/database-task.mjs", """
+      /*
+      execFile("psql", []);
+      */
+      const openCommentMarker = "/*";
+      execFile(
+        "psql",
+        [process.env.DATABASE_URL]
+      );
+      const closeCommentMarker = "*/";
+      """)
+
+    assert occurrence.line == 5
+    assert occurrence.construct == "script.database_client.psql"
+  end
+
   test "preserves only the exact approved UUIDv7 migration contexts" do
     assert repository_uuidv7_occurrences() == @uuidv7_approvals
 
@@ -488,6 +579,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.arity == 2
     assert occurrence.function == "load/0"
     assert occurrence.line == 2
+  end
+
+  test "compiled audit reports direct Repo explain calls" do
+    {root, source_path, beam_path} =
+      compile_fixture("compiled_repo_explain_boundary", """
+      defmodule OfficeGraph.CompiledRepoExplainBoundary do
+        def explain(query), do: OfficeGraph.Repo.explain(:all, query)
+      end
+      """)
+
+    [occurrence] =
+      DatabaseDependencyAudit.scan(root,
+        paths: [beam_path],
+        tracked_paths: MapSet.new([source_path])
+      )
+
+    assert occurrence.class == :direct_ecto
+    assert occurrence.construct == "Repo.explain"
+    assert occurrence.arity == 2
   end
 
   test "compiled audit discovers tracked generated modules outside the OfficeGraph prefix" do

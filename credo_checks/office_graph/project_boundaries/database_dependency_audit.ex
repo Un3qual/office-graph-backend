@@ -44,6 +44,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
                             :delete!,
                             :delete_all,
                             :disconnect_all,
+                            :explain,
                             :exists?,
                             :get,
                             :get!,

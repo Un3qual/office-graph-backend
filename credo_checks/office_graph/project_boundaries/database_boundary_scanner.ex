@@ -19,6 +19,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :delete!,
     :delete_all,
     :disconnect_all,
+    :explain,
     :exists?,
     :get,
     :get!,
@@ -235,7 +236,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @sql_file_pattern ~r/\.(?:pgsql|psql|sql)(?:\.(?:eex|heex|leex))?\z/i
   @database_client_pattern ~r/(?:\A|&&|\|\||[;|]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|[;&|)`]|\z)/
   @javascript_script_extensions [".cjs", ".js", ".mjs", ".ts"]
-  @javascript_database_client_pattern ~r/(?:\A|[=({,;]\s*)(?:await\s+)?(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?(?:exec|execFile|execFileSync|execSync|spawn|spawnSync)\s*\(\s*["'`](?:[^"'`\s]*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|["'`])/
+  @javascript_database_client_pattern ~r/(?:\A|[\n=({,;]\s*)(?:await\s+)?(?<call>(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?(?:exec|execFile|execFileSync|execSync|spawn|spawnSync))\s*\(\s*["'`](?:[^"'`\s]*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|["'`])/
+  @javascript_block_comment_or_string_pattern ~r{("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(/\*.*?\*/)}s
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
@@ -308,16 +310,44 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_script_source(path, source) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.flat_map(fn {line, line_number} ->
-      for client <- database_clients(path, line) do
-        occurrence(path, line_number, nil, :raw_sql, "script.database_client.#{client}", line,
-          approval: :unresolved_sql
-        )
-      end
-    end)
+    if javascript_script_source?(path) do
+      scan_javascript_source(path, source)
+    else
+      source
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {line, line_number} ->
+        for client <- shell_database_clients(line) do
+          occurrence(
+            path,
+            line_number,
+            nil,
+            :raw_sql,
+            "script.database_client.#{client}",
+            line,
+            approval: :unresolved_sql
+          )
+        end
+      end)
+    end
+  end
+
+  defp scan_javascript_source(path, source) do
+    source = mask_javascript_comments(source)
+
+    for [{call_start, _call_length}, {client_start, client_length}] <-
+          Regex.scan(@javascript_database_client_pattern, source,
+            capture: ["call", "client"],
+            return: :index
+          ) do
+      client = binary_part(source, client_start, client_length)
+      invocation = binary_part(source, call_start, client_start + client_length - call_start)
+      line = source |> binary_part(0, call_start) |> newline_count() |> Kernel.+(1)
+
+      occurrence(path, line, nil, :raw_sql, "script.database_client.#{client}", invocation,
+        approval: :unresolved_sql
+      )
+    end
   end
 
   defp scan_elixir_source(path, source) do
@@ -325,9 +355,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       {:ok, ast} ->
         env = %{
           aliases: %{},
+          ash_postgres_context: nil,
           ash_postgres?: false,
           function: nil,
           imports: %{},
+          local_functions: MapSet.new(),
           migration?: migration_path?(path),
           module: nil,
           path: path,
@@ -350,8 +382,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     module_env = %{
       env
       | aliases: %{},
+        ash_postgres_context: nil,
         ash_postgres?: false,
         imports: %{},
+        local_functions: declared_functions(body),
         module: declared_module(module, env)
     }
 
@@ -399,7 +433,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_node(arguments, env, occurrences)
   end
 
-  defp scan_node({:quote, _metadata, arguments}, env, occurrences) do
+  defp scan_node(
+         {:custom_indexes, _metadata, [[do: body]]},
+         %{ash_postgres?: true} = env,
+         occurrences
+       ) do
+    child_env = %{env | ash_postgres_context: :custom_indexes}
+    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
+    {env, occurrences}
+  end
+
+  defp scan_node({:quote, _metadata, arguments}, env, occurrences) when is_list(arguments) do
     evaluated_arguments =
       Enum.flat_map(arguments, fn
         options when is_list(options) ->
@@ -489,6 +533,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       )
 
     scan_children(node, env, occurrences)
+  end
+
+  defp scan_node({operation, metadata, nil} = node, env, occurrences)
+       when is_atom(operation) do
+    occurrences =
+      if migration_helper_escape?(operation, [], env) and
+           MapSet.member?(env.local_functions, {operation, 0}) do
+        [
+          occurrence(env, line(metadata), :direct_ecto, "migration.helper_call", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
+        occurrences
+      end
+
+    {env, occurrences}
   end
 
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
@@ -790,7 +852,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_sql_bearing_call(_receiver, operation, arguments, node, env)
-       when operation in [:constraint, :index, :table, :unique_index] and env.migration? do
+       when operation in [
+              :add,
+              :add_if_not_exists,
+              :constraint,
+              :index,
+              :modify,
+              :table,
+              :unique_index
+            ] and env.migration? do
     [
       classify_sql_options(
         "migration.#{operation}_options",
@@ -821,13 +891,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_sql_bearing_call(
          _receiver,
-         :custom_index,
+         :index,
          arguments,
          node,
-         %{ash_postgres?: true} = env
+         %{ash_postgres?: true, ash_postgres_context: :custom_indexes} = env
        ) do
-    classify_sql_options("ash_postgres.custom_index", arguments, [:where], node, env) ||
-      classify_sql_setting("ash_postgres.custom_index_fields", [List.first(arguments)], node, env)
+    [
+      classify_sql_options("ash_postgres.custom_index", arguments, [:where], node, env),
+      classify_ash_postgres_index_fields(arguments, node, env)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      occurrences -> occurrences
+    end
   end
 
   defp classify_sql_bearing_call(
@@ -870,7 +947,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_index_fields(operation, arguments, node, env)
        when operation in [:index, :unique_index] do
-    case Enum.at(arguments, 1) do
+    classify_index_fields(
+      Enum.at(arguments, 1),
+      "migration.index_expression",
+      node,
+      env
+    )
+  end
+
+  defp classify_migration_index_fields(_operation, _arguments, _node, _env), do: nil
+
+  defp classify_ash_postgres_index_fields(arguments, node, env) do
+    classify_index_fields(
+      List.first(arguments),
+      "ash_postgres.custom_index_expression",
+      node,
+      env
+    )
+  end
+
+  defp classify_index_fields(fields, construct, node, env) do
+    case fields do
       fields when is_list(fields) ->
         raw_fields = Enum.reject(fields, &safe_migration_index_field?/1)
 
@@ -882,22 +979,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
               do: nil,
               else: :unresolved_sql
 
-          occurrence(env, line_from_node(node), :raw_sql, "migration.index_expression", node,
-            approval: approval
-          )
+          occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
         end
 
       field when is_atom(field) ->
         nil
 
       _dynamic_fields ->
-        occurrence(env, line_from_node(node), :raw_sql, "migration.index_expression", node,
+        occurrence(env, line_from_node(node), :raw_sql, construct, node,
           approval: :unresolved_sql
         )
     end
   end
 
-  defp classify_migration_index_fields(_operation, _arguments, _node, _env), do: nil
+  defp migration_sql_option_keys(operation)
+       when operation in [:add, :add_if_not_exists, :modify],
+       do: [:generated]
 
   defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
   defp migration_sql_option_keys(:table), do: [:modifiers, :options]
@@ -1179,6 +1276,28 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _other -> nil
     end
   end
+
+  defp declared_functions({:__block__, _metadata, expressions}) when is_list(expressions) do
+    MapSet.new(expressions, &declared_function/1)
+    |> MapSet.delete(nil)
+  end
+
+  defp declared_functions(node) do
+    case declared_function(node) do
+      nil -> MapSet.new()
+      function -> MapSet.new([function])
+    end
+  end
+
+  defp declared_function({kind, _metadata, arguments})
+       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(arguments) do
+    case function_identity(arguments) do
+      {nil, _arity} -> nil
+      function -> function
+    end
+  end
+
+  defp declared_function(_node), do: nil
 
   defp call_arguments({{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments}),
     do: arguments
@@ -1463,22 +1582,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       "scripts" in Path.split(path)
   end
 
-  defp database_clients(path, line) do
-    pattern =
-      if javascript_script_source?(path),
-        do: @javascript_database_client_pattern,
-        else: @database_client_pattern
-
-    if javascript_comment_line?(path, line) do
-      []
-    else
-      for [client] <- Regex.scan(pattern, line, capture: :all_names), do: client
-    end
+  defp shell_database_clients(line) do
+    for [client] <- Regex.scan(@database_client_pattern, line, capture: :all_names), do: client
   end
 
-  defp javascript_comment_line?(path, line) do
-    javascript_script_source?(path) and
-      line |> String.trim_leading() |> String.starts_with?(["//", "/*", "*"])
+  defp mask_javascript_comments(source) do
+    source
+    |> then(
+      &Regex.replace(@javascript_block_comment_or_string_pattern, &1, fn
+        full, _string, "" -> full
+        _full, "", comment -> String.replace(comment, ~r/[^\n]/, " ")
+      end)
+    )
+    |> String.split("\n", trim: false)
+    |> Enum.map_join("\n", fn line ->
+      if line |> String.trim_leading() |> String.starts_with?("//") do
+        String.duplicate(" ", String.length(line))
+      else
+        line
+      end
+    end)
+  end
+
+  defp newline_count(value) do
+    value
+    |> :binary.matches("\n")
+    |> length()
   end
 
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
