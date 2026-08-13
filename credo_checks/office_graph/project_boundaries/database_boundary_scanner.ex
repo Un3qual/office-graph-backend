@@ -150,14 +150,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @multi_operations [
     :all,
+    :append,
     :delete,
     :delete_all,
+    :error,
     :exists?,
     :insert,
     :insert_all,
     :insert_or_update,
     :merge,
     :one,
+    :prepend,
+    :put,
     :run,
     :update,
     :update_all
@@ -178,6 +182,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :with,
     :||
   ]
+  @lexical_block_keys [:after, :catch, :do, :else, :rescue]
   @syntax_operations [
     :%,
     :%{},
@@ -234,11 +239,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                       "Postgrex.SimpleConnection"
                     ] ++ @private_database_modules
   @sql_file_pattern ~r/\.(?:pgsql|psql|sql)(?:\.(?:eex|heex|leex))?\z/i
-  @database_client_pattern ~r/(?:\A|&&|\|\||[;|({]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|[;&|)`]|\z)/
+  @database_clients ~w(
+    clusterdb
+    createdb
+    createuser
+    dropdb
+    dropuser
+    pg_basebackup
+    pg_receivewal
+    pg_recvlogical
+    pgbench
+    pg_dump
+    pg_restore
+    psql
+    reindexdb
+    vacuumdb
+  )
+  @database_client_alternation Enum.join(@database_clients, "|")
+  @database_client_pattern ~r/(?:\A|&&|\|\||[;|({]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*["']?(?:[^"'\s]*\/)?(?<client>#{@database_client_alternation})["']?(?=\s|[;&|)`]|\z)/
   @javascript_script_extensions [".cjs", ".js", ".mjs", ".ts"]
-  @javascript_database_client_pattern ~r/(?:\A|[\n=({,;]\s*)(?:await\s+)?(?<call>(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?(?:exec|execFile|execFileSync|execSync|spawn|spawnSync))\s*\(\s*["'`](?:[^"'`\s]*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|["'`])/
+  @javascript_database_client_pattern ~r/(?:\A|[\n=({,;]\s*)(?:await\s+)?(?<call>(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?(?:exec|execFile|execFileSync|execSync|spawn|spawnSync))\s*\(\s*["'`](?:[^"'`\s]*\/)?(?<client>#{@database_client_alternation})(?=\s|["'`])/
   @javascript_comment_or_string_pattern ~r{(/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)}s
-  @javascript_database_client_literal_pattern ~r/\A["'`](?:[^"'`\s]*\/)?(?:clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)["'`]\z/
+  @javascript_database_client_literal_pattern ~r/\A["'`](?:[^"'`\s]*\/)?(?:#{@database_client_alternation})["'`]\z/
+  @shell_database_client_literal_pattern ~r/\A["'](?:[^"'\s]*\/)?(?:#{@database_client_alternation})["']\z/
   @shell_comment_or_string_pattern ~r{("(?:\\.|[^"\\])*"|'[^']*'|(?<![^\s;|&()\{\}])#[^\n]*)}
 
   @preserved_fingerprints %{
@@ -404,11 +427,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     body = function_body(arguments)
 
     child_env = %{env | function: function}
-    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
 
     if body == nil do
       scan_children(node, env, occurrences)
     else
+      {_default_env, occurrences} =
+        arguments
+        |> function_default_values()
+        |> scan_node(child_env, occurrences)
+
+      {_child_env, occurrences} = scan_node(body, child_env, occurrences)
       {env, occurrences}
     end
   end
@@ -507,7 +535,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
-    scan_children(node, env, occurrences)
+    {_child_env, occurrences} = scan_children(node, env, occurrences)
+    {env, occurrences}
   end
 
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
@@ -524,7 +553,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         occurrences
       end
 
-    scan_children(node, env, occurrences)
+    {_child_env, occurrences} = scan_children(node, env, occurrences)
+    {env, occurrences}
+  end
+
+  defp scan_node({operation, _metadata, _arguments} = node, env, occurrences)
+       when operation in [:fn, :->] do
+    {_child_env, occurrences} = scan_children(node, env, occurrences)
+    {env, occurrences}
+  end
+
+  defp scan_node({key, body}, env, occurrences) when key in @lexical_block_keys do
+    {_child_env, occurrences} = scan_node(body, env, occurrences)
+    {env, occurrences}
   end
 
   defp scan_node(
@@ -1222,6 +1263,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp module_name(_node, _env), do: nil
 
+  defp declared_module({:__aliases__, _metadata, [:"Elixir" | _parts]} = module, _env),
+    do: module_name(module, %{aliases: %{}})
+
   defp declared_module({:__aliases__, _metadata, parts} = module, %{module: parent})
        when is_list(parts) and parts != [] and is_binary(parent) do
     case module_name(module, %{aliases: %{}}) do
@@ -1300,6 +1344,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _other -> nil
     end
   end
+
+  defp function_default_values(arguments) do
+    arguments
+    |> List.first()
+    |> function_parameters()
+    |> Enum.flat_map(fn
+      {:\\, _metadata, [_parameter, default]} -> [default]
+      _parameter -> []
+    end)
+  end
+
+  defp function_parameters({:when, _metadata, [signature | _guards]}),
+    do: function_parameters(signature)
+
+  defp function_parameters({_name, _metadata, parameters}) when is_list(parameters),
+    do: parameters
+
+  defp function_parameters(_signature), do: []
 
   defp declared_functions({:__block__, _metadata, expressions}) when is_list(expressions) do
     MapSet.new(expressions, &declared_function/1)
@@ -1619,8 +1681,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end)
   end
 
-  defp mask_shell_comments_and_strings(source),
-    do: Regex.replace(@shell_comment_or_string_pattern, source, &mask_non_newlines/1)
+  defp mask_shell_comments_and_strings(source) do
+    Regex.replace(@shell_comment_or_string_pattern, source, fn token ->
+      if Regex.match?(@shell_database_client_literal_pattern, token) do
+        token
+      else
+        mask_non_newlines(token)
+      end
+    end)
+  end
 
   defp mask_non_newlines(value), do: String.replace(value, ~r/[^\n]/, " ")
 

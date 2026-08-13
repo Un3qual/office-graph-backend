@@ -115,14 +115,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
                             ])
   @multi_operations MapSet.new([
                       :all,
+                      :append,
                       :delete,
                       :delete_all,
+                      :error,
                       :exists?,
                       :insert,
                       :insert_all,
                       :insert_or_update,
                       :merge,
                       :one,
+                      :prepend,
+                      :put,
                       :run,
                       :update,
                       :update_all

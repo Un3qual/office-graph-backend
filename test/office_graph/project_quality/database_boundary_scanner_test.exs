@@ -54,6 +54,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
   end
 
+  test "scans database calls in function default arguments" do
+    [occurrence] =
+      scan("priv/repo/seeds.exs", """
+      defmodule SeedHelper do
+        def run(value \\\\ OfficeGraph.Repo.query!("SELECT 1", [])), do: value
+      end
+      """)
+
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "run/1"
+    assert occurrence.line == 2
+  end
+
   test "classifies direct Repo, Ecto, Postgrex, DBConnection, and migrator calls" do
     occurrences =
       scan("lib/example.ex", """
@@ -62,6 +75,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           OfficeGraph.Repo.insert(changeset)
           OfficeGraph.Repo.explain(:all, query)
           Ecto.Multi.update(multi, :record, changeset)
+          Ecto.Multi.append(multi, multi)
+          Ecto.Multi.prepend(multi, multi)
+          Ecto.Multi.put(multi, :value, changeset)
+          Ecto.Multi.error(multi, :failure, changeset)
           Postgrex.query(connection, "SELECT 1", [])
           DBConnection.prepare(connection, "query", [])
           Ecto.Migrator.run(OfficeGraph.Repo, "priv/repo/migrations", :up, all: true)
@@ -80,6 +97,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Repo.insert"},
                {:direct_ecto, "Repo.explain"},
                {:direct_ecto, "Ecto.Multi.update"},
+               {:direct_ecto, "Ecto.Multi.append"},
+               {:direct_ecto, "Ecto.Multi.prepend"},
+               {:direct_ecto, "Ecto.Multi.put"},
+               {:direct_ecto, "Ecto.Multi.error"},
                {:raw_sql, "Postgrex.query"},
                {:raw_sql, "DBConnection.prepare"},
                {:direct_ecto, "Ecto.Migrator.run"},
@@ -512,6 +533,57 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              ])
   end
 
+  test "keeps aliases and imports inside their lexical child scopes" do
+    occurrences =
+      scan("lib/example.ex", """
+      defmodule Example do
+        def aliases(condition) do
+          if condition do
+            alias OfficeGraph.Repo, as: Client
+            Client.query!("SELECT 1", [])
+          end
+
+          Client.query!("SELECT 2", [])
+        end
+
+        def imports(condition) do
+          if condition do
+            import OfficeGraph.Repo, only: [query!: 2]
+            query!("SELECT 3", [])
+          end
+
+          query!("SELECT 4", [])
+        end
+
+        def separate_branches(condition) do
+          if condition do
+            alias OfficeGraph.Repo, as: Client
+          else
+            Client.query!("SELECT 5", [])
+          end
+        end
+      end
+      """)
+
+    assert Enum.map(occurrences, &{&1.function, &1.line, &1.construct}) == [
+             {"aliases/1", 5, "Repo.query!"},
+             {"imports/1", 14, "Repo.query!"}
+           ]
+  end
+
+  test "preserves explicitly absolute nested module names" do
+    [occurrence] =
+      scan("lib/example.ex", """
+      defmodule Outer do
+        defmodule Elixir.Absolute do
+          def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+        end
+      end
+      """)
+
+    assert occurrence.caller == "Absolute"
+  end
+
   test "tracks compound and case-insensitive SQL-like files by exact content" do
     [first] = scan("priv/repo/manual.SQL.EEX", "SELECT 1;")
     [second] = scan("priv/repo/manual.SQL.EEX", "SELECT 2;")
@@ -573,6 +645,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "rejects quoted database client executables without scanning quoted arguments" do
+    occurrences =
+      scan("scripts/quoted-database-task.sh", """
+      "psql" "$DATABASE_URL"
+      '/usr/bin/pg_dump' "$DATABASE_URL"
+      printf '%s' "psql"
+      """)
+
+    assert Enum.map(occurrences, &{&1.line, &1.construct}) == [
+             {1, "script.database_client.psql"},
+             {2, "script.database_client.pg_dump"}
+           ]
+  end
+
+  test "rejects PostgreSQL backup and replication clients in shell scripts" do
+    occurrences =
+      scan("scripts/replication-task.sh", """
+      pg_basebackup --pgdata backup
+      pg_receivewal --directory wal
+      pg_recvlogical --slot events --start
+      """)
+
+    assert Enum.map(occurrences, & &1.construct) == [
+             "script.database_client.pg_basebackup",
+             "script.database_client.pg_receivewal",
+             "script.database_client.pg_recvlogical"
+           ]
+  end
+
   test "rejects literal database clients in tracked JavaScript scripts" do
     [occurrence] =
       scan("assets/scripts/database-task.mjs", """
@@ -585,6 +686,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
 
     assert scan("assets/src/database-copy.ts", "const label = 'psql documentation';") == []
+  end
+
+  test "rejects PostgreSQL backup and replication clients in JavaScript scripts" do
+    occurrences =
+      scan("assets/scripts/replication-task.mjs", """
+      execFile("pg_basebackup", []);
+      spawn("pg_receivewal", []);
+      execFileSync("pg_recvlogical", []);
+      """)
+
+    assert Enum.map(occurrences, & &1.construct) == [
+             "script.database_client.pg_basebackup",
+             "script.database_client.pg_receivewal",
+             "script.database_client.pg_recvlogical"
+           ]
   end
 
   test "scans JavaScript extensions regardless of their directory" do
@@ -697,6 +813,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       def to_sql(query), do: Ecto.Adapters.SQL.to_sql(:all, OfficeGraph.Repo, query)
       def start(options), do: Postgrex.start_link(options)
       def transact(connection, callback), do: DBConnection.transaction(connection, callback, [])
+      def append(left, right), do: Ecto.Multi.append(left, right)
+      def prepend(left, right), do: Ecto.Multi.prepend(left, right)
+      def put(multi, value), do: Ecto.Multi.put(multi, :value, value)
+      def error(multi, value), do: Ecto.Multi.error(multi, :failure, value)
     end
     """
 
@@ -712,7 +832,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              MapSet.new([
                {"Ecto.Adapters.SQL.to_sql", :direct_ecto},
                {"Postgrex.start_link", :direct_ecto},
-               {"DBConnection.transaction", :direct_ecto}
+               {"DBConnection.transaction", :direct_ecto},
+               {"Ecto.Multi.append", :direct_ecto},
+               {"Ecto.Multi.prepend", :direct_ecto},
+               {"Ecto.Multi.put", :direct_ecto},
+               {"Ecto.Multi.error", :direct_ecto}
              ])
 
     assert DatabaseBoundaryGate.compare_compiled(compiled, scan(source_path, source)) == []
