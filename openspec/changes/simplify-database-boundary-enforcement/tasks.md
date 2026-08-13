@@ -14,7 +14,7 @@
 - [x] 2.3 Compare every relevant project-owned object class with Ash/resource ownership metadata
 - [x] 2.4 Require exact terminal-object approval provenance and focused behavior evidence
 - [x] 2.5 Run focused migration tests and canonical verification
-- [ ] 2.6 Publish `codex/database-migration-conformance` on the foundation branch
+- [x] 2.6 Publish `codex/database-migration-conformance` on the foundation branch
 
 ## 3. Obsolete Analyzer Cleanup PR
 
