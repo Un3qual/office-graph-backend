@@ -2590,7 +2590,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
               "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
              {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2654,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:948acffaae00ae023869b68c0484af683155d672f5218de53fad039cb0e6f452"},
+              "sha256:03c46977a709e2eb37f6affd883f5079e70c432059b09a103ef3a3375b661f92"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2675,7 +2675,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
                        compiled_opaque_callback_dispatch:
-                         "656dca19bde76310bd916b749b355349a0adaa15d7b92c5b205173de9128b6b6",
+                         "01d4bc02cf0f3536da03df285f660c06e53b0e39d52afe3e3df984180e80bc71",
+                       compiled_repository_load:
+                         "02e280b68b1f15ae51dad12c5c3928d0f1a0cfe012dc8a89914503074f5e7692",
                        compiled_runtime_dependency_execution:
                          "9f0aa6a9eba4c17f493cd789bce3687bc2cee1888e415de8b058988ca2d64fa2",
                        compiled_stale_callback_provider:
@@ -2779,6 +2781,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
       def named_gen_server_start(name, arg),
         do: :gen_server.start_link({:local, name}, Dependency.PersistenceServer, arg, [])
+
+      def gen_statem_start(arg),
+        do: :gen_statem.start(Dependency.PersistenceStateMachine, arg, [])
+
+      def named_gen_statem_start_link(name, arg),
+        do: :gen_statem.start_link({:local, name}, Dependency.PersistenceStateMachine, arg, [])
     end
     """
 
@@ -2794,6 +2802,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"runtime_callback.Agent.get", "agent_get/1", :unresolved_sql},
              {"runtime_callback.gen_server.start_link", "gen_server_start/1", :unresolved_sql},
              {"runtime_callback.gen_server.start_link", "named_gen_server_start/2",
+              :unresolved_sql},
+             {"runtime_callback.gen_statem.start", "gen_statem_start/1", :unresolved_sql},
+             {"runtime_callback.gen_statem.start_link", "named_gen_statem_start_link/2",
               :unresolved_sql}
            ]
   end
@@ -4285,5 +4296,125 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {:raw_sql, "process.dynamic_command", "process/0", :unresolved_sql},
              {:direct_ecto, "reflection.Code.eval_file", "reflection/0", :unresolved_sql}
            ]
+  end
+
+  test "resolves __MODULE__ prefixes in repository receivers" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/module_prefixed_repo.ex",
+          source: """
+          defmodule OfficeGraph do
+            __MODULE__.Repo.query!("DELETE FROM reviews", [])
+
+            def load(resource, data), do: __MODULE__.Repo.load(resource, data)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.class, &1.construct, &1.function}) == [
+             {:raw_sql, "Repo.query!", nil},
+             {:direct_ecto, "Repo.load", "load/2"}
+           ]
+  end
+
+  test "rejects opaque OTP gen_statem startup providers but trusts tracked modules" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/tracked_otp_state_machine.ex",
+          source: """
+          defmodule OfficeGraph.TrackedOtpStateMachine do
+            def init(arg), do: {:ok, :ready, arg}
+          end
+          """
+        },
+        %{
+          path: "scripts/opaque_otp_state_machine.exs",
+          source: """
+          defmodule OpaqueOtpStateMachine do
+            def start(arg), do: :gen_statem.start(Dependency.PersistenceStateMachine, arg, [])
+
+            def start_link(arg),
+              do: :gen_statem.start_link(Dependency.PersistenceStateMachine, arg, [])
+
+            def named_start(name, arg),
+              do: :gen_statem.start({:local, name}, Dependency.PersistenceStateMachine, arg, [])
+
+            def named_start_link(name, arg),
+              do: :gen_statem.start_link({:local, name}, Dependency.PersistenceStateMachine, arg, [])
+
+            def dynamic(provider, arg), do: :gen_statem.start_link(provider, arg, [])
+
+            def tracked(arg),
+              do: :gen_statem.start_link(OfficeGraph.TrackedOtpStateMachine, arg, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"runtime_callback.gen_statem.start", "start/1", :unresolved_sql},
+             {"runtime_callback.gen_statem.start_link", "start_link/1", :unresolved_sql},
+             {"runtime_callback.gen_statem.start", "named_start/2", :unresolved_sql},
+             {"runtime_callback.gen_statem.start_link", "named_start_link/2", :unresolved_sql},
+             {"runtime_callback.gen_statem.start_link", "dynamic/2", :unresolved_sql}
+           ]
+  end
+
+  test "requires exact approval for AshPostgres create-table options" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/office_graph/partitioned_resource.ex",
+          source: """
+          defmodule OfficeGraph.PartitionedResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              create_table_options "PARTITION BY HASH (id)"
+            end
+          end
+
+          defmodule OfficeGraph.DynamicTableOptionsResource do
+            use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
+
+            postgres do
+              create_table_options configured_options()
+            end
+          end
+
+          defmodule OfficeGraph.UnrelatedTableOptionsCall do
+            def run(value), do: create_table_options(value)
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.line, Map.get(&1, :approval)}) == [
+             {"resource.create_table_options.value", 5, nil},
+             {"resource.create_table_options.value", 13, :unresolved_sql}
+           ]
+  end
+
+  test "compiled audit rejects direct repository loads" do
+    root = temporary_root("compiled_repository_load")
+    source_path = Path.join(root, "lib/compiled_repository_load.ex")
+    ebin = Path.join(root, "_build/#{Mix.env()}/lib/office_graph/ebin")
+    module = OfficeGraph.CompiledRepositoryLoadFixture
+
+    compile_source!(source_path, ebin, """
+    defmodule #{inspect(module)} do
+      def load(resource, data), do: OfficeGraph.Repo.load(resource, data)
+      def generic_load(module, arguments), do: apply(module, :load, arguments)
+    end
+    """)
+
+    beam_path = Path.join(ebin, "#{module}.beam")
+    [occurrence] = DatabaseBoundaryScanner.scan_compiled(root, paths: [beam_path])
+
+    assert {occurrence.class, occurrence.construct, occurrence.function} ==
+             {:direct_ecto, "Repo.load", "load/2"}
   end
 end

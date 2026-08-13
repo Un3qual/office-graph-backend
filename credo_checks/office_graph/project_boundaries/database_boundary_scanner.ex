@@ -32,6 +32,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :insert_all,
     :insert_or_update,
     :insert_or_update!,
+    :load,
     :one,
     :one!,
     :preload,
@@ -50,6 +51,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update!,
     :update_all
   ]
+  @generic_repo_direct_operations @repo_direct_operations -- [:load]
   @generated_canonical_repo_static_calls MapSet.new([
                                            {"aggregate/3", "Ecto.Repo.Queryable", :aggregate, 4},
                                            {"aggregate/3", "Ecto.Repo.Queryable", :aggregate, 5},
@@ -444,6 +446,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Task.Supervisor" => @mfa_task_supervisor_operations,
     "erpc" => @mfa_erpc_operations,
     "gen_server" => @mfa_gen_server_operations,
+    "gen_statem" => @mfa_gen_server_operations,
     "proc_lib" => @mfa_proc_lib_operations,
     "rpc" => @mfa_rpc_operations,
     "supervisor" => @mfa_supervisor_operations,
@@ -452,7 +455,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @opaque_callback_provider_operations %{
     "Agent" => @mfa_agent_operations,
     "GenServer" => @mfa_gen_server_operations,
-    "gen_server" => @mfa_gen_server_operations
+    "gen_server" => @mfa_gen_server_operations,
+    "gen_statem" => @mfa_gen_server_operations
   }
   @dynamic_dispatch_modules Map.keys(@dynamic_dispatch_operations)
   @mfa_dispatch_operations Enum.uniq(
@@ -627,6 +631,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @allowed_derive_modules ["Jason.Encoder"]
   @resource_keyword_sql_settings [:calculations_to_sql, :identity_wheres_to_sql]
+  @resource_scalar_sql_settings [:base_filter_sql, :create_table_options]
+  @resource_sql_settings @resource_keyword_sql_settings ++ @resource_scalar_sql_settings
   @canonical_verification_fingerprints %{
     "bin/verify" => "sha256:4895bc9e15a8389b6fadf4b2913247b5a076d4de9c36943295cda211fe143b2f",
     "bin/verify-migration-baseline" =>
@@ -2143,6 +2149,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
+  defp mfa_dispatch_targets("gen_statem", operation, arguments)
+       when operation in @mfa_gen_server_operations do
+    case arguments do
+      [target, _init_arg, _options] -> [{target, :init}]
+      [_name, target, _init_arg, _options] -> [{target, :init}]
+      _other -> []
+    end
+  end
+
   defp mfa_dispatch_targets("Agent", operation, arguments)
        when operation in @mfa_agent_state_operations do
     case arguments do
@@ -2779,8 +2794,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp variable_receiver_database_operation?({name, _metadata, context}, operation, arity)
        when is_atom(name) and is_atom(context) do
     (arity > 0 and
-       (operation in @repo_raw_sql_operations or operation in @repo_direct_operations)) or
-      (database_shaped_variable_name?(name) and database_operation_arity?(operation, arity))
+       (operation in @repo_raw_sql_operations or operation in @generic_repo_direct_operations)) or
+      (database_shaped_variable_name?(name) and
+         (database_operation_arity?(operation, arity) or
+            (arity > 0 and operation in @repo_direct_operations)))
   end
 
   defp variable_receiver_database_operation?(_receiver, _operation, _arity), do: false
@@ -2820,7 +2837,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp database_operation?(operation),
     do:
-      raw_sql_operation?(operation) or operation in @repo_direct_operations or
+      raw_sql_operation?(operation) or operation in @generic_repo_direct_operations or
         operation in @ecto_sql_direct_operations or operation in @db_connection_direct_operations or
         operation in @postgrex_direct_operations or operation in @multi_operations or
         operation in @ecto_migrator_operations
@@ -3035,6 +3052,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp receiver_name(receiver, env), do: module_name(receiver, env)
+
+  defp module_name(
+         {:__aliases__, _metadata, [{:__MODULE__, _module_metadata, _context} | parts]},
+         %{module: module}
+       )
+       when is_binary(module) do
+    if Enum.all?(parts, &is_atom/1) do
+      [module | Enum.map(parts, &to_string/1)] |> Enum.join(".") |> canonical_module_name()
+    end
+  end
 
   defp module_name({:__aliases__, _metadata, parts}, env) do
     if Enum.all?(parts, &is_atom/1) do
@@ -3711,11 +3738,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp resource_postgres_sql_setting_occurrences(
-         :base_filter_sql,
+         operation,
          [value],
          node,
          %{ash_postgres?: true} = env
-       ) do
+       )
+       when operation in @resource_scalar_sql_settings do
     approval = if static_sql_payload?(value), do: nil, else: :unresolved_sql
 
     [
@@ -3723,8 +3751,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         env,
         line_from_node(node),
         :raw_sql,
-        "resource.base_filter_sql.value",
-        {:base_filter_sql, value},
+        "resource.#{operation}.value",
+        {operation, value},
         approval: approval
       )
     ]
@@ -3736,7 +3764,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
          node,
          %{ash_postgres?: true} = env
        )
-       when operation in [:base_filter_sql | @resource_keyword_sql_settings],
+       when operation in @resource_sql_settings,
        do: [unresolved_resource_postgres_sql_setting(operation, arguments, node, env)]
 
   defp resource_postgres_sql_setting_occurrences(_operation, _arguments, _node, _env), do: []
@@ -4430,10 +4458,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp compiled_unresolved_receiver_operation?(receiver, operation, arguments) do
     arity = length(arguments)
 
-    database_operation_arity?(operation, arity) and
-      (raw_sql_operation?(operation) or compiled_variable_receiver?(receiver) or
-         operation in @expression_receiver_direct_operations or
-         operation in @zero_arity_variable_operations)
+    (database_operation_arity?(operation, arity) and
+       (raw_sql_operation?(operation) or compiled_variable_receiver?(receiver) or
+          operation in @expression_receiver_direct_operations or
+          operation in @zero_arity_variable_operations)) or
+      (arity > 0 and operation in @repo_direct_operations and
+         compiled_database_shaped_variable?(receiver))
   end
 
   defp compiled_apply_occurrences(

@@ -62,9 +62,10 @@ construction, SQL bodies, macro output, or control flow.
   known repository, SQL adapter, Ecto.Migrator, Postgrex, Ecto.Multi, migration
   SQL, query fragment, SQL-bearing query lock or hint, migration expression
   field, SQL-bearing AshPostgres custom-index predicate or expression field,
-  SQL-bearing AshPostgres resource-level calculation, identity predicate, or
-  base filter,
-  verbatim AshPostgres migration-default override, direct repository
+  SQL-bearing AshPostgres resource-level calculation, identity predicate, base
+  filter, or create-table options,
+  verbatim AshPostgres migration-default override, direct repository operation
+  including `load/2`,
   transaction/connection primitive, or mutable database CLI subprocess
 - **THEN** the scanner MUST emit a fingerprinted occurrence requiring exact
   approval
@@ -115,6 +116,13 @@ construction, SQL bodies, macro output, or control flow.
 - **THEN** the source scanner MUST resolve the group prefix through lexical
   aliases but append the suffix's literal alias parts, matching Elixir's module
   resolution without alias-flow interpretation
+
+#### Scenario: Module-relative repository receiver remains visible
+
+- **WHEN** a tracked source uses `__MODULE__` as the first part of a qualified
+  repository receiver, including during module-body execution
+- **THEN** the source scanner MUST resolve that lexical prefix from the current
+  module and classify the repository operation before compilation can erase it
 
 #### Scenario: Qualified query lock selects its SQL payload
 
@@ -190,8 +198,9 @@ construction, SQL bodies, macro output, or control flow.
   module passed to `Supervisor.start_link/3`, `DynamicSupervisor.start_link/3`,
   or `:supervisor.start_link/2,3`, an opaque or dynamic callback provider passed
   to any Agent MFA executor, `GenServer.start/2,3`,
-  `GenServer.start_link/2,3`, `:gen_server.start/3,4`, or
-  `:gen_server.start_link/3,4`, or a
+  `GenServer.start_link/2,3`, `:gen_server.start/3,4`,
+  `:gen_server.start_link/3,4`, `:gen_statem.start/3,4`, or
+  `:gen_statem.start_link/3,4`, or a
   compile/verification callback attribute or Erlang
   `:core_transform`/`:parse_transform` compiler option in any tracked module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level

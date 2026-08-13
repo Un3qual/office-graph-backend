@@ -274,3 +274,10 @@
 - [x] 38.2 Drive source and BEAM opaque-provider handling from one dispatcher inventory and resolve grouped suffixes from literal alias parts without callback or alias-flow evaluation.
 - [x] 38.3 Verify that pinned AshPostgres omits unsupported non-empty list defaults unless `migration_defaults` or a custom protocol implementation is configured, and retain the matching terminal expectation.
 - [x] 38.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.
+
+## 39. State Machine, Module Prefix, And Table Option Follow-Up
+
+- [x] 39.1 Add failing source and compiled regressions for OTP `:gen_statem` startup, `__MODULE__`-prefixed repository receivers, direct `Repo.load/2`, and AshPostgres `create_table_options`.
+- [x] 39.2 Extend the existing callback, repository-operation, lexical alias, and resource SQL-setting inventories without callback evaluation, dataflow, or SQL interpretation.
+- [x] 39.3 Refresh the exact generated-source allowlist and compiler-fixture approval fingerprints.
+- [x] 39.4 Run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads. Canonical verification reaches the inherited `ash`/`postgrex` advisory gate after the code-quality checks pass.
