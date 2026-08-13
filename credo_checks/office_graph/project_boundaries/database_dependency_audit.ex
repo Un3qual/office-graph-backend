@@ -12,27 +12,130 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
     "lib/office_graph/application.ex" => MapSet.new([{"Ecto.DevLogger", :install, 1}])
   }
   @fully_owned_sources MapSet.new(["lib/office_graph/repo.ex"])
-  @raw_sql_modules MapSet.new([
-                     "DBConnection",
-                     "Ecto.Adapters.Postgres.Connection",
-                     "Ecto.Adapters.SQL",
-                     "Postgrex",
-                     "Postgrex.Notifications",
-                     "Postgrex.ReplicationConnection",
-                     "Postgrex.SimpleConnection"
-                   ])
-  @direct_modules MapSet.new([
-                    "DBConnection.Holder",
-                    "Ecto.Adapters.Postgres",
-                    "Ecto.Migration.Runner",
-                    "Ecto.Migrator",
-                    "Ecto.Multi",
-                    "Ecto.Repo.Queryable",
-                    "Ecto.Repo.Registry",
-                    "Ecto.Repo.Schema",
-                    "Ecto.Repo.Supervisor",
-                    "Ecto.Repo.Transaction"
-                  ])
+  @ecto_sql_raw_sql_operations MapSet.new([
+                                 :execute,
+                                 :execute_ddl,
+                                 :into,
+                                 :query,
+                                 :query!,
+                                 :query_many,
+                                 :query_many!,
+                                 :reduce,
+                                 :stream
+                               ])
+  @ecto_sql_direct_operations MapSet.new([
+                                :checked_out?,
+                                :checkout,
+                                :disconnect_all,
+                                :explain,
+                                :in_transaction?,
+                                :insert_all,
+                                :rollback,
+                                :table_exists?,
+                                :to_sql,
+                                :transaction
+                              ])
+  @postgrex_raw_sql_operations MapSet.new([
+                                 :execute,
+                                 :execute!,
+                                 :prepare,
+                                 :prepare!,
+                                 :prepare_execute,
+                                 :prepare_execute!,
+                                 :query,
+                                 :query!,
+                                 :stream
+                               ])
+  @postgrex_direct_operations MapSet.new([
+                                :call,
+                                :child_spec,
+                                :close,
+                                :close!,
+                                :listen,
+                                :listen!,
+                                :parameters,
+                                :rollback,
+                                :start_link,
+                                :transaction,
+                                :unlisten,
+                                :unlisten!
+                              ])
+  @postgrex_modules MapSet.new([
+                      "Postgrex",
+                      "Postgrex.Notifications",
+                      "Postgrex.ReplicationConnection",
+                      "Postgrex.SimpleConnection"
+                    ])
+  @db_connection_raw_sql_operations MapSet.new([
+                                      :execute,
+                                      :execute!,
+                                      :prepare,
+                                      :prepare!,
+                                      :prepare_execute,
+                                      :prepare_execute!,
+                                      :prepare_stream,
+                                      :reduce,
+                                      :stream
+                                    ])
+  @db_connection_direct_operations MapSet.new([
+                                     :child_spec,
+                                     :close,
+                                     :close!,
+                                     :disconnect_all,
+                                     :get_connection_metrics,
+                                     :rollback,
+                                     :run,
+                                     :start_link,
+                                     :status,
+                                     :transaction
+                                   ])
+  @postgres_connection_raw_sql_operations MapSet.new([
+                                            :execute,
+                                            :execute_ddl,
+                                            :prepare_execute,
+                                            :query
+                                          ])
+  @postgres_adapter_operations MapSet.new([
+                                 :execute,
+                                 :lock_for_migrations,
+                                 :storage_down,
+                                 :storage_status,
+                                 :storage_up,
+                                 :structure_dump,
+                                 :structure_load
+                               ])
+  @ecto_migrator_operations MapSet.new([
+                              :down,
+                              :migrated_versions,
+                              :migrations,
+                              :run,
+                              :start_link,
+                              :up,
+                              :with_repo
+                            ])
+  @multi_operations MapSet.new([
+                      :all,
+                      :delete,
+                      :delete_all,
+                      :exists?,
+                      :insert,
+                      :insert_all,
+                      :insert_or_update,
+                      :merge,
+                      :one,
+                      :run,
+                      :update,
+                      :update_all
+                    ])
+  @private_direct_modules MapSet.new([
+                            "DBConnection.Holder",
+                            "Ecto.Migration.Runner",
+                            "Ecto.Repo.Queryable",
+                            "Ecto.Repo.Registry",
+                            "Ecto.Repo.Schema",
+                            "Ecto.Repo.Supervisor",
+                            "Ecto.Repo.Transaction"
+                          ])
   @repo_raw_sql_operations MapSet.new([:query, :query!, :query_many, :query_many!])
   @repo_direct_operations MapSet.new([
                             :aggregate,
@@ -289,21 +392,63 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
   defp import_occurrence({module, function, arity}, caller, source, opts) do
     module = canonical_module(module)
 
+    case operation_class(module, function) do
+      nil -> []
+      class -> [occurrence(source, caller, module, function, arity, class, opts)]
+    end
+  end
+
+  defp operation_class(module, function) do
     cond do
       module == "OfficeGraph.Repo" and MapSet.member?(@repo_raw_sql_operations, function) ->
-        [occurrence(source, caller, module, function, arity, :raw_sql, opts)]
+        :raw_sql
 
       module == "OfficeGraph.Repo" and MapSet.member?(@repo_direct_operations, function) ->
-        [occurrence(source, caller, module, function, arity, :direct_ecto, opts)]
+        :direct_ecto
 
-      MapSet.member?(@raw_sql_modules, module) ->
-        [occurrence(source, caller, module, function, arity, :raw_sql, opts)]
+      module == "Ecto.Adapters.SQL" and
+          MapSet.member?(@ecto_sql_raw_sql_operations, function) ->
+        :raw_sql
 
-      MapSet.member?(@direct_modules, module) ->
-        [occurrence(source, caller, module, function, arity, :direct_ecto, opts)]
+      module == "Ecto.Adapters.SQL" and
+          MapSet.member?(@ecto_sql_direct_operations, function) ->
+        :direct_ecto
+
+      module == "Ecto.Adapters.Postgres.Connection" and
+          MapSet.member?(@postgres_connection_raw_sql_operations, function) ->
+        :raw_sql
+
+      MapSet.member?(@postgrex_modules, module) and
+          MapSet.member?(@postgrex_raw_sql_operations, function) ->
+        :raw_sql
+
+      MapSet.member?(@postgrex_modules, module) and
+          MapSet.member?(@postgrex_direct_operations, function) ->
+        :direct_ecto
+
+      module == "DBConnection" and
+          MapSet.member?(@db_connection_raw_sql_operations, function) ->
+        :raw_sql
+
+      module == "DBConnection" and
+          MapSet.member?(@db_connection_direct_operations, function) ->
+        :direct_ecto
+
+      module == "Ecto.Adapters.Postgres" and
+          MapSet.member?(@postgres_adapter_operations, function) ->
+        :direct_ecto
+
+      module == "Ecto.Migrator" and MapSet.member?(@ecto_migrator_operations, function) ->
+        :direct_ecto
+
+      module == "Ecto.Multi" and MapSet.member?(@multi_operations, function) ->
+        :direct_ecto
+
+      MapSet.member?(@private_direct_modules, module) ->
+        :direct_ecto
 
       true ->
-        []
+        nil
     end
   end
 

@@ -166,7 +166,8 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
 
   defp find_keyword(input, keyword, :plain, identifier_continuation?) do
     cond do
-      String.starts_with?(input, keyword) ->
+      String.starts_with?(input, keyword) and
+          keyword_starts_at_boundary?(keyword, identifier_continuation?) ->
         binary_part(input, byte_size(keyword), byte_size(input) - byte_size(keyword))
 
       String.starts_with?(input, "'") ->
@@ -224,6 +225,11 @@ defmodule OfficeGraph.TestSupport.PostgresDump do
       find_keyword(rest, keyword, state, false)
     end
   end
+
+  defp keyword_starts_at_boundary?(_keyword, false), do: true
+
+  defp keyword_starts_at_boundary?(<<first::utf8, _rest::binary>>, true),
+    do: not identifier_continuation?(first)
 
   defp normalize_whitespace(<<>>, _state, _pending_space?, output), do: output
 

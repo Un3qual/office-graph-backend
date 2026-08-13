@@ -74,6 +74,18 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
              {"object$tag$, next", " trailing"}
   end
 
+  test "SQL keywords do not split identifiers" do
+    assert PostgresDump.split_once_outside_quotes(
+             "fooCONSTRAINT bar",
+             "CONSTRAINT "
+           ) == nil
+
+    assert PostgresDump.split_once_outside_quotes(
+             "foo CONSTRAINT bar",
+             "CONSTRAINT "
+           ) == {"foo ", "bar"}
+  end
+
   test "parses terminal schema dump object classes" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

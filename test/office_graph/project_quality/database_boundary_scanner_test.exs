@@ -461,6 +461,57 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.line == 4
   end
 
+  test "leaves unquote nodes inert when quote disables unquoting" do
+    assert scan("lib/example.ex", """
+           defmodule Example do
+             def quoted do
+               quote unquote: false do
+                 unquote(OfficeGraph.Repo.query!("SELECT 1", []))
+               end
+             end
+           end
+           """) == []
+  end
+
+  test "classifies statically targeted remote apply calls" do
+    occurrences =
+      scan("lib/example.ex", """
+      defmodule Example do
+        def kernel(arguments), do: Kernel.apply(OfficeGraph.Repo, :query!, arguments)
+        def erlang(arguments), do: :erlang.apply(OfficeGraph.Repo, :query!, arguments)
+      end
+      """)
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"Repo.query!", "kernel/1", :unresolved_sql},
+             {"Repo.query!", "erlang/1", :unresolved_sql}
+           ]
+  end
+
+  test "preserves lexical database aliases and imports in nested modules" do
+    occurrences =
+      scan("lib/example.ex", """
+      defmodule OfficeGraph.Example do
+        alias OfficeGraph.Repo
+        import OfficeGraph.Repo, only: [query!: 2]
+
+        defmodule Aliased do
+          def load, do: Repo.query!("SELECT 1", [])
+        end
+
+        defmodule Imported do
+          def load, do: query!("SELECT 1", [])
+        end
+      end
+      """)
+
+    assert MapSet.new(occurrences, &{&1.caller, &1.construct}) ==
+             MapSet.new([
+               {"OfficeGraph.Example.Aliased", "Repo.query!"},
+               {"OfficeGraph.Example.Imported", "Repo.query!"}
+             ])
+  end
+
   test "tracks compound and case-insensitive SQL-like files by exact content" do
     [first] = scan("priv/repo/manual.SQL.EEX", "SELECT 1;")
     [second] = scan("priv/repo/manual.SQL.EEX", "SELECT 2;")
@@ -506,6 +557,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.construct == "script.database_client.psql"
   end
 
+  test "rejects database clients inside shell command groups without scanning quoted text" do
+    occurrences =
+      scan("scripts/grouped-database-task.sh", """
+      ( psql "$DATABASE_URL" )
+      { pg_dump "$DATABASE_URL"; }
+      printf '%s' '( psql is documentation )'
+      trimmed=${DATABASE_URL#postgres://}; psql "$DATABASE_URL"
+      """)
+
+    assert Enum.map(occurrences, &{&1.line, &1.construct}) == [
+             {1, "script.database_client.psql"},
+             {2, "script.database_client.pg_dump"},
+             {4, "script.database_client.psql"}
+           ]
+  end
+
   test "rejects literal database clients in tracked JavaScript scripts" do
     [occurrence] =
       scan("assets/scripts/database-task.mjs", """
@@ -518,6 +585,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.approval == :unresolved_sql
 
     assert scan("assets/src/database-copy.ts", "const label = 'psql documentation';") == []
+  end
+
+  test "scans JavaScript extensions regardless of their directory" do
+    for path <- ["bin/reset-database.js", "assets/src/reset-database.ts"] do
+      [occurrence] = scan(path, ~S|execFile("psql", []);|)
+
+      assert occurrence.construct == "script.database_client.psql"
+    end
   end
 
   test "rejects multiline JavaScript clients while leaving block comments inert" do
@@ -536,6 +611,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert occurrence.line == 5
     assert occurrence.construct == "script.database_client.psql"
+  end
+
+  test "leaves invocation-shaped JavaScript template text inert" do
+    occurrences =
+      scan("assets/scripts/database-task.mjs", """
+      const documentation = `
+      execFile("psql", []);
+      `;
+      execFile("psql", []);
+      execFile(`pg_dump`, []);
+      """)
+
+    assert Enum.map(occurrences, &{&1.line, &1.construct}) == [
+             {4, "script.database_client.psql"},
+             {5, "script.database_client.pg_dump"}
+           ]
   end
 
   test "preserves only the exact approved UUIDv7 migration contexts" do
@@ -598,6 +689,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :direct_ecto
     assert occurrence.construct == "Repo.explain"
     assert occurrence.arity == 2
+  end
+
+  test "compiled audit uses the same operation classes as the source scanner" do
+    source = """
+    defmodule OfficeGraph.CompiledDirectDatabaseBoundary do
+      def to_sql(query), do: Ecto.Adapters.SQL.to_sql(:all, OfficeGraph.Repo, query)
+      def start(options), do: Postgrex.start_link(options)
+      def transact(connection, callback), do: DBConnection.transaction(connection, callback, [])
+    end
+    """
+
+    {root, source_path, beam_path} = compile_fixture("compiled_direct_database_boundary", source)
+
+    compiled =
+      DatabaseDependencyAudit.scan(root,
+        paths: [beam_path],
+        tracked_paths: MapSet.new([source_path])
+      )
+
+    assert MapSet.new(compiled, &{&1.construct, &1.class}) ==
+             MapSet.new([
+               {"Ecto.Adapters.SQL.to_sql", :direct_ecto},
+               {"Postgrex.start_link", :direct_ecto},
+               {"DBConnection.transaction", :direct_ecto}
+             ])
+
+    assert DatabaseBoundaryGate.compare_compiled(compiled, scan(source_path, source)) == []
   end
 
   test "compiled audit discovers tracked generated modules outside the OfficeGraph prefix" do

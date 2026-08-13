@@ -234,10 +234,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
                       "Postgrex.SimpleConnection"
                     ] ++ @private_database_modules
   @sql_file_pattern ~r/\.(?:pgsql|psql|sql)(?:\.(?:eex|heex|leex))?\z/i
-  @database_client_pattern ~r/(?:\A|&&|\|\||[;|]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|[;&|)`]|\z)/
+  @database_client_pattern ~r/(?:\A|&&|\|\||[;|({]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|[;&|)`]|\z)/
   @javascript_script_extensions [".cjs", ".js", ".mjs", ".ts"]
   @javascript_database_client_pattern ~r/(?:\A|[\n=({,;]\s*)(?:await\s+)?(?<call>(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?(?:exec|execFile|execFileSync|execSync|spawn|spawnSync))\s*\(\s*["'`](?:[^"'`\s]*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|["'`])/
-  @javascript_block_comment_or_string_pattern ~r{("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(/\*.*?\*/)}s
+  @javascript_comment_or_string_pattern ~r{(/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)}s
+  @javascript_database_client_literal_pattern ~r/\A["'`](?:[^"'`\s]*\/)?(?:clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)["'`]\z/
+  @shell_comment_or_string_pattern ~r{("(?:\\.|[^"\\])*"|'[^']*'|(?<![^\s;|&()\{\}])#[^\n]*)}
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
@@ -313,18 +315,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if javascript_script_source?(path) do
       scan_javascript_source(path, source)
     else
+      original_lines = String.split(source, "\n")
+
       source
+      |> mask_shell_comments_and_strings()
       |> String.split("\n")
+      |> Enum.zip(original_lines)
       |> Enum.with_index(1)
-      |> Enum.flat_map(fn {line, line_number} ->
-        for client <- shell_database_clients(line) do
+      |> Enum.flat_map(fn {{masked_line, original_line}, line_number} ->
+        for client <- shell_database_clients(masked_line) do
           occurrence(
             path,
             line_number,
             nil,
             :raw_sql,
             "script.database_client.#{client}",
-            line,
+            original_line,
             approval: :unresolved_sql
           )
         end
@@ -333,14 +339,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_javascript_source(path, source) do
-    source = mask_javascript_comments(source)
+    masked_source = mask_javascript_comments_and_strings(source)
 
     for [{call_start, _call_length}, {client_start, client_length}] <-
-          Regex.scan(@javascript_database_client_pattern, source,
+          Regex.scan(@javascript_database_client_pattern, masked_source,
             capture: ["call", "client"],
             return: :index
           ) do
-      client = binary_part(source, client_start, client_length)
+      client = binary_part(masked_source, client_start, client_length)
       invocation = binary_part(source, call_start, client_start + client_length - call_start)
       line = source |> binary_part(0, call_start) |> newline_count() |> Kernel.+(1)
 
@@ -381,10 +387,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:defmodule, _metadata, [module, [do: body]]}, env, occurrences) do
     module_env = %{
       env
-      | aliases: %{},
-        ash_postgres_context: nil,
+      | ash_postgres_context: nil,
         ash_postgres?: false,
-        imports: %{},
         local_functions: declared_functions(body),
         module: declared_module(module, env)
     }
@@ -466,7 +470,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           nil
       end)
 
-    scan_node(evaluated_arguments ++ quoted_evaluations(quoted_body), env, occurrences)
+    quoted_evaluations =
+      if quote_unquotes?(arguments), do: quoted_evaluations(quoted_body), else: []
+
+    scan_node(evaluated_arguments ++ quoted_evaluations, env, occurrences)
   end
 
   defp scan_node({{:., _metadata, [callee]}, call_metadata, arguments} = node, env, occurrences)
@@ -615,12 +622,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp quoted_evaluations(_node), do: []
 
+  defp quote_unquotes?(arguments) do
+    not Enum.any?(arguments, fn
+      options when is_list(options) ->
+        Keyword.keyword?(options) and Keyword.get(options, :unquote) == false
+
+      _argument ->
+        false
+    end)
+  end
+
   defp classify_remote_call(receiver, operation, arguments, node, env) do
     receiver = receiver_name(receiver, env)
 
-    classify_operation(receiver, operation, length(arguments), node, env) ||
-      classify_sql_bearing_call(receiver, operation, arguments, node, env) ||
-      classify_migration_remote_helper(receiver, operation, node, env)
+    case {receiver, operation, arguments} do
+      {runtime, :apply, [target, target_operation | _rest]}
+      when runtime in ["Kernel", "erlang"] ->
+        classify_apply(target, target_operation, node, env)
+
+      _other ->
+        classify_operation(receiver, operation, length(arguments), node, env) ||
+          classify_sql_bearing_call(receiver, operation, arguments, node, env) ||
+          classify_migration_remote_helper(receiver, operation, node, env)
+    end
   end
 
   defp classify_local_call(:apply, [receiver, operation | _rest], node, env) do
@@ -1578,31 +1602,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp javascript_script_source?(path) do
-    String.downcase(Path.extname(path)) in @javascript_script_extensions and
-      "scripts" in Path.split(path)
+    String.downcase(Path.extname(path)) in @javascript_script_extensions
   end
 
   defp shell_database_clients(line) do
     for [client] <- Regex.scan(@database_client_pattern, line, capture: :all_names), do: client
   end
 
-  defp mask_javascript_comments(source) do
-    source
-    |> then(
-      &Regex.replace(@javascript_block_comment_or_string_pattern, &1, fn
-        full, _string, "" -> full
-        _full, "", comment -> String.replace(comment, ~r/[^\n]/, " ")
-      end)
-    )
-    |> String.split("\n", trim: false)
-    |> Enum.map_join("\n", fn line ->
-      if line |> String.trim_leading() |> String.starts_with?("//") do
-        String.duplicate(" ", String.length(line))
+  defp mask_javascript_comments_and_strings(source) do
+    Regex.replace(@javascript_comment_or_string_pattern, source, fn token ->
+      if Regex.match?(@javascript_database_client_literal_pattern, token) do
+        token
       else
-        line
+        mask_non_newlines(token)
       end
     end)
   end
+
+  defp mask_shell_comments_and_strings(source),
+    do: Regex.replace(@shell_comment_or_string_pattern, source, &mask_non_newlines/1)
+
+  defp mask_non_newlines(value), do: String.replace(value, ~r/[^\n]/, " ")
 
   defp newline_count(value) do
     value
