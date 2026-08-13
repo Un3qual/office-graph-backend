@@ -19,11 +19,9 @@ defmodule Mix.Tasks.OfficeGraph.DatabaseBoundary do
       Code.require_file(Path.join(root, path))
     end
 
-    case apply(
-           OfficeGraph.ProjectQuality.DatabaseStructuralGate,
-           :check_repository,
-           [root]
-         ) do
+    structural_gate = Module.concat(["OfficeGraph", "ProjectQuality", "DatabaseStructuralGate"])
+
+    case structural_gate.check_repository(root) do
       [] ->
         :ok
 
