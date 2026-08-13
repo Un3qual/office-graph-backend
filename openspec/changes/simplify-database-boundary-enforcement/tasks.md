@@ -27,6 +27,6 @@
 
 ## 5. Replacement Publication
 
-- [ ] 5.1 Commit and push the clean replacement branch
-- [ ] 5.2 Open a replacement PR against main explaining the threat model and retained guarantees
-- [ ] 5.3 Close superseded PR 36 with a link to the replacement
+- [x] 5.1 Commit and push the clean replacement branch
+- [x] 5.2 Open a replacement PR against main explaining the threat model and retained guarantees
+- [x] 5.3 Close superseded PR 36 with a link to the replacement
