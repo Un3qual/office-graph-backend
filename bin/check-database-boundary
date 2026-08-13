@@ -5,10 +5,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 mix run --no-start \
-  -r credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex \
-  -r credo_checks/office_graph/project_boundaries/database_boundary_gate.ex \
   -r credo_checks/office_graph/project_boundaries/database_primitive_policy.ex \
   -r credo_checks/office_graph/project_boundaries/database_primitive_scanner.ex \
+  -r credo_checks/office_graph/project_boundaries/database_boundary_gate.ex \
   -r credo_checks/office_graph/project_boundaries/database_dependency_audit.ex \
   -r credo_checks/office_graph/project_boundaries/database_structural_gate.ex \
   -e '

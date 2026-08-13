@@ -16,6 +16,16 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
     pg_recvlogical pgbench pg_dump pg_restore psql reindexdb vacuumdb
   )
   @client_pattern Regex.compile!("\\b(" <> Enum.join(@database_clients, "|") <> ")\\b")
+  @database_client_owners MapSet.new([
+                            {"test/support/office_graph/migration_conformance_support.ex",
+                             "dump_terminal_inventory!/0", "pg_dump"}
+                          ])
+  @postgres_sql_options [
+    :base_filter_sql,
+    :calculations_to_sql,
+    :identity_wheres_to_sql,
+    :migration_defaults
+  ]
 
   @migration_control_flow [:case, :cond, :for, :if, :receive, :try, :unless, :with]
   @allowed_migration_locals [
@@ -180,6 +190,7 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
           migration?: String.starts_with?(path, "priv/repo/migrations/"),
           migration_entrypoint?: false,
           path: path,
+          postgres?: false,
           preserve_uuidv7?: approved_migration?(path, source)
         }
 
@@ -201,6 +212,28 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
   end
 
   defp scan_node({:quote, _metadata, _arguments}, _env), do: []
+
+  defp scan_node({:postgres, _metadata, arguments}, env) when is_list(arguments) do
+    scan_node(block_body(arguments), %{env | postgres?: true})
+  end
+
+  defp scan_node({:custom_statements, metadata, _arguments} = node, %{postgres?: true} = env) do
+    occurrence =
+      base_occurrence(
+        env.path,
+        line(metadata),
+        env.function,
+        :raw_sql,
+        "AshPostgres.custom_statements",
+        node
+      )
+
+    if static_custom_statements?(node) do
+      [occurrence]
+    else
+      [Map.put(occurrence, :approval, :unresolved_sql)]
+    end
+  end
 
   defp scan_node({kind, _metadata, arguments}, env) when kind in [:def, :defp] do
     {name, arity} = function_identity(arguments)
@@ -231,13 +264,23 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
     end
   end
 
+  defp scan_node({directive, metadata, [receiver | _arguments]} = node, env)
+       when directive in [:alias, :import, :require] do
+    module = receiver |> module_name() |> Policy.canonical_module()
+
+    if not compiler_artifact_expected?(env.path) and Policy.low_level_module?(module) do
+      [unsupported(env, line(metadata), "source.uncompiled_low_level_directive", node)]
+    else
+      scan_children(node, env)
+    end
+  end
+
   defp scan_node(
-         {:&, metadata,
-          [{:/, _slash_metadata, [{{:., _, [receiver, _operation]}, _, _}, _arity]}]} =
+         {:&, metadata, [{:/, _slash_metadata, [{{:., _, [receiver, operation]}, _, _}, _arity]}]} =
            node,
          env
        ) do
-    if receiver |> module_name() |> low_level_module?() do
+    if low_level_receiver?(receiver, operation) do
       [unsupported(env, line(metadata), "source.unsupported_capture", node)]
     else
       []
@@ -245,7 +288,7 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
   end
 
   defp scan_node({:apply, metadata, [receiver, _operation, _arguments]} = node, env) do
-    if receiver |> module_name() |> low_level_module?() do
+    if low_level_receiver?(receiver) do
       [unsupported(env, line(metadata), "source.unsupported_reflection", node)]
     else
       scan_children(node, env)
@@ -257,7 +300,7 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
          env
        ) do
     if module_name(apply_module) in ["Kernel", "erlang"] and
-         receiver |> module_name() |> low_level_module?() do
+         low_level_receiver?(receiver) do
       [unsupported(env, line(metadata), "source.unsupported_reflection", node)]
     else
       scan_children(node, env)
@@ -282,22 +325,59 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
       scan_children(node, env)
   end
 
+  defp scan_node(
+         {:|>, _pipe_metadata, [left, {{:., _, [receiver, operation]}, metadata, arguments}]} =
+           node,
+         env
+       )
+       when is_atom(operation) and is_list(arguments) do
+    occurrences =
+      receiver
+      |> remote_occurrence(operation, [left | arguments], node, metadata, env)
+      |> List.wrap()
+
+    occurrences ++ scan_node(left, env) ++ scan_node(arguments, env)
+  end
+
+  defp scan_node(
+         {{:., _, [{:__aliases__, _, [:System]}, :cmd]}, metadata, [client | arguments]} = node,
+         env
+       )
+       when is_binary(client) and client in @database_clients do
+    occurrences =
+      if MapSet.member?(@database_client_owners, {env.path, env.function, client}) do
+        []
+      else
+        [
+          env.path
+          |> base_occurrence(
+            line(metadata),
+            env.function,
+            :database_client,
+            "System.cmd.#{client}",
+            node
+          )
+          |> Map.put(:approval, :unsupported_script_token)
+        ]
+      end
+
+    occurrences ++ scan_node(arguments, env)
+  end
+
   defp scan_node({{:., _, [receiver, operation]}, metadata, arguments} = node, env)
        when is_atom(operation) and is_list(arguments) do
-    module = module_name(receiver)
-
-    occurrence =
-      case module && Policy.classify(module, operation) do
-        nil -> migration_remote_occurrence(module, operation, node, metadata, env)
-        class -> classified_occurrence(module, operation, arguments, node, metadata, env, class)
-      end
+    occurrence = remote_occurrence(receiver, operation, arguments, node, metadata, env)
 
     List.wrap(occurrence) ++ scan_node(arguments, env)
   end
 
   defp scan_node({operation, metadata, arguments} = node, env)
        when is_atom(operation) and is_list(arguments) do
-    occurrence = migration_local_occurrence(operation, arguments, node, metadata, env)
+    occurrence =
+      postgres_local_occurrence(operation, arguments, node, metadata, env) ||
+        local_fragment_occurrence(operation, arguments, node, metadata, env) ||
+        migration_local_occurrence(operation, arguments, node, metadata, env)
+
     List.wrap(occurrence) ++ scan_node(arguments, env)
   end
 
@@ -322,6 +402,88 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
       preserve_fingerprint?: env.preserve_uuidv7?
     )
     |> maybe_mark_dynamic_sql(class, module, arguments)
+  end
+
+  defp remote_occurrence(receiver, operation, arguments, node, metadata, env) do
+    module = receiver |> module_name() |> Policy.canonical_module()
+
+    case module && Policy.classify(module, operation) do
+      nil ->
+        if not field_access?(metadata, arguments) and
+             database_receiver_call?(receiver, operation) do
+          unsupported(env, line(metadata), "source.database_receiver_call", node)
+        else
+          migration_remote_occurrence(module, operation, node, metadata, env)
+        end
+
+      class ->
+        classified_occurrence(module, operation, arguments, node, metadata, env, class)
+    end
+  end
+
+  defp local_fragment_occurrence(:fragment, arguments, node, metadata, env)
+       when not env.migration_entrypoint? do
+    classified_occurrence("Ecto.Query.API", :fragment, arguments, node, metadata, env, :raw_sql)
+    |> Map.put(:construct, "fragment")
+  end
+
+  defp local_fragment_occurrence(_operation, _arguments, _node, _metadata, _env), do: nil
+
+  defp postgres_local_occurrence(:index, arguments, node, metadata, %{postgres?: true} = env) do
+    postgres_keyword_occurrence(
+      arguments,
+      :where,
+      node,
+      metadata,
+      env,
+      "AshPostgres.custom_index.where"
+    )
+  end
+
+  defp postgres_local_occurrence(
+         :check_constraint,
+         arguments,
+         node,
+         metadata,
+         %{postgres?: true} = env
+       ) do
+    postgres_keyword_occurrence(
+      arguments,
+      :check,
+      node,
+      metadata,
+      env,
+      "AshPostgres.check_constraint.check"
+    )
+  end
+
+  defp postgres_local_occurrence(operation, arguments, node, metadata, %{postgres?: true} = env)
+       when operation in @postgres_sql_options do
+    postgres_sql_occurrence(
+      node,
+      metadata,
+      env,
+      "AshPostgres.#{operation}",
+      List.first(arguments)
+    )
+  end
+
+  defp postgres_local_occurrence(_operation, _arguments, _node, _metadata, _env), do: nil
+
+  defp postgres_keyword_occurrence(arguments, key, node, metadata, env, construct) do
+    case arguments |> List.last() |> keyword_value(key) do
+      nil -> nil
+      payload -> postgres_sql_occurrence(node, metadata, env, construct, payload)
+    end
+  end
+
+  defp postgres_sql_occurrence(node, metadata, env, construct, payload) do
+    occurrence =
+      base_occurrence(env.path, line(metadata), env.function, :raw_sql, construct, node)
+
+    if static_sql_container?(payload),
+      do: occurrence,
+      else: Map.put(occurrence, :approval, :unresolved_sql)
   end
 
   defp migration_local_occurrence(:fragment, arguments, node, metadata, env)
@@ -415,8 +577,67 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
 
   defp static_sql?(_value), do: false
 
+  defp static_sql_container?(value) when is_list(value) do
+    Enum.all?(value, fn
+      {_key, sql} -> static_sql?(sql)
+      sql -> static_sql?(sql)
+    end)
+  end
+
+  defp static_sql_container?(value), do: static_sql?(value)
+
+  defp static_custom_statements?(node) do
+    case custom_statement_payloads(node) do
+      [] -> false
+      payloads -> Enum.all?(payloads, &static_sql?/1)
+    end
+  end
+
+  defp custom_statement_payloads({operation, _metadata, [payload]})
+       when operation in [:up, :down],
+       do: [payload]
+
+  defp custom_statement_payloads({:statement, _metadata, [payload | arguments]})
+       when not is_atom(payload) do
+    [payload | custom_statement_payloads(arguments)]
+  end
+
+  defp custom_statement_payloads(node) when is_tuple(node) do
+    node |> Tuple.to_list() |> Enum.flat_map(&custom_statement_payloads/1)
+  end
+
+  defp custom_statement_payloads(nodes) when is_list(nodes),
+    do: Enum.flat_map(nodes, &custom_statement_payloads/1)
+
+  defp custom_statement_payloads(_node), do: []
+
   defp low_level_module?(nil), do: false
   defp low_level_module?(module), do: Policy.low_level_module?(module)
+
+  defp low_level_receiver?(receiver) do
+    receiver |> module_name() |> Policy.canonical_module() |> low_level_module?() or
+      database_receiver?(receiver)
+  end
+
+  defp low_level_receiver?(receiver, operation) do
+    receiver |> module_name() |> Policy.canonical_module() |> low_level_module?() or
+      database_receiver_call?(receiver, operation)
+  end
+
+  defp database_receiver?({name, _metadata, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)),
+       do: name in [:adapter, :conn, :connection, :database, :db, :repo, :sql]
+
+  defp database_receiver?(_receiver), do: false
+
+  defp database_receiver_call?({name, _metadata, context}, operation)
+       when is_atom(name) and (is_atom(context) or is_nil(context)),
+       do: Policy.database_receiver_operation?(name, operation)
+
+  defp database_receiver_call?(_receiver, _operation), do: false
+
+  defp field_access?(metadata, []), do: Keyword.get(metadata, :no_parens, false)
+  defp field_access?(_metadata, _arguments), do: false
 
   defp module_name({:__aliases__, _metadata, parts}) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
@@ -440,6 +661,15 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
   defp function_signature(_signature), do: {nil, 0}
 
   defp function_body(arguments) do
+    arguments
+    |> List.last()
+    |> case do
+      options when is_list(options) -> Keyword.get(options, :do)
+      _other -> nil
+    end
+  end
+
+  defp block_body(arguments) when is_list(arguments) do
     arguments
     |> List.last()
     |> case do
@@ -472,6 +702,11 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
   end
 
   defp keyword_value(_value, _key), do: nil
+
+  defp compiler_artifact_expected?(path) do
+    String.ends_with?(path, ".ex") and
+      (String.starts_with?(path, "lib/") or String.starts_with?(path, "test/support/"))
+  end
 
   defp contains_uuidv7_fragment?({:fragment, _metadata, ["uuidv7()"]}), do: true
 

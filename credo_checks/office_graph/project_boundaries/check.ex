@@ -143,13 +143,19 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
   end
 
   defp issue_for(%{kind: :unresolved} = diagnostic, root, params) do
+    reason =
+      if diagnostic.approval == :unresolved_sql do
+        "the SQL payload is not statically fingerprintable and cannot be approved"
+      else
+        "the construct uses unsupported indirection and cannot be approved"
+      end
+
     format_boundary_issue(
       root,
       diagnostic.path,
       params,
       "unresolved database boundary: #{diagnostic.construct} (#{diagnostic.class}) at " <>
-        "#{function_name(diagnostic)}; the SQL payload is not statically fingerprintable " <>
-        "and cannot be approved",
+        "#{function_name(diagnostic)}; #{reason}",
       diagnostic.line
     )
   end

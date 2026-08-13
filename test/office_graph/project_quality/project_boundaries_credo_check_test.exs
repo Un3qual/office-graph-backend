@@ -3,7 +3,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
 
   alias Credo.Execution
   alias Credo.Execution.ExecutionIssues
-  alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
+  alias OfficeGraph.ProjectQuality.DatabasePrimitiveScanner
 
   @check OfficeGraph.Credo.Check.ProjectBoundaries
   @approved_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
@@ -52,7 +52,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       """
 
       [occurrence] =
-        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+        DatabasePrimitiveScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
       write_tracked!(root, "lib/example.ex", source)
       write_approved!(root, [approved_entry(occurrence, "sha256:recorded")])
@@ -134,7 +134,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       """
 
       [occurrence] =
-        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+        DatabasePrimitiveScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
       write_tracked!(root, "lib/example.ex", source)
 
@@ -161,7 +161,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       """
 
       [occurrence] =
-        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+        DatabasePrimitiveScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
       approved = approved_entry(occurrence, occurrence.fingerprint)
 
@@ -200,7 +200,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       """
 
       [occurrence] =
-        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+        DatabasePrimitiveScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
       write_tracked!(root, "lib/example.ex", source)
 
@@ -226,7 +226,7 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
       """
 
       [occurrence] =
-        DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+        DatabasePrimitiveScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
       malformed_path = %{"unexpected" => "object"}
 

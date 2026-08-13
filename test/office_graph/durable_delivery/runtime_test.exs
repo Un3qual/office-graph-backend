@@ -1,14 +1,12 @@
 defmodule OfficeGraph.DurableDelivery.RuntimeTest do
   use OfficeGraph.DataCase, async: false
 
-  alias OfficeGraph.Repo
-
   test "Oban is configured as the Postgres-backed durable runtime" do
     assert Code.ensure_loaded?(Oban)
 
     config = Application.fetch_env!(:office_graph, Oban)
 
-    assert config[:repo] == Repo
+    assert config[:repo] == OfficeGraph.Repo
     assert config[:testing] == :manual
     assert config[:queues] == false
     assert config[:plugins] == false
