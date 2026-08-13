@@ -90,6 +90,8 @@ defmodule OfficeGraph.BoundaryLayoutTest do
            ]
 
     assert aliases[:"static.analysis"] == [
+             "production.build",
+             "cmd ./bin/check-database-boundary",
              "credo --strict",
              "reach.check --arch --smells --strict"
            ]

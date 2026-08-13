@@ -125,6 +125,8 @@ defmodule OfficeGraph.MixProject do
         "cmd openspec validate --changes --strict"
       ],
       "static.analysis": [
+        "production.build",
+        "cmd ./bin/check-database-boundary",
         "credo --strict",
         "reach.check --arch --smells --strict"
       ],
@@ -148,7 +150,6 @@ defmodule OfficeGraph.MixProject do
         "spec.verify",
         "cmd ./bin/check-spec-purposes",
         "frontend.verify.precompiled",
-        "production.build",
         "test"
       ],
       precommit: ["verify"]
