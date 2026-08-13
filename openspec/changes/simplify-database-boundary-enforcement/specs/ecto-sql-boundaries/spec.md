@@ -168,7 +168,8 @@ declarative AshPostgres and Ecto migration behavior is insufficient.
   executable or dynamic project alias string
   including `mix do` task composition, a command dispatched through
   `Mix.shell/0`, an untrusted or dynamic `@derive` provider,
-  any Agent MFA executor, exported `:erpc.execute_call`/`execute_cast`, a
+  any Agent MFA executor, Elixir or OTP gen-server startup with an opaque or
+  dynamic callback provider, exported `:erpc.execute_call`/`execute_cast`, a
   compile callback or Erlang `:core_transform`/`:parse_transform` compiler
   option in any tracked module, or a public process-library or
   supervisor MFA form including `:erlang.hibernate/3` and

@@ -443,10 +443,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "Task" => @mfa_task_operations,
     "Task.Supervisor" => @mfa_task_supervisor_operations,
     "erpc" => @mfa_erpc_operations,
+    "gen_server" => @mfa_gen_server_operations,
     "proc_lib" => @mfa_proc_lib_operations,
     "rpc" => @mfa_rpc_operations,
     "supervisor" => @mfa_supervisor_operations,
     "timer" => @mfa_timer_operations
+  }
+  @opaque_callback_provider_operations %{
+    "Agent" => @mfa_agent_operations,
+    "GenServer" => @mfa_gen_server_operations,
+    "gen_server" => @mfa_gen_server_operations
   }
   @dynamic_dispatch_modules Map.keys(@dynamic_dispatch_operations)
   @mfa_dispatch_operations Enum.uniq(
@@ -2039,34 +2045,34 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_opaque_callback_provider(
-         "GenServer",
+         receiver,
          operation,
-         [{target, :init}],
+         targets,
          node,
          env
-       )
-       when operation in @mfa_gen_server_operations do
-    case module_name(target, env) do
-      module when is_binary(module) ->
-        if project_module?(module, env) do
-          nil
-        else
-          opaque_callback_occurrence("GenServer", operation, node, env)
-        end
+       ) do
+    if opaque_callback_provider_operation?(receiver, operation) do
+      Enum.find_value(targets, fn {target, _target_operation} ->
+        case module_name(target, env) do
+          module when is_binary(module) ->
+            if project_module?(module, env) do
+              nil
+            else
+              opaque_callback_occurrence(receiver, operation, node, env)
+            end
 
-      _dynamic ->
-        opaque_callback_occurrence("GenServer", operation, node, env)
+          _dynamic ->
+            opaque_callback_occurrence(receiver, operation, node, env)
+        end
+      end)
+    else
+      nil
     end
   end
 
-  defp classify_opaque_callback_provider(
-         _receiver,
-         _operation,
-         _targets,
-         _node,
-         _env
-       ),
-       do: nil
+  defp opaque_callback_provider_operation?(receiver, operation) do
+    operation in Map.get(@opaque_callback_provider_operations, receiver, [])
+  end
 
   defp opaque_callback_occurrence(receiver, operation, node, env) do
     occurrence(
@@ -2124,6 +2130,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     case arguments do
       [target, _init_arg] -> [{target, :init}]
       [target, _init_arg, _options] -> [{target, :init}]
+      _other -> []
+    end
+  end
+
+  defp mfa_dispatch_targets("gen_server", operation, arguments)
+       when operation in @mfa_gen_server_operations do
+    case arguments do
+      [target, _init_arg, _options] -> [{target, :init}]
+      [_name, target, _init_arg, _options] -> [{target, :init}]
       _other -> []
     end
   end
@@ -2840,7 +2855,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     aliases
     |> Enum.reduce(env.aliases, fn alias_ast, aliases ->
       with prefix when is_binary(prefix) <- prefix,
-           suffix when is_binary(suffix) <- module_name(alias_ast, env) do
+           suffix when is_binary(suffix) <- grouped_alias_suffix(alias_ast) do
         module = IO.iodata_to_binary([prefix, ".", suffix])
         Map.put(aliases, module |> String.split(".") |> List.last(), module)
       else
@@ -2860,6 +2875,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp apply_alias(_arguments, env), do: {env, []}
+
+  defp grouped_alias_suffix({:__aliases__, _metadata, parts}) when is_list(parts) do
+    if Enum.all?(parts, &is_atom/1), do: Enum.map_join(parts, ".", &Atom.to_string/1)
+  end
+
+  defp grouped_alias_suffix(_alias), do: nil
 
   defp alias_occurrences_for(_node, _env, []), do: []
 
@@ -4501,38 +4522,32 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp compiled_opaque_callback_provider_occurrence(
-         "GenServer",
+         receiver,
          operation,
-         [{target, :init}],
+         targets,
          node,
          source,
          function,
          project_modules
-       )
-       when operation in @mfa_gen_server_operations do
-    case compiled_module(target) do
-      module when is_binary(module) ->
-        if MapSet.member?(project_modules, module) do
-          nil
-        else
-          compiled_opaque_callback_occurrence("GenServer", operation, node, source, function)
-        end
+       ) do
+    if opaque_callback_provider_operation?(receiver, operation) do
+      Enum.find_value(targets, fn {target, _target_operation} ->
+        case compiled_module(target) do
+          module when is_binary(module) ->
+            if MapSet.member?(project_modules, module) do
+              nil
+            else
+              compiled_opaque_callback_occurrence(receiver, operation, node, source, function)
+            end
 
-      _dynamic ->
-        compiled_opaque_callback_occurrence("GenServer", operation, node, source, function)
+          _dynamic ->
+            compiled_opaque_callback_occurrence(receiver, operation, node, source, function)
+        end
+      end)
+    else
+      nil
     end
   end
-
-  defp compiled_opaque_callback_provider_occurrence(
-         _receiver,
-         _operation,
-         _targets,
-         _node,
-         _source,
-         _function,
-         _project_modules
-       ),
-       do: nil
 
   defp compiled_opaque_callback_occurrence(receiver, operation, node, source, function) do
     occurrence(

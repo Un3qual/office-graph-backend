@@ -103,6 +103,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            ]
   end
 
+  test "resolves grouped alias suffixes independently of prior aliases" do
+    [occurrence] =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/grouped_alias.ex",
+          source: """
+          defmodule GroupedAlias do
+            alias External.Repo
+            alias OfficeGraph.{Repo}
+
+            def delete_all, do: Repo.query!("DELETE FROM reviews", [])
+          end
+          """
+        }
+      ])
+
+    assert {occurrence.class, occurrence.construct, occurrence.function,
+            Map.get(occurrence, :approval)} ==
+             {:raw_sql, "Repo.query!", "delete_all/0", nil}
+  end
+
   test "resolves aliases used as module prefixes" do
     [occurrence] =
       DatabaseBoundaryScanner.scan_sources([
@@ -2567,9 +2588,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"test/office_graph/project_quality/database_boundary_gate_test.exs", 627,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:d9bb66ed029dab0ca819559ba38247fde4b5250f08388a08ff9c616bdf66f597"},
-             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2633,
+             {"test/office_graph/project_quality/database_boundary_scanner_test.exs", 2654,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
-              "sha256:b4582c3212a7ed29cea31078767bac161668b2593eae94822f61a6a6f2f2d262"},
+              "sha256:948acffaae00ae023869b68c0484af683155d672f5218de53fad039cb0e6f452"},
              {"test/office_graph/project_quality/project_boundaries_credo_check_test.exs", 342,
               "reflection.Kernel.ParallelCompiler.compile_to_path",
               "sha256:90f961bb5e48b5c5524bd93d86857c8960ae9cc836b595e4403d844020a92292"}
@@ -2653,6 +2674,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                          "87cf440de249265a352aa19dfa02a9ce914854e5ea30cae02a14deae44bc6a91",
                        compiled_multiplicity:
                          "d4a454347c1d5cb1d4b4fbe87bbd911336f8cdd62e0bb150a6e417ecd49d15ae",
+                       compiled_opaque_callback_dispatch:
+                         "656dca19bde76310bd916b749b355349a0adaa15d7b92c5b205173de9128b6b6",
                        compiled_runtime_dependency_execution:
                          "9f0aa6a9eba4c17f493cd789bce3687bc2cee1888e415de8b058988ca2d64fa2",
                        compiled_stale_callback_provider:
@@ -2737,6 +2760,42 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert {occurrence.construct, occurrence.function, occurrence.approval} ==
              {"runtime_callback.GenServer.start_link", "start_link/1", :unresolved_sql}
+  end
+
+  test "compiled audit rejects opaque Agent and OTP gen_server callback providers" do
+    root = temporary_root("compiled_opaque_callback_dispatch")
+    source_path = Path.join(root, "lib/compiled_opaque_callback_dispatch.ex")
+    module = OfficeGraph.CompiledOpaqueCallbackDispatchFixture
+
+    source = """
+    defmodule #{inspect(module)} do
+      def agent_start(arg), do: Agent.start_link(Dependency.Persistence, :init, [arg])
+
+      def agent_get(agent),
+        do: Agent.get(agent, Dependency.Persistence, :read, [])
+
+      def gen_server_start(arg),
+        do: :gen_server.start_link(Dependency.PersistenceServer, arg, [])
+
+      def named_gen_server_start(name, arg),
+        do: :gen_server.start_link({:local, name}, Dependency.PersistenceServer, arg, [])
+    end
+    """
+
+    for env <- [Mix.env(), :prod] |> Enum.uniq() do
+      ebin = Path.join(root, "_build/#{env}/lib/office_graph/ebin")
+      compile_source!(source_path, ebin, source)
+    end
+
+    occurrences = DatabaseBoundaryScanner.scan_compiled(root)
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"runtime_callback.Agent.start_link", "agent_start/1", :unresolved_sql},
+             {"runtime_callback.Agent.get", "agent_get/1", :unresolved_sql},
+             {"runtime_callback.gen_server.start_link", "gen_server_start/1", :unresolved_sql},
+             {"runtime_callback.gen_server.start_link", "named_gen_server_start/2",
+              :unresolved_sql}
+           ]
   end
 
   test "resolves wildcard imports for runtime MFA dispatch" do
@@ -3286,6 +3345,93 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              {"OfficeGraph.Repo.update", "update/2", :unresolved_sql},
              {"OfficeGraph.Repo.update", "update_timeout/2", :unresolved_sql},
              {"OfficeGraph.Repo.cast", "cast/2", :unresolved_sql}
+           ]
+  end
+
+  test "rejects opaque providers for every Agent module-function-argument executor" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/tracked_agent_callbacks.ex",
+          source: """
+          defmodule OfficeGraph.TrackedAgentCallbacks do
+            def init(arg), do: arg
+            def read(state), do: state
+          end
+          """
+        },
+        %{
+          path: "scripts/opaque_agent_callbacks.exs",
+          source: """
+          defmodule OpaqueAgentCallbacks do
+            def start(arg), do: Agent.start(Dependency.Persistence, :init, [arg])
+            def start_link(arg), do: Agent.start_link(Dependency.Persistence, :init, [arg])
+            def cast(agent), do: Agent.cast(agent, Dependency.Persistence, :write, [])
+            def get(agent), do: Agent.get(agent, Dependency.Persistence, :read, [])
+
+            def get_and_update(agent),
+              do: Agent.get_and_update(agent, Dependency.Persistence, :write, [])
+
+            def update(agent), do: Agent.update(agent, Dependency.Persistence, :write, [])
+            def dynamic(agent, provider), do: Agent.get(agent, provider, :read, [])
+
+            def tracked(agent),
+              do: Agent.get(agent, OfficeGraph.TrackedAgentCallbacks, :read, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"runtime_callback.Agent.start", "start/1", :unresolved_sql},
+             {"runtime_callback.Agent.start_link", "start_link/1", :unresolved_sql},
+             {"runtime_callback.Agent.cast", "cast/1", :unresolved_sql},
+             {"runtime_callback.Agent.get", "get/1", :unresolved_sql},
+             {"runtime_callback.Agent.get_and_update", "get_and_update/1", :unresolved_sql},
+             {"runtime_callback.Agent.update", "update/1", :unresolved_sql},
+             {"runtime_callback.Agent.get", "dynamic/2", :unresolved_sql}
+           ]
+  end
+
+  test "rejects opaque OTP gen_server startup providers but trusts tracked modules" do
+    occurrences =
+      DatabaseBoundaryScanner.scan_sources([
+        %{
+          path: "lib/tracked_otp_server.ex",
+          source: """
+          defmodule OfficeGraph.TrackedOtpServer do
+            def init(arg), do: {:ok, arg}
+          end
+          """
+        },
+        %{
+          path: "scripts/opaque_otp_server.exs",
+          source: """
+          defmodule OpaqueOtpServer do
+            def start(arg), do: :gen_server.start(Dependency.PersistenceServer, arg, [])
+
+            def start_link(arg),
+              do: :gen_server.start_link(Dependency.PersistenceServer, arg, [])
+
+            def named_start(name, arg),
+              do: :gen_server.start({:local, name}, Dependency.PersistenceServer, arg, [])
+
+            def named_start_link(name, arg),
+              do: :gen_server.start_link({:local, name}, Dependency.PersistenceServer, arg, [])
+
+            def dynamic(provider, arg), do: :gen_server.start_link(provider, arg, [])
+            def tracked(arg), do: :gen_server.start_link(OfficeGraph.TrackedOtpServer, arg, [])
+          end
+          """
+        }
+      ])
+
+    assert Enum.map(occurrences, &{&1.construct, &1.function, &1.approval}) == [
+             {"runtime_callback.gen_server.start", "start/1", :unresolved_sql},
+             {"runtime_callback.gen_server.start_link", "start_link/1", :unresolved_sql},
+             {"runtime_callback.gen_server.start", "named_start/2", :unresolved_sql},
+             {"runtime_callback.gen_server.start_link", "named_start_link/2", :unresolved_sql},
+             {"runtime_callback.gen_server.start_link", "dynamic/2", :unresolved_sql}
            ]
   end
 

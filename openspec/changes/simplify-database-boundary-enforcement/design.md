@@ -59,10 +59,11 @@ cannot authorize an unrelated top-level dependency module.
 Provider trust is limited to unconditional lexical module definitions in
 tracked source. Definitions beneath conditionals, function bodies, callbacks,
 or other unresolved execution contexts do not grant trust; the collector does
-not evaluate those contexts. Known GenServer startup calls inspect their
-literal callback provider in both source and BEAM abstract code: tracked
-project modules remain ordinary callbacks, while dependency-owned or dynamic
-providers fail closed without evaluating `init/1`. Compiled provider trust
+not evaluate those contexts. Agent MFA executors and known Elixir or OTP
+gen-server startup calls inspect their literal callback provider in both source
+and BEAM abstract code: tracked project modules remain ordinary callbacks,
+while dependency-owned or dynamic providers fail closed without evaluating the
+callback. Compiled provider trust
 excludes BEAMs whose compiler-recorded source is no longer tracked. SQL-bearing
 migration options are selected by a resolved `Ecto.Migration` receiver or
 import as well as by migration lexical context, so moving a migration module
@@ -73,6 +74,10 @@ scope, while module-owned Ash, Ecto, and local-definition state is reset and
 directives declared by the nested module do not leak back out. Qualified
 `Ecto.Query.lock/2` calls select the second argument as their SQL payload, so a
 static lock clause is exact-approvable and a dynamic clause remains unresolved.
+Grouped alias prefixes resolve through the current lexical alias environment,
+but every grouped suffix is read from its literal alias parts so a previous
+shorthand alias cannot redirect `alias Prefix.{Suffix}` away from the module
+the Elixir compiler selects.
 Tracked Erlang source is not interpreted by a partial Erlang analyzer: every
 `.erl` file is a single unresolved executable-source occurrence. This keeps
 parse/core transforms and direct Erlang execution fail-closed until a complete

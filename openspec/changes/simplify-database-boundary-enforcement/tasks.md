@@ -267,3 +267,10 @@
 - [x] 37.2 Reject tracked Erlang files as one unresolved executable surface, preserve only lexical aliases/imports at nested-module entry, and select the second `Ecto.Query.lock/2` argument without adding language or dataflow interpretation.
 - [x] 37.3 Verify that constant short-circuit source calls remain represented independently in pinned BEAM abstract code and do not suppress same-line macro-generated compiled occurrences.
 - [x] 37.4 Run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.
+
+## 38. Opaque Callback And Grouped Alias Follow-Up
+
+- [x] 38.1 Add failing source and compiled regressions for opaque Agent MFA providers, OTP `:gen_server` startup, and grouped alias suffix collisions.
+- [x] 38.2 Drive source and BEAM opaque-provider handling from one dispatcher inventory and resolve grouped suffixes from literal alias parts without callback or alias-flow evaluation.
+- [x] 38.3 Verify that pinned AshPostgres omits unsupported non-empty list defaults unless `migration_defaults` or a custom protocol implementation is configured, and retain the matching terminal expectation.
+- [x] 38.4 Refresh exact compiler-fixture approval evidence; run focused scanner, gate, Credo, strict OpenSpec, full-suite, and canonical verification; perform final anti-slop review; commit, push, and reply to the cached review threads.

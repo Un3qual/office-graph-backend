@@ -108,6 +108,14 @@ construction, SQL bodies, macro output, or control flow.
   the nested module while preventing directives declared inside it from
   leaking back to the enclosing scope
 
+#### Scenario: Grouped alias suffixes remain literal
+
+- **WHEN** a grouped alias suffix has the same shorthand as an alias already in
+  lexical scope
+- **THEN** the source scanner MUST resolve the group prefix through lexical
+  aliases but append the suffix's literal alias parts, matching Elixir's module
+  resolution without alias-flow interpretation
+
 #### Scenario: Qualified query lock selects its SQL payload
 
 - **WHEN** tracked source calls `Ecto.Query.lock/2` through a qualified or
@@ -181,7 +189,9 @@ construction, SQL bodies, macro output, or control flow.
   `{module, argument}` shorthands, a statically visible persistence callback
   module passed to `Supervisor.start_link/3`, `DynamicSupervisor.start_link/3`,
   or `:supervisor.start_link/2,3`, an opaque or dynamic callback provider passed
-  to `GenServer.start/2,3` or `GenServer.start_link/2,3`, or a
+  to any Agent MFA executor, `GenServer.start/2,3`,
+  `GenServer.start_link/2,3`, `:gen_server.start/3,4`, or
+  `:gen_server.start_link/3,4`, or a
   compile/verification callback attribute or Erlang
   `:core_transform`/`:parse_transform` compiler option in any tracked module
 - **THEN** the scanner MUST reject the occurrence as an unresolved low-level
