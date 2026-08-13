@@ -308,20 +308,51 @@ defmodule OfficeGraph.ProjectQuality.ProjectBoundariesCredoCheckTest do
   end
 
   defp with_repository(test) do
+    unique = System.unique_integer([:positive])
+
     root =
       Path.join(
         System.tmp_dir!(),
-        "office_graph_project_boundaries_credo_#{System.unique_integer([:positive])}"
+        "office_graph_project_boundaries_credo_#{unique}"
       )
 
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     {_output, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
 
-    write_tracked!(root, "lib/sentinel.ex", "defmodule Sentinel do\nend\n")
+    source_path = "lib/project_boundaries_fixture_#{unique}.ex"
+
+    write_tracked!(
+      root,
+      source_path,
+      "defmodule ProjectBoundariesFixture#{unique} do\nend\n"
+    )
+
+    write_build_outputs!(root, source_path)
     write_approved!(root, [])
 
     test.(root)
+  end
+
+  defp write_build_outputs!(root, source_path) do
+    prod_ebin = Path.join(root, "_build/prod/lib/office_graph/ebin")
+    File.mkdir_p!(prod_ebin)
+
+    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
+             Kernel.ParallelCompiler.compile_to_path([Path.join(root, source_path)], prod_ebin,
+               debug_info: true,
+               return_diagnostics: true
+             )
+
+    [beam_path] = Path.wildcard(Path.join(prod_ebin, "*.beam"))
+
+    for destination <- [
+          Path.join(root, "_build/test/lib/office_graph/ebin"),
+          Path.join(root, "_build/test/lib/office_graph/test_ebin")
+        ] do
+      File.mkdir_p!(destination)
+      File.cp!(beam_path, Path.join(destination, Path.basename(beam_path)))
+    end
   end
 
   defp write_approved!(root, entries) do

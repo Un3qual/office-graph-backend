@@ -77,6 +77,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
            ]
   end
 
+  test "rejects malformed terminal-object approval metadata" do
+    approved =
+      "sha256:approved"
+      |> approved_entry()
+      |> Map.put("terminal_objects", [
+        %{"class" => "routine", "identity" => "touch_record()"}
+      ])
+
+    [diagnostic] = DatabaseBoundaryGate.compare([occurrence("sha256:approved")], [approved])
+
+    assert diagnostic.kind == :invalid_inventory
+    assert diagnostic.invalid_fields == ["terminal_objects"]
+  end
+
   test "rejects duplicate approved locators before matching fingerprints" do
     approved = [approved_entry("sha256:recorded"), approved_entry("sha256:current")]
 
@@ -136,7 +150,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   end
 
   test "current repository matches the reviewed database exceptions" do
-    assert DatabaseBoundaryGate.check_repository(File.cwd!()) == []
+    assert DatabaseBoundaryGate.check_repository(File.cwd!(),
+             compiled_audit: [environments: [:test], include_test_modules: false]
+           ) == []
   end
 
   test "rejects approved exceptions without exact evidence in their accepted OpenSpec change" do
@@ -179,7 +195,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
           File.write!(source_path, source)
           {_output, 0} = System.cmd("git", ["add", "."], cd: root)
 
-          [diagnostic] = DatabaseBoundaryGate.check_repository(root)
+          [diagnostic] =
+            DatabaseBoundaryGate.check_repository(root, compiled_audit: [paths: []])
 
           assert diagnostic.kind == :invalid_approval_provenance
           assert diagnostic.inventory == :approved_exceptions
@@ -221,7 +238,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       File.write!(source_path, source)
       {_output, 0} = System.cmd("git", ["add", "."], cd: root)
 
-      assert DatabaseBoundaryGate.check_repository(root) == []
+      assert DatabaseBoundaryGate.check_repository(root, compiled_audit: [paths: []]) == []
     end)
   end
 
@@ -249,7 +266,51 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
       File.write!(source_path, source)
       {_output, 0} = System.cmd("git", ["add", "."], cd: root)
 
-      assert DatabaseBoundaryGate.check_repository(root) == []
+      assert DatabaseBoundaryGate.check_repository(root, compiled_audit: [paths: []]) == []
+    end)
+  end
+
+  test "requires terminal-object approvals in the accepted OpenSpec evidence" do
+    with_boundary_repository(fn root, source, occurrence ->
+      approved =
+        occurrence
+        |> approved_entry()
+        |> Map.put("terminal_objects", [
+          %{
+            "class" => "routine",
+            "identity" => "touch_record()",
+            "fingerprint" =>
+              "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ])
+
+      inventory_path =
+        Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+
+      evidence_path =
+        Path.join(root, "openspec/changes/approved-change/database-exception-approvals.json")
+
+      File.mkdir_p!(Path.dirname(inventory_path))
+      File.mkdir_p!(Path.dirname(evidence_path))
+      File.write!(inventory_path, Jason.encode!(%{"version" => 1, "exceptions" => [approved]}))
+
+      File.write!(
+        evidence_path,
+        Jason.encode!(%{
+          "version" => 1,
+          "approvals" => [Map.delete(approved, "terminal_objects")]
+        })
+      )
+
+      source_path = Path.join(root, occurrence.path)
+      File.mkdir_p!(Path.dirname(source_path))
+      File.write!(source_path, source)
+      {_output, 0} = System.cmd("git", ["add", "."], cd: root)
+
+      [diagnostic] = DatabaseBoundaryGate.check_repository(root, compiled_audit: [paths: []])
+
+      assert diagnostic.kind == :invalid_approval_provenance
+      assert diagnostic.reason == :unrecorded_exception
     end)
   end
 

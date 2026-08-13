@@ -22,6 +22,21 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     end
   end
 
+  test "Docker pg_dump fallback keeps the password out of process arguments" do
+    password = "not-visible-in-argv"
+
+    {arguments, env} =
+      MigrationConformanceSupport.docker_pg_dump_invocation("container-id",
+        username: "postgres",
+        password: password,
+        database: "office_graph_test"
+      )
+
+    refute Enum.any?(arguments, &String.contains?(&1, password))
+    assert ["exec", "-e", "PGPASSWORD", "container-id", "pg_dump" | _rest] = arguments
+    assert env == [{"PGPASSWORD", password}]
+  end
+
   test "parenthesized SQL keeps parentheses inside dollar-quoted strings" do
     assert PostgresDump.take_parenthesized(~S|($$text ) and ($$) trailing|) ==
              {~S|$$text ) and ($$|, " trailing"}

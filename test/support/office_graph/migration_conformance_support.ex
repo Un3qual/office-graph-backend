@@ -91,8 +91,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     "TABLE",
     "TYPE"
   ]
-  @approved_exceptions_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
-
   def migration_tables do
     terminal_inventory().tables
     |> reject_framework_objects(:table)
@@ -159,7 +157,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   def terminal_database_errors(
         expected_resources \\ expected_resource_map(),
         inventory \\ terminal_inventory(),
-        approved_terminal_objects \\ approved_terminal_objects()
+        approved_terminal_objects \\ []
       ) do
     expected_tables = expected_resources |> resource_table_identities() |> MapSet.new()
     expected_schemas = expected_schemas(expected_resources)
@@ -314,8 +312,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end)
   end
 
-  def verify_terminal_database! do
-    case terminal_database_errors() do
+  def verify_terminal_database!(approved_terminal_objects) do
+    case terminal_database_errors(
+           expected_resource_map(),
+           terminal_inventory(),
+           approved_terminal_objects
+         ) do
       [] ->
         :ok
 
@@ -479,14 +481,6 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     do: framework_owned?(:schema, identity) or MapSet.member?(expected_schemas, identity)
 
   defp allowed_terminal_object?(_class, _identity, _expected_schemas), do: false
-
-  defp approved_terminal_objects do
-    @approved_exceptions_path
-    |> File.read!()
-    |> Jason.decode!()
-    |> Map.fetch!("exceptions")
-    |> Enum.flat_map(&Map.get(&1, "terminal_objects", []))
-  end
 
   defp normalize_terminal_approval!(%{
          "class" => class,
@@ -935,21 +929,12 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   end
 
   defp docker_pg_dump(container, config) do
+    {arguments, env} = docker_pg_dump_invocation(container, config)
+
     case System.cmd(
            "docker",
-           [
-             "exec",
-             "-e",
-             "PGPASSWORD=#{Keyword.get(config, :password)}",
-             container,
-             "pg_dump",
-             "--schema-only",
-             "--no-owner",
-             "--username",
-             to_string(Keyword.fetch!(config, :username)),
-             "--dbname",
-             to_string(Keyword.fetch!(config, :database))
-           ],
+           arguments,
+           env: env,
            stderr_to_stdout: true
          ) do
       {dump, 0} ->
@@ -958,6 +943,29 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       {output, status} ->
         {:error, "docker pg_dump failed with status #{status}: #{String.trim(output)}"}
     end
+  end
+
+  @doc false
+  def docker_pg_dump_invocation(container, config) do
+    password = Keyword.get(config, :password)
+    environment_arguments = if is_nil(password), do: [], else: ["-e", "PGPASSWORD"]
+    env = if is_nil(password), do: [], else: [{"PGPASSWORD", to_string(password)}]
+
+    arguments =
+      ["exec"] ++
+        environment_arguments ++
+        [
+          container,
+          "pg_dump",
+          "--schema-only",
+          "--no-owner",
+          "--username",
+          to_string(Keyword.fetch!(config, :username)),
+          "--dbname",
+          to_string(Keyword.fetch!(config, :database))
+        ]
+
+    {arguments, env}
   end
 
   defp relation_header(line) do

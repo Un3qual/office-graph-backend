@@ -70,6 +70,14 @@ defmodule OfficeGraph.ProjectQualityGateTest do
     refute "office_graph.database_boundaries" in expanded_verify
     refute Keyword.has_key?(aliases, :"office_graph.planning_boundaries")
     refute Keyword.has_key?(aliases, :"office_graph.database_boundaries")
+
+    assert aliases[:"static.analysis"] == [
+             "production.build",
+             "test.build",
+             "test.beam.build",
+             "credo --strict",
+             "reach.check --arch --smells --strict"
+           ]
   end
 
   test "verification environment is stable and honors explicit isolation overrides" do
@@ -113,7 +121,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
                 "ecto.rollback --all --quiet",
                 "ecto.migrate --quiet",
                 "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
-                "run -e OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!()",
+                "run -r credo_checks/office_graph/project_boundaries/database_dependency_audit.ex -r credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex -r credo_checks/office_graph/project_boundaries/database_boundary_gate.ex -e OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!(OfficeGraph.ProjectQuality.DatabaseBoundaryGate.approved_terminal_objects!(File.cwd!()))",
                 "test test/office_graph/release_setup_test.exs",
                 "verify"
               ]}

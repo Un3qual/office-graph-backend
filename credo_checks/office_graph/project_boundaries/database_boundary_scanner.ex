@@ -294,7 +294,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       elixir_source?(path) ->
         scan_elixir_source(path, source)
 
-      script_source?(path) ->
+      script_source?(path, source) ->
         scan_script_source(path, source)
 
       true ->
@@ -483,10 +483,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        )
        when is_atom(operation) and is_list(arguments) do
     occurrences =
-      case classify_remote_call(receiver, operation, arguments, node, env) do
-        nil -> occurrences
-        occurrence -> [occurrence | occurrences]
-      end
+      prepend_classification(
+        occurrences,
+        classify_remote_call(receiver, operation, arguments, node, env)
+      )
 
     scan_children(node, env, occurrences)
   end
@@ -494,10 +494,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({operation, metadata, arguments} = node, env, occurrences)
        when is_atom(operation) and is_list(arguments) do
     occurrences =
-      case classify_local_call(operation, arguments, node, env) do
-        nil -> occurrences
-        occurrence -> [occurrence | occurrences]
-      end
+      prepend_classification(occurrences, classify_local_call(operation, arguments, node, env))
 
     occurrences =
       if migration_helper_escape?(operation, arguments, env) do
@@ -523,6 +520,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node(_node, env, occurrences), do: {env, occurrences}
+
+  defp prepend_classification(occurrences, nil), do: occurrences
+
+  defp prepend_classification(occurrences, classified) when is_list(classified),
+    do: classified ++ occurrences
+
+  defp prepend_classification(occurrences, classified), do: [classified | occurrences]
 
   defp scan_expressions(expressions, env, occurrences) do
     Enum.reduce(expressions, {env, occurrences}, fn expression, {env, occurrences} ->
@@ -787,13 +791,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_sql_bearing_call(_receiver, operation, arguments, node, env)
        when operation in [:constraint, :index, :table, :unique_index] and env.migration? do
-    classify_sql_options(
-      "migration.#{operation}_options",
-      arguments,
-      [:options, :where],
-      node,
-      env
-    )
+    [
+      classify_sql_options(
+        "migration.#{operation}_options",
+        arguments,
+        migration_sql_option_keys(operation),
+        node,
+        env
+      ),
+      classify_migration_index_fields(operation, arguments, node, env)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      occurrences -> occurrences
+    end
   end
 
   defp classify_sql_bearing_call(_receiver, operation, arguments, node, env)
@@ -855,6 +867,73 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
     end
   end
+
+  defp classify_migration_index_fields(operation, arguments, node, env)
+       when operation in [:index, :unique_index] do
+    case Enum.at(arguments, 1) do
+      fields when is_list(fields) ->
+        raw_fields = Enum.reject(fields, &safe_migration_index_field?/1)
+
+        if raw_fields == [] do
+          nil
+        else
+          approval =
+            if Enum.all?(raw_fields, &static_migration_index_expression?/1),
+              do: nil,
+              else: :unresolved_sql
+
+          occurrence(env, line_from_node(node), :raw_sql, "migration.index_expression", node,
+            approval: approval
+          )
+        end
+
+      field when is_atom(field) ->
+        nil
+
+      _dynamic_fields ->
+        occurrence(env, line_from_node(node), :raw_sql, "migration.index_expression", node,
+          approval: :unresolved_sql
+        )
+    end
+  end
+
+  defp classify_migration_index_fields(_operation, _arguments, _node, _env), do: nil
+
+  defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
+  defp migration_sql_option_keys(:table), do: [:modifiers, :options]
+
+  defp migration_sql_option_keys(operation) when operation in [:index, :unique_index],
+    do: [:options, :where]
+
+  defp safe_migration_index_field?(field) when is_atom(field), do: true
+
+  defp safe_migration_index_field?({direction, field})
+       when direction in [
+              :asc,
+              :asc_nulls_first,
+              :asc_nulls_last,
+              :desc,
+              :desc_nulls_first,
+              :desc_nulls_last
+            ] and is_atom(field),
+       do: true
+
+  defp safe_migration_index_field?(_field), do: false
+
+  defp static_migration_index_expression?(field) when is_binary(field), do: true
+
+  defp static_migration_index_expression?({direction, field})
+       when direction in [
+              :asc,
+              :asc_nulls_first,
+              :asc_nulls_last,
+              :desc,
+              :desc_nulls_first,
+              :desc_nulls_last
+            ] and is_binary(field),
+       do: true
+
+  defp static_migration_index_expression?(_field), do: false
 
   defp static_literal?(value) when is_atom(value) or is_binary(value) or is_number(value),
     do: true
@@ -1081,6 +1160,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
         to_string(atom)
     end
   end
+
+  defp function_identity([{:when, _metadata, [signature | _guards]} | rest]),
+    do: function_identity([signature | rest])
 
   defp function_identity([{name, _metadata, arguments} | _rest]) when is_atom(name) do
     {name, length(arguments || [])}
@@ -1328,21 +1410,52 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
     output
     |> String.split(<<0>>, trim: true)
-    |> Enum.filter(&boundary_source?/1)
-    |> Enum.map(fn path -> %{path: path, source: File.read!(Path.join(root, path))} end)
+    |> Enum.flat_map(&tracked_source(&1, root))
   end
 
-  defp boundary_source?(path) do
-    elixir_source?(path) or sql_file?(path) or script_source?(path)
+  defp tracked_source(path, root) do
+    full_path = Path.join(root, path)
+
+    if boundary_source_path?(path) or shell_shebang_file?(full_path) do
+      [%{path: path, source: File.read!(full_path)}]
+    else
+      []
+    end
   end
+
+  defp boundary_source_path?(path),
+    do: elixir_source?(path) or sql_file?(path) or script_source_path?(path)
 
   defp elixir_source?(path), do: String.downcase(Path.extname(path)) in [".ex", ".exs"]
   defp sql_file?(path), do: Regex.match?(@sql_file_pattern, path)
 
-  defp script_source?(path) do
-    String.starts_with?(path, "bin/") or
-      String.downcase(Path.extname(path)) in [".bash", ".sh", ".zsh"] or
-      javascript_script_source?(path)
+  defp script_source?(path, source) do
+    script_source_path?(path) or shell_shebang?(source)
+  end
+
+  defp script_source_path?(path),
+    do:
+      String.starts_with?(path, "bin/") or
+        String.downcase(Path.extname(path)) in [".bash", ".sh", ".zsh"] or
+        javascript_script_source?(path)
+
+  defp shell_shebang_file?(path) do
+    case File.open(path, [:read, :binary], &IO.binread(&1, :line)) do
+      {:ok, line} when is_binary(line) -> shell_shebang?(line)
+      _unreadable_or_empty -> false
+    end
+  end
+
+  defp shell_shebang?(source) do
+    case source |> :binary.split("\n") |> List.first() do
+      "#!" <> command ->
+        command
+        |> String.split()
+        |> Enum.any?(&(Path.basename(&1) in ["bash", "dash", "ksh", "sh", "zsh"]))
+
+      _no_shebang ->
+        false
+    end
   end
 
   defp javascript_script_source?(path) do

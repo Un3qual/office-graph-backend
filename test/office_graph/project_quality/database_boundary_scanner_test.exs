@@ -1,6 +1,14 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   use ExUnit.Case, async: true
 
+  defmodule HiddenDatabaseMacro do
+    defmacro query do
+      quote do
+        OfficeGraph.Repo.query!("SELECT hidden", [])
+      end
+    end
+  end
+
   alias OfficeGraph.ProjectQuality.{
     DatabaseBoundaryGate,
     DatabaseBoundaryScanner,
@@ -248,6 +256,56 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            |> Enum.map(&Map.get(&1, :approval)) == [nil, :unresolved_sql]
   end
 
+  test "rejects nondeclarative syntax inside guarded migration callbacks" do
+    occurrences =
+      scan("priv/repo/migrations/20260801000000_guarded.exs", """
+      defmodule GuardedMigration do
+        use Ecto.Migration
+
+        def up() when true do
+          if System.get_env("CREATE") do
+            create_examples()
+          end
+        end
+      end
+      """)
+
+    assert MapSet.new(occurrences, & &1.construct) ==
+             MapSet.new(["migration.control_flow", "migration.helper_call"])
+
+    assert Enum.all?(occurrences, &(&1.function == "up/0"))
+  end
+
+  test "classifies migration constraint SQL and index expression fields" do
+    occurrences =
+      scan("priv/repo/migrations/20260801000000_sql_fields.exs", """
+      defmodule SqlFieldsMigration do
+        use Ecto.Migration
+
+        def change do
+          create constraint(:accounts, :positive_balance, check: "balance > 0")
+          create constraint(:reservations, :no_overlap, exclude: System.fetch_env!("RULE"))
+          create index(:users, ["lower(email)"])
+          create unique_index(:users, dynamic_fields())
+        end
+      end
+      """)
+
+    raw_sql_occurrences = Enum.filter(occurrences, &(&1.class == :raw_sql))
+
+    assert Enum.map(raw_sql_occurrences, & &1.construct) == [
+             "migration.constraint_options",
+             "migration.constraint_options",
+             "migration.index_expression",
+             "migration.index_expression"
+           ]
+
+    refute Map.has_key?(Enum.at(raw_sql_occurrences, 0), :approval)
+    assert Enum.at(raw_sql_occurrences, 1).approval == :unresolved_sql
+    refute Map.has_key?(Enum.at(raw_sql_occurrences, 2), :approval)
+    assert Enum.at(raw_sql_occurrences, 3).approval == :unresolved_sql
+  end
+
   test "rejects fully qualified nondeclarative Ecto migration calls" do
     occurrences =
       scan("priv/repo/migrations/20260801000000_qualified_invalid.exs", """
@@ -364,6 +422,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert elixir_occurrence.construct == "Repo.query!"
   end
 
+  test "rejects database clients in extensionless shell scripts outside bin" do
+    [occurrence] =
+      scan("scripts/reset-database", """
+      #!/usr/bin/env bash
+      exec psql "$DATABASE_URL" -c 'SELECT 1'
+      """)
+
+    assert occurrence.line == 2
+    assert occurrence.construct == "script.database_client.psql"
+  end
+
   test "rejects literal database clients in tracked JavaScript scripts" do
     [occurrence] =
       scan("assets/scripts/database-task.mjs", """
@@ -417,6 +486,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.caller == "OfficeGraph.CompiledDatabaseBoundary"
     assert occurrence.module == "OfficeGraph.Repo"
     assert occurrence.arity == 2
+    assert occurrence.function == "load/0"
+    assert occurrence.line == 2
   end
 
   test "compiled audit discovers tracked generated modules outside the OfficeGraph prefix" do
@@ -434,10 +505,44 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     [occurrence] =
       DatabaseDependencyAudit.scan(root,
         environments: [:test],
+        include_test_modules: false,
         tracked_paths: MapSet.new([source_path])
       )
 
     assert occurrence.caller == "Inspect.OfficeGraph.CompiledGeneratedBoundary"
+    assert occurrence.construct == "Repo.query!"
+  end
+
+  test "compiled audit discovers direct dependencies emitted into test-module BEAMs" do
+    root = temporary_root("compiled_test_module_boundary")
+    source_path = "test/generated_boundary_test.exs"
+    full_source_path = Path.join(root, source_path)
+    ebin = Path.join(root, "_build/test/lib/office_graph/test_ebin")
+
+    File.mkdir_p!(Path.dirname(full_source_path))
+    File.mkdir_p!(ebin)
+
+    File.write!(full_source_path, """
+    defmodule OfficeGraph.GeneratedBoundaryTest do
+      def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+    end
+    """)
+
+    assert {:ok, _modules, %{compile_warnings: [], runtime_warnings: []}} =
+             Kernel.ParallelCompiler.compile_to_path([full_source_path], ebin,
+               debug_info: true,
+               return_diagnostics: true
+             )
+
+    [occurrence] =
+      DatabaseDependencyAudit.scan(root,
+        environments: [],
+        include_test_modules: true,
+        tracked_paths: MapSet.new([source_path])
+      )
+
+    assert occurrence.path == source_path
+    assert occurrence.caller == "OfficeGraph.GeneratedBoundaryTest"
     assert occurrence.construct == "Repo.query!"
   end
 
@@ -465,6 +570,35 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert caller_diagnostic.kind == :compiled_reference
     assert caller_diagnostic.caller == "OfficeGraph.GeneratedExample"
+  end
+
+  test "compiled reconciliation detects an additional macro-generated call in the same module" do
+    source = """
+    defmodule OfficeGraph.CompiledMacroBoundary do
+      require #{inspect(HiddenDatabaseMacro)}
+      def explicit, do: OfficeGraph.Repo.query!("SELECT explicit", [])
+      def hidden, do: #{inspect(HiddenDatabaseMacro)}.query()
+    end
+    """
+
+    {root, source_path, beam_path} = compile_fixture("compiled_macro_boundary", source)
+    [source_occurrence] = scan(source_path, source)
+
+    compiled =
+      DatabaseDependencyAudit.scan(root,
+        paths: [beam_path],
+        tracked_paths: MapSet.new([source_path])
+      )
+
+    assert Enum.map(compiled, &{&1.function, &1.line}) == [
+             {"explicit/0", 3},
+             {"hidden/0", 4}
+           ]
+
+    [diagnostic] = DatabaseBoundaryGate.compare_compiled(compiled, [source_occurrence])
+    assert diagnostic.kind == :compiled_reference
+    assert diagnostic.function == "hidden/0"
+    assert diagnostic.line == 4
   end
 
   test "source occurrences use the compiled name of nested modules" do
@@ -505,6 +639,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert occurrence.construct == "compiled.environment_missing"
     assert occurrence.path == "_build/prod/lib/office_graph/ebin"
+  end
+
+  test "compiled audit fails closed for a repository outside the current directory" do
+    root = temporary_root("external_repository_builds")
+
+    occurrences = DatabaseDependencyAudit.scan(root, tracked_paths: MapSet.new())
+
+    assert MapSet.new(occurrences, & &1.path) ==
+             MapSet.new([
+               "_build/prod/lib/office_graph/ebin",
+               "_build/test/lib/office_graph/ebin",
+               "_build/test/lib/office_graph/test_ebin"
+             ])
   end
 
   test "current repository source scan reports only approved UUIDv7 fragments" do

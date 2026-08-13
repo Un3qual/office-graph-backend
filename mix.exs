@@ -13,7 +13,7 @@ defmodule OfficeGraph.MixProject do
       deps: deps(),
       dialyzer: [
         plt_add_deps: :app_tree,
-        plt_add_apps: [:ex_unit],
+        plt_add_apps: [:ex_unit, :mix],
         flags: [:error_handling, :underspecs]
       ],
       listeners: [Phoenix.CodeReloader]
@@ -127,6 +127,7 @@ defmodule OfficeGraph.MixProject do
       "static.analysis": [
         "production.build",
         "test.build",
+        "test.beam.build",
         "credo --strict",
         "reach.check --arch --smells --strict"
       ],
@@ -138,6 +139,7 @@ defmodule OfficeGraph.MixProject do
       "boundary.check": ["compile --force --warnings-as-errors"],
       "production.build": ["cmd env MIX_ENV=prod mix compile --warnings-as-errors"],
       "test.build": ["cmd env MIX_ENV=test mix compile --warnings-as-errors"],
+      "test.beam.build": ["cmd env MIX_ENV=test mix office_graph.compile_test_beams"],
       verify: [
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
