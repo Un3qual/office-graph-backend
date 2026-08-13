@@ -12,9 +12,23 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     "retirement_condition",
     "verification"
   ]
+  @terminal_object_classes MapSet.new([
+                             "extension",
+                             "enum",
+                             "grant",
+                             "materialized view",
+                             "materialized view index",
+                             "RLS policy",
+                             "RLS state",
+                             "routine",
+                             "schema",
+                             "trigger",
+                             "view"
+                           ])
   @required_string_fields ["class", "construct", "fingerprint", "path"] ++
                             @approved_metadata_fields
-  @approval_evidence_fields @locator_fields ++ ["fingerprint"] ++ @approved_metadata_fields
+  @approval_evidence_fields @locator_fields ++
+                              ["fingerprint", "terminal_objects"] ++ @approved_metadata_fields
   @approval_evidence_file "database-exception-approvals.json"
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
@@ -55,15 +69,39 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       |> load_approved_inventory!()
       |> Enum.map(&normalize_entry(&1, :approved_exceptions))
 
-    case inventory_errors(approved_exceptions) do
+    case validate_approved_inventory(root, approved_exceptions) do
       [] ->
-        case approval_provenance_errors(root, approved_exceptions) do
-          [] -> compare_normalized(current, approved_exceptions)
-          errors -> errors
-        end
+        compare_normalized(current, approved_exceptions)
 
       errors ->
         errors
+    end
+  end
+
+  @doc false
+  def validate_approved_inventory(root, approved_exceptions) do
+    approved_exceptions =
+      Enum.map(approved_exceptions, &normalize_entry(&1, :approved_exceptions))
+
+    case inventory_errors(approved_exceptions) do
+      [] -> approval_provenance_errors(root, approved_exceptions)
+      errors -> errors
+    end
+  end
+
+  @doc false
+  def approved_terminal_objects!(root) do
+    approved_path =
+      Path.join(root, "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json")
+
+    approved_exceptions = load_approved_inventory!(approved_path)
+
+    case validate_approved_inventory(root, approved_exceptions) do
+      [] ->
+        Enum.flat_map(approved_exceptions, &Map.get(&1, "terminal_objects", []))
+
+      diagnostics ->
+        raise "invalid approved database exception inventory: #{inspect(diagnostics)}"
     end
   end
 
@@ -358,11 +396,53 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
           []
       end
 
+    invalid_terminal_objects =
+      if valid_terminal_objects?(Map.get(entry, "terminal_objects")),
+        do: [],
+        else: ["terminal_objects"]
+
     (invalid_strings ++
-       invalid_function ++ invalid_line ++ invalid_ordinal ++ invalid_approving_change)
+       invalid_function ++
+       invalid_line ++
+       invalid_ordinal ++ invalid_approving_change ++ invalid_terminal_objects)
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  defp valid_terminal_objects?(nil), do: true
+
+  defp valid_terminal_objects?(terminal_objects) when is_list(terminal_objects) do
+    canonical = Enum.sort_by(terminal_objects, &terminal_object_sort_key/1)
+
+    terminal_objects == canonical and
+      length(terminal_objects) == length(Enum.uniq(terminal_objects)) and
+      Enum.all?(terminal_objects, &valid_terminal_object?/1)
+  end
+
+  defp valid_terminal_objects?(_terminal_objects), do: false
+
+  defp valid_terminal_object?(
+         %{
+           "class" => class,
+           "identity" => identity,
+           "fingerprint" => fingerprint
+         } = terminal_object
+       ) do
+    Map.keys(terminal_object) |> Enum.sort() == ["class", "fingerprint", "identity"] and
+      MapSet.member?(@terminal_object_classes, class) and is_binary(identity) and identity != "" and
+      is_binary(fingerprint) and Regex.match?(~r/\Asha256:[0-9a-f]{64}\z/, fingerprint)
+  end
+
+  defp valid_terminal_object?(_terminal_object), do: false
+
+  defp terminal_object_sort_key(%{
+         "class" => class,
+         "identity" => identity,
+         "fingerprint" => fingerprint
+       }),
+       do: {class, identity, fingerprint}
+
+  defp terminal_object_sort_key(terminal_object), do: inspect(terminal_object)
 
   defp valid_locator?(entry) do
     is_binary(entry["path"]) and entry["path"] != "" and
