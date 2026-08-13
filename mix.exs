@@ -126,7 +126,7 @@ defmodule OfficeGraph.MixProject do
       ],
       "static.analysis": [
         "production.build",
-        "office_graph.database_boundary",
+        "cmd ./bin/check-database-boundary",
         "credo --strict",
         "reach.check --arch --smells --strict"
       ],

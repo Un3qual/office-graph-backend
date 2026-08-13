@@ -116,6 +116,22 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScannerTest do
     assert scan("scripts/empty.sql", "-- no executable SQL\n/* still inert */\n") == []
   end
 
+  test "ignores a tracked source deleted from the worktree" do
+    root = Path.join(System.tmp_dir!(), "primitive-scan-#{System.unique_integer([:positive])}")
+    path = Path.join(root, "lib/deleted.ex")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "OfficeGraph.Repo.all(query)")
+    assert {_, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
+    assert {_, 0} = System.cmd("git", ["add", "lib/deleted.ex"], cd: root)
+    File.rm!(path)
+
+    try do
+      assert DatabasePrimitiveScanner.scan_repository(root) == []
+    after
+      File.rm_rf!(root)
+    end
+  end
+
   defp scan(path, source) do
     DatabasePrimitiveScanner.scan_sources([%{path: path, source: source}])
   end

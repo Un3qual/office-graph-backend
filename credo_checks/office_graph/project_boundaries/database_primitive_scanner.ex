@@ -102,7 +102,16 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScanner do
     full_path = Path.join(root, path)
 
     if boundary_path?(path) or script_shebang?(full_path) do
-      [%{path: path, source: File.read!(full_path)}]
+      case File.read(full_path) do
+        {:ok, source} ->
+          [%{path: path, source: source}]
+
+        {:error, :enoent} ->
+          []
+
+        {:error, reason} ->
+          raise File.Error, action: "read file", path: full_path, reason: reason
+      end
     else
       []
     end
