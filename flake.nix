@@ -30,6 +30,7 @@
           openspecCli = openspec.packages.${system}.default;
           nodejs = pkgs.nodejs_26;
           pnpm = pkgs.pnpm_11;
+          postgresql = pkgs.postgresql_18;
           dockerClient = pkgs.docker-client;
           dockerCompose = pkgs.docker-compose;
         in
@@ -41,6 +42,7 @@
               openspecCli
               nodejs
               pnpm
+              postgresql
               dockerClient
               dockerCompose
               pkgs.zsh

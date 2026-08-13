@@ -113,6 +113,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
                 "ecto.rollback --all --quiet",
                 "ecto.migrate --quiet",
                 "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "run -r credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex -r credo_checks/office_graph/project_boundaries/database_boundary_gate.ex -e OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!(OfficeGraph.ProjectQuality.DatabaseBoundaryGate.approved_terminal_objects!(File.cwd!()))",
                 "test test/office_graph/release_setup_test.exs",
                 "verify"
               ]}
