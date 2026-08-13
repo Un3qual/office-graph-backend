@@ -12,12 +12,19 @@ metadata for tracked project modules after test and production compilation.
 - **THEN** the compiled audit MUST report that resolved module, function, arity,
   caller module, and tracked source path unless structural ownership permits it
 
-#### Scenario: Source indirection targets a low-level module
+#### Scenario: Source indirection executes a low-level call
 
-- **WHEN** tracked source aliases, imports, delegates, captures, or reflects on
-  a classified low-level database module
-- **THEN** the source gate MUST reject the construct instead of resolving its
-  dataflow or permitting it as an approved low-level occurrence
+- **WHEN** tracked source delegates, captures, or reflects on a classified
+  low-level database module
+- **THEN** the source gate MUST reject the construct instead of resolving it or
+  permitting it as an approved low-level occurrence
+
+#### Scenario: Alias or import produces a low-level call
+
+- **WHEN** an inert alias or import declaration later compiles into a direct
+  dependency on a classified database module
+- **THEN** the compiled audit MUST report the dependency and it MUST remain
+  unapprovable until the call is expressed as an explicit source occurrence
 
 #### Scenario: Compiled metadata is unavailable
 

@@ -58,9 +58,11 @@ The source scanner parses every tracked Elixir source and recognizes direct or
 fully qualified calls to `OfficeGraph.Repo`, Ecto SQL and migration APIs,
 Postgrex, DBConnection, Ecto.Multi, query fragments, SQL-bearing Ecto and
 AshPostgres DSL settings, and migration raw-SQL constructs. SQL-like tracked
-files are exact whole-file raw-SQL occurrences. Aliases, imports, delegates,
-captures, or reflection that target a low-level database module are rejected as
-unsupported indirection rather than followed through source dataflow.
+files are exact whole-file raw-SQL occurrences. Delegates, captures, or
+reflection that explicitly target a low-level database module are rejected as
+unsupported indirection rather than followed through source dataflow. Alias or
+import declarations are inert; if they produce a low-level call, the compiled
+audit reports that call and it cannot match an explicit source occurrence.
 
 Tracked executable scripts use one language-neutral forbidden-token gate. A
 PostgreSQL client token in an executable script is rejected without deciding
@@ -68,7 +70,7 @@ whether shell quoting, a heredoc, JavaScript chaining, Python lists, or another
 language construct would execute it. The policy intentionally accepts this
 conservative source restriction to avoid maintaining language parsers.
 
-The scanner does not follow aliases, variables, helper return values,
+The scanner does not follow aliases, imports, variables, helper return values,
 callbacks, containers, process messages, or dynamic module construction. An
 approved low-level call must therefore use the explicit source form the gate
 can fingerprint. A direct call with a nonliteral SQL payload is still detected
