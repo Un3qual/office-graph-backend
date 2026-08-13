@@ -12,6 +12,10 @@
       requires: [
         Path.join(
           __DIR__,
+          "credo_checks/office_graph/project_boundaries/database_dependency_audit.ex"
+        ),
+        Path.join(
+          __DIR__,
           "credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex"
         ),
         Path.join(

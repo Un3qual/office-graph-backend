@@ -154,6 +154,17 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
     )
   end
 
+  defp issue_for(%{kind: :compiled_reference} = diagnostic, root, params) do
+    format_boundary_issue(
+      root,
+      diagnostic.path,
+      params,
+      "compiled database boundary: #{diagnostic.construct} (#{diagnostic.class}) has no " <>
+        "matching approved source occurrence",
+      diagnostic.line
+    )
+  end
+
   defp issue_for(%{kind: :new} = diagnostic, root, params) do
     format_boundary_issue(
       root,

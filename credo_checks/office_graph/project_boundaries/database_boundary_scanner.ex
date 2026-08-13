@@ -1,126 +1,19 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @moduledoc """
-  Finds repository-owned database access that must be removed or explicitly
-  approved.
+  Finds explicit low-level database primitives without interpreting project code.
 
-  The scanner parses Elixir syntax and returns deterministic occurrence
-  fingerprints. It does not execute source files or write inventories.
+  Project source and pinned dependencies are trusted to participate in static
+  governance. This scanner records direct source evidence; it does not treat
+  generic runtime execution as database access or expand dataflow, callbacks,
+  helper bodies, SQL bodies, or macro output.
   """
 
-  @spec scan_sources([%{required(:path) => String.t(), required(:source) => String.t()}]) ::
-          [map()]
-  def scan_sources(sources) do
-    file_sources =
-      Map.new(sources, fn %{path: path, source: source} ->
-        {normalize_source_path(path), source}
-      end)
-
-    scan_sources(sources, fn path ->
-      with {:ok, path} <- normalize_execute_file_path(path),
-           false <- excluded_path?(path),
-           {:ok, source} <- Map.fetch(file_sources, path) do
-        {:ok, source}
-      else
-        _unavailable -> :error
-      end
-    end)
-  end
-
-  defp scan_sources(sources, file_resolver) do
-    sources = Enum.filter(sources, &eligible_source?/1)
-    remote_functions = collect_remote_functions(sources)
-
-    sources
-    |> Enum.flat_map(&scan_source(&1, remote_functions))
-    |> resolve_execute_file_occurrences(file_resolver)
-    |> Enum.sort_by(&{&1.path, &1.line, &1.construct})
-    |> add_ordinals_and_fingerprints()
-  end
-
-  @spec scan_repository(Path.t()) :: [map()]
-  def scan_repository(root \\ File.cwd!()) do
-    case System.cmd("git", ["ls-files", "-z"], cd: root, stderr_to_stdout: true) do
-      {tracked_files, 0} ->
-        tracked_paths = String.split(tracked_files, "\0", trim: true)
-        tracked_path_set = MapSet.new(tracked_paths, &normalize_source_path/1)
-
-        sources =
-          tracked_paths
-          |> Enum.filter(&eligible_path?/1)
-          |> Enum.flat_map(fn path ->
-            full_path = Path.join(root, path)
-
-            case File.read(full_path) do
-              {:ok, source} ->
-                [%{path: path, source: source}]
-
-              {:error, :enoent} ->
-                []
-
-              {:error, reason} ->
-                raise File.Error, reason: reason, action: "read file", path: full_path
-            end
-          end)
-
-        scan_sources(sources, fn path ->
-          with {:ok, path} <- normalize_execute_file_path(path),
-               false <- excluded_path?(path),
-               true <- MapSet.member?(tracked_path_set, path) do
-            full_path = Path.join(root, path)
-
-            case File.read(full_path) do
-              {:ok, source} ->
-                {:ok, source}
-
-              {:error, :enoent} ->
-                :error
-
-              {:error, reason} ->
-                raise File.Error, reason: reason, action: "read file", path: full_path
-            end
-          else
-            _unavailable -> :error
-          end
-        end)
-
-      {error, status} ->
-        raise "git ls-files failed with status #{status}: #{String.trim(error)}"
-    end
-  end
-
-  defp scan_source(%{path: path, source: source}, remote_functions) when is_binary(source) do
-    if Path.extname(path) == ".sql" do
-      if String.trim(source) == "" do
-        []
-      else
-        [occurrence(path, 1, nil, :raw_sql, "sql_file", String.trim(source))]
-      end
-    else
-      scan_elixir_source(path, source, remote_functions)
-    end
-  end
-
-  defp scan_elixir_source(path, source, remote_functions) do
-    migration? = migration_path?(path)
-    ast = Code.string_to_quoted!(source, file: path, columns: true)
-
-    context = %{
-      function: nil,
-      local_call_stack: MapSet.new(),
-      migration?: migration?,
-      path: path,
-      query_dsl?: false
-    }
-
-    environment = %{empty_environment() | remote_functions: remote_functions}
-    {_environment, occurrences} = scan_node(ast, environment, context, [])
-    Enum.reverse(occurrences)
-  end
-
-  @direct_repo_operations [
+  @repo_raw_sql_operations [:query, :query!, :query_many, :query_many!]
+  @repo_direct_operations [
     :aggregate,
     :all,
     :all_by,
+    :checked_out?,
     :checkout,
     :delete,
     :delete!,
@@ -130,234 +23,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :get!,
     :get_by,
     :get_by!,
+    :get_dynamic_repo,
+    :in_transaction?,
     :insert,
     :insert!,
     :insert_all,
-    :insert_or_update,
-    :insert_or_update!,
     :one,
     :one!,
     :preload,
     :preload!,
+    :put_dynamic_repo,
     :reload,
     :reload!,
     :rollback,
+    :start_link,
+    :stop,
     :stream,
-    :transact,
     :transaction,
+    :transact,
     :update,
     :update!,
     :update_all
   ]
-
-  @direct_multi_operations [
-    :all,
-    :append,
-    :delete,
-    :delete_all,
-    :error,
-    :exists?,
-    :insert,
-    :insert_all,
-    :insert_or_update,
-    :merge,
-    :one,
-    :prepend,
-    :put,
-    :run,
-    :update,
-    :update_all
-  ]
-
-  @database_alias_targets [
-    "DBConnection",
-    "Ecto.Adapters.SQL",
-    "Ecto.Migration",
-    "Ecto.Multi",
-    "Ecto.Query",
-    "Ecto.Query.API",
-    "OfficeGraph.Repo",
-    "Postgrex"
-  ]
-
-  @ecto_fragment_import_targets ["Ecto.Migration", "Ecto.Query", "Ecto.Query.API"]
-  @fragment_sql_shape_helpers [:constant, :identifier, :splice]
-  @ecto_migration_use_fixed_imports MapSet.new(
-                                      execute: 1,
-                                      execute: 2,
-                                      execute_file: 1,
-                                      execute_file: 2,
-                                      insert: 2,
-                                      insert: 3,
-                                      repo: 0
-                                    )
-
-  @migration_repo_receiver "Ecto.Migration.repo()"
-  @migration_create_operations [:create, :create_if_not_exists]
-  @migration_sql_option_constructs [:constraint, :index, :table, :unique_index]
-  @kernel_value_callback_operations [:tap, :then]
-  @repo_supplied_callback_operations [:transact, :transaction]
-  @list_fold_operations [:foldl, :foldr]
-  @database_receiver_state_ingress %{
-    "Agent" => %{
-      {:start, 1} => {:callback_result, 0},
-      {:start, 2} => {:callback_result, 0},
-      {:start_link, 1} => {:callback_result, 0},
-      {:start_link, 2} => {:callback_result, 0}
-    },
-    "GenServer" => %{
-      {:start, 2} => {:argument, 1},
-      {:start, 3} => {:argument, 1},
-      {:start_link, 2} => {:argument, 1},
-      {:start_link, 3} => {:argument, 1}
-    }
-  }
-  @ets_receiver_storage_payload_indexes %{
-    insert: [1],
-    insert_new: [1],
-    select_replace: [1],
-    update_counter: [3],
-    update_element: [2, 3]
-  }
-  @database_receiver_storage_payload_indexes %{
-    "Application" => %{put_all_env: [0], put_env: [2]},
-    "Process" => %{put: [1]},
-    "ets" => @ets_receiver_storage_payload_indexes,
-    "persistent_term" => %{put: [1]}
-  }
-  @map_database_receiver_callback_input_indexes %{
-    {:filter, 2} => [0],
-    {:get_and_update, 3} => [0],
-    {:get_and_update!, 3} => [0],
-    {:intersect, 3} => [0, 1],
-    {:map, 2} => [0],
-    {:merge, 3} => [0, 1],
-    {:new, 2} => [0],
-    {:reject, 2} => [0],
-    {:replace_lazy, 3} => [0],
-    {:split_with, 2} => [0],
-    {:update, 4} => [0],
-    {:update!, 3} => [0]
-  }
-
-  @enum_unary_element_callback_operations [
-    :all?,
-    :any?,
-    :chunk_by,
-    :count,
-    :count_until,
-    :dedup_by,
-    :drop_while,
-    :each,
-    :filter,
-    :find,
-    :find_index,
-    :find_value,
-    :flat_map,
-    :frequencies_by,
-    :group_by,
-    :into,
-    :map,
-    :map_every,
-    :map_intersperse,
-    :map_join,
-    :max_by,
-    :min_by,
-    :min_max_by,
-    :product_by,
-    :reject,
-    :sort_by,
-    :split_while,
-    :split_with,
-    :sum_by,
-    :take_while,
-    :uniq_by
-  ]
-
-  @enum_element_first_callback_operations [
-    :flat_map_reduce,
-    :map_reduce,
-    :reduce,
-    :reduce_while,
-    :scan
-  ]
-
-  @enum_second_argument_unary_callback_operations [
-    :all?,
-    :any?,
-    :chunk_by,
-    :count,
-    :dedup_by,
-    :drop_while,
-    :each,
-    :filter,
-    :find,
-    :find_index,
-    :find_value,
-    :flat_map,
-    :frequencies_by,
-    :group_by,
-    :map,
-    :map_join,
-    :max_by,
-    :min_by,
-    :min_max_by,
-    :product_by,
-    :reject,
-    :sort_by,
-    :split_while,
-    :split_with,
-    :sum_by,
-    :take_while,
-    :uniq_by
-  ]
-
-  @enum_third_argument_unary_callback_operations [
-    :find,
-    :find_value,
-    :into,
-    :map_every,
-    :map_intersperse,
-    :map_join
-  ]
-
-  @enum_callback_operations Enum.uniq(
-                              @enum_unary_element_callback_operations ++
-                                @enum_element_first_callback_operations
-                            )
-  @stream_second_argument_unary_callback_operations [
-    :chunk_by,
-    :dedup_by,
-    :drop_while,
-    :each,
-    :filter,
-    :flat_map,
-    :map,
-    :reject,
-    :take_while,
-    :uniq_by
-  ]
-  @stream_third_argument_unary_callback_operations [:map_every]
-  @stream_unary_element_callback_operations Enum.uniq(
-                                              @stream_second_argument_unary_callback_operations ++
-                                                @stream_third_argument_unary_callback_operations
-                                            )
-  @task_stream_operations [:async_stream, :async_stream_nolink]
-  @repo_raw_sql_operations [:query, :query!, :query_many, :query_many!]
+  @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
   @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
-  @ecto_sql_raw_sql_operations [:query, :query!, :query_many, :query_many!, :stream]
-
-  @db_connection_raw_sql_operations [
-    :execute,
-    :execute!,
-    :prepare,
-    :prepare!,
-    :prepare_execute,
-    :prepare_execute!,
-    :prepare_stream,
-    :stream
-  ]
-
   @postgrex_raw_sql_operations [
     :execute,
     :execute!,
@@ -369,5526 +58,951 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :query!,
     :stream
   ]
+  @postgrex_direct_operations [:close, :close!, :rollback, :start_link, :transaction]
+  @db_connection_raw_sql_operations [
+    :execute,
+    :execute!,
+    :prepare,
+    :prepare!,
+    :prepare_execute,
+    :prepare_execute!,
+    :prepare_stream,
+    :stream
+  ]
+  @db_connection_direct_operations [
+    :close,
+    :close!,
+    :disconnect_all,
+    :rollback,
+    :run,
+    :start_link,
+    :transaction
+  ]
+  @ecto_migrator_operations [:down, :run, :up, :with_repo]
+  @multi_operations [
+    :all,
+    :delete,
+    :delete_all,
+    :exists?,
+    :insert,
+    :insert_all,
+    :merge,
+    :one,
+    :run,
+    :update,
+    :update_all
+  ]
+  @query_fragment_operations [:fragment, :unsafe_fragment]
+  @migration_raw_sql_operations [:execute, :execute_file]
+  @migration_direct_operations [:insert]
+  @migration_control_flow [:case, :cond, :if, :receive, :try, :with]
+  @syntax_operations [
+    :%,
+    :%{},
+    :&,
+    :.,
+    :<<>>,
+    :<>,
+    :<-,
+    :=,
+    :@,
+    :__aliases__,
+    :__block__,
+    :{},
+    :fn,
+    :when,
+    :|
+  ]
+  @allowed_migration_locals [
+    :add,
+    :add_if_not_exists,
+    :alter,
+    :constraint,
+    :create,
+    :create_if_not_exists,
+    :drop,
+    :drop_if_exists,
+    :execute,
+    :execute_file,
+    :flush,
+    :fragment,
+    :index,
+    :modify,
+    :references,
+    :remove,
+    :remove_if_exists,
+    :rename,
+    :table,
+    :unique_index
+  ]
+  @database_modules [
+    "DBConnection",
+    "Ecto.Adapters.SQL",
+    "Ecto.Migration",
+    "Ecto.Migrator",
+    "Ecto.Multi",
+    "Ecto.Query",
+    "Ecto.Query.API",
+    "OfficeGraph.Repo",
+    "Postgrex",
+    "Postgrex.Notifications",
+    "Postgrex.SimpleConnection"
+  ]
+  @sql_file_pattern ~r/\.(?:pgsql|psql|sql)(?:\.(?:eex|heex|leex))?\z/i
 
-  defp scan_node({:__block__, _metadata, expressions}, environment, context, occurrences) do
-    scan_sequence(expressions, environment, context, occurrences)
+  @preserved_fingerprints %{
+    {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
+      %{
+        fingerprint: "sha256:1c00daebdd2b1e43f8c59ea6a36b5a9606bf15f2292cd69cfa6c02b974e0717b",
+        payload: ~S|fragment("uuidv7()")|
+      },
+    {"priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs", 340,
+     "raw_sql", "fragment", "up/0", 1} => %{
+      fingerprint: "sha256:3fbfef45542e6568ac392c69d0849a575ae68dc51670f05002e2bb1abfc124f8",
+      payload: ~S|fragment("uuidv7()")|
+    }
+  }
+  @approved_uuidv7_migration_hashes %{
+    "priv/repo/migrations/20260729233957_initial.exs" =>
+      "9bc5e6aee67201982320a35c4a985fdc12dbfa03695117035fb244020a203233",
+    "priv/repo/migrations/20260730005539_integrate_workos_enterprise_identity.exs" =>
+      "cec2b703b975559c23619f5529b158f10de899216562cb3e716c4af0b3586b76"
+  }
+
+  @spec scan_repository(Path.t()) :: [map()]
+  def scan_repository(root \\ File.cwd!()) do
+    root
+    |> tracked_sources()
+    |> scan_sources(root: root)
   end
 
-  defp scan_node({:|>, _metadata, _arguments} = pipeline, environment, context, occurrences) do
-    pipeline
-    |> expand_pipeline()
-    |> scan_node(environment, context, occurrences)
+  @spec scan_sources([map()], keyword()) :: [map()]
+  def scan_sources(sources, opts \\ []) do
+    root = Keyword.get(opts, :root, File.cwd!())
+
+    sources
+    |> Enum.flat_map(&scan_source(&1, root))
+    |> assign_ordinals()
   end
 
-  defp scan_node(
-         {operator, _metadata, [left, right]},
-         environment,
-         context,
-         occurrences
-       )
-       when operator in [:&&, :and, :||, :or] do
-    {left_environment, occurrences} = scan_node(left, environment, context, occurrences)
-    {_right_environment, occurrences} = scan_node(right, left_environment, context, occurrences)
-
-    {left_environment, occurrences}
-  end
-
-  defp scan_node(
-         {:send, _metadata, [target, message]} = node,
-         environment,
-         context,
-         occurrences
-       ) do
-    if kernel_local_call?(:send, 2, environment) do
-      scan_self_send(node, target, message, environment, context, occurrences)
-    else
-      if local_database_helper_call?(:send, [target, message], environment) do
-        scan_invoked_local_database_helper(
-          :send,
-          [target, message],
-          environment,
-          context,
-          occurrences
-        )
-      else
-        scan_executable_node(node, environment, context, occurrences)
-      end
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, :send]}, _metadata, [target, message]} = node,
-         environment,
-         context,
-         occurrences
-       ) do
-    if kernel_module_receiver?(receiver, environment) do
-      scan_self_send(node, target, message, environment, context, occurrences)
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {operation, _metadata, [value, callback]} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @kernel_value_callback_operations do
-    with true <- kernel_value_callback_call?(operation, environment),
-         {:ok, callback} <- normalize_literal_callback(callback, environment) do
-      scan_invoked_literal_callback(callback, [value], environment, context, occurrences)
-    else
-      _not_literal_kernel_callback ->
-        scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, [value, callback]} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @kernel_value_callback_operations do
-    with true <- kernel_module_receiver?(receiver, environment),
-         {:ok, callback} <- normalize_literal_callback(callback, environment) do
-      scan_invoked_literal_callback(callback, [value], environment, context, occurrences)
-    else
-      _not_literal_kernel_callback ->
-        scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [callback]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when is_list(arguments) do
-    case normalize_literal_callback(callback, environment) do
-      {:ok, callback} ->
-        scan_invoked_literal_callback(callback, arguments, environment, context, occurrences)
-
-      :error ->
-        scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @task_stream_operations and is_list(arguments) do
-    case task_stream_callback_positions(receiver, operation, arguments, environment) do
-      {:ok, enumerable_index, callback_index} ->
-        scan_static_element_callback(
-          node,
-          arguments,
-          enumerable_index,
-          callback_index,
-          environment,
-          context,
-          occurrences
-        )
-
-      :error ->
-        scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation == :zip_with and is_list(arguments) do
-    if enum_module_receiver?(receiver, environment) do
-      scan_enum_zip_with_callbacks(
-        node,
-        arguments,
-        environment,
-        context,
-        occurrences
-      )
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation == :sort_by and length(arguments) == 3 do
-    if enum_module_receiver?(receiver, environment) do
-      scan_enum_sort_by_callbacks(
-        node,
-        arguments,
-        environment,
-        context,
-        occurrences
-      )
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @list_fold_operations and length(arguments) == 3 do
-    if list_module_receiver?(receiver, environment) do
-      scan_literal_collection_callbacks(
-        node,
-        :reduce,
-        arguments,
-        environment,
-        context,
-        occurrences
-      )
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @enum_callback_operations and is_list(arguments) do
-    if enum_module_receiver?(receiver, environment) do
-      scan_literal_collection_callbacks(
-        node,
-        operation,
-        arguments,
-        environment,
-        context,
-        occurrences
-      )
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, :run]}, _metadata, [stream]} = node,
-         environment,
-         context,
-         occurrences
-       ) do
-    if stream_module_receiver?(receiver, environment) do
-      case scan_consumed_stream(stream, environment, context, occurrences) do
-        {:ok, environment, occurrences} -> {environment, occurrences}
-        :error -> scan_executable_node(node, environment, context, occurrences)
-      end
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @repo_supplied_callback_operations and is_list(arguments) do
-    callback = List.first(arguments)
-
-    with {:ok, callback} <- normalize_literal_callback(callback, environment),
-         1 <- literal_callback_arity(callback),
-         {:ok, callback_receiver} <-
-           static_repo_callback_receiver(receiver, environment, context.migration?) do
-      scan_database_callback_call(
-        node,
-        receiver,
-        arguments,
-        0,
-        callback,
-        [callback_receiver],
-        environment,
-        context,
-        occurrences
-      )
-    else
-      _unsupported_callback -> scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, :run]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when length(arguments) == 3 do
-    callback = Enum.at(arguments, 2)
-
-    with true <- ecto_multi_receiver?(receiver, environment),
-         {:ok, callback} <- normalize_literal_callback(callback, environment),
-         2 <- literal_callback_arity(callback) do
-      scan_database_callback_call(
-        node,
-        receiver,
-        arguments,
-        2,
-        callback,
-        [generic_repo_receiver(), {:__unresolved_multi_changes__, [], []}],
-        environment,
-        context,
-        occurrences
-      )
-    else
-      _unsupported_callback -> scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node({:defmodule, _metadata, arguments}, environment, context, occurrences) do
-    case block_body(arguments) do
-      nil ->
-        {environment, occurrences}
-
-      body ->
-        child_context = %{context | function: nil}
-
-        child_environment = %{
-          environment
-          | attributes: %{},
-            attribute_modes: %{},
-            uncertain_attribute_registration?: false,
-            local_functions: %{}
-        }
-
-        child_environment = %{
-          child_environment
-          | local_functions: collect_local_functions(body, child_environment)
-        }
-
-        {_child_environment, occurrences} =
-          scan_node(body, child_environment, child_context, occurrences)
-
-        {environment, occurrences}
-    end
-  end
-
-  defp scan_node({:quote, _metadata, arguments}, environment, context, occurrences)
-       when is_list(arguments) do
-    options = local_quote_options(arguments)
-
-    {environment, occurrences} =
-      options
-      |> Keyword.get(:bind_quoted)
-      |> scan_quote_bindings(environment, context, occurrences)
-
-    if local_quote_unquotes?(options) do
-      options
-      |> Keyword.get(:do)
-      |> scan_quote_unquotes(environment, context, occurrences)
-    else
-      {environment, occurrences}
-    end
-  end
-
-  defp scan_node(
-         {:defdelegate, metadata, [head, options]} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when is_list(options) do
-    with {name, parameters} <- function_name_and_parameters(head),
-         target when not is_nil(target) <- Keyword.get(options, :to),
-         operation when is_atom(operation) <- Keyword.get(options, :as, name) do
-      delegated_call = {{:., [], [target, operation]}, metadata, parameters}
-      child_context = %{context | function: "#{name}/#{length(parameters)}"}
-      child_environment = %{environment | bindings: %{}}
-
-      {_child_environment, occurrences} =
-        scan_node(delegated_call, child_environment, child_context, occurrences)
-
-      {environment, occurrences}
-    else
-      _unsupported_delegate -> scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node({kind, _metadata, [head, body_options]}, environment, context, occurrences)
-       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) do
-    occurrences =
-      head
-      |> function_variants()
-      |> Enum.reduce(occurrences, fn variant, occurrences ->
-        child_context = %{context | function: variant.signature}
-        child_environment = %{environment | bindings: %{}}
-
-        child_environment = %{child_environment | self_messages: []}
-
-        {child_environment, occurrences} =
-          scan_function_defaults(
-            variant.parameters,
-            variant.omitted_indexes,
-            child_environment,
-            child_context,
-            occurrences
-          )
-
-        {_child_environment, occurrences} =
-          scan_children(body_options, child_environment, child_context, occurrences)
-
-        if kind == :defmacro do
-          definition = %{body: Keyword.get(body_options, :do), kind: :macro}
-
-          {expanded_body, expanded_environment} =
-            expand_local_definition(definition, child_environment)
-
-          {_expanded_environment, occurrences} =
-            scan_node(expanded_body, expanded_environment, child_context, occurrences)
-
-          occurrences
-        else
-          occurrences
-        end
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node({:case, _metadata, [value, options]}, environment, context, occurrences)
-       when is_list(options) do
-    {value_environment, occurrences} = scan_node(value, environment, context, occurrences)
-
-    resolved_value =
-      value
-      |> resolve_attributes(value_environment)
-      |> resolve_bindings(value_environment)
-      |> resolve_struct_aliases(value_environment)
-
-    occurrences =
-      options
-      |> Keyword.get(:do, [])
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_pattern_clause(
-          clause,
-          value_environment,
-          context,
-          occurrences,
-          resolved_value
-        )
-      end)
-
-    {value_environment, occurrences}
-  end
-
-  defp scan_node({:fn, _metadata, clauses}, environment, context, occurrences) do
-    occurrences =
-      Enum.reduce(clauses, occurrences, fn clause, occurrences ->
-        scan_pattern_clause(clause, environment, context, occurrences)
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node({:cond, _metadata, [options]}, environment, context, occurrences)
-       when is_list(options) do
-    occurrences =
-      options
-      |> Keyword.get(:do, [])
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_condition_clause(clause, environment, context, occurrences)
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node({:receive, _metadata, [options]}, environment, context, occurrences)
-       when is_list(options) do
-    {environment, occurrences} =
-      scan_receive_clauses(
-        Keyword.get(options, :do, []),
-        environment,
-        context,
-        occurrences
-      )
-
-    occurrences =
-      options
-      |> Keyword.get(:after, [])
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_condition_clause(clause, environment, context, occurrences)
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node(
-         {branch, _metadata, [condition, options]} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when branch in [:if, :unless] and is_list(options) do
-    if kernel_branch_macro_call?(branch, environment) and Keyword.keyword?(options) do
-      scan_kernel_branch(condition, options, environment, context, occurrences)
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, branch]}, _metadata, [condition, options]} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when branch in [:if, :unless] and is_list(options) do
-    if kernel_module_receiver?(receiver, environment) and Keyword.keyword?(options) do
-      scan_kernel_branch(condition, options, environment, context, occurrences)
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node({:for, _metadata, arguments}, environment, context, occurrences)
-       when is_list(arguments) do
-    {qualifiers, options} = split_qualifiers_and_options(arguments)
-
-    {child_environments, occurrences} =
-      scan_for_qualifiers(qualifiers, environment, context, occurrences)
-
-    {_options_environment, occurrences} =
-      options
-      |> Keyword.delete(:do)
-      |> Keyword.values()
-      |> scan_isolated_children(environment, context, occurrences)
-
-    occurrences =
-      Enum.reduce(child_environments, occurrences, fn child_environment, occurrences ->
-        {_body_environment, occurrences} =
-          scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
-
-        occurrences
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node({:with, _metadata, arguments}, environment, context, occurrences)
-       when is_list(arguments) do
-    {qualifiers, options} = split_qualifiers_and_options(arguments)
-
-    {child_environment, failure_candidates, occurrences} =
-      scan_generator_qualifiers(qualifiers, environment, context, occurrences, :match)
-
-    {_body_environment, occurrences} =
-      scan_node(Keyword.get(options, :do), child_environment, context, occurrences)
-
-    else_clauses = Keyword.get(options, :else, [])
-
-    failure_candidates =
-      case failure_candidates do
-        [] -> [:unknown]
-        candidates -> Enum.uniq(candidates)
-      end
-
-    occurrences =
-      Enum.reduce(failure_candidates, occurrences, fn
-        {:known, failed_value}, occurrences ->
-          Enum.reduce(else_clauses, occurrences, fn clause, occurrences ->
-            scan_pattern_clause(
-              clause,
-              environment,
-              context,
-              occurrences,
-              failed_value
-            )
-          end)
-
-        :unknown, occurrences ->
-          Enum.reduce(else_clauses, occurrences, fn clause, occurrences ->
-            scan_pattern_clause(clause, environment, context, occurrences)
-          end)
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node({:try, _metadata, [options]}, environment, context, occurrences)
-       when is_list(options) do
-    body = Keyword.get(options, :do)
-    {body_environment, occurrences} = scan_node(body, environment, context, occurrences)
-
-    result = body |> callback_argument_result() |> resolve_static_expression(body_environment)
-
-    occurrences =
-      options
-      |> Keyword.get(:else, [])
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_pattern_clause(clause, environment, context, occurrences, result)
-      end)
-
-    occurrences =
-      [:rescue, :catch]
-      |> Enum.flat_map(&Keyword.get(options, &1, []))
-      |> Enum.reduce(occurrences, fn clause, occurrences ->
-        scan_pattern_clause(clause, environment, context, occurrences)
-      end)
-
-    {_after_environment, occurrences} =
-      scan_node(Keyword.get(options, :after), environment, context, occurrences)
-
-    {environment, occurrences}
-  end
-
-  defp scan_node({:->, _metadata, [patterns, _body]} = clause, environment, context, occurrences)
-       when is_list(patterns) do
-    {environment, scan_pattern_clause(clause, environment, context, occurrences)}
-  end
-
-  defp scan_node(
-         {:@, _metadata, [{name, _name_metadata, [value]}]},
-         environment,
-         context,
-         occurrences
-       )
-       when is_atom(name) do
-    {value_environment, occurrences} =
-      scan_node(value, environment, context, occurrences)
-
-    resolved_value =
-      value
-      |> callback_argument_result()
-      |> resolve_static_expression(value_environment)
-
-    {put_module_attribute_value(value_environment, name, resolved_value), occurrences}
-  end
-
-  defp scan_node(
-         {:@, _metadata, [{name, _name_metadata, nil}]},
-         environment,
-         _context,
-         occurrences
-       )
-       when is_atom(name),
-       do: {environment, occurrences}
-
-  defp scan_node({:alias, metadata, arguments}, environment, _context, occurrences) do
-    {put_aliases(environment, metadata, arguments), occurrences}
-  end
-
-  defp scan_node({:import, metadata, arguments}, environment, _context, occurrences) do
-    {put_import(environment, metadata, arguments), occurrences}
-  end
-
-  defp scan_node({:use, _metadata, arguments} = node, environment, context, occurrences) do
-    {_child_environment, occurrences} =
-      scan_children(node, environment, context, occurrences)
-
-    {put_use_import(environment, arguments), occurrences}
-  end
-
-  defp scan_node(
-         {{:., _dot_metadata, [receiver, :register_attribute]}, _metadata, arguments} = node,
-         environment,
-         context,
-         occurrences
-       )
-       when length(arguments) in [2, 3] do
-    if module_attribute_registration?(receiver, arguments, environment) do
-      {_child_environment, occurrences} =
-        scan_children(node, environment, context, occurrences)
-
-      {register_module_attribute(environment, arguments), occurrences}
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node({:=, _metadata, [pattern, value]}, environment, context, occurrences) do
-    {environment, occurrences} = scan_node(value, environment, context, occurrences)
-
-    resolved_pattern = resolve_struct_aliases(pattern, environment)
-
-    resolved_value =
-      value
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
-      |> resolve_struct_aliases(environment)
-
-    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
-
-    {%{environment | bindings: bindings}, occurrences}
-  end
-
-  defp scan_node({name, _metadata, arguments} = node, environment, context, occurrences)
-       when is_atom(name) and is_list(arguments) do
-    if local_database_helper_call?(name, arguments, environment) do
-      scan_invoked_local_database_helper(
-        name,
-        arguments,
-        environment,
-        context,
-        occurrences
-      )
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_node(node, environment, context, occurrences) do
-    scan_executable_node(node, environment, context, occurrences)
-  end
-
-  defp scan_kernel_branch(condition, options, environment, context, occurrences) do
-    {condition_environment, occurrences} =
-      scan_node(condition, environment, context, occurrences)
-
-    occurrences =
-      options
-      |> Keyword.take([:do, :else])
-      |> Keyword.values()
-      |> Enum.reduce(occurrences, fn body, occurrences ->
-        {_body_environment, occurrences} =
-          scan_node(body, condition_environment, context, occurrences)
-
-        occurrences
-      end)
-
-    {condition_environment, occurrences}
-  end
-
-  defp scan_quote_bindings(bindings, environment, context, occurrences)
-       when is_list(bindings) do
-    Enum.reduce(bindings, {environment, occurrences}, fn
-      {_name, expression}, {environment, occurrences} ->
-        scan_node(expression, environment, context, occurrences)
-
-      _invalid_binding, accumulator ->
-        accumulator
-    end)
-  end
-
-  defp scan_quote_bindings(_bindings, environment, _context, occurrences),
-    do: {environment, occurrences}
-
-  defp scan_quote_unquotes({:quote, _metadata, _arguments}, environment, _context, occurrences),
-    do: {environment, occurrences}
-
-  defp scan_quote_unquotes(
-         {operation, _metadata, [expression]},
-         environment,
-         context,
-         occurrences
-       )
-       when operation in [:unquote, :unquote_splicing],
-       do: scan_node(expression, environment, context, occurrences)
-
-  defp scan_quote_unquotes(nodes, environment, context, occurrences) when is_list(nodes) do
-    Enum.reduce(nodes, {environment, occurrences}, fn node, {environment, occurrences} ->
-      scan_quote_unquotes(node, environment, context, occurrences)
-    end)
-  end
-
-  defp scan_quote_unquotes(node, environment, context, occurrences) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> scan_quote_unquotes(environment, context, occurrences)
-  end
-
-  defp scan_quote_unquotes(_node, environment, _context, occurrences),
-    do: {environment, occurrences}
-
-  defp scan_executable_node(node, environment, context, occurrences) do
-    occurrences = record_executable_occurrence(node, environment, context, occurrences)
-    scan_classified_children(node, environment, context, occurrences)
-  end
-
-  defp record_executable_occurrence(node, environment, context, occurrences) do
-    resolved_node = resolve_attributes(node, environment)
-
-    fingerprint_node =
-      resolved_node
-      |> resolve_bindings(environment)
-      |> resolve_struct_aliases(environment)
-
-    classification_node = normalize_static_apply(fingerprint_node, environment)
-
-    occurrence_node =
-      normalized_occurrence_node(classification_node, fingerprint_node, environment)
-
-    occurrences =
-      classify_query_sql_options(classification_node, environment, context, occurrences)
-
-    occurrences =
-      classify_migration_sql_options(classification_node, environment, context, occurrences)
-
-    occurrences =
-      case classify_node(classification_node, context, environment) do
-        nil ->
-          occurrences
-
-        {class, construct} ->
-          [
-            occurrence(
-              context.path,
-              node_line(node),
-              context.function,
-              class,
-              construct,
-              occurrence_node
-            )
-            |> mark_sql_approval(class, construct, classification_node, environment)
-            | occurrences
-          ]
-      end
-
-    occurrences
-  end
-
-  defp scan_database_callback_call(
-         node,
-         receiver,
-         arguments,
-         callback_index,
-         callback,
-         callback_arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    occurrences = record_executable_occurrence(node, environment, context, occurrences)
-    {environment, occurrences} = scan_node(receiver, environment, context, occurrences)
-
-    {environment, occurrences} =
-      arguments
-      |> Enum.with_index()
-      |> Enum.reduce({environment, occurrences}, fn
-        {_callback, ^callback_index}, accumulator ->
-          accumulator
-
-        {argument, _index}, {environment, occurrences} ->
-          scan_node(argument, environment, context, occurrences)
-      end)
-
-    {_callback_environment, occurrences} =
-      scan_invoked_literal_callback(
-        callback,
-        callback_arguments,
-        environment,
-        context,
-        occurrences
-      )
-
-    {environment, occurrences}
-  end
-
-  defp scan_self_send(node, target, message, environment, context, occurrences) do
-    occurrences = record_executable_occurrence(node, environment, context, occurrences)
-
-    {[resolved_target, resolved_message], environment, occurrences} =
-      scan_invoked_callback_arguments(
-        [target, message],
-        environment,
-        context,
-        occurrences
-      )
-
-    environment =
-      if static_self_call?(resolved_target, environment) and
-           static_binding_source?(resolved_message) do
-        %{environment | self_messages: environment.self_messages ++ [resolved_message]}
-      else
-        environment
-      end
-
-    {environment, occurrences}
-  end
-
-  defp scan_receive_clauses(clauses, environment, context, occurrences)
-       when is_list(clauses) do
-    selected = static_receive_selection(clauses, environment)
-
-    occurrences =
-      clauses
-      |> Enum.with_index()
-      |> Enum.reduce(occurrences, fn {clause, clause_index}, occurrences ->
-        case selected do
-          %{clause_index: ^clause_index, message: message} ->
-            scan_pattern_clause(clause, environment, context, occurrences, message)
-
-          _unselected_clause ->
-            scan_pattern_clause(clause, environment, context, occurrences)
-        end
-      end)
-
-    environment =
-      case selected do
-        %{message_index: message_index} ->
-          %{environment | self_messages: List.delete_at(environment.self_messages, message_index)}
-
-        nil ->
-          environment
-      end
-
-    {environment, occurrences}
-  end
-
-  defp static_receive_selection(clauses, environment) do
-    environment.self_messages
-    |> Enum.with_index()
-    |> Enum.find_value(fn {message, message_index} ->
-      clauses
-      |> Enum.with_index()
-      |> Enum.find_value(fn
-        {{:->, _metadata, [parameters, _body]}, clause_index} when is_list(parameters) ->
-          {patterns, _guards} = clause_patterns_and_guards(parameters)
-          patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
-
-          if length(patterns) == 1 and static_pattern_match?(List.first(patterns), message) do
-            %{clause_index: clause_index, message: message, message_index: message_index}
-          end
-
-        {_invalid_clause, _clause_index} ->
-          nil
-      end)
-    end)
-  end
-
-  defp scan_static_element_callback(
-         node,
-         arguments,
-         enumerable_index,
-         callback_index,
-         environment,
-         context,
-         occurrences
-       ) do
-    callback = Enum.at(arguments, callback_index)
-
-    with {:ok, callback} <- normalize_literal_callback(callback, environment),
-         1 <- literal_callback_arity(callback) do
-      occurrences = record_executable_occurrence(node, environment, context, occurrences)
-
-      {resolved_arguments, environment, occurrences} =
-        arguments
-        |> Enum.with_index()
-        |> Enum.reduce({%{}, environment, occurrences}, fn
-          {_callback, ^callback_index}, accumulator ->
-            accumulator
-
-          {argument, index}, {resolved_arguments, environment, occurrences} ->
-            {argument_environment, occurrences} =
-              scan_node(argument, environment, context, occurrences)
-
-            resolved_argument = resolve_static_expression(argument, argument_environment)
-
-            {
-              Map.put(resolved_arguments, index, resolved_argument),
-              argument_environment,
-              occurrences
-            }
-        end)
-
-      callback_environment = %{environment | self_messages: []}
-
-      occurrences =
-        case resolved_arguments
-             |> Map.get(enumerable_index)
-             |> static_enum_callback_elements(environment) do
-          {:ok, elements} ->
-            Enum.reduce(Enum.uniq(elements), occurrences, fn element, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_invoked_literal_callback(
-                  callback,
-                  [element],
-                  callback_environment,
-                  context,
-                  occurrences
-                )
-
-              occurrences
-            end)
-
-          :error ->
-            {_callback_environment, occurrences} =
-              scan_node(callback, callback_environment, context, occurrences)
-
-            occurrences
-        end
-
-      {environment, occurrences}
-    else
-      _unsupported_callback -> scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp task_stream_callback_positions(receiver, operation, arguments, environment) do
-    case {receiver |> receiver_name() |> resolve_receiver(environment), operation,
-          length(arguments)} do
-      {"Task", :async_stream, arity} when arity in [2, 3] ->
-        {:ok, 0, 1}
-
-      {"Task.Supervisor", operation, arity}
-      when operation in @task_stream_operations and arity in [3, 4] ->
-        {:ok, 1, 2}
-
-      _unsupported_task_stream ->
-        :error
-    end
-  end
-
-  defp scan_consumed_stream(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
-         environment,
-         context,
-         occurrences
-       )
-       when operation in @stream_unary_element_callback_operations and is_list(arguments) do
-    with true <- stream_module_receiver?(receiver, environment),
-         callback_index when is_integer(callback_index) <-
-           stream_unary_element_callback_index(operation, arguments),
-         callback <- Enum.at(arguments, callback_index),
-         {:ok, callback} <- normalize_literal_callback(callback, environment),
-         1 <- literal_callback_arity(callback) do
-      {resolved_arguments, arguments_environment, occurrences} =
-        scan_invoked_callback_arguments(
-          List.delete_at(arguments, callback_index),
-          environment,
-          context,
-          occurrences
-        )
-
-      resolved_enumerable = List.first(resolved_arguments)
-
-      occurrences =
-        case static_enum_callback_elements(resolved_enumerable, arguments_environment) do
-          {:ok, elements} ->
-            Enum.reduce(Enum.uniq(elements), occurrences, fn element, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_invoked_literal_callback(
-                  callback,
-                  [element],
-                  arguments_environment,
-                  context,
-                  occurrences
-                )
-
-              occurrences
-            end)
-
-          :error ->
-            {_callback_environment, occurrences} =
-              scan_node(callback, arguments_environment, context, occurrences)
-
-            occurrences
-        end
-
-      {:ok, arguments_environment, occurrences}
-    else
-      _unsupported_stream -> :error
-    end
-  end
-
-  defp scan_consumed_stream(_stream, _environment, _context, _occurrences), do: :error
-
-  defp stream_unary_element_callback_index(operation, arguments) do
+  @spec scan_compiled(Path.t(), keyword()) :: [map()]
+  def scan_compiled(root \\ File.cwd!(), opts \\ []),
+    do: OfficeGraph.ProjectQuality.DatabaseDependencyAudit.scan(root, opts)
+
+  defp scan_source(%{path: path, source: source}, _root) do
     cond do
-      operation in @stream_second_argument_unary_callback_operations and length(arguments) == 2 ->
-        1
-
-      operation in @stream_third_argument_unary_callback_operations and length(arguments) == 3 ->
-        2
-
-      true ->
-        nil
-    end
-  end
-
-  defp expand_pipeline(pipeline) do
-    [{first, _position} | rest] = Macro.unpipe(pipeline)
-
-    Enum.reduce(rest, first, fn {call, position}, piped ->
-      Macro.pipe(piped, call, position)
-    end)
-  end
-
-  defp normalize_static_apply(
-         {:apply, metadata, [receiver, operation, arguments]} = node,
-         environment
-       ) do
-    imported_receiver = imported_receiver(environment, :apply, 3)
-
-    if Map.has_key?(environment.local_functions, {:apply, 3}) or
-         imported_receiver not in [nil, "Kernel"] do
-      node
-    else
-      static_applied_call(receiver, operation, arguments, metadata, node)
-    end
-  end
-
-  defp normalize_static_apply(
-         {{:., _dot_metadata, [apply_receiver, :apply]}, metadata,
-          [receiver, operation, arguments]} = node,
-         environment
-       ) do
-    if kernel_apply_receiver?(apply_receiver, environment),
-      do: static_applied_call(receiver, operation, arguments, metadata, node),
-      else: node
-  end
-
-  defp normalize_static_apply(node, _environment), do: node
-
-  defp normalized_occurrence_node(
-         {:unresolved_database_apply, _receiver, _operation, _arguments},
-         original_node,
-         _environment
-       ),
-       do: original_node
-
-  defp normalized_occurrence_node(
-         {{:., dot_metadata, [receiver, operation]}, metadata, arguments},
-         _original_node,
-         environment
-       )
-       when is_atom(operation) and is_list(arguments) do
-    receiver = normalized_occurrence_receiver(receiver, environment)
-    {{:., dot_metadata, [receiver, operation]}, metadata, arguments}
-  end
-
-  defp normalized_occurrence_node(normalized_node, _original_node, _environment),
-    do: normalized_node
-
-  defp normalized_occurrence_receiver(
-         {:__aliases__, metadata, parts} = receiver,
-         environment
-       )
-       when is_list(parts) do
-    if Enum.all?(parts, &is_atom/1) do
-      receiver_name = Enum.join(parts, ".")
-      resolved_receiver = resolve_receiver(receiver_name, environment)
-
-      if resolved_receiver == receiver_name do
-        receiver
-      else
-        resolved_parts =
-          resolved_receiver
-          |> String.split(".")
-          |> Enum.map(&String.to_existing_atom/1)
-
-        {:__aliases__, metadata, resolved_parts}
-      end
-    else
-      receiver
-    end
-  end
-
-  defp normalized_occurrence_receiver(receiver, _environment), do: receiver
-
-  defp static_applied_call(receiver, operation, arguments, metadata, _fallback)
-       when is_atom(operation) and is_list(arguments),
-       do: {{:., [], [receiver, operation]}, metadata, arguments}
-
-  defp static_applied_call(receiver, operation, arguments, _metadata, _fallback),
-    do: {:unresolved_database_apply, receiver, operation, arguments}
-
-  defp kernel_apply_receiver?(:erlang, _environment), do: true
-
-  defp kernel_apply_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
-  end
-
-  defp kernel_value_callback_call?(operation, environment) do
-    kernel_local_call?(operation, 2, environment)
-  end
-
-  defp kernel_local_call?(operation, arity, environment) do
-    not Map.has_key?(environment.local_functions, {operation, arity}) and
-      explicitly_imported_receiver(environment, operation, arity) in [nil, "Kernel"]
-  end
-
-  defp static_self_call?({:self, _metadata, arguments}, environment)
-       when arguments in [nil, []],
-       do: kernel_local_call?(:self, 0, environment)
-
-  defp static_self_call?(
-         {{:., _dot_metadata, [receiver, :self]}, _metadata, arguments},
-         environment
-       )
-       when arguments in [nil, []],
-       do: kernel_module_receiver?(receiver, environment)
-
-  defp static_self_call?(_target, _environment), do: false
-
-  defp kernel_branch_macro_call?(operation, environment) do
-    not Map.has_key?(environment.local_functions, {operation, 2}) and
-      explicitly_imported_receiver(environment, operation, 2) in [nil, "Kernel"]
-  end
-
-  defp kernel_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Kernel"
-  end
-
-  defp enum_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Enum"
-  end
-
-  defp list_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "List"
-  end
-
-  defp stream_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Stream"
-  end
-
-  defp ecto_multi_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Multi"
-  end
-
-  defp static_repo_callback_receiver(receiver, environment, migration?) do
-    resolved_receiver = resolve_database_receiver_expression(receiver, environment)
-
-    case database_receiver_name(resolved_receiver, migration?, environment) do
-      receiver_name when receiver_name in ["Repo", "OfficeGraph.Repo"] ->
-        {:ok, resolved_receiver}
-
-      @migration_repo_receiver ->
-        {:ok, generic_repo_receiver()}
-
-      _not_a_repo ->
-        :error
-    end
-  end
-
-  defp generic_repo_receiver, do: {:__aliases__, [], [:Repo]}
-
-  defp scan_function_defaults(
-         parameters,
-         omitted_indexes,
-         environment,
-         context,
-         occurrences
-       ) do
-    parameters
-    |> Enum.with_index()
-    |> Enum.reduce({environment, occurrences}, fn
-      {{:\\, _metadata, [pattern, default]}, index}, {environment, occurrences} ->
-        if MapSet.member?(omitted_indexes, index) do
-          {environment, occurrences} =
-            scan_node(default, environment, context, occurrences)
-
-          resolved_pattern = resolve_struct_aliases(pattern, environment)
-
-          resolved_default =
-            default
-            |> resolve_attributes(environment)
-            |> resolve_bindings(environment)
-            |> resolve_struct_aliases(environment)
-
-          bindings = bind_pattern(resolved_pattern, resolved_default, environment.bindings)
-          {%{environment | bindings: bindings}, occurrences}
-        else
-          {environment, occurrences}
-        end
-
-      _parameter, accumulator ->
-        accumulator
-    end)
-  end
-
-  defp function_variants(head) do
-    {head, guards} = function_head_and_guards(head)
-
-    case function_name_and_parameters(head) do
-      {name, parameters} ->
-        defaults =
-          parameters
-          |> Enum.with_index()
-          |> Enum.flat_map(fn
-            {{:\\, _metadata, [_pattern, _default]}, index} -> [index]
-            {_parameter, _index} -> []
-          end)
-
-        full_arity = length(parameters)
-
-        0..length(defaults)
-        |> Enum.map(fn omitted_count ->
-          omitted_indexes = defaults |> Enum.take(-omitted_count) |> MapSet.new()
-
-          arity = full_arity - omitted_count
-
-          %{
-            arity: arity,
-            guards: guards,
-            name: name,
-            omitted_indexes: omitted_indexes,
-            parameters: parameters,
-            signature: "#{name}/#{arity}"
-          }
-        end)
-
-      nil ->
-        []
-    end
-  end
-
-  defp function_head_and_guards({:when, _metadata, [head | guards]}) do
-    {head, preceding_guards} = function_head_and_guards(head)
-    {head, preceding_guards ++ guards}
-  end
-
-  defp function_head_and_guards(head), do: {head, []}
-
-  defp function_name_and_parameters({:when, _metadata, [head | _guards]}),
-    do: function_name_and_parameters(head)
-
-  defp function_name_and_parameters({name, _metadata, parameters})
-       when is_atom(name) and (is_list(parameters) or is_nil(parameters)),
-       do: {name, parameters || []}
-
-  defp function_name_and_parameters(_head), do: nil
-
-  defp collect_local_functions(body, environment) do
-    {functions, _environment} =
-      body
-      |> module_expressions()
-      |> Enum.reduce({%{}, environment}, fn expression, {functions, environment} ->
-        case expression do
-          {:alias, metadata, arguments} ->
-            {functions, put_aliases(environment, metadata, arguments)}
-
-          {:import, metadata, arguments} ->
-            {functions, put_import(environment, metadata, arguments)}
-
-          {:use, _metadata, arguments} ->
-            {functions, put_use_import(environment, arguments)}
-
-          {:@, _metadata, [{name, _name_metadata, [value]}]} when is_atom(name) ->
-            value = resolve_attributes(value, environment)
-            {functions, put_module_attribute_value(environment, name, value)}
-
-          {{:., _dot_metadata, [receiver, :register_attribute]}, _metadata, arguments}
-          when length(arguments) in [2, 3] ->
-            if module_attribute_registration?(receiver, arguments, environment) do
-              {functions, register_module_attribute(environment, arguments)}
-            else
-              {functions, environment}
-            end
-
-          {kind, _metadata, [head, body_options]}
-          when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
-            definition_environment = local_definition_environment_snapshot(environment)
-
-            functions =
-              Enum.reduce(function_variants(head), functions, fn variant, functions ->
-                definition =
-                  variant
-                  |> Map.put(:body, Keyword.get(body_options, :do))
-                  |> Map.put(:definition_environment, definition_environment)
-                  |> Map.put(:kind, local_definition_kind(kind))
-
-                Map.update(
-                  functions,
-                  {variant.name, variant.arity},
-                  [definition],
-                  &(&1 ++ [definition])
-                )
-              end)
-
-            {functions, environment}
-
-          _expression ->
-            {functions, environment}
-        end
-      end)
-
-    functions
-  end
-
-  defp local_definition_environment_snapshot(environment) do
-    Map.take(environment, [
-      :aliases,
-      :attribute_modes,
-      :attributes,
-      :imports,
-      :uncertain_attribute_registration?
-    ])
-  end
-
-  defp module_expressions({:__block__, _metadata, expressions}) when is_list(expressions),
-    do: expressions
-
-  defp module_expressions(expression), do: [expression]
-
-  defp local_definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
-  defp local_definition_kind(kind) when kind in [:def, :defp], do: :function
-
-  defp normalize_literal_callback(callback, environment) do
-    callback
-    |> resolve_attributes(environment)
-    |> resolve_callback_binding(environment, MapSet.new())
-    |> do_normalize_literal_callback(environment)
-  end
-
-  defp resolve_callback_binding(
-         {name, _metadata, binding_context} = callback,
-         environment,
-         resolving
-       )
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
-    if MapSet.member?(resolving, name) do
-      callback
-    else
-      case Map.fetch(environment.bindings, name) do
-        {:ok, value} ->
-          resolve_callback_binding(value, environment, MapSet.put(resolving, name))
-
-        :error ->
-          callback
-      end
-    end
-  end
-
-  defp resolve_callback_binding(callback, _environment, _resolving), do: callback
-
-  defp do_normalize_literal_callback({:fn, _metadata, _clauses} = callback, _environment),
-    do: {:ok, callback}
-
-  defp do_normalize_literal_callback(
-         {:&, metadata, [{:/, _arity_metadata, [{name, _name_metadata, context}, arity]}]},
-         environment
-       )
-       when is_atom(name) and (is_atom(context) or is_nil(context)) and is_integer(arity) and
-              arity >= 0 do
-    if local_function_capture?(environment, name, arity) do
-      parameters = if arity == 0, do: [], else: Enum.map(1..arity, &capture_argument/1)
-      body = {name, metadata, parameters}
-      {:ok, {:fn, metadata, [{:->, metadata, [parameters, body]}]}}
-    else
-      :error
-    end
-  end
-
-  defp do_normalize_literal_callback(
-         {:&, metadata,
-          [
-            {:/, _arity_metadata,
-             [{{:., dot_metadata, [receiver, operation]}, call_metadata, []}, arity]}
-          ]},
-         _environment
-       )
-       when is_atom(operation) and is_integer(arity) and arity >= 0 do
-    parameters = if arity == 0, do: [], else: Enum.map(1..arity, &capture_argument/1)
-    body = {{:., dot_metadata, [receiver, operation]}, call_metadata, parameters}
-    {:ok, {:fn, metadata, [{:->, metadata, [parameters, body]}]}}
-  end
-
-  defp do_normalize_literal_callback({:&, metadata, [body]}, _environment) do
-    {_body, {arity, nested_capture?}} =
-      Macro.prewalk(body, {0, false}, fn
-        {:&, _placeholder_metadata, [index]} = placeholder, {arity, nested_capture?}
-        when is_integer(index) and index > 0 ->
-          {placeholder, {max(arity, index), nested_capture?}}
-
-        {:&, _capture_metadata, _arguments} = capture, {arity, _nested_capture?} ->
-          {capture, {arity, true}}
-
-        node, state ->
-          {node, state}
-      end)
-
-    if arity > 0 and not nested_capture? do
-      parameters = Enum.map(1..arity, &capture_argument/1)
-
-      body =
-        Macro.postwalk(body, fn
-          {:&, _placeholder_metadata, [index]} when is_integer(index) and index > 0 ->
-            capture_argument(index)
-
-          node ->
-            node
-        end)
-
-      {:ok, {:fn, metadata, [{:->, metadata, [parameters, body]}]}}
-    else
-      :error
-    end
-  end
-
-  defp do_normalize_literal_callback(_callback, _environment), do: :error
-
-  defp local_function_capture?(environment, name, arity) do
-    environment.local_functions
-    |> Map.get({name, arity}, [])
-    |> Enum.any?(&(&1.kind == :function))
-  end
-
-  defp capture_argument(index), do: Macro.var(:"boundary_capture_argument_#{index}", __MODULE__)
-
-  defp local_database_helper_call?(name, arguments, environment) do
-    definitions = Map.get(environment.local_functions, {name, length(arguments)}, [])
-
-    Enum.any?(definitions, &(&1.kind == :macro)) or
-      (definitions != [] and
-         Enum.any?(arguments, fn argument ->
-           argument
-           |> callback_argument_result()
-           |> resolve_attributes(environment)
-           |> resolve_bindings(environment)
-           |> resolve_struct_aliases(environment)
-           |> static_value_contains_database_receiver?(environment)
-         end))
-  end
-
-  defp scan_invoked_local_database_helper(
-         name,
-         arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    {resolved_arguments, arguments_environment, occurrences} =
-      scan_invoked_callback_arguments(arguments, environment, context, occurrences)
-
-    key = {name, length(arguments)}
-
-    if MapSet.member?(context.local_call_stack, key) do
-      {arguments_environment, occurrences}
-    else
-      definitions =
-        environment.local_functions
-        |> Map.get(key, [])
-        |> matching_local_definitions(resolved_arguments, arguments_environment)
-
-      occurrences =
-        Enum.reduce(definitions, occurrences, fn definition, occurrences ->
-          child_environment =
-            bind_local_function_arguments(
-              definition,
-              resolved_arguments,
-              arguments_environment
-            )
-
-          {body, child_environment} = expand_local_definition(definition, child_environment)
-
-          child_context =
-            context
-            |> Map.put(
-              :function,
-              if(definition.kind == :macro, do: context.function, else: definition.signature)
-            )
-            |> Map.put(:local_call_stack, MapSet.put(context.local_call_stack, key))
-
-          {_child_environment, occurrences} =
-            scan_node(body, child_environment, child_context, occurrences)
-
-          occurrences
-        end)
-
-      {arguments_environment, occurrences}
-    end
-  end
-
-  defp scan_invoked_literal_callback(
-         {:fn, _metadata, clauses},
-         arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    {resolved_arguments, arguments_environment, occurrences} =
-      scan_invoked_callback_arguments(
-        arguments,
-        environment,
-        context,
-        occurrences
-      )
-
-    occurrences =
-      Enum.reduce(clauses, occurrences, fn clause, occurrences ->
-        scan_invoked_callback_clause(
-          clause,
-          resolved_arguments,
-          arguments_environment,
-          context,
-          occurrences
-        )
-      end)
-
-    {arguments_environment, occurrences}
-  end
-
-  defp scan_invoked_callback_arguments(
-         arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    {resolved_arguments, {environment, occurrences}} =
-      Enum.map_reduce(arguments, {environment, occurrences}, fn argument,
-                                                                {environment, occurrences} ->
-        {argument_environment, occurrences} =
-          scan_node(argument, environment, context, occurrences)
-
-        resolved_argument =
-          argument
-          |> callback_argument_result()
-          |> resolve_attributes(argument_environment)
-          |> resolve_bindings(argument_environment)
-          |> resolve_struct_aliases(argument_environment)
-
-        {resolved_argument, {argument_environment, occurrences}}
-      end)
-
-    {resolved_arguments, environment, occurrences}
-  end
-
-  defp callback_argument_result({:=, _metadata, [_pattern, value]}),
-    do: callback_argument_result(value)
-
-  defp callback_argument_result({:__block__, _metadata, expressions})
-       when is_list(expressions) and expressions != [],
-       do: expressions |> List.last() |> callback_argument_result()
-
-  defp callback_argument_result(argument), do: argument
-
-  defp scan_invoked_callback_clause(
-         {:->, _metadata, [parameters, body]},
-         arguments,
-         environment,
-         context,
-         occurrences
-       )
-       when is_list(parameters) do
-    {patterns, guards} = clause_patterns_and_guards(parameters)
-
-    environment = remove_pattern_bindings(environment, patterns)
-
-    case bind_static_callback_patterns(environment, patterns, arguments) do
-      {:ok, child_environment} ->
-        {_guard_environment, occurrences} =
-          scan_isolated_children(guards, child_environment, context, occurrences)
-
-        {_body_environment, occurrences} =
-          scan_node(body, child_environment, context, occurrences)
-
-        occurrences
-
-      :no_match ->
-        occurrences
-    end
-  end
-
-  defp scan_invoked_callback_clause(
-         clause,
-         _arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
-    occurrences
-  end
-
-  defp bind_static_callback_patterns(environment, patterns, arguments)
-       when length(patterns) == length(arguments) do
-    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
-
-    patterns
-    |> Enum.zip(arguments)
-    |> Enum.reduce_while({:ok, environment}, fn {pattern, argument}, {:ok, environment} ->
-      cond do
-        not static_binding_source?(argument) ->
-          {:cont, {:ok, environment}}
-
-        static_pattern_match?(pattern, argument) ->
-          bindings = bind_pattern(pattern, argument, environment.bindings)
-          {:cont, {:ok, %{environment | bindings: bindings}}}
-
-        true ->
-          {:halt, :no_match}
-      end
-    end)
-  end
-
-  defp bind_static_callback_patterns(_environment, _patterns, _arguments), do: :no_match
-
-  defp scan_enum_sort_by_callbacks(
-         node,
-         [enumerable, mapper_argument, comparator_argument],
-         environment,
-         context,
-         occurrences
-       ) do
-    with {:ok, mapper} <- normalize_literal_callback(mapper_argument, environment),
-         1 <- literal_callback_arity(mapper),
-         {:ok, comparator} <- normalize_literal_callback(comparator_argument, environment),
-         2 <- literal_callback_arity(comparator) do
-      {arguments_environment, occurrences} =
-        scan_node(enumerable, environment, context, occurrences)
-
-      case static_enum_callback_elements(enumerable, arguments_environment) do
-        {:ok, elements} ->
-          occurrences =
-            elements
-            |> Enum.uniq_by(&Macro.to_string/1)
-            |> Enum.reduce(occurrences, fn element, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_invoked_literal_callback(
-                  mapper,
-                  [element],
-                  arguments_environment,
-                  context,
-                  occurrences
-                )
-
-              occurrences
-            end)
-
-          mapped_results =
-            Enum.map(elements, fn element ->
-              case static_literal_callback_result(mapper, [element], arguments_environment) do
-                {:ok, result} ->
-                  result
-
-                :error ->
-                  {:__unresolved_sort_by_mapper_result__, [], [element, mapper]}
-              end
-            end)
-
-          occurrences =
-            mapped_results
-            |> sort_by_comparator_invocations()
-            |> Enum.reduce(occurrences, fn callback_arguments, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_invoked_literal_callback(
-                  comparator,
-                  callback_arguments,
-                  arguments_environment,
-                  context,
-                  occurrences
-                )
-
-              occurrences
-            end)
-
-          {arguments_environment, occurrences}
-
-        :error ->
-          occurrences =
-            Enum.reduce([mapper, comparator], occurrences, fn callback, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_node(callback, arguments_environment, context, occurrences)
-
-              occurrences
-            end)
-
-          {arguments_environment, occurrences}
-      end
-    else
-      _unsupported_comparator ->
-        scan_literal_collection_callbacks(
-          node,
-          :sort_by,
-          [enumerable, mapper_argument, comparator_argument],
-          environment,
-          context,
-          occurrences
-        )
-    end
-  end
-
-  defp sort_by_comparator_invocations(mapped_results) do
-    if length(mapped_results) < 2 do
-      []
-    else
-      mapped_results = Enum.uniq_by(mapped_results, &Macro.to_string/1)
-
-      for left <- mapped_results,
-          right <- mapped_results,
-          do: [left, right]
-    end
-  end
-
-  defp scan_literal_collection_callbacks(
-         node,
-         operation,
-         arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    callback_indexes = enum_element_callback_indexes(operation, length(arguments))
-
-    callback_entries =
-      callback_indexes
-      |> Enum.flat_map(fn index ->
-        with {:ok, callback} <-
-               arguments |> Enum.at(index) |> normalize_literal_callback(environment),
-             true <- enum_element_callback?(operation, callback) do
-          [{index, callback}]
-        else
-          _not_element_callback -> []
-        end
-      end)
-
-    callback_indexes = Enum.map(callback_entries, &elem(&1, 0))
-    callback_arguments = Enum.map(callback_entries, &elem(&1, 1))
-
-    if callback_arguments != [] do
-      {arguments_environment, occurrences} =
-        arguments
-        |> Enum.with_index()
-        |> Enum.reduce({environment, occurrences}, fn {argument, index},
-                                                      {environment, occurrences} ->
-          if index in callback_indexes do
-            {environment, occurrences}
-          else
-            scan_node(argument, environment, context, occurrences)
-          end
-        end)
-
-      case arguments |> List.first() |> static_enum_callback_elements(arguments_environment) do
-        {:ok, elements} ->
-          scan_static_enum_callbacks(
-            operation,
-            callback_arguments,
-            arguments,
-            elements,
-            arguments_environment,
-            context,
-            occurrences
-          )
-
-        :error ->
-          occurrences =
-            Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_node(callback, arguments_environment, context, occurrences)
-
-              occurrences
-            end)
-
-          {arguments_environment, occurrences}
-      end
-    else
-      scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp scan_enum_zip_with_callbacks(
-         node,
-         arguments,
-         environment,
-         context,
-         occurrences
-       ) do
-    with {:ok, callback_index, callback} <- enum_zip_with_callback(arguments, environment) do
-      {arguments_environment, occurrences} =
-        arguments
-        |> Enum.with_index()
-        |> Enum.reduce({environment, occurrences}, fn {argument, index},
-                                                      {environment, occurrences} ->
-          if index == callback_index do
-            {environment, occurrences}
-          else
-            scan_node(argument, environment, context, occurrences)
-          end
-        end)
-
-      case static_zip_with_callback_invocations(arguments, arguments_environment) do
-        {:ok, callback_invocations} ->
-          occurrences =
-            Enum.reduce(callback_invocations, occurrences, fn callback_arguments, occurrences ->
-              {_callback_environment, occurrences} =
-                scan_invoked_literal_callback(
-                  callback,
-                  callback_arguments,
-                  arguments_environment,
-                  context,
-                  occurrences
-                )
-
-              occurrences
-            end)
-
-          {arguments_environment, occurrences}
-
-        :error ->
-          {_callback_environment, occurrences} =
-            scan_node(callback, arguments_environment, context, occurrences)
-
-          {arguments_environment, occurrences}
-      end
-    else
-      :error -> scan_executable_node(node, environment, context, occurrences)
-    end
-  end
-
-  defp enum_zip_with_callback([_left, _right, callback], environment) do
-    with {:ok, callback} <- normalize_literal_callback(callback, environment),
-         2 <- literal_callback_arity(callback),
-         do: {:ok, 2, callback}
-  end
-
-  defp enum_zip_with_callback([_enumerables, callback], environment) do
-    with {:ok, callback} <- normalize_literal_callback(callback, environment),
-         1 <- literal_callback_arity(callback),
-         do: {:ok, 1, callback}
-  end
-
-  defp enum_zip_with_callback(_arguments, _environment), do: :error
-
-  defp static_zip_with_callback_invocations([left, right, _callback], environment) do
-    [
-      static_enum_callback_elements(left, environment),
-      static_enum_callback_elements(right, environment)
-    ]
-    |> static_zip_with_partial_invocations()
-  end
-
-  defp static_zip_with_callback_invocations([enumerables, _callback], environment) do
-    with {:ok, enumerables} <- static_zip_with_enumerables(enumerables, environment),
-         true <- enumerables != [],
-         {:ok, invocations} <-
-           enumerables
-           |> Enum.map(&static_enum_callback_elements(&1, environment))
-           |> static_zip_with_partial_invocations() do
-      {:ok, Enum.map(invocations, &[&1])}
-    else
-      _unsupported_enumerables -> :error
-    end
-  end
-
-  defp static_zip_with_callback_invocations(_arguments, _environment), do: :error
-
-  defp static_zip_with_enumerables(enumerables, environment) do
-    resolved_enumerables =
-      enumerables
-      |> callback_argument_result()
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
-      |> resolve_struct_aliases(environment)
-
-    if is_list(resolved_enumerables), do: {:ok, resolved_enumerables}, else: :error
-  end
-
-  defp static_zip_with_partial_invocations(element_results) do
-    known_element_lists =
-      Enum.flat_map(element_results, fn
-        {:ok, elements} -> [elements]
-        :error -> []
-      end)
-
-    cond do
-      known_element_lists == [] ->
-        :error
-
-      Enum.any?(known_element_lists, &(&1 == [])) ->
-        {:ok, []}
-
-      true ->
-        invocation_count = known_element_lists |> Enum.map(&length/1) |> Enum.min()
-
-        invocations =
-          Enum.map(0..(invocation_count - 1)//1, fn index ->
-            Enum.map(element_results, fn
-              {:ok, elements} -> Enum.at(elements, index)
-              :error -> {:__unknown_zip_with_element__, [], []}
-            end)
-          end)
-
-        {:ok, invocations}
-    end
-  end
-
-  defp enum_element_callback_indexes(operation, arity) do
-    cond do
-      arity == 2 and operation in @enum_second_argument_unary_callback_operations ->
-        [1]
-
-      arity == 3 and operation == :count_until ->
-        [1]
-
-      arity == 3 and operation == :group_by ->
-        [1, 2]
-
-      arity == 3 and operation in @enum_third_argument_unary_callback_operations ->
-        [2]
-
-      arity >= 3 and operation in [:max_by, :min_by, :min_max_by, :sort_by] ->
-        [1]
-
-      arity == 2 and operation in [:reduce, :scan] ->
-        [1]
-
-      arity == 3 and operation in @enum_element_first_callback_operations ->
-        [2]
-
-      true ->
-        []
-    end
-  end
-
-  defp static_enum_callback_elements(enumerable, environment) do
-    static_enum_callback_elements(enumerable, environment, MapSet.new())
-  end
-
-  defp static_enum_callback_elements(enumerable, environment, resolving) do
-    resolved_enumerable =
-      enumerable
-      |> callback_argument_result()
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
-      |> resolve_struct_aliases(environment)
-
-    if MapSet.member?(resolving, resolved_enumerable) do
-      :error
-    else
-      case static_enum_callback_elements(resolved_enumerable) do
-        {:ok, _elements} = result ->
-          result
-
-        :error ->
-          static_enum_operation_elements(
-            resolved_enumerable,
-            environment,
-            MapSet.put(resolving, resolved_enumerable)
-          )
-      end
-    end
-  end
-
-  defp static_enum_callback_elements(values) when is_list(values) do
-    if static_binding_source?(values), do: {:ok, values}, else: :error
-  end
-
-  defp static_enum_callback_elements({:%{}, _metadata, fields} = map)
-       when is_list(fields) do
-    if static_binding_source?(map), do: {:ok, fields}, else: :error
-  end
-
-  defp static_enum_callback_elements(_enumerable), do: :error
-
-  defp static_enum_operation_elements(
-         {{:., _dot_metadata, [receiver, :map]}, _metadata, [enumerable, callback]},
-         environment,
-         resolving
-       ) do
-    with true <- enum_module_receiver?(receiver, environment),
-         {:ok, elements} <- static_enum_callback_elements(enumerable, environment, resolving),
-         {:ok, callback} <- normalize_literal_callback(callback, environment),
-         1 <- literal_callback_arity(callback) do
-      Enum.reduce_while(elements, {:ok, []}, fn element, {:ok, results} ->
-        case static_literal_callback_result(callback, [element], environment) do
-          {:ok, result} -> {:cont, {:ok, [result | results]}}
-          :error -> {:halt, :error}
-        end
-      end)
-      |> case do
-        {:ok, results} -> {:ok, Enum.reverse(results)}
-        :error -> :error
-      end
-    else
-      _unsupported_map -> :error
-    end
-  end
-
-  defp static_enum_operation_elements(_enumerable, _environment, _resolving), do: :error
-
-  defp static_literal_callback_result({:fn, _metadata, clauses}, arguments, environment) do
-    Enum.reduce_while(clauses, :error, fn
-      {:->, _clause_metadata, [parameters, body]}, :error when is_list(parameters) ->
-        {patterns, guards} = clause_patterns_and_guards(parameters)
-        environment = remove_pattern_bindings(environment, patterns)
-
-        case bind_static_callback_patterns(environment, patterns, arguments) do
-          {:ok, callback_environment} ->
-            resolved_guards =
-              Enum.map(guards, &resolve_static_expression(&1, callback_environment))
-
-            case local_guards_match(resolved_guards) do
-              :match ->
-                result =
-                  resolve_static_callback_result(body, callback_environment, MapSet.new())
-
-                if static_binding_source?(result) do
-                  {:halt, {:ok, result}}
-                else
-                  {:halt, :error}
-                end
-
-              :no_match ->
-                {:cont, :error}
-
-              :unknown ->
-                {:halt, :error}
-            end
-
-          :no_match ->
-            {:cont, :error}
-        end
-
-      _unsupported_clause, :error ->
-        {:halt, :error}
-    end)
-  end
-
-  defp resolve_static_callback_result(
-         {:__block__, _metadata, expressions},
-         environment,
-         resolving
-       )
-       when is_list(expressions) do
-    resolve_static_callback_result_sequence(expressions, environment, resolving)
-  end
-
-  defp resolve_static_callback_result(expression, environment, resolving) do
-    resolved_expression = resolve_static_expression(expression, environment)
-
-    case resolved_expression do
-      {name, _metadata, arguments} = local_call
-      when is_atom(name) and (is_list(arguments) or is_nil(arguments)) ->
-        arguments = arguments || []
-        key = {name, length(arguments)}
-
-        if MapSet.member?(resolving, key) do
-          local_call
-        else
-          results =
-            environment.local_functions
-            |> Map.get(key, [])
-            |> matching_local_definitions(arguments, environment)
-            |> Enum.map(fn definition ->
-              child_environment =
-                bind_local_function_arguments(definition, arguments, environment)
-
-              {body, child_environment} = expand_local_definition(definition, child_environment)
-
-              resolve_static_callback_result(
-                body,
-                child_environment,
-                MapSet.put(resolving, key)
-              )
-            end)
-            |> Enum.uniq()
-
-          case results do
-            [result] -> result
-            _none_or_ambiguous -> local_call
-          end
-        end
-
-      _not_local_call ->
-        resolved_expression
-    end
-  end
-
-  defp resolve_static_callback_result_sequence([], _environment, _resolving), do: nil
-
-  defp resolve_static_callback_result_sequence([expression], environment, resolving),
-    do: resolve_static_callback_result(expression, environment, resolving)
-
-  defp resolve_static_callback_result_sequence(
-         [{:=, _metadata, [pattern, value]} | expressions],
-         environment,
-         resolving
-       ) do
-    resolved_pattern = resolve_struct_aliases(pattern, environment)
-    resolved_value = resolve_static_callback_result(value, environment, resolving)
-    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
-
-    resolve_static_callback_result_sequence(
-      expressions,
-      %{environment | bindings: bindings},
-      resolving
-    )
-  end
-
-  defp resolve_static_callback_result_sequence(
-         [_expression | expressions],
-         environment,
-         resolving
-       ),
-       do: resolve_static_callback_result_sequence(expressions, environment, resolving)
-
-  defp scan_static_enum_callbacks(
-         operation,
-         callback_arguments,
-         invocation_arguments,
-         resolved_enumerable,
-         arguments_environment,
-         context,
-         occurrences
-       ) do
-    callback_invocations =
-      enum_callback_invocations(
-        operation,
-        invocation_arguments,
-        resolved_enumerable,
-        arguments_environment
-      )
-
-    occurrences =
-      Enum.reduce(callback_arguments, occurrences, fn callback, occurrences ->
-        Enum.reduce(callback_invocations, occurrences, fn callback_arguments, occurrences ->
-          {_callback_environment, occurrences} =
-            scan_invoked_literal_callback(
-              callback,
-              callback_arguments,
-              arguments_environment,
-              context,
-              occurrences
-            )
-
-          occurrences
-        end)
-      end)
-
-    {arguments_environment, occurrences}
-  end
-
-  defp enum_callback_invocations(
-         operation,
-         invocation_arguments,
-         [accumulator | elements],
-         _environment
-       )
-       when operation in [:reduce, :scan] and length(invocation_arguments) == 2 do
-    elements
-    |> Enum.uniq()
-    |> Enum.map(&[&1, accumulator])
-  end
-
-  defp enum_callback_invocations(
-         operation,
-         invocation_arguments,
-         resolved_enumerable,
-         environment
-       ) do
-    elements =
-      case Enum.uniq(resolved_enumerable) do
-        [] -> [{:__unresolved_enum_element__, [], []}]
-        elements -> elements
-      end
-
-    Enum.map(elements, fn element ->
-      enum_callback_arguments(operation, invocation_arguments, element, environment)
-    end)
-  end
-
-  defp enum_element_callback?(operation, {:fn, _metadata, clauses} = callback)
-       when is_list(clauses) do
-    case literal_callback_arity(callback) do
-      1 -> operation in @enum_unary_element_callback_operations
-      2 -> operation in @enum_element_first_callback_operations
-      _arity -> false
-    end
-  end
-
-  defp enum_element_callback?(_operation, _argument), do: false
-
-  defp literal_callback_arity({:fn, _metadata, clauses}) do
-    arities =
-      Enum.map(clauses, fn
-        {:->, _clause_metadata, [parameters, _body]} when is_list(parameters) ->
-          parameters |> clause_patterns_and_guards() |> elem(0) |> length()
-
-        _clause ->
-          :unknown
-      end)
-
-    case Enum.uniq(arities) do
-      [arity] when is_integer(arity) -> arity
-      _arities -> :unknown
-    end
-  end
-
-  defp enum_callback_arguments(
-         operation,
-         invocation_arguments,
-         element,
-         environment
-       ) do
-    if operation in @enum_element_first_callback_operations do
-      accumulator = enum_accumulator_argument(operation, invocation_arguments, environment)
-      [element, accumulator]
-    else
-      [element]
-    end
-  end
-
-  defp enum_accumulator_argument(operation, arguments, environment)
-       when operation in @enum_element_first_callback_operations and length(arguments) == 3 do
-    arguments
-    |> Enum.at(1)
-    |> callback_argument_result()
-    |> resolve_attributes(environment)
-    |> resolve_bindings(environment)
-    |> resolve_struct_aliases(environment)
-  end
-
-  defp enum_accumulator_argument(_operation, _arguments, _environment),
-    do: {:__unresolved_enum_callback_argument__, [], []}
-
-  defp scan_pattern_clause(
-         {:->, _metadata, [parameters, body]},
-         environment,
-         context,
-         occurrences
-       )
-       when is_list(parameters) do
-    {patterns, guards} = clause_patterns_and_guards(parameters)
-
-    child_environment = remove_pattern_bindings(environment, patterns)
-
-    {_guard_environment, occurrences} =
-      scan_isolated_children(guards, child_environment, context, occurrences)
-
-    {_body_environment, occurrences} =
-      scan_node(body, child_environment, context, occurrences)
-
-    occurrences
-  end
-
-  defp scan_pattern_clause(clause, environment, context, occurrences) do
-    {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
-    occurrences
-  end
-
-  defp scan_pattern_clause(
-         {:->, _metadata, [parameters, body]},
-         environment,
-         context,
-         occurrences,
-         matched_value
-       )
-       when is_list(parameters) do
-    {patterns, guards} = clause_patterns_and_guards(parameters)
-
-    child_environment =
-      environment
-      |> remove_pattern_bindings(patterns)
-      |> bind_static_clause_patterns(patterns, matched_value)
-
-    {_guard_environment, occurrences} =
-      scan_isolated_children(guards, child_environment, context, occurrences)
-
-    {_body_environment, occurrences} =
-      scan_node(body, child_environment, context, occurrences)
-
-    occurrences
-  end
-
-  defp scan_pattern_clause(clause, environment, context, occurrences, _matched_value),
-    do: scan_pattern_clause(clause, environment, context, occurrences)
-
-  defp scan_condition_clause(
-         {:->, _metadata, [conditions, body]},
-         environment,
-         context,
-         occurrences
-       )
-       when is_list(conditions) do
-    {child_environment, occurrences} =
-      scan_sequence(conditions, environment, context, occurrences)
-
-    {_body_environment, occurrences} =
-      scan_node(body, child_environment, context, occurrences)
-
-    occurrences
-  end
-
-  defp scan_condition_clause(clause, environment, context, occurrences) do
-    {_child_environment, occurrences} = scan_node(clause, environment, context, occurrences)
-    occurrences
-  end
-
-  defp clause_patterns_and_guards([
-         {:when, _metadata, guarded_patterns_and_guard}
-       ])
-       when length(guarded_patterns_and_guard) >= 2 do
-    {Enum.drop(guarded_patterns_and_guard, -1), [List.last(guarded_patterns_and_guard)]}
-  end
-
-  defp clause_patterns_and_guards(patterns), do: {patterns, []}
-
-  defp bind_static_clause_patterns(environment, [pattern], matched_value) do
-    pattern = resolve_struct_aliases(pattern, environment)
-
-    if static_binding_source?(matched_value) and static_pattern_match?(pattern, matched_value) do
-      %{environment | bindings: bind_pattern(pattern, matched_value, environment.bindings)}
-    else
-      environment
-    end
-  end
-
-  defp bind_static_clause_patterns(environment, _patterns, _matched_value), do: environment
-
-  defp static_pattern_match?({:^, _metadata, [_pattern]}, _value), do: false
-
-  defp static_pattern_match?(_pattern, {:__unknown_zip_with_element__, [], []}), do: true
-
-  defp static_pattern_match?({:=, _metadata, [left_pattern, right_pattern]}, value),
-    do: static_pattern_match?(left_pattern, value) and static_pattern_match?(right_pattern, value)
-
-  defp static_pattern_match?({name, _metadata, binding_context}, _value)
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
-       do: true
-
-  defp static_pattern_match?(
-         {:%, _pattern_metadata, [pattern_struct, pattern_map]},
-         {:%, _value_metadata, [value_struct, value_map]}
-       ),
-       do:
-         same_static_ast?(pattern_struct, value_struct) and
-           static_pattern_match?(pattern_map, value_map)
-
-  defp static_pattern_match?(
-         {:%{}, _pattern_metadata, pattern_fields},
-         {:%{}, _value_metadata, value_fields}
-       ) do
-    Enum.all?(pattern_fields, fn
-      {key, pattern} ->
-        case fetch_static_field(value_fields, key) do
-          {:ok, value} -> static_pattern_match?(pattern, value)
-          :error -> false
-        end
-
-      _field ->
-        false
-    end)
-  end
-
-  defp static_pattern_match?(
-         {:{}, _pattern_metadata, patterns},
-         {:{}, _value_metadata, values}
-       )
-       when length(patterns) == length(values),
-       do:
-         Enum.zip(patterns, values)
-         |> Enum.all?(fn {pattern, value} ->
-           static_pattern_match?(pattern, value)
-         end)
-
-  defp static_pattern_match?({left_pattern, right_pattern}, {left_value, right_value}),
-    do:
-      static_pattern_match?(left_pattern, left_value) and
-        static_pattern_match?(right_pattern, right_value)
-
-  defp static_pattern_match?(patterns, values) when is_list(patterns) and is_list(values) do
-    case List.last(patterns) do
-      {:|, _metadata, [_head_pattern, _tail_pattern]} ->
-        static_cons_pattern_match?(patterns, values)
-
-      _not_a_cons_pattern ->
-        length(patterns) == length(values) and
-          patterns
-          |> Enum.zip(values)
-          |> Enum.all?(fn {pattern, value} ->
-            static_pattern_match?(pattern, value)
-          end)
-    end
-  end
-
-  defp static_pattern_match?(pattern, value)
-       when is_atom(pattern) or is_binary(pattern) or is_number(pattern),
-       do: pattern === value
-
-  defp static_pattern_match?(_pattern, _value), do: false
-
-  defp static_cons_pattern_match?(
-         [{:|, _metadata, [head_pattern, tail_pattern]}],
-         [head_value | tail_value]
-       ) do
-    static_pattern_match?(head_pattern, head_value) and
-      static_pattern_match?(tail_pattern, tail_value)
-  end
-
-  defp static_cons_pattern_match?([pattern | patterns], [value | values]) do
-    static_pattern_match?(pattern, value) and
-      static_cons_pattern_match?(patterns, values)
-  end
-
-  defp static_cons_pattern_match?(_patterns, _values), do: false
-
-  defp pattern_binding_names({:^, _metadata, [_pattern]}), do: []
-
-  defp pattern_binding_names({:<<>>, _metadata, segments}) when is_list(segments),
-    do: Enum.flat_map(segments, &bitstring_pattern_binding_names/1)
-
-  defp pattern_binding_names({name, _metadata, binding_context})
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)),
-       do: if(name == :_, do: [], else: [name])
-
-  defp pattern_binding_names({_form, _metadata, arguments}) when is_list(arguments) do
-    Enum.flat_map(arguments, &pattern_binding_names/1)
-  end
-
-  defp pattern_binding_names({left_pattern, right_pattern}) do
-    pattern_binding_names(left_pattern) ++ pattern_binding_names(right_pattern)
-  end
-
-  defp pattern_binding_names(patterns) when is_list(patterns) do
-    Enum.flat_map(patterns, &pattern_binding_names/1)
-  end
-
-  defp pattern_binding_names(_pattern), do: []
-
-  defp bitstring_pattern_binding_names({:"::", _metadata, [value_pattern, _spec]}),
-    do: pattern_binding_names(value_pattern)
-
-  defp bitstring_pattern_binding_names(pattern), do: pattern_binding_names(pattern)
-
-  defp split_qualifiers_and_options(arguments) do
-    case Enum.split(arguments, -1) do
-      {qualifiers, [options]} when is_list(options) -> {qualifiers, options}
-      {qualifiers, options} -> {qualifiers ++ options, []}
-    end
-  end
-
-  defp scan_for_qualifiers(qualifiers, environment, context, occurrences) do
-    Enum.reduce(qualifiers, {[environment], occurrences}, fn qualifier,
-                                                             {environments, occurrences} ->
-      {next_environments, occurrences} =
-        Enum.reduce(environments, {[], occurrences}, fn environment,
-                                                        {next_environments, occurrences} ->
-          {qualifier_environments, occurrences} =
-            scan_for_qualifier(qualifier, environment, context, occurrences)
-
-          {Enum.reverse(qualifier_environments, next_environments), occurrences}
-        end)
-
-      {next_environments |> Enum.reverse() |> Enum.uniq(), occurrences}
-    end)
-  end
-
-  defp scan_for_qualifier(
-         {:<-, _metadata, [pattern, source]},
-         environment,
-         context,
-         occurrences
-       ) do
-    {source_environment, occurrences} = scan_node(source, environment, context, occurrences)
-    {patterns, guards} = clause_patterns_and_guards([pattern])
-
-    resolved_source =
-      source
-      |> resolve_attributes(source_environment)
-      |> resolve_bindings(source_environment)
-      |> resolve_struct_aliases(source_environment)
-
-    child_environment = remove_pattern_bindings(source_environment, patterns)
-
-    child_environments =
-      if is_list(resolved_source) and static_binding_source?(resolved_source) and
-           Enum.any?(resolved_source, &static_value_contains_database_receiver?(&1, environment)) do
-        resolved_source
-        |> Enum.uniq_by(&Macro.to_string/1)
-        |> Enum.flat_map(&static_generator_environments(child_environment, patterns, &1))
-      else
-        [bind_generator_patterns(child_environment, patterns, resolved_source, :enumerate)]
-      end
-
-    occurrences =
-      Enum.reduce(child_environments, occurrences, fn child_environment, occurrences ->
-        {_guard_environment, occurrences} =
-          scan_isolated_children(guards, child_environment, context, occurrences)
-
-        occurrences
-      end)
-
-    {child_environments, occurrences}
-  end
-
-  defp scan_for_qualifier(qualifier, environment, context, occurrences) do
-    {environment, occurrences} = scan_node(qualifier, environment, context, occurrences)
-    {[environment], occurrences}
-  end
-
-  defp static_generator_environments(environment, patterns, value) do
-    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
-
-    if Enum.all?(patterns, &static_pattern_match?(&1, value)) do
-      [bind_generator_value(environment, patterns, value)]
-    else
-      []
-    end
-  end
-
-  defp static_value_contains_database_receiver?(
-         {:__aliases__, _metadata, _parts} = receiver,
-         environment
-       ) do
-    receiver
-    |> receiver_name()
-    |> database_receiver_name?(environment)
-  end
-
-  defp static_value_contains_database_receiver?(%{resolved_module_name: receiver}, environment)
-       when is_binary(receiver),
-       do: database_receiver_name?(receiver, environment)
-
-  defp static_value_contains_database_receiver?(receiver, environment)
-       when is_atom(receiver) do
-    if receiver |> Atom.to_string() |> String.starts_with?("Elixir.") do
-      receiver
-      |> receiver_name()
-      |> database_receiver_name?(environment)
-    else
-      false
-    end
-  end
-
-  defp static_value_contains_database_receiver?(
-         {{:., _dot_metadata, [receiver, :concat]}, _metadata, arguments},
-         environment
-       )
-       when is_list(arguments) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Module" and
-      static_module_concat_database_receiver?(arguments, environment)
-  end
-
-  defp static_value_contains_database_receiver?(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
-         environment
-       )
-       when operation in [:to_atom, :to_existing_atom] and is_list(arguments) do
-    if receiver |> receiver_name() |> resolve_receiver(environment) == "String" do
-      case static_string_atom_module_name(arguments) do
-        {:ok, module_name} -> database_receiver_name?(module_name, environment)
-        :not_a_module -> false
-        :unknown -> true
-      end
-    else
-      static_value_contains_database_receiver?(receiver, environment) or
-        Enum.any?(arguments, &static_value_contains_database_receiver?(&1, environment))
-    end
-  end
-
-  defp static_value_contains_database_receiver?({:{}, _metadata, values}, environment),
-    do: Enum.any?(values, &static_value_contains_database_receiver?(&1, environment))
-
-  defp static_value_contains_database_receiver?({:%{}, _metadata, fields}, environment),
-    do: Enum.any?(fields, &static_value_contains_database_receiver?(&1, environment))
-
-  defp static_value_contains_database_receiver?({:%, _metadata, [module, fields]}, environment),
-    do:
-      static_value_contains_database_receiver?(module, environment) or
-        static_value_contains_database_receiver?(fields, environment)
-
-  defp static_value_contains_database_receiver?({left, right}, environment),
-    do:
-      static_value_contains_database_receiver?(left, environment) or
-        static_value_contains_database_receiver?(right, environment)
-
-  defp static_value_contains_database_receiver?(values, environment) when is_list(values),
-    do: Enum.any?(values, &static_value_contains_database_receiver?(&1, environment))
-
-  defp static_value_contains_database_receiver?(value, environment) when is_tuple(value) do
-    value
-    |> Tuple.to_list()
-    |> Enum.any?(&static_value_contains_database_receiver?(&1, environment))
-  end
-
-  defp static_value_contains_database_receiver?(_value, _environment), do: false
-
-  defp database_receiver_name?(receiver, environment) do
-    resolved_receiver = resolve_receiver(receiver, environment)
-
-    resolved_receiver in @database_alias_targets or repo_receiver?(resolved_receiver) or
-      resolved_receiver == "Multi"
-  end
-
-  defp static_module_concat_database_receiver?(arguments, environment) do
-    case static_module_concat_name(arguments, environment) do
-      {:ok, receiver} -> database_receiver_name?(receiver, environment)
-      :error -> true
-    end
-  end
-
-  defp scan_generator_qualifiers(
-         qualifiers,
-         environment,
-         context,
-         occurrences,
-         binding_mode
-       ) do
-    Enum.reduce(qualifiers, {environment, [], occurrences}, fn
-      {:<-, _metadata, [pattern, source]}, {environment, failure_candidates, occurrences} ->
-        {environment, occurrences} = scan_node(source, environment, context, occurrences)
-        {patterns, guards} = clause_patterns_and_guards([pattern])
-
-        resolved_source =
-          source
-          |> resolve_attributes(environment)
-          |> resolve_bindings(environment)
-          |> resolve_struct_aliases(environment)
-
-        child_environment =
-          environment
-          |> remove_pattern_bindings(patterns)
-          |> bind_generator_patterns(patterns, resolved_source, binding_mode)
-
-        {_guard_environment, occurrences} =
-          scan_isolated_children(guards, child_environment, context, occurrences)
-
-        failure_candidates =
-          with_failure_candidate(
-            patterns,
-            guards,
-            resolved_source,
-            environment,
-            child_environment,
-            failure_candidates
-          )
-
-        {child_environment, failure_candidates, occurrences}
-
-      qualifier, {environment, failure_candidates, occurrences} ->
-        {environment, occurrences} =
-          scan_node(qualifier, environment, context, occurrences)
-
-        {environment, failure_candidates, occurrences}
-    end)
-  end
-
-  defp with_failure_candidate(
-         patterns,
-         guards,
-         source,
-         environment,
-         child_environment,
-         failure_candidates
-       ) do
-    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
-
-    guard_status =
-      guards
-      |> Enum.map(fn guard ->
-        guard
-        |> resolve_attributes(child_environment)
-        |> resolve_bindings(child_environment)
-        |> resolve_struct_aliases(child_environment)
-      end)
-      |> local_guards_match()
-
-    cond do
-      not static_binding_source?(source) ->
-        [:unknown | failure_candidates]
-
-      Enum.all?(patterns, &static_pattern_match?(&1, source)) and guard_status == :match ->
-        failure_candidates
-
-      true ->
-        [{:known, source} | failure_candidates]
-    end
-  end
-
-  defp bind_generator_patterns(environment, patterns, source, :match) do
-    if static_binding_source?(source) do
-      bind_generator_value(environment, patterns, source)
-    else
-      environment
-    end
-  end
-
-  defp bind_generator_patterns(environment, patterns, [value], :enumerate) do
-    if static_binding_source?(value) do
-      bind_generator_value(environment, patterns, value)
-    else
-      environment
-    end
-  end
-
-  defp bind_generator_patterns(environment, _patterns, _source, :enumerate), do: environment
-
-  defp bind_generator_value(environment, patterns, value) do
-    patterns = Enum.map(patterns, &resolve_struct_aliases(&1, environment))
-
-    if Enum.all?(patterns, &static_pattern_match?(&1, value)) do
-      bindings =
-        Enum.reduce(patterns, environment.bindings, fn pattern, bindings ->
-          bind_pattern(pattern, value, bindings)
-        end)
-
-      %{environment | bindings: bindings}
-    else
-      environment
-    end
-  end
-
-  defp static_binding_source?(value)
-       when is_atom(value) or is_binary(value) or is_number(value),
-       do: true
-
-  defp static_binding_source?({:__unknown_zip_with_element__, [], []}), do: true
-
-  defp static_binding_source?(values) when is_list(values),
-    do: Enum.all?(values, &static_binding_source?/1)
-
-  defp static_binding_source?({:{}, _metadata, values}),
-    do: Enum.all?(values, &static_binding_source?/1)
-
-  defp static_binding_source?({:%{}, _metadata, fields}),
-    do: Enum.all?(fields, &static_binding_source?/1)
-
-  defp static_binding_source?({:%, _metadata, [module, fields]}),
-    do: match?({:__aliases__, _, _}, module) and static_binding_source?(fields)
-
-  defp static_binding_source?({:__aliases__, _metadata, parts}),
-    do: Enum.all?(parts, &is_atom/1)
-
-  defp static_binding_source?({left, right}),
-    do: static_binding_source?(left) and static_binding_source?(right)
-
-  defp static_binding_source?(_value), do: false
-
-  defp remove_pattern_bindings(environment, patterns) do
-    Enum.reduce(patterns, environment, fn pattern, environment ->
-      bindings =
-        Enum.reduce(pattern_binding_names(pattern), environment.bindings, &Map.delete(&2, &1))
-
-      %{environment | bindings: bindings}
-    end)
-  end
-
-  defp scan_sequence(expressions, environment, context, occurrences) do
-    Enum.reduce(expressions, {environment, occurrences}, fn expression,
-                                                            {environment, occurrences} ->
-      scan_node(expression, environment, context, occurrences)
-    end)
-  end
-
-  defp scan_classified_children(node, environment, context, occurrences) do
-    case ecto_query_call(node, environment) do
-      {:ok, _operation, _metadata, _arguments} ->
-        scan_children(node, environment, %{context | query_dsl?: true}, occurrences)
-
-      :error ->
-        case migration_table_block(node, environment, context) do
-          {:ok, construct, block_options, table_target} ->
-            {_construct_environment, occurrences} =
-              scan_node(construct, environment, context, occurrences)
-
-            {_options_environment, occurrences} =
-              block_options
-              |> Keyword.delete(:do)
-              |> Keyword.values()
-              |> scan_isolated_children(environment, context, occurrences)
-
-            table_context = Map.put(context, :migration_table_target, table_target)
-
-            {_block_environment, occurrences} =
-              scan_node(Keyword.get(block_options, :do), environment, table_context, occurrences)
-
-            {environment, occurrences}
-
-          :error ->
-            scan_children(node, environment, context, occurrences)
-        end
-    end
-  end
-
-  defp migration_table_block(
-         {operation, _metadata, [construct, block_options]},
-         environment,
-         %{migration?: true}
-       )
-       when operation in [:alter, :create, :create_if_not_exists] and is_list(block_options) do
-    migration_table_block(operation, construct, block_options, environment)
-  end
-
-  defp migration_table_block(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, [construct, block_options]},
-         environment,
-         %{migration?: true}
-       )
-       when operation in [:alter, :create, :create_if_not_exists] and is_list(block_options) do
-    if migration_module_receiver?(receiver, environment),
-      do: migration_table_block(operation, construct, block_options, environment),
-      else: :error
-  end
-
-  defp migration_table_block(_node, _environment, _context), do: :error
-
-  defp migration_table_block(operation, construct, block_options, environment) do
-    if Keyword.keyword?(block_options) and Keyword.has_key?(block_options, :do) do
-      table_targets =
-        construct
-        |> resolve_migration_constructs(environment, MapSet.new())
-        |> Enum.flat_map(fn
-          {:table, _metadata, arguments} when is_list(arguments) ->
-            [
-              Enum.join(
-                [
-                  "operation: #{operation}",
-                  "target: #{migration_construct_target(:table, arguments, migration_sql_option_keys(:table))}"
-                ],
-                "\n"
-              )
-            ]
-
-          _construct ->
+      sql_file?(path) ->
+        [
+          occurrence(
+            path,
+            1,
+            nil,
+            :raw_sql,
+            "tracked_sql_file",
+            source,
             []
-        end)
-        |> Enum.sort()
+          )
+        ]
 
-      case table_targets do
-        [] -> :error
-        targets -> {:ok, construct, block_options, Enum.join(targets, "\n---\n")}
-      end
-    else
-      :error
-    end
-  end
-
-  defp scan_children({_name, metadata, arguments}, environment, context, occurrences)
-       when is_list(metadata) and is_list(arguments) do
-    scan_isolated_children(arguments, environment, context, occurrences)
-  end
-
-  defp scan_children({left, right}, environment, context, occurrences),
-    do: scan_isolated_children([left, right], environment, context, occurrences)
-
-  defp scan_children(values, environment, context, occurrences) when is_list(values) do
-    scan_isolated_children(values, environment, context, occurrences)
-  end
-
-  defp scan_children(_node, environment, _context, occurrences),
-    do: {environment, occurrences}
-
-  defp scan_isolated_children(children, environment, context, occurrences) do
-    occurrences =
-      Enum.reduce(children, occurrences, fn child, occurrences ->
-        {_child_environment, occurrences} = scan_node(child, environment, context, occurrences)
-        occurrences
-      end)
-
-    {environment, occurrences}
-  end
-
-  defp classify_node(
-         {:send, _metadata, [target, message]},
-         _context,
-         environment
-       ) do
-    if kernel_local_call?(:send, 2, environment),
-      do: classify_nonself_database_receiver_send(target, message, environment)
-  end
-
-  defp classify_node(
-         {{:., _dot_metadata, [receiver, :send]}, _metadata, [target, message]},
-         _context,
-         environment
-       ) do
-    if kernel_module_receiver?(receiver, environment),
-      do: classify_nonself_database_receiver_send(target, message, environment)
-  end
-
-  defp classify_node(
-         {operation, _metadata, [value]},
-         _context,
-         environment
-       )
-       when operation in [:exit, :throw] do
-    if kernel_local_call?(operation, 1, environment) and
-         database_receiver_escape_argument?(value, environment),
-       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-  end
-
-  defp classify_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, [value]},
-         _context,
-         environment
-       )
-       when operation in [:exit, :throw] do
-    if kernel_module_receiver?(receiver, environment) and
-         database_receiver_escape_argument?(value, environment),
-       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-  end
-
-  defp classify_node(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
-         %{migration?: migration?},
-         environment
-       )
-       when is_list(arguments) do
-    storage_classification =
-      classify_database_receiver_storage(receiver, operation, arguments, environment)
-
-    map_callback_classification =
-      classify_map_database_receiver_callback(receiver, operation, arguments, environment)
-
-    state_ingress_classification =
-      classify_database_receiver_state_ingress(receiver, operation, arguments, environment)
-
-    resolved_receiver = resolve_database_receiver_expression(receiver, environment)
-    receiver = database_receiver_name(resolved_receiver, migration?, environment)
-
-    storage_classification ||
-      map_callback_classification ||
-      state_ingress_classification ||
-      classify_migration_operation(receiver, operation) ||
-      classify_database_operation(receiver, operation) ||
-      classify_unresolved_database_receiver(resolved_receiver, operation, environment) ||
-      classify_remote_database_receiver_escape(
-        resolved_receiver,
-        operation,
-        arguments,
-        environment
-      )
-  end
-
-  defp classify_node(
-         {:unresolved_database_apply, receiver, operation, _arguments},
-         %{migration?: migration?},
-         environment
-       ) do
-    receiver =
-      receiver
-      |> resolve_database_receiver_expression(environment)
-      |> database_receiver_name(migration?, environment)
-
-    operation = resolve_bindings(operation, environment)
-
-    classify_migration_operation(receiver, operation) ||
-      classify_database_operation(receiver, operation) ||
-      classify_dynamic_database_apply(receiver, operation)
-  end
-
-  defp classify_node(
-         {construct, _metadata, arguments},
-         %{migration?: migration?, query_dsl?: query_dsl?},
-         environment
-       )
-       when construct in [:fragment, :unsafe_fragment] and is_list(arguments) do
-    if migration? or query_dsl? or imported_fragment?(environment, construct, length(arguments)),
-      do: {:raw_sql, to_string(construct)}
-  end
-
-  defp classify_node({:execute, _metadata, arguments}, %{migration?: true}, _environment)
-       when is_list(arguments),
-       do: {:raw_sql, "migration.execute"}
-
-  defp classify_node({:execute_file, _metadata, arguments}, %{migration?: true}, _environment)
-       when is_list(arguments),
-       do: {:raw_sql, "migration.execute_file"}
-
-  defp classify_node({:insert, _metadata, arguments}, %{migration?: true}, _environment)
-       when is_list(arguments),
-       do: {:direct_ecto, "migration.insert"}
-
-  defp classify_node({operation, _metadata, arguments}, _context, environment)
-       when is_atom(operation) and is_list(arguments) do
-    receiver = imported_receiver(environment, operation, length(arguments))
-
-    classify_database_receiver_storage(receiver, operation, arguments, environment) ||
-      classify_database_receiver_state_ingress(receiver, operation, arguments, environment) ||
-      classify_map_database_receiver_callback(receiver, operation, arguments, environment) ||
-      classify_migration_operation(receiver, operation) ||
-      classify_database_operation(receiver, operation)
-  end
-
-  defp classify_node({:unsafe_fragment, sql}, _context, _environment) when is_binary(sql),
-    do: {:raw_sql, "unsafe_fragment"}
-
-  defp classify_node(_node, _context, _environment), do: nil
-
-  defp classify_migration_operation("Ecto.Migration", :execute),
-    do: {:raw_sql, "migration.execute"}
-
-  defp classify_migration_operation("Ecto.Migration", :execute_file),
-    do: {:raw_sql, "migration.execute_file"}
-
-  defp classify_migration_operation("Ecto.Migration", :insert),
-    do: {:direct_ecto, "migration.insert"}
-
-  defp classify_migration_operation("Ecto.Migration", :fragment),
-    do: {:raw_sql, "fragment"}
-
-  defp classify_migration_operation(_receiver, _operation), do: nil
-
-  defp classify_database_operation(nil, _operation), do: nil
-
-  defp classify_database_operation(receiver, operation) do
-    cond do
-      receiver == "Ecto.Query.API" and operation in [:fragment, :unsafe_fragment] ->
-        {:raw_sql, "#{receiver}.#{operation}"}
-
-      receiver == "DBConnection" and operation in @db_connection_raw_sql_operations ->
-        {:raw_sql, "#{receiver}.#{operation}"}
-
-      receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_direct_operations ->
-        {:direct_ecto, "#{receiver}.#{operation}"}
-
-      operation in @repo_raw_sql_operations and repo_receiver?(receiver) ->
-        {:raw_sql, "Repo.#{operation}"}
-
-      receiver == "Ecto.Adapters.SQL" and operation in @ecto_sql_raw_sql_operations ->
-        {:raw_sql, "#{receiver}.#{operation}"}
-
-      receiver == "Postgrex" and operation in @postgrex_raw_sql_operations ->
-        {:raw_sql, "#{receiver}.#{operation}"}
-
-      repo_receiver?(receiver) and direct_repo_operation?(operation) ->
-        {:direct_ecto, "Repo.#{operation}"}
-
-      receiver in ["Ecto.Multi", "Multi"] and operation in @direct_multi_operations ->
-        {:direct_ecto, "Ecto.Multi.#{operation}"}
+      elixir_source?(path) ->
+        scan_elixir_source(path, source)
 
       true ->
-        nil
+        []
     end
   end
 
-  defp classify_unresolved_database_receiver(receiver, operation, environment) do
-    cond do
-      static_value_contains_database_receiver?(receiver, environment) ->
-        classify_repo_operation(operation)
+  defp scan_source(%{path: path}, root) do
+    source = root |> Path.join(path) |> File.read!()
+    scan_source(%{path: path, source: source}, root)
+  end
 
-      tracked_remote_function_call?(receiver, environment) ->
-        classify_opaque_remote_receiver_operation(operation)
+  defp scan_elixir_source(path, source) do
+    case Code.string_to_quoted(source, file: path, columns: true) do
+      {:ok, ast} ->
+        env = %{
+          aliases: %{},
+          ash_postgres?:
+            String.contains?(source, "use Ash.Resource") and
+              String.contains?(source, "AshPostgres.DataLayer"),
+          function: nil,
+          imports: %{},
+          migration?: migration_path?(path),
+          path: path,
+          preserve_uuidv7?: approved_uuidv7_context?(path, source)
+        }
 
-      true ->
-        nil
+        {_env, occurrences} = scan_node(ast, env, [])
+        Enum.reverse(occurrences)
+
+      {:error, {location, _error, _token}} ->
+        [
+          occurrence(path, error_line(location), nil, :direct_ecto, "unparseable_elixir", source,
+            approval: :unresolved_sql
+          )
+        ]
     end
   end
 
-  defp classify_repo_operation(operation) do
-    cond do
-      operation in @repo_raw_sql_operations -> {:raw_sql, "Repo.#{operation}"}
-      direct_repo_operation?(operation) -> {:direct_ecto, "Repo.#{operation}"}
-      true -> nil
-    end
+  defp scan_node({:defmodule, _metadata, [_module, [do: body]]}, env, occurrences) do
+    {_module_env, occurrences} = scan_node(body, %{env | aliases: %{}, imports: %{}}, occurrences)
+    {env, occurrences}
   end
 
-  defp classify_opaque_remote_receiver_operation(operation) do
-    if operation in @repo_raw_sql_operations or direct_repo_operation?(operation),
-      do: {:raw_sql, "database_receiver.remote_helper"}
-  end
+  defp scan_node({kind, metadata, arguments} = node, env, occurrences)
+       when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(arguments) do
+    {name, arity} = function_identity(arguments)
+    function = if name, do: "#{name}/#{arity}"
+    body = function_body(arguments)
 
-  defp tracked_remote_function_call?(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments},
-         environment
-       )
-       when is_atom(operation) and is_list(arguments) do
-    receiver = receiver |> receiver_name() |> resolve_receiver(environment)
-    MapSet.member?(environment.remote_functions, {receiver, operation, length(arguments)})
-  end
+    child_env = %{env | function: function}
+    {_child_env, occurrences} = scan_node(body, child_env, occurrences)
 
-  defp tracked_remote_function_call?(_receiver, _environment), do: false
-
-  defp classify_nonself_database_receiver_send(target, message, environment) do
-    resolved_target = resolve_static_expression(target, environment)
-
-    if not static_self_call?(resolved_target, environment) and
-         database_receiver_escape_argument?(message, environment),
-       do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-  end
-
-  defp direct_repo_operation?(operation),
-    do: operation in @direct_repo_operations or operation in @ecto_sql_direct_operations
-
-  defp classify_remote_database_receiver_escape(receiver, operation, arguments, environment) do
-    resolved_receiver = receiver |> receiver_name() |> resolve_receiver(environment)
-
-    if MapSet.member?(
-         environment.remote_functions,
-         {resolved_receiver, operation, length(arguments)}
-       ) and
-         Enum.any?(arguments, &database_receiver_escape_argument?(&1, environment)),
-       do: {:raw_sql, "database_receiver.remote_helper"}
-  end
-
-  defp database_receiver_escape_argument?(argument, environment) do
-    argument
-    |> resolve_static_expression(environment)
-    |> static_value_contains_database_receiver?(environment)
-  end
-
-  defp literal_callback_result_contains_database_receiver?(callback, environment) do
-    with {:ok, callback} <- normalize_literal_callback(callback, environment),
-         0 <- literal_callback_arity(callback),
-         {:ok, state} <- static_literal_callback_result(callback, [], environment) do
-      static_value_contains_database_receiver?(state, environment)
+    if body == nil do
+      scan_children(node, env, occurrences)
     else
-      _unsupported_or_unresolved_callback -> false
+      {_line, _metadata} = {line(metadata), metadata}
+      {env, occurrences}
     end
   end
 
-  defp classify_database_receiver_state_ingress(receiver, operation, arguments, environment) do
-    receiver = state_ingress_receiver_name(receiver, environment)
-
-    case get_in(@database_receiver_state_ingress, [receiver, {operation, length(arguments)}]) do
-      {:argument, index} ->
-        if arguments
-           |> Enum.at(index)
-           |> database_receiver_escape_argument?(environment),
-           do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-
-      {:callback_result, index} ->
-        if arguments
-           |> Enum.at(index)
-           |> literal_callback_result_contains_database_receiver?(environment),
-           do: {:raw_sql, "database_receiver.nonlocal_control_flow"}
-
-      nil ->
-        nil
-    end
+  defp scan_node({:__block__, _metadata, expressions}, env, occurrences)
+       when is_list(expressions) do
+    scan_expressions(expressions, env, occurrences)
   end
 
-  defp state_ingress_receiver_name(receiver, environment) when is_binary(receiver),
-    do: resolve_receiver(receiver, environment)
-
-  defp state_ingress_receiver_name(receiver, environment),
-    do: receiver |> receiver_name() |> resolve_receiver(environment)
-
-  defp classify_database_receiver_storage(receiver, operation, arguments, environment) do
-    receiver = storage_receiver_name(receiver, environment)
-
-    with operation_payload_indexes when is_map(operation_payload_indexes) <-
-           Map.get(@database_receiver_storage_payload_indexes, receiver),
-         payload_indexes when is_list(payload_indexes) <-
-           Map.get(operation_payload_indexes, operation),
-         true <-
-           storage_contains_database_receiver?(payload_indexes, arguments, environment) do
-      {:raw_sql, "database_receiver.nonlocal_control_flow"}
-    else
-      _unrecognized_or_unrelated_storage -> nil
-    end
+  defp scan_node({:alias, _metadata, arguments} = node, env, occurrences) do
+    {env, alias_occurrences} = apply_alias(arguments, env)
+    {env, occurrences ++ alias_occurrences_for(node, env, alias_occurrences)}
   end
 
-  defp storage_receiver_name(receiver, environment) when is_binary(receiver),
-    do: resolve_receiver(receiver, environment)
-
-  defp storage_receiver_name(receiver, environment),
-    do: receiver |> receiver_name() |> resolve_receiver(environment)
-
-  defp classify_map_database_receiver_callback(receiver, operation, arguments, environment) do
-    with "Map" <- map_callback_receiver_name(receiver, environment),
-         input_indexes when is_list(input_indexes) <-
-           Map.get(
-             @map_database_receiver_callback_input_indexes,
-             {operation, length(arguments)}
-           ),
-         true <- storage_contains_database_receiver?(input_indexes, arguments, environment) do
-      {:raw_sql, "database_receiver.nonlocal_control_flow"}
-    else
-      _unrelated_or_safe_callback -> nil
-    end
+  defp scan_node({:import, metadata, arguments}, env, occurrences) do
+    {env, import_occurrences} = apply_import(arguments, metadata, env)
+    {env, occurrences ++ import_occurrences}
   end
 
-  defp map_callback_receiver_name(receiver, environment) when is_binary(receiver),
-    do: resolve_receiver(receiver, environment)
+  defp scan_node({:quote, _metadata, arguments}, env, occurrences) do
+    evaluated_arguments =
+      Enum.flat_map(arguments, fn
+        options when is_list(options) ->
+          if Keyword.keyword?(options) do
+            options |> Keyword.delete(:do) |> Keyword.values()
+          else
+            []
+          end
 
-  defp map_callback_receiver_name(receiver, environment),
-    do: receiver |> receiver_name() |> resolve_receiver(environment)
-
-  defp storage_contains_database_receiver?(payload_indexes, arguments, environment) do
-    Enum.any?(payload_indexes, fn index ->
-      case Enum.fetch(arguments, index) do
-        {:ok, payload} -> database_receiver_escape_argument?(payload, environment)
-        :error -> false
-      end
-    end)
-  end
-
-  defp classify_dynamic_database_apply(_receiver, operation) when is_atom(operation), do: nil
-
-  defp classify_dynamic_database_apply(receiver, _operation) do
-    cond do
-      repo_receiver?(receiver) ->
-        {:raw_sql, "Repo.apply"}
-
-      receiver in [
-        "DBConnection",
-        "Ecto.Adapters.SQL",
-        "Ecto.Migration",
-        "Ecto.Query.API",
-        "Postgrex"
-      ] ->
-        {:raw_sql, "#{receiver}.apply"}
-
-      receiver == "Ecto.Multi" ->
-        {:direct_ecto, "#{receiver}.apply"}
-
-      true ->
-        nil
-    end
-  end
-
-  defp classify_query_sql_options(node, environment, context, occurrences) do
-    with {:ok, operation, metadata, arguments} <- ecto_query_call(node, environment) do
-      operation
-      |> query_sql_option_entries(arguments)
-      |> Enum.reduce(occurrences, fn {key, value, option_keys}, occurrences ->
-        if repository_authored_query_sql?(key, value) do
-          [
-            occurrence(
-              context.path,
-              Keyword.get(metadata, :line, 1),
-              context.function,
-              :raw_sql,
-              "Ecto.Query.#{key}",
-              query_sql_option_fingerprint_input(
-                operation,
-                arguments,
-                option_keys,
-                key,
-                value
-              )
-            )
-            |> mark_sql_payload_approval(value)
-            | occurrences
-          ]
-        else
-          occurrences
-        end
-      end)
-    else
-      :error -> occurrences
-    end
-  end
-
-  defp ecto_query_call(
-         {{:., _dot_metadata, [receiver, operation]}, metadata, arguments},
-         environment
-       )
-       when is_atom(operation) and is_list(arguments) do
-    if receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Query",
-      do: {:ok, operation, metadata, arguments},
-      else: :error
-  end
-
-  defp ecto_query_call({operation, metadata, arguments}, environment)
-       when is_atom(operation) and is_list(arguments) do
-    arity = length(arguments)
-
-    if not Map.has_key?(environment.local_functions, {operation, arity}) and
-         imported_receiver(environment, operation, arity) == "Ecto.Query",
-       do: {:ok, operation, metadata, arguments},
-       else: :error
-  end
-
-  defp ecto_query_call(_node, _environment), do: :error
-
-  defp query_sql_option_entries(:from, arguments) when length(arguments) == 2,
-    do: query_keyword_sql_option_entries(List.last(arguments), [:hints, :lock])
-
-  defp query_sql_option_entries(:join, arguments) when length(arguments) == 5,
-    do: query_keyword_sql_option_entries(List.last(arguments), [:hints])
-
-  defp query_sql_option_entries(:lock, arguments) when length(arguments) in [2, 3],
-    do: [{:lock, List.last(arguments), [:lock]}]
-
-  defp query_sql_option_entries(_operation, _arguments), do: []
-
-  defp query_keyword_sql_option_entries(options, option_keys) when is_list(options) do
-    if Keyword.keyword?(options) do
-      Enum.flat_map(options, fn
-        {key, value} ->
-          if key in option_keys, do: [{key, value, option_keys}], else: []
-
-        _option ->
+        _argument ->
           []
       end)
-    else
-      []
-    end
+
+    scan_node(evaluated_arguments, env, occurrences)
   end
 
-  defp query_keyword_sql_option_entries(_options, _option_keys), do: []
-
-  defp repository_authored_query_sql?(:hints, []), do: false
-  defp repository_authored_query_sql?(:lock, value) when value in [nil, true, false], do: false
-  defp repository_authored_query_sql?(_key, _value), do: true
-
-  defp query_sql_option_fingerprint_input(
-         operation,
-         arguments,
-         option_keys,
-         key,
-         value
-       ) do
-    target_arguments = query_sql_option_target_arguments(operation, arguments, option_keys)
-
-    Enum.join(
-      [
-        "query: #{Macro.to_string({operation, [], target_arguments})}",
-        "option: #{key}",
-        "value: #{Macro.to_string(value)}"
-      ],
-      "\n"
-    )
-  end
-
-  defp query_sql_option_target_arguments(operation, arguments, option_keys)
-       when operation in [:from, :join] do
-    case List.last(arguments) do
-      options when is_list(options) ->
-        List.replace_at(arguments, -1, Keyword.drop(options, option_keys))
-
-      _options ->
-        arguments
-    end
-  end
-
-  defp query_sql_option_target_arguments(:lock, arguments, _option_keys),
-    do: List.delete_at(arguments, -1)
-
-  defp query_sql_option_target_arguments(_operation, arguments, _option_keys), do: arguments
-
-  defp classify_migration_sql_options(
-         {operation, metadata, [construct_or_helper | _trailing_arguments]},
-         environment,
-         %{migration?: true} = context,
-         occurrences
-       )
-       when operation in @migration_create_operations do
-    classify_migration_constructs(
-      operation,
-      metadata,
-      construct_or_helper,
-      environment,
-      context,
-      occurrences
-    )
-  end
-
-  defp classify_migration_sql_options(
-         {operation, metadata, arguments},
-         _environment,
-         %{migration?: true, migration_table_target: table_target} = context,
-         occurrences
-       )
-       when operation in [:add, :modify] and is_list(arguments) do
-    classify_migration_column_sql_option(
-      operation,
-      metadata,
-      arguments,
-      table_target,
-      context,
-      occurrences
-    )
-  end
-
-  defp classify_migration_sql_options(
-         {{:., _dot_metadata, [receiver, operation]}, metadata, arguments},
-         environment,
-         %{migration?: true, migration_table_target: table_target} = context,
-         occurrences
-       )
-       when operation in [:add, :modify] and is_list(arguments) do
-    if migration_module_receiver?(receiver, environment) do
-      classify_migration_column_sql_option(
-        operation,
-        metadata,
-        arguments,
-        table_target,
-        context,
-        occurrences
-      )
-    else
-      occurrences
-    end
-  end
-
-  defp classify_migration_sql_options(
-         {{:., _dot_metadata, [receiver, operation]}, metadata,
-          [construct_or_helper | _trailing_arguments]},
-         environment,
-         %{migration?: true} = context,
-         occurrences
-       )
-       when operation in @migration_create_operations do
-    if migration_module_receiver?(receiver, environment) do
-      classify_migration_constructs(
-        operation,
-        metadata,
-        construct_or_helper,
-        environment,
-        context,
-        occurrences
-      )
-    else
-      occurrences
-    end
-  end
-
-  defp classify_migration_sql_options(_node, _environment, _context, occurrences),
-    do: occurrences
-
-  defp classify_migration_column_sql_option(
-         operation,
-         metadata,
-         arguments,
-         table_target,
-         context,
-         occurrences
-       ) do
-    case List.last(arguments) do
-      options when is_list(options) ->
-        if Keyword.keyword?(options) do
-          classify_generated_column_option(
-            operation,
-            metadata,
-            arguments,
-            options,
-            table_target,
-            context,
-            occurrences
-          )
-        else
-          occurrences
-        end
-
-      _options ->
-        occurrences
-    end
-  end
-
-  defp classify_generated_column_option(
-         operation,
-         metadata,
-         arguments,
-         options,
-         table_target,
-         context,
-         occurrences
-       ) do
-    case Keyword.fetch(options, :generated) do
-      {:ok, value} ->
-        fingerprint_input =
-          Enum.join(
-            [
-              table_target,
-              "column: #{migration_construct_target(operation, arguments, [:generated])}",
-              "option: generated",
-              "value: #{Macro.to_string(value)}"
-            ],
-            "\n"
-          )
-
+  defp scan_node({:for, metadata, arguments} = node, env, occurrences)
+       when is_list(arguments) do
+    occurrences =
+      if migration_entrypoint?(env) and not approved_uuidv7_loop?(node, env) do
         [
-          occurrence(
-            context.path,
-            Keyword.get(metadata, :line, 1),
-            context.function,
-            :raw_sql,
-            "migration.generated",
-            fingerprint_input
+          occurrence(env, line(metadata), :direct_ecto, "migration.control_flow", node,
+            approval: :unresolved_sql
           )
-          |> mark_sql_payload_approval(value)
           | occurrences
         ]
-
-      :error ->
+      else
         occurrences
-    end
+      end
+
+    scan_children(node, env, occurrences)
   end
 
-  defp classify_migration_constructs(
-         operation,
-         metadata,
-         construct_or_helper,
-         environment,
-         context,
-         occurrences
-       ) do
-    construct_or_helper
-    |> resolve_migration_constructs(environment, MapSet.new())
-    |> Enum.reduce(occurrences, fn construct_node, occurrences ->
-      classify_migration_construct_sql_options(
-        operation,
-        Keyword.get(metadata, :line, 1),
-        construct_node,
-        context,
+  defp scan_node({operation, metadata, arguments} = node, env, occurrences)
+       when operation in @migration_control_flow and is_list(arguments) do
+    occurrences =
+      if migration_entrypoint?(env) do
+        [
+          occurrence(env, line(metadata), :direct_ecto, "migration.control_flow", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
         occurrences
-      )
-    end)
+      end
+
+    scan_children(node, env, occurrences)
   end
 
-  defp classify_migration_construct_sql_options(
-         operation,
-         line,
-         {construct, _construct_metadata, arguments},
-         context,
+  defp scan_node(
+         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node,
+         env,
          occurrences
        )
-       when construct in @migration_sql_option_constructs and is_list(arguments) do
-    option_keys = migration_sql_option_keys(construct)
+       when is_atom(operation) and is_list(arguments) do
+    occurrences =
+      case classify_remote_call(receiver, operation, arguments, node, env) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
+
+    scan_children(node, env, occurrences)
+  end
+
+  defp scan_node({operation, metadata, arguments} = node, env, occurrences)
+       when is_atom(operation) and is_list(arguments) do
+    occurrences =
+      case classify_local_call(operation, arguments, node, env) do
+        nil -> occurrences
+        occurrence -> [occurrence | occurrences]
+      end
 
     occurrences =
-      classify_migration_index_expression_fields(
-        operation,
-        line,
-        construct,
-        arguments,
-        option_keys,
-        context,
-        occurrences
-      )
-
-    case List.last(arguments) do
-      options when is_list(options) ->
-        Enum.reduce(options, occurrences, fn
-          {key, value}, occurrences ->
-            if key in option_keys do
-              [
-                occurrence(
-                  context.path,
-                  line,
-                  context.function,
-                  :raw_sql,
-                  "migration.#{key}",
-                  migration_sql_option_fingerprint_input(
-                    operation,
-                    construct,
-                    arguments,
-                    option_keys,
-                    key,
-                    value
-                  )
-                )
-                |> mark_sql_payload_approval(value)
-                | occurrences
-              ]
-            else
-              occurrences
-            end
-
-          _option, occurrences ->
-            occurrences
-        end)
-
-      _argument ->
-        occurrences
-    end
-  end
-
-  defp classify_migration_construct_sql_options(
-         _operation,
-         _line,
-         _construct_node,
-         _context,
-         occurrences
-       ),
-       do: occurrences
-
-  defp classify_migration_index_expression_fields(
-         operation,
-         line,
-         construct,
-         arguments,
-         option_keys,
-         context,
-         occurrences
-       )
-       when construct in [:index, :unique_index] do
-    case Enum.at(arguments, 1) do
-      fields when is_list(fields) ->
-        fields
-        |> Enum.with_index()
-        |> Enum.reduce(occurrences, fn {field, index}, occurrences ->
-          case migration_index_expression_payload(field) do
-            :safe_column ->
-              occurrences
-
-            {:raw_sql, payload} ->
-              [
-                occurrence(
-                  context.path,
-                  line,
-                  context.function,
-                  :raw_sql,
-                  "migration.index_expression",
-                  migration_index_expression_fingerprint_input(
-                    operation,
-                    construct,
-                    arguments,
-                    option_keys,
-                    index,
-                    field
-                  )
-                )
-                |> mark_sql_payload_approval(payload)
-                | occurrences
-              ]
-          end
-        end)
-
-      field when is_atom(field) ->
-        occurrences
-
-      unresolved_fields ->
+      if migration_helper_escape?(operation, arguments, env) do
         [
-          occurrence(
-            context.path,
-            line,
-            context.function,
-            :raw_sql,
-            "migration.index_expression",
-            migration_index_expression_fingerprint_input(
-              operation,
-              construct,
-              arguments,
-              option_keys,
-              :unresolved,
-              unresolved_fields
-            )
+          occurrence(env, line(metadata), :direct_ecto, "migration.helper_call", node,
+            approval: :unresolved_sql
           )
-          |> mark_sql_payload_approval(unresolved_fields)
           | occurrences
         ]
-    end
-  end
-
-  defp classify_migration_index_expression_fields(
-         _operation,
-         _line,
-         _construct,
-         _arguments,
-         _option_keys,
-         _context,
-         occurrences
-       ),
-       do: occurrences
-
-  defp migration_index_expression_payload(field) when is_atom(field), do: :safe_column
-
-  defp migration_index_expression_payload({direction, field})
-       when direction in [
-              :asc,
-              :asc_nulls_first,
-              :asc_nulls_last,
-              :desc,
-              :desc_nulls_first,
-              :desc_nulls_last
-            ] and is_atom(field),
-       do: :safe_column
-
-  defp migration_index_expression_payload({direction, field})
-       when direction in [
-              :asc,
-              :asc_nulls_first,
-              :asc_nulls_last,
-              :desc,
-              :desc_nulls_first,
-              :desc_nulls_last
-            ] and is_binary(field),
-       do: {:raw_sql, field}
-
-  defp migration_index_expression_payload(field), do: {:raw_sql, field}
-
-  defp resolve_migration_constructs(node, environment, resolving) do
-    resolved_node =
-      node
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
-
-    do_resolve_migration_constructs(resolved_node, environment, resolving)
-  end
-
-  defp do_resolve_migration_constructs(
-         {construct, _metadata, arguments} = node,
-         _environment,
-         _resolving
-       )
-       when construct in @migration_sql_option_constructs and is_list(arguments),
-       do: [node]
-
-  defp do_resolve_migration_constructs(
-         {{:., _dot_metadata, [receiver, construct]}, metadata, arguments},
-         environment,
-         _resolving
-       )
-       when construct in @migration_sql_option_constructs and is_list(arguments) do
-    if migration_module_receiver?(receiver, environment),
-      do: [{construct, metadata, arguments}],
-      else: []
-  end
-
-  defp do_resolve_migration_constructs(
-         {:__block__, _metadata, expressions},
-         environment,
-         resolving
-       )
-       when is_list(expressions),
-       do: resolve_migration_return_sequence(expressions, environment, resolving)
-
-  defp do_resolve_migration_constructs(
-         {branch, _metadata, [_condition, options]},
-         environment,
-         resolving
-       )
-       when branch in [:if, :unless] and is_list(options) do
-    options
-    |> Keyword.take([:do, :else])
-    |> Keyword.values()
-    |> Enum.flat_map(&resolve_migration_constructs(&1, environment, resolving))
-  end
-
-  defp do_resolve_migration_constructs(
-         {branch, _metadata, arguments},
-         environment,
-         resolving
-       )
-       when branch in [:case, :cond, :with] and is_list(arguments) do
-    arguments
-    |> List.last()
-    |> case do
-      options when is_list(options) ->
-        options
-        |> Keyword.take([:do, :else])
-        |> Keyword.values()
-        |> Enum.flat_map(&migration_clause_bodies/1)
-        |> Enum.flat_map(&resolve_migration_constructs(&1, environment, resolving))
-
-      _not_options ->
-        []
-    end
-  end
-
-  defp do_resolve_migration_constructs(
-         {name, _metadata, arguments},
-         environment,
-         resolving
-       )
-       when is_atom(name) and (is_list(arguments) or is_nil(arguments)) do
-    arguments = arguments || []
-    key = {name, length(arguments)}
-
-    if MapSet.member?(resolving, key) do
-      []
-    else
-      environment.local_functions
-      |> Map.get(key, [])
-      |> matching_local_definitions(arguments, environment)
-      |> Enum.flat_map(fn definition ->
-        child_environment = bind_local_function_arguments(definition, arguments, environment)
-        {body, child_environment} = expand_local_definition(definition, child_environment)
-
-        resolve_migration_constructs(
-          body,
-          child_environment,
-          MapSet.put(resolving, key)
-        )
-      end)
-    end
-  end
-
-  defp do_resolve_migration_constructs(_node, _environment, _resolving), do: []
-
-  defp expand_local_definition(%{body: body, kind: :function}, environment),
-    do: {body, environment}
-
-  defp expand_local_definition(%{body: body, kind: :macro}, environment) do
-    {expand_local_macro_body(body, environment), %{environment | bindings: %{}}}
-  end
-
-  defp expand_local_macro_body({:quote, _metadata, arguments}, environment)
-       when is_list(arguments) do
-    options = local_quote_options(arguments)
-
-    body =
-      if local_quote_unquotes?(options) do
-        options
-        |> Keyword.get(:do)
-        |> Macro.postwalk(fn
-          {:unquote, _metadata, [expression]} ->
-            expression
-            |> resolve_attributes(environment)
-            |> resolve_bindings(environment)
-
-          node ->
-            node
-        end)
       else
-        Keyword.get(options, :do)
+        occurrences
       end
 
-    quoted_environment = %{
-      environment
-      | bindings: local_bind_quoted_bindings(options, environment)
-    }
-
-    body
-    |> resolve_attributes(quoted_environment)
-    |> resolve_bindings(quoted_environment)
+    scan_children(node, env, occurrences)
   end
 
-  defp expand_local_macro_body(body, environment) do
-    body
-    |> resolve_attributes(environment)
-    |> resolve_bindings(environment)
+  defp scan_node(nodes, env, occurrences) when is_list(nodes) do
+    scan_expressions(nodes, env, occurrences)
   end
 
-  defp local_quote_options(arguments) do
-    Enum.flat_map(arguments, fn
-      options when is_list(options) ->
-        if Keyword.keyword?(options), do: options, else: []
+  defp scan_node(node, env, occurrences) when is_tuple(node) do
+    scan_children(node, env, occurrences)
+  end
 
-      _argument ->
-        []
+  defp scan_node(_node, env, occurrences), do: {env, occurrences}
+
+  defp scan_expressions(expressions, env, occurrences) do
+    Enum.reduce(expressions, {env, occurrences}, fn expression, {env, occurrences} ->
+      scan_node(expression, env, occurrences)
     end)
   end
 
-  defp local_quote_unquotes?(options) do
-    Keyword.get(options, :unquote, not Keyword.has_key?(options, :bind_quoted))
+  defp scan_children(node, env, occurrences) do
+    node
+    |> Tuple.to_list()
+    |> scan_node(env, occurrences)
   end
 
-  defp local_bind_quoted_bindings(options, environment) do
-    options
-    |> Keyword.get(:bind_quoted, [])
-    |> Enum.reduce(%{}, fn
-      {name, expression}, bindings when is_atom(name) ->
-        expression =
-          expression
-          |> resolve_attributes(environment)
-          |> resolve_bindings(environment)
+  defp classify_remote_call(receiver, operation, arguments, node, env) do
+    receiver = receiver_name(receiver, env)
 
-        Map.put(bindings, name, expression)
-
-      _binding, bindings ->
-        bindings
-    end)
+    classify_operation(receiver, operation, length(arguments), node, env) ||
+      classify_sql_bearing_call(receiver, operation, arguments, node, env) ||
+      classify_migration_remote_helper(receiver, operation, node, env)
   end
 
-  defp resolve_migration_return_sequence([], _environment, _resolving), do: []
+  defp classify_local_call(:apply, [receiver, operation | _rest], node, env) do
+    classify_apply(receiver, operation, node, env)
+  end
 
-  defp resolve_migration_return_sequence([expression], environment, resolving),
-    do: resolve_migration_constructs(expression, environment, resolving)
+  defp classify_local_call(operation, arguments, node, env) do
+    arity = length(arguments)
+    imported_receiver = imported_receiver(env, operation, arity)
 
-  defp resolve_migration_return_sequence(
-         [{:=, _metadata, [pattern, value]} | expressions],
-         environment,
-         resolving
-       ) do
-    resolved_pattern = resolve_struct_aliases(pattern, environment)
+    with nil <- classify_migration_local(operation, arguments, node, env),
+         nil <- classify_sql_bearing_call(imported_receiver, operation, arguments, node, env),
+         receiver when not is_nil(receiver) <- imported_receiver do
+      classify_operation(receiver, operation, arity, node, env)
+    end
+  end
 
-    resolved_value =
-      value
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
-      |> resolve_struct_aliases(environment)
+  defp classify_migration_local(operation, arguments, node, env)
+       when operation in @migration_raw_sql_operations and env.migration? do
+    class = :raw_sql
+    construct = "migration.#{operation}"
+    approval = approval_marker(class, construct, arguments)
+    occurrence(env, line_from_node(node), class, construct, node, approval: approval)
+  end
 
-    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
+  defp classify_migration_local(operation, _arguments, node, env)
+       when operation in @migration_direct_operations and env.migration? do
+    occurrence(env, line_from_node(node), :direct_ecto, "migration.#{operation}", node)
+  end
 
-    resolve_migration_return_sequence(
-      expressions,
-      %{environment | bindings: bindings},
-      resolving
+  defp classify_migration_local(operation, arguments, node, env)
+       when operation in @query_fragment_operations do
+    arity = length(arguments)
+
+    case imported_receiver(env, operation, arity) do
+      nil ->
+        if env.migration? do
+          approval = approval_marker(:raw_sql, to_string(operation), arguments)
+
+          occurrence(env, line_from_node(node), :raw_sql, to_string(operation), node,
+            approval: approval
+          )
+        end
+
+      receiver ->
+        classify_operation(receiver, operation, arity, node, env)
+    end
+  end
+
+  defp classify_migration_local(_operation, _arguments, _node, _env), do: nil
+
+  defp classify_operation("OfficeGraph.Repo", operation, _arity, node, env)
+       when operation in @repo_raw_sql_operations do
+    construct = "Repo.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("OfficeGraph.Repo", operation, _arity, node, env)
+       when operation in @repo_direct_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "Repo.#{operation}", node)
+  end
+
+  defp classify_operation("Ecto.Adapters.SQL", operation, _arity, node, env)
+       when operation in @ecto_sql_raw_sql_operations do
+    construct = "Ecto.Adapters.SQL.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Adapters.SQL", operation, _arity, node, env)
+       when operation in @ecto_sql_direct_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Adapters.SQL.#{operation}", node)
+  end
+
+  defp classify_operation("Postgrex", operation, _arity, node, env)
+       when operation in @postgrex_raw_sql_operations do
+    construct = "Postgrex.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in ["Postgrex", "Postgrex.Notifications", "Postgrex.SimpleConnection"] and
+              operation in @postgrex_direct_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "#{receiver}.#{operation}", node)
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in ["Postgrex.Notifications", "Postgrex.SimpleConnection"] and
+              operation in @postgrex_raw_sql_operations do
+    construct = "#{receiver}.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("DBConnection", operation, _arity, node, env)
+       when operation in @db_connection_raw_sql_operations do
+    construct = "DBConnection.#{operation}"
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: :unresolved_sql)
+  end
+
+  defp classify_operation("DBConnection", operation, _arity, node, env)
+       when operation in @db_connection_direct_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "DBConnection.#{operation}", node)
+  end
+
+  defp classify_operation("Ecto.Migrator", operation, _arity, node, env)
+       when operation in @ecto_migrator_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Migrator.#{operation}", node)
+  end
+
+  defp classify_operation("Ecto.Multi", operation, _arity, node, env)
+       when operation in @multi_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Multi.#{operation}", node)
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in ["Ecto.Query", "Ecto.Query.API"] and
+              operation in @query_fragment_operations do
+    construct = to_string(operation)
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
+       when operation in @migration_raw_sql_operations do
+    construct = "migration.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Migration.repo()", operation, _arity, node, env)
+       when operation in @repo_raw_sql_operations do
+    construct = "Repo.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in @database_modules and operation == :apply do
+    class = if receiver == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+
+    occurrence(env, line_from_node(node), class, "#{receiver}.apply", node,
+      approval: :unresolved_sql
     )
   end
 
-  defp resolve_migration_return_sequence([_expression | expressions], environment, resolving),
-    do: resolve_migration_return_sequence(expressions, environment, resolving)
+  defp classify_operation(_receiver, _operation, _arity, _node, _env), do: nil
 
-  defp migration_clause_bodies(clauses) when is_list(clauses),
-    do: Enum.flat_map(clauses, &migration_clause_bodies/1)
+  defp classify_apply(receiver, operation, node, env) do
+    receiver_name = receiver_name(receiver, env)
+    operation_name = static_atom(operation)
 
-  defp migration_clause_bodies({:->, _metadata, [_patterns, body]}), do: [body]
-  defp migration_clause_bodies(_clause), do: []
-
-  defp matching_local_definitions(definitions, arguments, environment) do
-    definitions
-    |> Enum.reduce_while([], fn definition, matches ->
-      definition_environment = local_definition_environment(definition, environment)
-
-      parameters =
-        definition
-        |> supplied_local_parameters()
-        |> Enum.map(fn parameter ->
-          parameter
-          |> local_parameter_pattern()
-          |> resolve_struct_aliases(definition_environment)
-        end)
-
-      {pattern_status, _bindings} = match_local_parameters(parameters, arguments)
-
-      guard_status =
-        definition.guards
-        |> Enum.map(
-          &resolve_bindings(&1, bind_local_function_arguments(definition, arguments, environment))
-        )
-        |> local_guards_match()
-
-      case {pattern_status, guard_status} do
-        {:no_match, _guard_status} ->
-          {:cont, matches}
-
-        {_pattern_status, :no_match} ->
-          {:cont, matches}
-
-        {:match, :match} ->
-          {:halt, [definition | matches]}
-
-        {_possible_pattern, _possible_guard} ->
-          {:cont, [definition | matches]}
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp match_local_parameters(patterns, arguments) do
-    patterns
-    |> Enum.zip(arguments)
-    |> Enum.reduce({:match, %{}}, fn {pattern, argument}, {status, bindings} ->
-      {next_status, bindings} = match_local_parameter(pattern, argument, bindings)
-      {combine_local_match_status(status, next_status), bindings}
-    end)
-  end
-
-  defp match_local_parameter({:^, _metadata, [_pattern]}, _argument, bindings),
-    do: {:unknown, bindings}
-
-  defp match_local_parameter({name, _metadata, binding_context}, argument, bindings)
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
     cond do
-      name == :_ ->
-        {:match, bindings}
+      receiver_name == "Ecto.Query" ->
+        nil
 
-      Map.has_key?(bindings, name) ->
-        {repeated_local_binding_status(Map.fetch!(bindings, name), argument), bindings}
+      receiver_name in @database_modules and is_atom(operation_name) and
+          not is_nil(operation_name) ->
+        classify_operation(receiver_name, operation_name, 0, node, env)
+
+      receiver_name in @database_modules ->
+        class = if receiver_name == "Ecto.Multi", do: :direct_ecto, else: :raw_sql
+
+        occurrence(env, line_from_node(node), class, "#{receiver_name}.apply", node,
+          approval: :unresolved_sql
+        )
 
       true ->
-        {:match, Map.put(bindings, name, argument)}
+        nil
     end
   end
 
-  defp match_local_parameter(
-         {:{}, _pattern_metadata, patterns},
-         {:{}, _argument_metadata, arguments},
-         bindings
-       ) do
-    if length(patterns) == length(arguments),
-      do: match_local_parameter_elements(patterns, arguments, bindings),
-      else: {:no_match, bindings}
+  defp classify_sql_bearing_call(receiver, :lock, [_query, value], node, env)
+       when receiver == "Ecto.Query" and is_binary(value) do
+    occurrence(env, line_from_node(node), :raw_sql, "query.lock", node)
   end
 
-  defp match_local_parameter(
-         {left_pattern, right_pattern},
-         {left_argument, right_argument},
-         bindings
-       ) do
-    {left_status, bindings} = match_local_parameter(left_pattern, left_argument, bindings)
-    {right_status, bindings} = match_local_parameter(right_pattern, right_argument, bindings)
-    {combine_local_match_status(left_status, right_status), bindings}
+  defp classify_sql_bearing_call(receiver, operation, arguments, node, env)
+       when receiver == "Ecto.Query" and operation in [:from, :join] do
+    classify_sql_options("query.#{operation}", arguments, [:hints, :lock], node, env)
   end
 
-  defp match_local_parameter(patterns, arguments, bindings)
-       when is_list(patterns) and is_list(arguments) do
-    if length(patterns) == length(arguments),
-      do: match_local_parameter_elements(patterns, arguments, bindings),
-      else: {:no_match, bindings}
-  end
-
-  defp match_local_parameter(pattern, argument, bindings)
-       when is_atom(pattern) or is_binary(pattern) or is_number(pattern) do
-    status =
-      cond do
-        pattern === argument -> :match
-        static_binding_source?(argument) -> :no_match
-        true -> :unknown
-      end
-
-    {status, bindings}
-  end
-
-  defp match_local_parameter(_pattern, _argument, bindings), do: {:unknown, bindings}
-
-  defp match_local_parameter_elements(patterns, arguments, bindings) do
-    patterns
-    |> Enum.zip(arguments)
-    |> Enum.reduce({:match, bindings}, fn {pattern, argument}, {status, bindings} ->
-      {next_status, bindings} = match_local_parameter(pattern, argument, bindings)
-      {combine_local_match_status(status, next_status), bindings}
-    end)
-  end
-
-  defp combine_local_match_status(:no_match, _status), do: :no_match
-  defp combine_local_match_status(_status, :no_match), do: :no_match
-  defp combine_local_match_status(:unknown, _status), do: :unknown
-  defp combine_local_match_status(_status, :unknown), do: :unknown
-  defp combine_local_match_status(:match, :match), do: :match
-
-  defp repeated_local_binding_status(existing, argument) do
-    if Macro.to_string(existing) == Macro.to_string(argument) do
-      :match
-    else
-      with {:known, existing} <- static_local_guard_value(existing),
-           {:known, argument} <- static_local_guard_value(argument) do
-        if existing === argument, do: :match, else: :no_match
-      end
-    end
-  end
-
-  defp local_guards_match(guards) do
-    Enum.reduce(guards, :match, fn guard, status ->
-      combine_local_guard_and(status, static_local_guard_result(guard))
-    end)
-  end
-
-  defp static_local_guard_result(true), do: :match
-  defp static_local_guard_result(false), do: :no_match
-  defp static_local_guard_result(nil), do: :no_match
-
-  defp static_local_guard_result({:when, _metadata, guards}) when is_list(guards) do
-    Enum.reduce(guards, :no_match, fn guard, status ->
-      combine_local_guard_or(status, static_local_guard_result(guard))
-    end)
-  end
-
-  defp static_local_guard_result({operation, _metadata, [left, right]})
-       when operation in [:and, :or] do
-    left_status = static_local_guard_result(left)
-    right_status = static_local_guard_result(right)
-
-    case operation do
-      :and -> combine_local_guard_and(left_status, right_status)
-      :or -> combine_local_guard_or(left_status, right_status)
-    end
-  end
-
-  defp static_local_guard_result({operation, _metadata, [left, right]})
-       when operation in [:==, :===, :!=, :!==] do
-    with {:known, left} <- static_local_guard_value(left),
-         {:known, right} <- static_local_guard_value(right) do
-      matches? =
-        case operation do
-          :== -> left == right
-          :=== -> left === right
-          :!= -> left != right
-          :!== -> left !== right
-        end
-
-      if matches?, do: :match, else: :no_match
-    end
-  end
-
-  defp static_local_guard_result(_guard), do: :unknown
-
-  defp static_local_guard_value(value)
-       when is_atom(value) or is_binary(value) or is_number(value),
-       do: {:known, value}
-
-  defp static_local_guard_value(values) when is_list(values),
-    do: static_local_guard_values(values, [])
-
-  defp static_local_guard_value({:{}, _metadata, values}) do
-    case static_local_guard_values(values, []) do
-      {:known, values} -> {:known, List.to_tuple(values)}
-      :unknown -> :unknown
-    end
-  end
-
-  defp static_local_guard_value({left, right}) do
-    with {:known, left} <- static_local_guard_value(left),
-         {:known, right} <- static_local_guard_value(right),
-         do: {:known, {left, right}}
-  end
-
-  defp static_local_guard_value(_value), do: :unknown
-
-  defp static_local_guard_values([], values), do: {:known, Enum.reverse(values)}
-
-  defp static_local_guard_values([value | remaining], values) do
-    case static_local_guard_value(value) do
-      {:known, value} -> static_local_guard_values(remaining, [value | values])
-      :unknown -> :unknown
-    end
-  end
-
-  defp combine_local_guard_and(:no_match, _status), do: :no_match
-  defp combine_local_guard_and(_status, :no_match), do: :no_match
-  defp combine_local_guard_and(:unknown, _status), do: :unknown
-  defp combine_local_guard_and(_status, :unknown), do: :unknown
-  defp combine_local_guard_and(:match, :match), do: :match
-
-  defp combine_local_guard_or(:match, _status), do: :match
-  defp combine_local_guard_or(_status, :match), do: :match
-  defp combine_local_guard_or(:unknown, _status), do: :unknown
-  defp combine_local_guard_or(_status, :unknown), do: :unknown
-  defp combine_local_guard_or(:no_match, :no_match), do: :no_match
-
-  defp bind_local_function_arguments(definition, arguments, environment) do
-    environment = local_definition_environment(definition, environment)
-
-    bindings =
-      definition
-      |> supplied_local_parameters()
-      |> Enum.zip(arguments)
-      |> Enum.reduce(environment.bindings, fn {parameter, argument}, bindings ->
-        pattern = parameter |> local_parameter_pattern() |> resolve_struct_aliases(environment)
-        bind_pattern(pattern, argument, bindings)
-      end)
-
-    environment = %{environment | bindings: bindings}
-
-    definition.parameters
-    |> Enum.with_index()
-    |> Enum.reduce(environment, fn
-      {{:\\, _metadata, [pattern, default]}, index}, environment ->
-        if MapSet.member?(definition.omitted_indexes, index) do
-          resolved_default =
-            default
-            |> resolve_attributes(environment)
-            |> resolve_bindings(environment)
-            |> resolve_struct_aliases(environment)
-
-          pattern = resolve_struct_aliases(pattern, environment)
-          %{environment | bindings: bind_pattern(pattern, resolved_default, environment.bindings)}
-        else
-          environment
-        end
-
-      _parameter, environment ->
-        environment
-    end)
-  end
-
-  defp local_definition_environment(definition, environment) do
-    environment
-    |> Map.merge(Map.get(definition, :definition_environment, %{}))
-    |> Map.put(:bindings, %{})
-  end
-
-  defp supplied_local_parameters(definition) do
-    definition.parameters
-    |> Enum.with_index()
-    |> Enum.reject(fn {_parameter, index} ->
-      MapSet.member?(definition.omitted_indexes, index)
-    end)
-    |> Enum.map(&elem(&1, 0))
-  end
-
-  defp local_parameter_pattern({:\\, _metadata, [pattern, _default]}), do: pattern
-  defp local_parameter_pattern(pattern), do: pattern
-
-  defp migration_sql_option_keys(:constraint), do: [:check, :exclude]
-
-  defp migration_sql_option_keys(:table), do: [:modifiers, :options]
-
-  defp migration_sql_option_keys(construct) when construct in [:index, :unique_index],
-    do: [:options, :where]
-
-  defp mark_sql_approval(occurrence, :raw_sql, "migration.execute_file", node, _environment) do
-    with {:ok, payloads} <- raw_sql_payloads(node, "migration.execute_file"),
-         {:ok, paths} <- static_execute_file_paths(payloads) do
-      Map.put(occurrence, :execute_file_paths, paths)
-    else
-      _unresolved -> Map.put(occurrence, :approval, :unresolved_sql)
-    end
-  end
-
-  defp mark_sql_approval(occurrence, :raw_sql, construct, _node, _environment)
-       when construct in [
-              "database_receiver.nonlocal_control_flow",
-              "database_receiver.remote_helper"
-            ],
-       do: Map.put(occurrence, :approval, :unresolved_sql)
-
-  defp mark_sql_approval(occurrence, :raw_sql, construct, node, environment) do
-    with {:ok, payloads} <- raw_sql_payloads(node, construct),
-         false <- dynamic_fragment_sql_shape?(node, construct, environment) do
-      mark_sql_payloads_approval(occurrence, payloads)
-    else
-      _unresolved -> Map.put(occurrence, :approval, :unresolved_sql)
-    end
-  end
-
-  defp mark_sql_approval(occurrence, _class, _construct, _node, _environment), do: occurrence
-
-  defp dynamic_fragment_sql_shape?(node, construct, environment)
-       when construct in ["fragment", "Ecto.Query.API.fragment"] do
-    node
-    |> call_arguments()
-    |> Enum.drop(1)
-    |> Enum.any?(&contains_dynamic_fragment_sql_shape?(&1, environment))
-  end
-
-  defp dynamic_fragment_sql_shape?(_node, _construct, _environment), do: false
-
-  defp contains_dynamic_fragment_sql_shape?(argument, environment) do
-    {_argument, dynamic?} =
-      Macro.prewalk(argument, false, fn node, dynamic? ->
-        {node, dynamic? or dynamic_fragment_sql_shape_helper?(node, environment)}
-      end)
-
-    dynamic?
-  end
-
-  defp dynamic_fragment_sql_shape_helper?(
-         {operation, _metadata, [payload]},
-         environment
-       )
-       when operation in @fragment_sql_shape_helpers do
-    imported_receiver(environment, operation, 1) in @ecto_fragment_import_targets and
-      not static_sql_payload?(payload)
-  end
-
-  defp dynamic_fragment_sql_shape_helper?(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, [payload]},
-         environment
-       )
-       when operation in @fragment_sql_shape_helpers do
-    (receiver |> receiver_name() |> resolve_receiver(environment)) in @ecto_fragment_import_targets and
-      not static_sql_payload?(payload)
-  end
-
-  defp dynamic_fragment_sql_shape_helper?(_node, _environment), do: false
-
-  defp call_arguments({{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments})
-       when is_list(arguments),
-       do: arguments
-
-  defp call_arguments({_operation, _metadata, arguments}) when is_list(arguments),
-    do: arguments
-
-  defp call_arguments(_node), do: []
-
-  defp mark_sql_payloads_approval(occurrence, payloads) do
-    if Enum.all?(payloads, &static_sql_payload?/1),
-      do: occurrence,
-      else: Map.put(occurrence, :approval, :unresolved_sql)
-  end
-
-  defp mark_sql_payload_approval(occurrence, payload) do
-    if static_sql_payload?(payload),
-      do: occurrence,
-      else: Map.put(occurrence, :approval, :unresolved_sql)
-  end
-
-  defp raw_sql_payloads(
-         {{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments},
-         construct
-       )
-       when is_list(arguments) do
-    fetch_sql_arguments(arguments, construct)
-  end
-
-  defp raw_sql_payloads({_operation, _metadata, arguments}, construct)
-       when is_list(arguments) do
-    fetch_sql_arguments(arguments, construct)
-  end
-
-  defp raw_sql_payloads({:unsafe_fragment, payload}, "unsafe_fragment"), do: {:ok, [payload]}
-  defp raw_sql_payloads(_node, _construct), do: :error
-
-  defp fetch_sql_arguments(arguments, "migration.execute") do
-    if length(arguments) in [1, 2], do: {:ok, arguments}, else: :error
-  end
-
-  defp fetch_sql_arguments(arguments, "migration.execute_file") do
-    if length(arguments) in [1, 2], do: {:ok, arguments}, else: :error
-  end
-
-  defp fetch_sql_arguments(arguments, construct) do
-    case fetch_sql_argument(arguments, construct) do
-      {:ok, argument} -> {:ok, [argument]}
-      :error -> :error
-    end
-  end
-
-  defp fetch_sql_argument(arguments, "Ecto.Adapters.SQL." <> _operation),
-    do: fetch_argument(arguments, 1)
-
-  defp fetch_sql_argument(arguments, "DBConnection." <> _operation) do
-    with {:ok, query} <- fetch_argument(arguments, 1),
-         {:ok, statement} <- db_connection_query_statement(query) do
-      {:ok, statement}
-    end
-  end
-
-  defp fetch_sql_argument(arguments, "Postgrex." <> operation)
-       when operation in ["prepare", "prepare!", "prepare_execute", "prepare_execute!"],
-       do: fetch_argument(arguments, 2)
-
-  defp fetch_sql_argument(arguments, "Postgrex." <> _operation),
-    do: fetch_argument(arguments, 1)
-
-  defp fetch_sql_argument(arguments, _construct), do: fetch_argument(arguments, 0)
-
-  defp db_connection_query_statement(
-         {:%, _metadata,
-          [
-            {:__aliases__, _alias_metadata, module_parts},
-            {:%{}, _map_metadata, fields}
-          ]}
-       )
-       when is_list(module_parts) and is_list(fields) do
-    if Enum.join(module_parts, ".") in ["Postgrex.Query", "Postgrex.TextQuery"] do
-      case List.keyfind(fields, :statement, 0) do
-        {:statement, statement} -> {:ok, statement}
-        nil -> :error
-      end
-    else
-      :error
-    end
-  end
-
-  defp db_connection_query_statement(_query), do: :error
-
-  defp fetch_argument(arguments, index) do
-    case Enum.fetch(arguments, index) do
-      {:ok, argument} -> {:ok, argument}
-      :error -> :error
-    end
-  end
-
-  defp static_sql_payload?({operator, _metadata, [left, right]}) when operator in [:<>, :++],
-    do: static_sql_payload?(left) and static_sql_payload?(right)
-
-  defp static_sql_payload?({:<<>>, _metadata, segments}) when is_list(segments),
-    do: Enum.all?(segments, &static_sql_bitstring_segment?/1)
-
-  defp static_sql_payload?(payload), do: Macro.quoted_literal?(payload)
-
-  defp static_sql_bitstring_segment?(segment) when is_binary(segment), do: true
-
-  defp static_sql_bitstring_segment?(
-         {:"::", _metadata,
-          [
-            {{:., _dot_metadata, [Kernel, :to_string]}, interpolation_metadata, [value]},
-            {:binary, _binary_metadata, nil}
-          ]}
-       ) do
-    Keyword.get(interpolation_metadata, :from_interpolation, false) and
-      static_sql_payload?(value)
-  end
-
-  defp static_sql_bitstring_segment?(segment), do: Macro.quoted_literal?(segment)
-
-  defp static_execute_file_paths(payloads) do
-    Enum.reduce_while(payloads, {:ok, []}, fn payload, {:ok, paths} ->
-      case static_execute_file_path(payload) do
-        {:ok, path} -> {:cont, {:ok, [path | paths]}}
-        :error -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, paths} -> {:ok, Enum.reverse(paths)}
-      :error -> :error
-    end
-  end
-
-  defp static_execute_file_path(path) when is_binary(path), do: {:ok, path}
-
-  defp static_execute_file_path({:<>, _metadata, [left, right]}) do
-    with {:ok, left} <- static_execute_file_path(left),
-         {:ok, right} <- static_execute_file_path(right),
-         do: {:ok, left <> right}
-  end
-
-  defp static_execute_file_path({:<<>>, _metadata, segments}) when is_list(segments) do
-    Enum.reduce_while(segments, {:ok, []}, fn segment, {:ok, values} ->
-      case static_execute_file_path_segment(segment) do
-        {:ok, value} -> {:cont, {:ok, [value | values]}}
-        :error -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, values |> Enum.reverse() |> IO.iodata_to_binary()}
-      :error -> :error
-    end
-  end
-
-  defp static_execute_file_path(_path), do: :error
-
-  defp static_execute_file_path_segment(segment) when is_binary(segment), do: {:ok, segment}
-
-  defp static_execute_file_path_segment(
-         {:"::", _metadata,
-          [
-            {{:., _dot_metadata, [Kernel, :to_string]}, interpolation_metadata, [value]},
-            {:binary, _binary_metadata, nil}
-          ]}
-       ) do
-    if Keyword.get(interpolation_metadata, :from_interpolation, false),
-      do: static_execute_file_interpolation(value),
-      else: :error
-  end
-
-  defp static_execute_file_path_segment(_segment), do: :error
-
-  defp static_execute_file_interpolation(value)
-       when is_atom(value) or is_binary(value) or is_number(value),
-       do: {:ok, to_string(value)}
-
-  defp static_execute_file_interpolation(value) when is_list(value) do
-    if Enum.all?(value, &is_integer/1), do: {:ok, List.to_string(value)}, else: :error
-  end
-
-  defp static_execute_file_interpolation(_value), do: :error
-
-  defp migration_sql_option_fingerprint_input(
-         operation,
-         construct,
-         arguments,
-         option_keys,
-         key,
-         value
-       ) do
-    target = migration_construct_target(construct, arguments, option_keys)
-
-    Enum.join(
-      [
-        "operation: #{operation}",
-        "target: #{target}",
-        "option: #{key}",
-        "value: #{Macro.to_string(value)}"
-      ],
-      "\n"
+  defp classify_sql_bearing_call(_receiver, operation, arguments, node, env)
+       when operation in [:constraint, :index, :table, :unique_index] and env.migration? do
+    classify_sql_options(
+      "migration.#{operation}_options",
+      arguments,
+      [:options, :where],
+      node,
+      env
     )
   end
 
-  defp migration_index_expression_fingerprint_input(
-         operation,
-         construct,
+  defp classify_sql_bearing_call(_receiver, operation, arguments, node, env)
+       when operation in [
+              :base_filter_sql,
+              :calculations_to_sql,
+              :create_table_options,
+              :identity_wheres_to_sql
+            ] do
+    if env.ash_postgres?,
+      do: classify_sql_setting("ash_postgres.#{operation}", arguments, node, env)
+  end
+
+  defp classify_sql_bearing_call(
+         _receiver,
+         :custom_index,
          arguments,
-         option_keys,
-         index,
-         field
+         node,
+         %{ash_postgres?: true} = env
        ) do
-    target = migration_construct_target(construct, arguments, option_keys)
-
-    Enum.join(
-      [
-        "operation: #{operation}",
-        "target: #{target}",
-        "field: #{index}",
-        "value: #{Macro.to_string(field)}"
-      ],
-      "\n"
-    )
+    classify_sql_options("ash_postgres.custom_index", arguments, [:where], node, env) ||
+      classify_sql_setting("ash_postgres.custom_index_fields", [List.first(arguments)], node, env)
   end
 
-  defp migration_construct_target(construct, arguments, option_keys) do
-    target_arguments =
-      case List.last(arguments) do
-        options when is_list(options) ->
-          target_options =
-            Enum.reject(options, fn
-              {option_key, _value} -> option_key in option_keys
-              _option -> false
-            end)
-
-          List.replace_at(arguments, -1, target_options)
-
-        _not_options ->
-          arguments
-      end
-
-    {construct, [], target_arguments}
-    |> Macro.to_string()
-  end
-
-  defp empty_environment do
-    %{
-      aliases: %{},
-      attribute_modes: %{},
-      attributes: %{},
-      bindings: %{},
-      imports: [],
-      local_functions: %{},
-      remote_functions: MapSet.new(),
-      self_messages: [],
-      uncertain_attribute_registration?: false
-    }
-  end
-
-  defp collect_remote_functions(sources) do
-    Enum.reduce(sources, MapSet.new(), fn %{path: path, source: source}, functions ->
-      if Path.extname(path) == ".sql" do
-        functions
-      else
-        source
-        |> Code.string_to_quoted!(file: path, columns: true)
-        |> collect_remote_functions_from_ast(functions, nil)
-      end
-    end)
-  end
-
-  defp collect_remote_functions_from_ast(
-         {:quote, _metadata, _arguments},
-         functions,
-         _parent_module
-       ),
-       do: functions
-
-  defp collect_remote_functions_from_ast(
-         {:defmodule, _metadata, [module | arguments]},
-         functions,
-         parent_module
+  defp classify_sql_bearing_call(
+         _receiver,
+         :check_constraint,
+         arguments,
+         node,
+         %{ash_postgres?: true} = env
        ) do
-    {module_names, nested_parent} = tracked_module_names(module, parent_module)
-    body = block_body([module | arguments])
-
-    functions = collect_public_remote_functions(body, module_names, functions)
-
-    collect_remote_functions_from_ast(body, functions, nested_parent)
+    classify_sql_options("ash_postgres.check_constraint", arguments, [:check], node, env)
   end
 
-  defp collect_remote_functions_from_ast(nodes, functions, parent_module)
-       when is_list(nodes),
-       do:
-         Enum.reduce(nodes, functions, fn node, functions ->
-           collect_remote_functions_from_ast(node, functions, parent_module)
-         end)
+  defp classify_sql_bearing_call(_receiver, _operation, _arguments, _node, _env), do: nil
 
-  defp collect_remote_functions_from_ast(node, functions, parent_module)
-       when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> collect_remote_functions_from_ast(functions, parent_module)
-  end
-
-  defp collect_remote_functions_from_ast(_node, functions, _parent_module), do: functions
-
-  defp collect_public_remote_functions(body, module_names, functions) do
-    body
-    |> module_expressions()
-    |> Enum.reduce(functions, fn
-      {kind, _metadata, [head, body_options]}, functions
-      when kind in [:def, :defmacro] and is_list(body_options) ->
-        Enum.reduce(function_variants(head), functions, fn variant, functions ->
-          Enum.reduce(module_names, functions, fn module_name, functions ->
-            MapSet.put(functions, {module_name, variant.name, variant.arity})
-          end)
-        end)
-
-      _expression, functions ->
-        functions
-    end)
-  end
-
-  defp tracked_module_names(module, parent_module) do
-    case receiver_name(module) do
-      nil ->
-        {[], parent_module}
-
-      module_name ->
-        if parent_module && unqualified_module_alias?(module) do
-          nested_name = parent_module <> "." <> module_name
-          {[module_name, nested_name], nested_name}
-        else
-          {[module_name], module_name}
-        end
-    end
-  end
-
-  defp unqualified_module_alias?({:__aliases__, _metadata, [_part]}), do: true
-  defp unqualified_module_alias?(_module), do: false
-
-  defp module_attribute_registration?(receiver, [module | _arguments], environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Module" and
-      match?({:__MODULE__, _metadata, _context}, module)
-  end
-
-  defp register_module_attribute(environment, [_module, name | arguments]) do
-    name =
-      name
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
-
-    options =
+  defp classify_sql_options(construct, arguments, keys, node, env) do
+    values =
       arguments
-      |> List.first([])
-      |> resolve_attributes(environment)
-      |> resolve_bindings(environment)
+      |> Enum.filter(&is_list/1)
+      |> Enum.filter(&Keyword.keyword?/1)
+      |> Enum.flat_map(fn options ->
+        for key <- keys, Keyword.has_key?(options, key), do: Keyword.fetch!(options, key)
+      end)
 
-    case name do
-      name when is_atom(name) ->
-        mode = module_attribute_mode(options)
-
-        %{
-          environment
-          | attribute_modes: Map.put(environment.attribute_modes, name, mode),
-            attributes:
-              if(mode == :unknown,
-                do: Map.delete(environment.attributes, name),
-                else: environment.attributes
-              )
-        }
-
-      _dynamic_name ->
-        %{environment | uncertain_attribute_registration?: true}
-    end
-  end
-
-  defp module_attribute_mode(options) when is_list(options) do
-    if Keyword.keyword?(options) do
-      case Keyword.fetch(options, :accumulate) do
-        :error -> :single
-        {:ok, true} -> :accumulate
-        {:ok, false} -> :single
-        {:ok, _dynamic} -> :unknown
-      end
+    if values == [] do
+      nil
     else
-      :unknown
+      approval = if Enum.all?(values, &static_literal?/1), do: nil, else: :unresolved_sql
+      occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
     end
   end
 
-  defp module_attribute_mode(_options), do: :unknown
-
-  defp put_module_attribute_value(environment, name, value) do
-    mode =
-      if environment.uncertain_attribute_registration? do
-        :unknown
-      else
-        Map.get(environment.attribute_modes, name, :single)
-      end
-
-    attributes =
-      case mode do
-        :single ->
-          Map.put(environment.attributes, name, value)
-
-        :accumulate ->
-          case Map.fetch(environment.attributes, name) do
-            :error ->
-              Map.put(environment.attributes, name, [value])
-
-            {:ok, values} when is_list(values) ->
-              Map.put(environment.attributes, name, [value | values])
-
-            {:ok, _incompatible_value} ->
-              Map.delete(environment.attributes, name)
-          end
-
-        :unknown ->
-          Map.delete(environment.attributes, name)
-      end
-
-    %{environment | attributes: attributes}
+  defp classify_sql_setting(construct, arguments, node, env) do
+    if arguments == [] do
+      nil
+    else
+      approval = if Enum.all?(arguments, &static_literal?/1), do: nil, else: :unresolved_sql
+      occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+    end
   end
 
-  defp resolve_attributes(node, environment) do
-    Macro.prewalk(node, fn
-      {:@, _metadata, [{name, _name_metadata, nil}]} = reference when is_atom(name) ->
-        Map.get(environment.attributes, name, reference)
+  defp static_literal?(value) when is_atom(value) or is_binary(value) or is_number(value),
+    do: true
 
-      child ->
-        child
+  defp static_literal?(values) when is_list(values) do
+    Enum.all?(values, fn
+      {key, value} when is_atom(key) -> static_literal?(value)
+      value -> static_literal?(value)
     end)
   end
 
-  defp resolve_bindings(node, environment),
-    do: resolve_bindings(node, environment, MapSet.new())
+  defp static_literal?({:{}, _metadata, values}), do: Enum.all?(values, &static_literal?/1)
+  defp static_literal?(_value), do: false
 
-  defp resolve_bindings(
-         {name, _metadata, binding_context} = reference,
-         environment,
-         resolving
-       )
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
-    if MapSet.member?(resolving, name) do
-      reference
-    else
-      case Map.fetch(environment.bindings, name) do
-        {:ok, value} -> resolve_bindings(value, environment, MapSet.put(resolving, name))
-        :error -> reference
-      end
+  defp classify_migration_remote_helper("Oban.Migrations", operation, _node, env)
+       when operation in [:up, :down] and env.preserve_uuidv7?,
+       do: nil
+
+  defp classify_migration_remote_helper("Ecto.Migration", _operation, _node, _env), do: nil
+
+  defp classify_migration_remote_helper(receiver, _operation, node, env)
+       when is_binary(receiver) do
+    if migration_entrypoint?(env) do
+      occurrence(env, line_from_node(node), :direct_ecto, "migration.helper_call", node,
+        approval: :unresolved_sql
+      )
     end
   end
 
-  defp resolve_bindings(node, environment, resolving) when is_list(node) do
-    Enum.map(node, &resolve_bindings(&1, environment, resolving))
+  defp classify_migration_remote_helper(_receiver, _operation, _node, _env), do: nil
+
+  defp migration_helper_escape?(operation, _arguments, env) do
+    migration_entrypoint?(env) and operation not in @allowed_migration_locals and
+      operation not in @syntax_operations and
+      not operator?(operation) and
+      not imported?(env, operation)
   end
 
-  defp resolve_bindings(node, environment, resolving) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> resolve_bindings(environment, resolving)
-    |> List.to_tuple()
+  defp migration_entrypoint?(%{migration?: true, function: function}),
+    do: function in ["change/0", "down/0", "up/0"]
+
+  defp migration_entrypoint?(_env), do: false
+
+  defp approved_uuidv7_loop?({:for, _metadata, arguments}, env) do
+    env.preserve_uuidv7? and Enum.any?(arguments, &contains_uuidv7_fragment?/1)
   end
 
-  defp resolve_bindings(node, _environment, _resolving), do: node
+  defp contains_uuidv7_fragment?({:fragment, _metadata, ["uuidv7()"]}), do: true
 
-  defp resolve_static_expression(node, environment) do
-    node
-    |> resolve_attributes(environment)
-    |> resolve_bindings(environment)
-    |> resolve_struct_aliases(environment)
-    |> Macro.postwalk(&resolve_static_projection(&1, environment))
+  defp contains_uuidv7_fragment?(node) when is_tuple(node) do
+    node |> Tuple.to_list() |> Enum.any?(&contains_uuidv7_fragment?/1)
   end
 
-  defp resolve_database_receiver_expression(node, environment) do
-    resolve_database_receiver_expression(node, environment, MapSet.new())
+  defp contains_uuidv7_fragment?(nodes) when is_list(nodes),
+    do: Enum.any?(nodes, &contains_uuidv7_fragment?/1)
+
+  defp contains_uuidv7_fragment?(_node), do: false
+
+  defp apply_alias([target], env), do: apply_alias([target, []], env)
+
+  defp apply_alias([target, options], env) do
+    with module when not is_nil(module) <- module_name(target, env),
+         alias_name when is_binary(alias_name) <- alias_name_for(module, options) do
+      {%{env | aliases: Map.put(env.aliases, alias_name, module)}, []}
+    else
+      _value -> {env, []}
+    end
   end
 
-  defp resolve_database_receiver_expression(node, environment, resolving) do
-    resolved_node = resolve_static_expression(node, environment)
+  defp apply_alias(_arguments, env), do: {env, []}
 
-    case resolved_node do
-      {name, _metadata, arguments} = local_call
-      when is_atom(name) and arguments in [nil, []] ->
-        key = {name, 0}
+  defp alias_occurrences_for(_node, _env, []), do: []
 
-        if MapSet.member?(resolving, key) do
-          local_call
+  defp apply_import([target], metadata, env), do: apply_import([target, []], metadata, env)
+
+  defp apply_import([target, options], metadata, env) do
+    module = module_name(target, env)
+
+    if module in @database_modules do
+      imported = imported_operations(module, options)
+      imports = Enum.reduce(imported, env.imports, &Map.put(&2, &1, module))
+
+      occurrences =
+        if imported == [:all] and module != "Ecto.Query" do
+          [
+            occurrence(env, line(metadata), :direct_ecto, "#{module}.import", target,
+              approval: :unresolved_sql
+            )
+          ]
         else
-          results =
-            environment.local_functions
-            |> Map.get(key, [])
-            |> matching_local_definitions([], environment)
-            |> Enum.map(fn definition ->
-              child_environment = bind_local_function_arguments(definition, [], environment)
-
-              {body, child_environment} = expand_local_definition(definition, child_environment)
-
-              resolve_static_local_result(
-                body,
-                child_environment,
-                MapSet.put(resolving, key)
-              )
-            end)
-            |> Enum.uniq()
-
-          case results do
-            [] -> local_call
-            [result] -> result
-            results -> {:__block__, [], results}
-          end
+          []
         end
 
-      _not_local_call ->
-        resolved_node
-    end
-  end
-
-  defp resolve_static_local_result({:__block__, _metadata, expressions}, environment, resolving)
-       when is_list(expressions),
-       do: resolve_static_local_result_sequence(expressions, environment, resolving)
-
-  defp resolve_static_local_result(expression, environment, resolving),
-    do: resolve_database_receiver_expression(expression, environment, resolving)
-
-  defp resolve_static_local_result_sequence([], _environment, _resolving), do: nil
-
-  defp resolve_static_local_result_sequence([expression], environment, resolving),
-    do: resolve_static_local_result(expression, environment, resolving)
-
-  defp resolve_static_local_result_sequence(
-         [{:=, _metadata, [pattern, value]} | expressions],
-         environment,
-         resolving
-       ) do
-    resolved_pattern = resolve_struct_aliases(pattern, environment)
-    resolved_value = resolve_static_local_result(value, environment, resolving)
-    bindings = bind_pattern(resolved_pattern, resolved_value, environment.bindings)
-
-    resolve_static_local_result_sequence(
-      expressions,
-      %{environment | bindings: bindings},
-      resolving
-    )
-  end
-
-  defp resolve_static_local_result_sequence([_expression | expressions], environment, resolving),
-    do: resolve_static_local_result_sequence(expressions, environment, resolving)
-
-  defp resolve_static_projection(
-         {{:., _dot_metadata, [receiver, :concat]}, _metadata, arguments} = call,
-         environment
-       )
-       when is_list(arguments) do
-    if receiver |> receiver_name() |> resolve_receiver(environment) == "Module" do
-      case static_module_concat_name(arguments, environment) do
-        {:ok, module_name} -> %{resolved_module_name: module_name}
-        :error -> call
-      end
+      {%{env | imports: imports}, occurrences}
     else
-      call
+      {env, []}
     end
   end
 
-  defp resolve_static_projection(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = call,
-         environment
-       )
-       when operation in [:to_atom, :to_existing_atom] and is_list(arguments) do
-    if receiver |> receiver_name() |> resolve_receiver(environment) == "String" do
-      case static_string_atom_module_name(arguments) do
-        {:ok, module_name} -> %{resolved_module_name: module_name}
-        _unresolved_or_nonmodule -> call
-      end
-    else
-      call
-    end
-  end
+  defp apply_import(_arguments, _metadata, env), do: {env, []}
 
-  defp resolve_static_projection(
-         {{:., _dot_metadata, [container, field]}, _metadata, []} = projection,
-         _environment
-       )
-       when is_atom(field) do
-    case static_projection_fields(container) do
-      {:ok, fields} ->
-        case fetch_static_field(fields, field) do
-          {:ok, value} -> value
-          :error -> projection
-        end
-
-      :error ->
-        projection
-    end
-  end
-
-  defp resolve_static_projection(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, [container, field]} = projection,
-         environment
-       )
-       when operation in [:fetch!, :get] do
-    if receiver |> receiver_name() |> resolve_receiver(environment) == "Map" do
-      case static_projection_fields(container) do
-        {:ok, fields} ->
-          case fetch_static_field(fields, field) do
-            {:ok, value} -> value
-            :error -> projection
-          end
-
-        :error ->
-          projection
-      end
-    else
-      projection
-    end
-  end
-
-  defp resolve_static_projection(node, _environment), do: node
-
-  defp static_module_concat_name([parts], environment) when is_list(parts),
-    do: join_static_module_parts(parts, environment)
-
-  defp static_module_concat_name([left, right], environment),
-    do: join_static_module_parts([left, right], environment)
-
-  defp static_module_concat_name(_arguments, _environment), do: :error
-
-  defp static_string_atom_module_name(["Elixir." <> module_name]) when module_name != "",
-    do: {:ok, module_name}
-
-  defp static_string_atom_module_name([module_name]) when is_binary(module_name),
-    do: :not_a_module
-
-  defp static_string_atom_module_name(_arguments), do: :unknown
-
-  defp join_static_module_parts(parts, environment) do
-    parts
-    |> Enum.reduce_while({:ok, []}, fn part, {:ok, names} ->
-      case static_module_part_name(part, environment) do
-        {:ok, name} -> {:cont, {:ok, [name | names]}}
-        :error -> {:halt, :error}
-      end
-    end)
+  defp imported_operations(_module, options) do
+    options
+    |> keyword_option(:only)
     |> case do
-      {:ok, names} -> {:ok, names |> Enum.reverse() |> Enum.join(".")}
-      :error -> :error
-    end
-  end
-
-  defp static_module_part_name(%{resolved_module_name: name}, _environment)
-       when is_binary(name),
-       do: {:ok, name}
-
-  defp static_module_part_name(part, _environment) when is_binary(part) do
-    case String.trim_leading(part, "Elixir.") do
-      "" -> :error
-      name -> {:ok, name}
-    end
-  end
-
-  defp static_module_part_name({:__aliases__, _metadata, _parts} = part, environment) do
-    case receiver_name(part) do
-      nil -> :error
-      name -> {:ok, resolve_receiver(name, environment)}
-    end
-  end
-
-  defp static_module_part_name(part, environment) when is_atom(part),
-    do: {:ok, part |> receiver_name() |> resolve_receiver(environment)}
-
-  defp static_module_part_name(_part, _environment), do: :error
-
-  defp static_projection_fields({:%{}, _metadata, fields}) when is_list(fields),
-    do: {:ok, fields}
-
-  defp static_projection_fields({:%, _metadata, [_module, {:%{}, _map_metadata, fields}]})
-       when is_list(fields),
-       do: {:ok, fields}
-
-  defp static_projection_fields(_container), do: :error
-
-  defp resolve_struct_aliases(node, environment) do
-    Macro.prewalk(node, fn
-      {:%, metadata, [module, fields]} ->
-        {:%, metadata, [resolve_module_alias(module, environment), fields]}
-
-      child ->
-        child
-    end)
-  end
-
-  defp resolve_module_alias(module, environment) do
-    case receiver_name(module) do
       nil ->
-        module
+        [:all]
 
-      module_name ->
-        module_name
-        |> resolve_receiver(environment)
-        |> String.split(".")
-        |> Enum.map(&String.to_existing_atom/1)
-        |> then(&{:__aliases__, [], &1})
+      operations ->
+        Enum.map(operations, fn {operation, arity} -> {operation, arity} end)
     end
   end
 
-  defp bind_pattern({:^, _metadata, [_pattern]}, _value, bindings), do: bindings
-
-  defp bind_pattern({:=, _metadata, [left_pattern, right_pattern]}, value, bindings) do
-    bindings = bind_pattern(left_pattern, value, bindings)
-    bind_pattern(right_pattern, value, bindings)
+  defp imported_receiver(env, operation, arity) do
+    Map.get(env.imports, {operation, arity}) || Map.get(env.imports, :all)
   end
 
-  defp bind_pattern({name, _metadata, binding_context}, value, bindings)
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
-    if name == :_, do: bindings, else: Map.put(bindings, name, value)
-  end
-
-  defp bind_pattern(
-         {:%, _pattern_metadata, [pattern_struct, pattern_map]},
-         {:%, _value_metadata, [value_struct, value_map]},
-         bindings
-       ) do
-    if same_static_ast?(pattern_struct, value_struct),
-      do: bind_pattern(pattern_map, value_map, bindings),
-      else: bindings
-  end
-
-  defp bind_pattern(
-         {:%{}, _pattern_metadata, _pattern_fields} = pattern,
-         {:%, _, [_, value]},
-         bindings
-       ) do
-    bind_pattern(pattern, value, bindings)
-  end
-
-  defp bind_pattern(
-         {:%{}, _pattern_metadata, pattern_fields},
-         {:%{}, _value_metadata, value_fields},
-         bindings
-       ) do
-    Enum.reduce(pattern_fields, bindings, fn
-      {key, pattern}, bindings ->
-        case fetch_static_field(value_fields, key) do
-          {:ok, value} -> bind_pattern(pattern, value, bindings)
-          :error -> bindings
-        end
-
-      _field, bindings ->
-        bindings
+  defp imported?(env, operation) do
+    Enum.any?(env.imports, fn
+      {{^operation, _arity}, _module} -> true
+      {:all, _module} -> true
+      _entry -> false
     end)
   end
 
-  defp bind_pattern({:{}, _pattern_metadata, patterns}, {:{}, _value_metadata, values}, bindings)
-       when length(patterns) == length(values) do
-    bind_pattern_elements(patterns, values, bindings)
-  end
+  defp receiver_name({:repo, _metadata, arguments}, %{migration?: true})
+       when arguments in [[], nil],
+       do: "Ecto.Migration.repo()"
 
-  defp bind_pattern({left_pattern, right_pattern}, {left_value, right_value}, bindings) do
-    bindings = bind_pattern(left_pattern, left_value, bindings)
-    bind_pattern(right_pattern, right_value, bindings)
-  end
+  defp receiver_name(receiver, env), do: module_name(receiver, env)
 
-  defp bind_pattern(
-         [{:|, _pattern_metadata, [head_pattern, tail_pattern]}],
-         [{:|, _value_metadata, [head_value, tail_value]}],
-         bindings
-       ) do
-    bindings = bind_pattern(head_pattern, head_value, bindings)
-    bind_pattern(tail_pattern, tail_value, bindings)
-  end
-
-  defp bind_pattern(patterns, values, bindings)
-       when is_list(patterns) and is_list(values) do
-    case List.last(patterns) do
-      {:|, _metadata, [_head_pattern, _tail_pattern]} ->
-        bind_cons_pattern(patterns, values, bindings)
-
-      _not_a_cons_pattern when length(patterns) == length(values) ->
-        bind_pattern_elements(patterns, values, bindings)
-
-      _length_mismatch ->
-        bindings
+  defp module_name({:__aliases__, _metadata, parts}, env) do
+    if Enum.all?(parts, &is_atom/1) do
+      name = Enum.map_join(parts, ".", &to_string/1)
+      Map.get(env.aliases, name, name)
     end
   end
 
-  defp bind_pattern(_pattern, _value, bindings), do: bindings
+  defp module_name({:__MODULE__, _metadata, _context}, _env), do: nil
 
-  defp bind_pattern_elements(patterns, values, bindings) do
-    patterns
-    |> Enum.zip(values)
-    |> Enum.reduce(bindings, fn {pattern, value}, bindings ->
-      bind_pattern(pattern, value, bindings)
-    end)
-  end
-
-  defp bind_cons_pattern(
-         [{:|, _metadata, [head_pattern, tail_pattern]}],
-         [head_value | tail_value],
-         bindings
-       ) do
-    bindings = bind_pattern(head_pattern, head_value, bindings)
-    bind_pattern(tail_pattern, tail_value, bindings)
-  end
-
-  defp bind_cons_pattern([pattern | patterns], [value | values], bindings) do
-    bindings = bind_pattern(pattern, value, bindings)
-    bind_cons_pattern(patterns, values, bindings)
-  end
-
-  defp bind_cons_pattern(_patterns, _values, bindings), do: bindings
-
-  defp fetch_static_field(fields, key) do
-    Enum.find_value(fields, :error, fn
-      {candidate_key, value} ->
-        if same_static_ast?(candidate_key, key), do: {:ok, value}, else: false
-
-      _field ->
-        false
-    end)
-  end
-
-  defp same_static_ast?(left, right), do: Macro.to_string(left) == Macro.to_string(right)
-
-  defp block_body([_head, body_options]) when is_list(body_options),
-    do: Keyword.get(body_options, :do)
-
-  defp block_body(_arguments), do: nil
-
-  defp put_aliases(environment, _metadata, [target]),
-    do: apply_aliases(environment, target, [])
-
-  defp put_aliases(environment, _metadata, [target, options]) when is_list(options),
-    do: apply_aliases(environment, target, options)
-
-  defp put_aliases(environment, _metadata, _arguments), do: environment
-
-  defp apply_aliases(environment, target, options) do
-    bindings =
-      target
-      |> alias_target_names()
-      |> Enum.map(fn target_name ->
-        resolved_target = resolve_receiver(target_name, environment)
-
-        alias_name =
-          options
-          |> Keyword.get(:as)
-          |> case do
-            nil -> target_name |> String.split(".") |> List.last()
-            explicit_alias -> receiver_name(explicit_alias)
-          end
-
-        {alias_name, resolved_target}
-      end)
-
-    aliases =
-      Enum.reduce(bindings, environment.aliases, fn
-        {alias_name, target_name}, aliases
-        when is_binary(alias_name) and is_binary(target_name) ->
-          Map.put(aliases, alias_name, target_name)
-
-        _binding, aliases ->
-          aliases
-      end)
-
-    %{environment | aliases: aliases}
-  end
-
-  defp alias_target_names({{:., _dot_metadata, [prefix, :{}]}, _metadata, suffixes})
-       when is_list(suffixes) do
-    case receiver_name(prefix) do
-      nil ->
-        []
-
-      prefix_name ->
-        Enum.flat_map(suffixes, fn suffix ->
-          case receiver_name(suffix) do
-            nil -> []
-            suffix_name -> ["#{prefix_name}.#{suffix_name}"]
-          end
-        end)
-    end
-  end
-
-  defp alias_target_names(target) do
-    case receiver_name(target) do
-      nil -> []
-      target_name -> [target_name]
-    end
-  end
-
-  defp put_import(environment, _metadata, [target]),
-    do: apply_import(environment, target, [])
-
-  defp put_import(environment, _metadata, [target, options]) when is_list(options),
-    do: apply_import(environment, target, options)
-
-  defp put_import(environment, _metadata, _arguments), do: environment
-
-  defp put_use_import(environment, [target | _options]) do
-    if migration_module_receiver?(target, environment),
-      do: apply_ecto_migration_use_import(environment, target),
-      else: environment
-  end
-
-  defp put_use_import(environment, _arguments), do: environment
-
-  defp apply_ecto_migration_use_import(environment, target) do
-    case target |> receiver_name() |> resolve_receiver(environment) do
-      "Ecto.Migration" = target_name ->
-        declaration = %{
-          except: nil,
-          mode: :ecto_migration_use,
-          only: nil,
-          target: target_name
-        }
-
-        %{environment | imports: [declaration | environment.imports]}
-
-      _not_ecto_migration ->
-        environment
-    end
-  end
-
-  defp apply_import(environment, target, options) do
-    case target |> receiver_name() |> resolve_receiver(environment) do
-      nil ->
-        environment
-
-      target_name ->
-        declaration = %{
-          except: import_entries(Keyword.get(options, :except)),
-          only: import_entries(Keyword.get(options, :only)),
-          target: target_name
-        }
-
-        %{environment | imports: [declaration | environment.imports]}
-    end
-  end
-
-  defp import_entries(entries) when is_list(entries) do
-    entries
-    |> Enum.flat_map(fn
-      {name, arity} when is_atom(name) and is_integer(arity) -> [{name, arity}]
-      _entry -> []
-    end)
-    |> MapSet.new()
-  end
-
-  defp import_entries(_entries), do: nil
-
-  defp imported_receiver(environment, operation, arity) do
-    Enum.find_value(environment.imports, fn declaration ->
-      if import_applies?(declaration, operation, arity), do: declaration.target
-    end)
-  end
-
-  defp explicitly_imported_receiver(environment, operation, arity) do
-    Enum.find_value(environment.imports, fn declaration ->
-      if explicit_import_applies?(declaration, operation, arity), do: declaration.target
-    end)
-  end
-
-  defp explicit_import_applies?(%{mode: :ecto_migration_use}, operation, arity),
-    do: ecto_migration_use_import?(operation, arity)
-
-  defp explicit_import_applies?(%{only: %MapSet{} = only}, operation, arity),
-    do: MapSet.member?(only, {operation, arity})
-
-  defp explicit_import_applies?(%{except: %MapSet{} = except}, operation, arity),
-    do: not MapSet.member?(except, {operation, arity})
-
-  defp explicit_import_applies?(%{only: nil, except: nil}, _operation, _arity), do: true
-
-  defp imported_fragment?(environment, operation, arity) do
-    Enum.any?(environment.imports, fn declaration ->
-      declaration.target in @ecto_fragment_import_targets and
-        import_applies?(declaration, operation, arity)
-    end)
-  end
-
-  defp import_applies?(%{mode: :ecto_migration_use}, operation, arity),
-    do: ecto_migration_use_import?(operation, arity)
-
-  defp import_applies?(%{only: %MapSet{} = only}, operation, arity),
-    do: MapSet.member?(only, {operation, arity})
-
-  defp import_applies?(
-         %{except: %MapSet{} = except, target: target},
-         operation,
-         arity
-       )
-       when target in @database_alias_targets,
-       do: not MapSet.member?(except, {operation, arity})
-
-  defp import_applies?(%{only: nil, target: target}, _operation, _arity),
-    do: target in @database_alias_targets
-
-  defp import_applies?(_declaration, _operation, _arity), do: false
-
-  defp ecto_migration_use_import?(:fragment, arity), do: arity >= 1
-
-  defp ecto_migration_use_import?(operation, arity),
-    do: MapSet.member?(@ecto_migration_use_fixed_imports, {operation, arity})
-
-  defp receiver_name({:__aliases__, _metadata, parts}) do
-    if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
-  end
-
-  defp receiver_name(%{resolved_module_name: receiver}) when is_binary(receiver), do: receiver
-
-  defp receiver_name(receiver) when is_atom(receiver) do
-    receiver
+  defp module_name(atom, _env) when is_atom(atom) do
+    atom
     |> Atom.to_string()
     |> String.trim_leading("Elixir.")
   end
 
-  defp receiver_name({name, _metadata, context}) when is_atom(name) and is_atom(context),
-    do: to_string(name)
+  defp module_name(_node, _env), do: nil
 
-  defp receiver_name(_receiver), do: nil
+  defp alias_name_for(module, options) do
+    case keyword_option(options, :as) do
+      nil ->
+        module |> String.split(".") |> List.last()
 
-  defp database_receiver_name(receiver, true, environment) do
-    if migration_repo_call?(receiver, environment) do
-      @migration_repo_receiver
-    else
-      receiver |> receiver_name() |> resolve_receiver(environment)
+      {:__aliases__, _metadata, parts} ->
+        Enum.map_join(parts, ".", &to_string/1)
+
+      atom when is_atom(atom) ->
+        to_string(atom)
     end
   end
 
-  defp database_receiver_name(receiver, false, environment) do
-    if external_migration_repo_call?(receiver, environment),
-      do: @migration_repo_receiver,
-      else: receiver |> receiver_name() |> resolve_receiver(environment)
+  defp function_identity([{name, _metadata, arguments} | _rest]) when is_atom(name) do
+    {name, length(arguments || [])}
   end
 
-  defp external_migration_repo_call?({:repo, _metadata, arguments}, environment)
-       when arguments in [nil, []],
-       do: imported_receiver(environment, :repo, 0) == "Ecto.Migration"
+  defp function_identity([{name, _metadata, _context} | _rest]) when is_atom(name), do: {name, 0}
+  defp function_identity(_arguments), do: {nil, 0}
 
-  defp external_migration_repo_call?(
-         {{:., _dot_metadata, [receiver, :repo]}, _metadata, arguments},
-         environment
-       )
-       when arguments in [nil, []],
-       do: migration_module_receiver?(receiver, environment)
-
-  defp external_migration_repo_call?(_receiver, _environment), do: false
-
-  defp migration_repo_call?({:repo, _metadata, arguments}, _environment)
-       when arguments in [nil, []],
-       do: true
-
-  defp migration_repo_call?(
-         {{:., _dot_metadata, [receiver, :repo]}, _metadata, arguments},
-         environment
-       )
-       when arguments in [nil, []] do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Migration"
-  end
-
-  defp migration_repo_call?(_receiver, _environment), do: false
-
-  defp migration_module_receiver?(receiver, environment) do
-    receiver |> receiver_name() |> resolve_receiver(environment) == "Ecto.Migration"
-  end
-
-  defp resolve_receiver(nil, _environment), do: nil
-
-  defp resolve_receiver(receiver, environment) do
-    case String.split(receiver, ".", parts: 2) do
-      [alias_name] ->
-        Map.get(environment.aliases, alias_name, receiver)
-
-      [alias_name, rest] ->
-        case Map.get(environment.aliases, alias_name) do
-          nil -> receiver
-          target -> "#{target}.#{rest}"
-        end
+  defp function_body(arguments) do
+    arguments
+    |> List.last()
+    |> case do
+      body when is_list(body) -> Keyword.get(body, :do)
+      _other -> nil
     end
   end
 
-  defp repo_receiver?(receiver),
-    do: receiver in ["Repo", "OfficeGraph.Repo", @migration_repo_receiver]
+  defp call_arguments({{:., _dot_metadata, [_receiver, _operation]}, _metadata, arguments}),
+    do: arguments
 
-  defp node_line({{:., _dot_metadata, _receiver_and_operation}, metadata, _arguments}),
-    do: Keyword.get(metadata, :line, 1)
+  defp call_arguments({_operation, _metadata, arguments}) when is_list(arguments), do: arguments
+  defp call_arguments(_node), do: []
 
-  defp node_line({_name, metadata, _arguments}) when is_list(metadata),
-    do: Keyword.get(metadata, :line, 1)
+  defp approval_marker(:raw_sql, "migration.execute_file", _arguments), do: :unresolved_sql
 
-  defp node_line(_node), do: 1
+  defp approval_marker(:raw_sql, _construct, arguments) do
+    case List.first(arguments) do
+      value when is_binary(value) ->
+        nil
 
-  defp eligible_source?(%{path: path}), do: eligible_path?(path)
+      {:<<>>, _metadata, segments} ->
+        if static_binary_segments?(segments), do: nil, else: :unresolved_sql
 
-  defp resolve_execute_file_occurrences(occurrences, file_resolver) do
-    Enum.map(occurrences, fn
-      %{execute_file_paths: paths} = occurrence ->
-        resolved_files =
-          Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, files} ->
-            with {:ok, path} <- normalize_execute_file_path(path),
-                 {:ok, contents} <- file_resolver.(path) do
-              content_fingerprint =
-                contents
-                |> then(&:crypto.hash(:sha256, &1))
-                |> Base.encode16(case: :lower)
+      _value ->
+        :unresolved_sql
+    end
+  end
 
-              {:cont, {:ok, [{path, content_fingerprint} | files]}}
-            else
-              _unavailable -> {:halt, :error}
-            end
-          end)
-
-        occurrence = Map.delete(occurrence, :execute_file_paths)
-
-        case resolved_files do
-          {:ok, files} ->
-            file_fingerprints =
-              files
-              |> Enum.reverse()
-              |> Enum.map_join("\n", fn {path, fingerprint} ->
-                "execute_file: #{path}\ncontent_sha256: #{fingerprint}"
-              end)
-
-            Map.update!(occurrence, :normalized, &Enum.join([&1, file_fingerprints], "\n"))
-
-          :error ->
-            Map.put(occurrence, :approval, :unresolved_sql)
-        end
-
-      occurrence ->
-        occurrence
+  defp static_binary_segments?(segments) do
+    Enum.all?(segments, fn
+      segment when is_binary(segment) -> true
+      {:"::", _metadata, [value, _type]} -> is_binary(value)
+      _segment -> false
     end)
   end
 
-  defp eligible_path?(path) do
-    path = String.trim_leading(path, "./")
-    extension = Path.extname(path)
+  defp static_atom(atom) when is_atom(atom), do: atom
+  defp static_atom(_node), do: nil
 
-    not excluded_path?(path) and extension in [".ex", ".exs", ".sql"]
+  defp keyword_option(options, key) when is_list(options) do
+    if Keyword.keyword?(options), do: Keyword.get(options, key)
   end
 
-  defp excluded_path?(path) do
-    Enum.any?(String.split(path, "/"), &(&1 in ["_build", "deps", "node_modules"]))
+  defp keyword_option(_options, _key), do: nil
+
+  defp occurrence(env, line, class, construct, node, opts \\ []) do
+    opts = Keyword.put(opts, :preserve_fingerprint?, env.preserve_uuidv7?)
+    occurrence(env.path, line, env.function, class, construct, node, opts)
   end
 
-  defp normalize_source_path(path) do
-    case normalize_execute_file_path(path) do
-      {:ok, path} -> path
-      :error -> path
-    end
-  end
-
-  defp normalize_execute_file_path(path) when is_binary(path) do
-    if Path.type(path) == :relative do
-      path
-      |> Path.split()
-      |> Enum.reduce_while([], fn
-        segment, segments when segment in ["", "."] ->
-          {:cont, segments}
-
-        "..", [] ->
-          {:halt, :error}
-
-        "..", [_parent | segments] ->
-          {:cont, segments}
-
-        segment, segments ->
-          {:cont, [segment | segments]}
-      end)
-      |> case do
-        :error -> :error
-        [] -> :error
-        segments -> {:ok, segments |> Enum.reverse() |> Path.join()}
-      end
-    else
-      :error
-    end
-  end
-
-  defp normalize_execute_file_path(_path), do: :error
-
-  defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
-
-  defp occurrence(path, line, function, class, construct, node_or_source) do
-    normalized =
-      if is_binary(node_or_source),
-        do: node_or_source,
-        else: Macro.to_string(node_or_source)
-
-    %{
-      path: path,
-      line: line,
-      function: function,
+  defp occurrence(path, line, function, class, construct, node, opts) do
+    base = %{
       class: class,
       construct: construct,
-      normalized: normalized
+      fingerprint: nil,
+      function: function,
+      line: line || 1,
+      ordinal: 1,
+      path: path,
+      fingerprint_input: printable_node(node),
+      preserve_fingerprint?: Keyword.get(opts, :preserve_fingerprint?, false)
     }
+
+    base
+    |> Map.put(:fingerprint, fingerprint(base, base.fingerprint_input))
+    |> maybe_put_approval(Keyword.get(opts, :approval))
   end
 
-  defp add_ordinals_and_fingerprints(occurrences) do
-    {occurrences, _counts} =
-      Enum.map_reduce(occurrences, %{}, fn occurrence, counts ->
-        locator = {
-          occurrence.path,
-          occurrence.class,
-          occurrence.construct,
-          occurrence.function
-        }
+  defp maybe_put_approval(occurrence, nil), do: occurrence
+  defp maybe_put_approval(occurrence, approval), do: Map.put(occurrence, :approval, approval)
 
-        ordinal = Map.get(counts, locator, 0) + 1
-
-        fingerprint_input =
-          Enum.join(
-            [
-              occurrence.path,
-              occurrence.class,
-              occurrence.construct,
-              occurrence.function || "<module>",
-              ordinal,
-              occurrence.normalized
-            ],
-            "\n"
-          )
-
-        fingerprint =
-          fingerprint_input
-          |> then(&:crypto.hash(:sha256, &1))
-          |> Base.encode16(case: :lower)
-          |> then(&"sha256:#{&1}")
-
-        finalized =
-          occurrence
-          |> Map.drop([:normalized])
-          |> Map.merge(%{fingerprint: fingerprint, ordinal: ordinal})
-
-        {finalized, Map.put(counts, locator, ordinal)}
-      end)
-
+  defp assign_ordinals(occurrences) do
     occurrences
+    |> Enum.reduce({%{}, []}, fn occurrence, {counts, occurrences} ->
+      key = {
+        occurrence.path,
+        occurrence.line,
+        to_string(occurrence.class),
+        occurrence.construct,
+        occurrence.function
+      }
+
+      ordinal = Map.get(counts, key, 0) + 1
+      occurrence = %{occurrence | ordinal: ordinal}
+
+      occurrence = %{
+        occurrence
+        | fingerprint: fingerprint(occurrence, occurrence.fingerprint_input)
+      }
+
+      occurrence = Map.drop(occurrence, [:fingerprint_input, :preserve_fingerprint?])
+
+      {Map.put(counts, key, ordinal), [occurrence | occurrences]}
+    end)
+    |> elem(1)
+    |> Enum.reverse()
   end
+
+  defp fingerprint(occurrence, node) do
+    key = {
+      occurrence.path,
+      occurrence.line,
+      to_string(occurrence.class),
+      occurrence.construct,
+      occurrence.function,
+      occurrence.ordinal
+    }
+
+    case Map.get(@preserved_fingerprints, key) do
+      %{payload: ^node, fingerprint: fingerprint} when occurrence.preserve_fingerprint? ->
+        fingerprint
+
+      _other ->
+        payload =
+          :erlang.term_to_binary({
+            occurrence.path,
+            occurrence.line,
+            occurrence.class,
+            occurrence.construct,
+            occurrence.function,
+            occurrence.ordinal,
+            printable_node(node)
+          })
+
+        "sha256:" <> Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
+    end
+  end
+
+  defp printable_node("sha256:" <> _rest = value), do: value
+
+  defp printable_node(node) do
+    Macro.to_string(node)
+  rescue
+    _error -> inspect(node)
+  end
+
+  defp operator?(operation) do
+    operation
+    |> to_string()
+    |> String.match?(~r/\A[^\p{L}\p{N}_]+\z/u)
+  end
+
+  defp line_from_node({{:., dot_metadata, _receiver}, metadata, _arguments}),
+    do: line(metadata) || line(dot_metadata)
+
+  defp line_from_node({:call, metadata, _callee, _arguments}), do: line(metadata)
+  defp line_from_node({_operation, metadata, _arguments}), do: line(metadata)
+  defp line_from_node(_node), do: 1
+
+  defp line({line, _column}) when is_integer(line), do: line
+  defp line(metadata) when is_list(metadata), do: Keyword.get(metadata, :line)
+  defp line(line) when is_integer(line), do: line
+  defp line(_metadata), do: nil
+
+  defp error_line({line, _column}), do: line
+  defp error_line(metadata) when is_list(metadata), do: Keyword.get(metadata, :line, 1)
+  defp error_line(_location), do: 1
+
+  defp tracked_sources(root) do
+    {output, 0} = System.cmd("git", ["ls-files", "-z"], cd: root)
+
+    output
+    |> String.split(<<0>>, trim: true)
+    |> Enum.filter(&boundary_source?/1)
+    |> Enum.map(fn path -> %{path: path, source: File.read!(Path.join(root, path))} end)
+  end
+
+  defp boundary_source?(path) do
+    elixir_source?(path) or sql_file?(path)
+  end
+
+  defp elixir_source?(path), do: String.downcase(Path.extname(path)) in [".ex", ".exs"]
+  defp sql_file?(path), do: Regex.match?(@sql_file_pattern, path)
+  defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
+
+  defp approved_uuidv7_context?(path, source) do
+    case Map.fetch(@approved_uuidv7_migration_hashes, path) do
+      {:ok, expected_hash} -> sha256(source) == expected_hash
+      :error -> false
+    end
+  end
+
+  defp sha256(value), do: Base.encode16(:crypto.hash(:sha256, value), case: :lower)
 end

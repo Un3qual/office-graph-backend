@@ -125,6 +125,8 @@ defmodule OfficeGraph.MixProject do
         "cmd openspec validate --changes --strict"
       ],
       "static.analysis": [
+        "production.build",
+        "test.build",
         "credo --strict",
         "reach.check --arch --smells --strict"
       ],
@@ -135,6 +137,7 @@ defmodule OfficeGraph.MixProject do
       ],
       "boundary.check": ["compile --force --warnings-as-errors"],
       "production.build": ["cmd env MIX_ENV=prod mix compile --warnings-as-errors"],
+      "test.build": ["cmd env MIX_ENV=test mix compile --warnings-as-errors"],
       verify: [
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",

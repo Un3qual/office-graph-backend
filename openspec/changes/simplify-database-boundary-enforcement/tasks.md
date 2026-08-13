@@ -1,15 +1,15 @@
 ## 1. Bounded Source Enforcement
 
-- [ ] 1.1 Replace the symbolic scanner with a focused tracked-source primitive scanner
-- [ ] 1.2 Preserve exact UUIDv7 fingerprints and invalidate changed fragment or loop context
-- [ ] 1.3 Cover direct Repo, Ecto, Postgrex, DBConnection, fragment, SQL-bearing DSL, migration, and SQL-like file occurrences
-- [ ] 1.4 Reject nonliteral SQL payloads and nondeclarative migrations without interpreting dataflow or generic execution
+- [x] 1.1 Replace the symbolic scanner with a focused tracked-source primitive scanner
+- [x] 1.2 Preserve exact UUIDv7 fingerprints and invalidate changed fragment or loop context
+- [x] 1.3 Cover direct Repo, Ecto, Postgrex, DBConnection, fragment, SQL-bearing DSL, migration, and SQL-like file occurrences
+- [x] 1.4 Reject nonliteral SQL payloads and nondeclarative migrations without interpreting dataflow or generic execution
 
 ## 2. Compiled Dependency Enforcement
 
-- [ ] 2.1 Audit test and production project BEAM import/source metadata after compilation
-- [ ] 2.2 Permit only explicit repository infrastructure owners and source-matched approved calls
-- [ ] 2.3 Fail closed on missing tracked BEAM metadata without auditing callbacks or abstract control flow
+- [x] 2.1 Audit test and production project BEAM import/source metadata after compilation
+- [x] 2.2 Permit only explicit repository infrastructure owners and source-matched approved calls
+- [x] 2.3 Fail closed on missing tracked BEAM metadata without auditing callbacks or abstract control flow
 
 ## 3. Migration And Terminal Conformance
 
@@ -20,7 +20,7 @@
 
 ## 4. Focused Verification
 
-- [ ] 4.1 Replace synthetic semantic scanner tests with direct source, compiled import, fingerprint, and false-positive tests
+- [x] 4.1 Replace synthetic semantic scanner tests with direct source, compiled import, fingerprint, and false-positive tests
 - [ ] 4.2 Add terminal dump parsing and migrated-baseline comparison tests for supported object classes
 - [ ] 4.3 Run focused tests, strict OpenSpec validation, and the canonical Nix verification pipeline
 - [ ] 4.4 Perform a final anti-slop review of module size, ownership, and finite policy tables
