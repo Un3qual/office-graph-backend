@@ -20,10 +20,9 @@ defmodule OfficeGraph.NodeConversations.ActionSupportTest do
   test "database checkout exits are reported as storage outages" do
     assert {:error, :integration_storage_unavailable} =
              ActionSupport.run(fn ->
-               DBConnection.Holder.checkout(
-                 :missing_node_conversations_pool,
-                 [self()],
-                 []
+               exit(
+                 {:noproc,
+                  {DBConnection.Holder, :checkout, [:missing_node_conversations_pool, []]}}
                )
              end)
   end

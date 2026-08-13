@@ -49,8 +49,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :update!,
     :update_all
   ]
-  @ecto_sql_raw_sql_operations [:execute, :query, :query!, :query_many, :query_many!, :stream]
-  @ecto_sql_direct_operations [:checkout, :disconnect_all, :explain]
+  @ecto_sql_raw_sql_operations [
+    :execute,
+    :execute_ddl,
+    :into,
+    :query,
+    :query!,
+    :query_many,
+    :query_many!,
+    :reduce,
+    :stream
+  ]
+  @ecto_sql_direct_operations [
+    :checked_out?,
+    :checkout,
+    :disconnect_all,
+    :explain,
+    :in_transaction?,
+    :insert_all,
+    :rollback,
+    :table_exists?,
+    :to_sql,
+    :transaction
+  ]
   @postgrex_raw_sql_operations [
     :execute,
     :execute!,
@@ -63,13 +84,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :stream
   ]
   @postgrex_direct_operations [
+    :call,
     :child_spec,
     :close,
     :close!,
+    :listen,
+    :listen!,
     :parameters,
     :rollback,
     :start_link,
-    :transaction
+    :transaction,
+    :unlisten,
+    :unlisten!
   ]
   @db_connection_raw_sql_operations [
     :execute,
@@ -85,10 +111,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @db_connection_direct_operations [
     :close,
     :close!,
+    :child_spec,
+    :get_connection_metrics,
     :disconnect_all,
     :rollback,
     :run,
     :start_link,
+    :status,
     :transaction
   ]
   @ecto_migrator_operations [
@@ -101,6 +130,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :with_repo
   ]
   @postgres_adapter_operations [
+    :execute,
+    :lock_for_migrations,
     :storage_down,
     :storage_status,
     :storage_up,
@@ -108,6 +139,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :structure_load
   ]
   @private_database_modules [
+    "DBConnection.Holder",
     "Ecto.Migration.Runner",
     "Ecto.Repo.Registry",
     "Ecto.Repo.Supervisor"
@@ -119,6 +151,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :exists?,
     :insert,
     :insert_all,
+    :insert_or_update,
     :merge,
     :one,
     :run,
@@ -182,7 +215,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @database_modules [
     "DBConnection",
+    "DBConnection.Holder",
     "Ecto.Adapters.Postgres",
+    "Ecto.Adapters.Postgres.Connection",
     "Ecto.Adapters.SQL",
     "Ecto.Migration",
     "Ecto.Migration.Runner",
@@ -195,9 +230,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     "OfficeGraph.Repo",
     "Postgrex",
     "Postgrex.Notifications",
+    "Postgrex.ReplicationConnection",
     "Postgrex.SimpleConnection"
   ]
   @sql_file_pattern ~r/\.(?:pgsql|psql|sql)(?:\.(?:eex|heex|leex))?\z/i
+  @database_client_pattern ~r/(?:\A|&&|\|\||[;|]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|[;&|)`]|\z)/
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
@@ -256,6 +293,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       elixir_source?(path) ->
         scan_elixir_source(path, source)
 
+      script_source?(path) ->
+        scan_script_source(path, source)
+
       true ->
         []
     end
@@ -266,14 +306,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     scan_source(%{path: path, source: source}, root)
   end
 
+  defp scan_script_source(path, source) do
+    source
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {line, line_number} ->
+      for [client] <- Regex.scan(@database_client_pattern, line, capture: :all_names) do
+        occurrence(path, line_number, nil, :raw_sql, "script.database_client.#{client}", line,
+          approval: :unresolved_sql
+        )
+      end
+    end)
+  end
+
   defp scan_elixir_source(path, source) do
     case Code.string_to_quoted(source, file: path, columns: true) do
       {:ok, ast} ->
         env = %{
           aliases: %{},
-          ash_postgres?:
-            String.contains?(source, "use Ash.Resource") and
-              String.contains?(source, "AshPostgres.DataLayer"),
+          ash_postgres?: false,
           function: nil,
           imports: %{},
           migration?: migration_path?(path),
@@ -294,11 +345,12 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp scan_node({:defmodule, _metadata, [_module, [do: body]]}, env, occurrences) do
-    {_module_env, occurrences} = scan_node(body, %{env | aliases: %{}, imports: %{}}, occurrences)
+    module_env = %{env | aliases: %{}, ash_postgres?: false, imports: %{}}
+    {_module_env, occurrences} = scan_node(body, module_env, occurrences)
     {env, occurrences}
   end
 
-  defp scan_node({kind, metadata, arguments} = node, env, occurrences)
+  defp scan_node({kind, _metadata, arguments} = node, env, occurrences)
        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(arguments) do
     {name, arity} = function_identity(arguments)
     function = if name, do: "#{name}/#{arity}"
@@ -310,7 +362,6 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     if body == nil do
       scan_children(node, env, occurrences)
     else
-      {_line, _metadata} = {line(metadata), metadata}
       {env, occurrences}
     end
   end
@@ -328,6 +379,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp scan_node({:import, metadata, arguments}, env, occurrences) do
     {env, import_occurrences} = apply_import(arguments, metadata, env)
     {env, occurrences ++ import_occurrences}
+  end
+
+  defp scan_node({:use, _metadata, arguments}, env, occurrences) do
+    env =
+      if ash_postgres_resource_use?(arguments, env),
+        do: %{env | ash_postgres?: true},
+        else: env
+
+    scan_node(arguments, env, occurrences)
   end
 
   defp scan_node({:quote, _metadata, arguments}, env, occurrences) do
@@ -570,13 +630,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_operation(receiver, operation, _arity, node, env)
-       when receiver in ["Postgrex", "Postgrex.Notifications", "Postgrex.SimpleConnection"] and
+       when receiver in [
+              "Postgrex",
+              "Postgrex.Notifications",
+              "Postgrex.ReplicationConnection",
+              "Postgrex.SimpleConnection"
+            ] and
               operation in @postgrex_direct_operations do
     occurrence(env, line_from_node(node), :direct_ecto, "#{receiver}.#{operation}", node)
   end
 
   defp classify_operation(receiver, operation, _arity, node, env)
-       when receiver in ["Postgrex.Notifications", "Postgrex.SimpleConnection"] and
+       when receiver in [
+              "Postgrex.Notifications",
+              "Postgrex.ReplicationConnection",
+              "Postgrex.SimpleConnection"
+            ] and
               operation in @postgrex_raw_sql_operations do
     construct = "#{receiver}.#{operation}"
     approval = approval_marker(:raw_sql, construct, call_arguments(node))
@@ -608,6 +677,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       "Ecto.Adapters.Postgres.#{operation}",
       node
     )
+  end
+
+  defp classify_operation("Ecto.Adapters.Postgres.Connection", operation, _arity, node, env)
+       when operation in [:execute, :execute_ddl, :prepare_execute, :query] do
+    construct = "Ecto.Adapters.Postgres.Connection.#{operation}"
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
   end
 
   defp classify_operation(receiver, operation, _arity, node, env)
@@ -678,8 +754,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp classify_sql_bearing_call(receiver, :lock, [_query, value], node, env)
-       when receiver == "Ecto.Query" and is_binary(value) do
-    occurrence(env, line_from_node(node), :raw_sql, "query.lock", node)
+       when receiver == "Ecto.Query" do
+    approval = if static_literal?(value), do: nil, else: :unresolved_sql
+    occurrence(env, line_from_node(node), :raw_sql, "query.lock", node, approval: approval)
   end
 
   defp classify_sql_bearing_call(receiver, operation, arguments, node, env)
@@ -823,16 +900,21 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp contains_uuidv7_fragment?(_node), do: false
 
-  defp apply_alias([target], env), do: apply_alias([target, []], env)
-
   defp apply_alias([target, options], env) do
-    with module when not is_nil(module) <- module_name(target, env),
-         alias_name when is_binary(alias_name) <- alias_name_for(module, options) do
-      {%{env | aliases: Map.put(env.aliases, alias_name, module)}, []}
-    else
-      _value -> {env, []}
-    end
+    aliases =
+      target
+      |> alias_modules(env)
+      |> Enum.reduce(env.aliases, fn module, aliases ->
+        case alias_name_for(module, options) do
+          alias_name when is_binary(alias_name) -> Map.put(aliases, alias_name, module)
+          _invalid -> aliases
+        end
+      end)
+
+    {%{env | aliases: aliases}, []}
   end
+
+  defp apply_alias([target], env), do: apply_alias([target, []], env)
 
   defp apply_alias(_arguments, env), do: {env, []}
 
@@ -899,7 +981,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp module_name({:__aliases__, _metadata, parts}, env) do
     if Enum.all?(parts, &is_atom/1) do
       name = parts |> Enum.map_join(".", &to_string/1) |> String.trim_leading("Elixir.")
-      Map.get(env.aliases, name, name)
+      resolve_alias(name, env.aliases)
     end
   end
 
@@ -912,6 +994,43 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp module_name(_node, _env), do: nil
+
+  defp alias_modules(
+         {{:., _metadata, [prefix, :{}]}, _call_metadata, suffixes},
+         env
+       )
+       when is_list(suffixes) do
+    with prefix when is_binary(prefix) <- module_name(prefix, env) do
+      Enum.flat_map(suffixes, fn suffix ->
+        case module_name(suffix, env) do
+          suffix when is_binary(suffix) -> [prefix <> "." <> suffix]
+          _invalid -> []
+        end
+      end)
+    else
+      _invalid -> []
+    end
+  end
+
+  defp alias_modules(target, env) do
+    case module_name(target, env) do
+      module when is_binary(module) -> [module]
+      _invalid -> []
+    end
+  end
+
+  defp resolve_alias(name, aliases) do
+    case Map.fetch(aliases, name) do
+      {:ok, resolved} ->
+        resolved
+
+      :error ->
+        case String.split(name, ".", parts: 2) do
+          [first, rest] -> Map.get(aliases, first, first) <> "." <> rest
+          [first] -> Map.get(aliases, first, first)
+        end
+    end
+  end
 
   defp alias_name_for(module, options) do
     case keyword_option(options, :as) do
@@ -950,18 +1069,67 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp approval_marker(:raw_sql, "migration.execute_file", _arguments), do: :unresolved_sql
 
-  defp approval_marker(:raw_sql, _construct, arguments) do
-    case List.first(arguments) do
-      value when is_binary(value) ->
-        nil
-
-      {:<<>>, _metadata, segments} ->
-        if static_binary_segments?(segments), do: nil, else: :unresolved_sql
-
-      _value ->
-        :unresolved_sql
+  defp approval_marker(:raw_sql, construct, arguments) do
+    if construct
+       |> sql_payloads(arguments)
+       |> then(&(&1 != [] and Enum.all?(&1, fn value -> static_sql_literal?(value) end))) do
+      nil
+    else
+      :unresolved_sql
     end
   end
+
+  defp static_sql_literal?(value) when is_binary(value), do: true
+
+  defp static_sql_literal?({:<<>>, _metadata, segments}),
+    do: static_binary_segments?(segments)
+
+  defp static_sql_literal?(_value), do: false
+
+  defp sql_payloads("migration.execute", arguments), do: arguments
+
+  defp sql_payloads(construct, arguments)
+       when construct in [
+              "Ecto.Adapters.SQL.query",
+              "Ecto.Adapters.SQL.query!",
+              "Ecto.Adapters.SQL.query_many",
+              "Ecto.Adapters.SQL.query_many!",
+              "Ecto.Adapters.SQL.stream",
+              "Postgrex.query",
+              "Postgrex.query!",
+              "Postgrex.stream",
+              "Ecto.Adapters.Postgres.Connection.query"
+            ] do
+    [Enum.at(arguments, 1)]
+  end
+
+  defp sql_payloads(construct, arguments)
+       when construct in [
+              "Postgrex.prepare",
+              "Postgrex.prepare!",
+              "Postgrex.prepare_execute",
+              "Postgrex.prepare_execute!",
+              "Ecto.Adapters.Postgres.Connection.prepare_execute"
+            ] do
+    [Enum.at(arguments, 2)]
+  end
+
+  defp sql_payloads("Ecto.Adapters.Postgres.Connection.execute_ddl", arguments),
+    do: [List.first(arguments)]
+
+  defp sql_payloads(construct, _arguments)
+       when construct in [
+              "Ecto.Adapters.SQL.execute",
+              "Ecto.Adapters.SQL.execute_ddl",
+              "Ecto.Adapters.SQL.into",
+              "Ecto.Adapters.SQL.reduce",
+              "Postgrex.execute",
+              "Postgrex.execute!",
+              "Ecto.Adapters.Postgres.Connection.execute"
+            ],
+       do: []
+
+  defp sql_payloads(_construct, arguments), do: [List.first(arguments)]
 
   defp static_binary_segments?(segments) do
     Enum.all?(segments, fn
@@ -970,6 +1138,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
       _segment -> false
     end)
   end
+
+  defp ash_postgres_resource_use?([resource, options], env) when is_list(options) do
+    module_name(resource, env) == "Ash.Resource" and
+      options
+      |> Keyword.get(:data_layer)
+      |> module_name(env) == "AshPostgres.DataLayer"
+  end
+
+  defp ash_postgres_resource_use?(_arguments, _env), do: false
 
   defp static_atom(atom) when is_atom(atom), do: atom
   defp static_atom(_node), do: nil
@@ -1103,11 +1280,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp boundary_source?(path) do
-    elixir_source?(path) or sql_file?(path)
+    elixir_source?(path) or sql_file?(path) or script_source?(path)
   end
 
   defp elixir_source?(path), do: String.downcase(Path.extname(path)) in [".ex", ".exs"]
   defp sql_file?(path), do: Regex.match?(@sql_file_pattern, path)
+
+  defp script_source?(path) do
+    String.starts_with?(path, "bin/") or
+      String.downcase(Path.extname(path)) in [".bash", ".sh", ".zsh"]
+  end
+
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")
 
   defp approved_uuidv7_context?(path, source) do

@@ -411,6 +411,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
       path: occurrence["path"]
     }
 
+    diagnostic =
+      Enum.reduce(
+        [{"arity", :arity}, {"caller", :caller}, {"module", :module}, {"operation", :operation}],
+        diagnostic,
+        fn {source, target}, diagnostic ->
+          case Map.fetch(occurrence, source) do
+            {:ok, value} -> Map.put(diagnostic, target, value)
+            :error -> diagnostic
+          end
+        end
+      )
+
     case Map.fetch(occurrence, "approval") do
       {:ok, approval} -> Map.put(diagnostic, :approval, approval)
       :error -> diagnostic

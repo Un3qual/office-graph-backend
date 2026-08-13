@@ -160,7 +160,8 @@ defmodule OfficeGraph.Credo.Check.ProjectBoundaries do
       diagnostic.path,
       params,
       "compiled database boundary: #{diagnostic.construct} (#{diagnostic.class}) has no " <>
-        "matching approved source occurrence",
+        "matching approved source occurrence; imported by #{diagnostic.caller} " <>
+        "at arity #{diagnostic.arity}",
       diagnostic.line
     )
   end

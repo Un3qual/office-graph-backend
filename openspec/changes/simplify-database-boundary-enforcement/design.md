@@ -58,7 +58,9 @@ The source scanner parses every tracked Elixir source and recognizes direct or
 statically aliased/imported calls to `OfficeGraph.Repo`, Ecto SQL and migration
 APIs, Postgrex, DBConnection, Ecto.Multi, query fragments, SQL-bearing Ecto and
 AshPostgres DSL settings, and migration raw-SQL constructs. SQL-like tracked
-files are exact whole-file raw-SQL occurrences.
+files are exact whole-file raw-SQL occurrences. Tracked shell and `bin/`
+scripts reject explicit PostgreSQL client commands without interpreting shell
+flow.
 
 The scanner does not follow variables, helper return values, callbacks,
 containers, process messages, or dynamic module construction. A direct call

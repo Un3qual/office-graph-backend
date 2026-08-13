@@ -14,12 +14,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
   @fully_owned_sources MapSet.new(["lib/office_graph/repo.ex"])
   @raw_sql_modules MapSet.new([
                      "DBConnection",
+                     "Ecto.Adapters.Postgres.Connection",
                      "Ecto.Adapters.SQL",
                      "Postgrex",
                      "Postgrex.Notifications",
+                     "Postgrex.ReplicationConnection",
                      "Postgrex.SimpleConnection"
                    ])
   @direct_modules MapSet.new([
+                    "DBConnection.Holder",
                     "Ecto.Adapters.Postgres",
                     "Ecto.Migration.Runner",
                     "Ecto.Migrator",
@@ -80,10 +83,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
     occurrences =
       paths
       |> Enum.flat_map(&scan_beam(&1, root, tracked_paths))
-      |> Enum.uniq_by(&{&1.path, &1.class, &1.construct, &1.module, &1.arity})
+      |> Enum.uniq_by(&{&1.path, &1.class, &1.construct, &1.caller, &1.module, &1.arity})
 
     (occurrences ++ Enum.map(missing_environments, &missing_environment_occurrence/1))
-    |> Enum.sort_by(&{&1.path, &1.construct, &1.module, &1.arity})
+    |> Enum.sort_by(&{&1.path, &1.construct, &1.caller, &1.module, &1.arity})
     |> assign_ordinals()
   end
 
@@ -197,6 +200,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
 
     %{
       arity: arity,
+      caller: canonical_module(caller),
       class: class,
       construct: construct,
       fingerprint_input: {caller, module, function, arity},
@@ -212,12 +216,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
   defp metadata_occurrence(path, caller, reason, root) do
     %{
       arity: 0,
+      caller: canonical_module(caller),
       class: :direct_ecto,
       construct: "compiled.metadata_unavailable",
       fingerprint_input: {Path.relative_to(path, root), reason},
       function: nil,
       line: 1,
-      module: canonical_module(caller),
+      module: "unknown",
       operation: nil,
       ordinal: 1,
       path: Path.relative_to(path, root)
@@ -227,6 +232,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
   defp missing_environment_occurrence(environment) do
     %{
       arity: 0,
+      caller: "unknown",
       class: :direct_ecto,
       construct: "compiled.environment_missing",
       fingerprint_input: environment,

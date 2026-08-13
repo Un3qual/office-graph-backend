@@ -54,6 +54,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           Ecto.Migrator.run(OfficeGraph.Repo, "priv/repo/migrations", :up, all: true)
           Ecto.Adapters.Postgres.storage_status([])
           Ecto.Repo.Supervisor.start_link(:office_graph, OfficeGraph.Repo, [])
+          DBConnection.Holder.checkout(pool, [], [])
+          Postgrex.Notifications.listen(notifications, "events")
+          Postgrex.ReplicationConnection.call(replication, :status)
+          Ecto.Adapters.Postgres.Connection.query(connection, "SELECT 2", [], [])
         end
       end
       """)
@@ -66,8 +70,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:raw_sql, "DBConnection.prepare"},
                {:direct_ecto, "Ecto.Migrator.run"},
                {:direct_ecto, "Ecto.Adapters.Postgres.storage_status"},
-               {:direct_ecto, "Ecto.Repo.Supervisor.start_link"}
+               {:direct_ecto, "Ecto.Repo.Supervisor.start_link"},
+               {:direct_ecto, "DBConnection.Holder.checkout"},
+               {:direct_ecto, "Postgrex.Notifications.listen"},
+               {:direct_ecto, "Postgrex.ReplicationConnection.call"},
+               {:raw_sql, "Ecto.Adapters.Postgres.Connection.query"}
              ])
+
+    refute occurrences
+           |> Enum.find(&(&1.construct == "Postgrex.query"))
+           |> Map.has_key?(:approval)
+
+    refute Enum.find(
+             occurrences,
+             &(&1.construct == "Ecto.Adapters.Postgres.Connection.query")
+           )
+           |> Map.has_key?(:approval)
   end
 
   test "classifies imported SQL adapter and query fragment calls" do
@@ -85,6 +103,29 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       """)
 
     assert Enum.map(occurrences, & &1.construct) == ["Ecto.Adapters.SQL.query", "fragment"]
+    refute Map.has_key?(hd(occurrences), :approval)
+  end
+
+  test "resolves grouped and prefixed static aliases" do
+    occurrences =
+      scan("lib/example.ex", """
+      defmodule Example do
+        alias Ecto.{Multi, Migrator}
+        alias OfficeGraph, as: OG
+
+        def run(multi) do
+          Multi.insert_or_update(multi, :record, %{})
+          Migrator.migrations(OG.Repo)
+          OG.Repo.transaction(fn -> :ok end)
+        end
+      end
+      """)
+
+    assert Enum.map(occurrences, & &1.construct) == [
+             "Ecto.Multi.insert_or_update",
+             "Ecto.Migrator.migrations",
+             "Repo.transaction"
+           ]
   end
 
   test "does not classify unrelated receivers by operation name" do
@@ -107,6 +148,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
         def ecto(query) do
           lock(query, "FOR UPDATE SKIP LOCKED")
+          lock(query, System.fetch_env!("LOCK"))
           from(row in query, hints: ["TABLESAMPLE SYSTEM (1)"])
         end
 
@@ -114,14 +156,17 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
       end
       """)
 
-    assert Enum.map(occurrences, & &1.construct) == ["query.lock", "query.from"]
+    assert Enum.map(occurrences, & &1.construct) == ["query.lock", "query.lock", "query.from"]
+    assert Enum.at(occurrences, 1).approval == :unresolved_sql
   end
 
   test "classifies static and dynamic AshPostgres SQL settings" do
     occurrences =
       scan("lib/example_resource.ex", """
       defmodule ExampleResource do
-        use Ash.Resource, data_layer: AshPostgres.DataLayer
+        alias Ash, as: Framework
+        alias AshPostgres.DataLayer, as: Postgres
+        use Framework.Resource, data_layer: Postgres
 
         postgres do
           create_table_options "fillfactor=70"
@@ -158,6 +203,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           __MODULE__.create_even_more_examples()
 
           execute("ALTER TABLE examples ADD COLUMN label text")
+          execute("ALTER TABLE examples ADD COLUMN note text", dynamic_down())
           execute_file("priv/repo/sql/change.sql")
           OfficeGraph.Repo.insert!(%{})
         end
@@ -173,6 +219,10 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
 
     assert Enum.find(occurrences, &(&1.construct == "migration.execute_file")).approval ==
              :unresolved_sql
+
+    assert occurrences
+           |> Enum.filter(&(&1.construct == "migration.execute"))
+           |> Enum.map(&Map.get(&1, :approval)) == [nil, :unresolved_sql]
   end
 
   test "accepts ordinary declarative migration syntax" do
@@ -243,6 +293,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     refute first.fingerprint == second.fingerprint
   end
 
+  test "rejects direct database clients in tracked scripts without interpreting shell flow" do
+    [occurrence] =
+      scan("bin/manual-database-task", """
+      #!/usr/bin/env sh
+      psql "$DATABASE_URL" -c 'SELECT 1'
+      """)
+
+    assert occurrence.line == 2
+    assert occurrence.construct == "script.database_client.psql"
+    assert occurrence.approval == :unresolved_sql
+
+    assert scan("bin/ordinary-task", """
+           #!/usr/bin/env sh
+           # psql is forbidden here.
+           printf '%s' 'psql is documentation'
+           mix ecto.migrate
+           """) == []
+
+    [elixir_occurrence] =
+      scan("bin/database-task.exs", "OfficeGraph.Repo.query!(\"SELECT 1\", [])")
+
+    assert elixir_occurrence.construct == "Repo.query!"
+  end
+
   test "preserves only the exact approved UUIDv7 migration contexts" do
     assert repository_uuidv7_occurrences() == @uuidv7_approvals
 
@@ -279,6 +353,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "Repo.query!"
     assert occurrence.path == source_path
+    assert occurrence.caller == "OfficeGraph.CompiledDatabaseBoundary"
     assert occurrence.module == "OfficeGraph.Repo"
     assert occurrence.arity == 2
   end

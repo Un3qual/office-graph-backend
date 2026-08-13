@@ -62,6 +62,13 @@ inventory and SHALL reject every unmatched occurrence or stale approval.
   support, Mix task, configuration, seed, migration, and script sources while
   excluding dependency and build artifacts
 
+#### Scenario: Tracked script invokes a database client
+
+- **WHEN** a tracked shell or `bin/` script directly names a PostgreSQL client
+  command
+- **THEN** the source gate MUST reject the command without interpreting shell
+  variables or control flow
+
 #### Scenario: Verification runs from a clean checkout
 
 - **WHEN** planning and database-boundary checks complete
