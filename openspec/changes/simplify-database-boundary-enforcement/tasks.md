@@ -13,15 +13,15 @@
 
 ## 3. Migration And Terminal Conformance
 
-- [ ] 3.1 Keep the built-in AshPostgres non-mutating migration drift check in canonical verification
-- [ ] 3.2 Replace synthetic migration interpretation with PostgreSQL 18 terminal object inventory
-- [ ] 3.3 Compare all relevant project-owned terminal object classes with Ash/resource ownership metadata
-- [ ] 3.4 Preserve exact exception provenance and focused behavior evidence without adding catalog SQL
+- [x] 3.1 Keep the built-in AshPostgres non-mutating migration drift check in canonical verification
+- [x] 3.2 Replace synthetic migration interpretation with PostgreSQL 18 terminal object inventory
+- [x] 3.3 Compare all relevant project-owned terminal object classes with Ash/resource ownership metadata
+- [x] 3.4 Preserve exact exception provenance and focused behavior evidence without adding catalog SQL
 
 ## 4. Focused Verification
 
 - [x] 4.1 Replace synthetic semantic scanner tests with direct source, compiled import, fingerprint, and false-positive tests
-- [ ] 4.2 Add terminal dump parsing and migrated-baseline comparison tests for supported object classes
+- [x] 4.2 Add terminal dump parsing and migrated-baseline comparison tests for supported object classes
 - [ ] 4.3 Run focused tests, strict OpenSpec validation, and the canonical Nix verification pipeline
 - [ ] 4.4 Perform a final anti-slop review of module size, ownership, and finite policy tables
 

@@ -24,10 +24,48 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
                     "Ecto.Multi",
                     "Ecto.Repo.Queryable",
                     "Ecto.Repo.Schema",
-                    "Ecto.Repo.Transaction",
-                    "OfficeGraph.Repo"
+                    "Ecto.Repo.Transaction"
                   ])
   @repo_raw_sql_operations MapSet.new([:query, :query!, :query_many, :query_many!])
+  @repo_direct_operations MapSet.new([
+                            :aggregate,
+                            :all,
+                            :all_by,
+                            :checked_out?,
+                            :checkout,
+                            :delete,
+                            :delete!,
+                            :delete_all,
+                            :disconnect_all,
+                            :exists?,
+                            :get,
+                            :get!,
+                            :get_by,
+                            :get_by!,
+                            :get_dynamic_repo,
+                            :in_transaction?,
+                            :insert,
+                            :insert!,
+                            :insert_all,
+                            :insert_or_update,
+                            :insert_or_update!,
+                            :one,
+                            :one!,
+                            :preload,
+                            :preload!,
+                            :put_dynamic_repo,
+                            :reload,
+                            :reload!,
+                            :rollback,
+                            :start_link,
+                            :stop,
+                            :stream,
+                            :transact,
+                            :transaction,
+                            :update,
+                            :update!,
+                            :update_all
+                          ])
 
   @spec scan(Path.t(), keyword()) :: [map()]
   def scan(root \\ File.cwd!(), opts \\ []) do
@@ -128,6 +166,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
     cond do
       module == "OfficeGraph.Repo" and MapSet.member?(@repo_raw_sql_operations, function) ->
         [occurrence(source, caller, module, function, arity, :raw_sql)]
+
+      module == "OfficeGraph.Repo" and MapSet.member?(@repo_direct_operations, function) ->
+        [occurrence(source, caller, module, function, arity, :direct_ecto)]
 
       MapSet.member?(@raw_sql_modules, module) ->
         [occurrence(source, caller, module, function, arity, :raw_sql)]

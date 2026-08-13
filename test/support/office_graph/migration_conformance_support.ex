@@ -1,64 +1,323 @@
 defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   @moduledoc false
 
-  @table_create_operations [:create, :create_if_not_exists]
-  @table_drop_operations [:drop, :drop_if_exists]
-  @table_definition_operations [:alter | @table_create_operations]
-  @table_lifecycle_operations @table_create_operations ++ @table_drop_operations
-  @foreign_key_definition_operations [:add, :add_if_not_exists, :modify]
-  @migration_query_operations [:query, :query!, :query_many, :query_many!]
+  alias OfficeGraph.TestSupport.PostgresDump
+
+  @framework_objects %{
+    enum: MapSet.new(["oban_job_state"]),
+    table: MapSet.new(["oban_jobs", "oban_peers", "schema_migrations"]),
+    sequence: MapSet.new(["oban_jobs_id_seq"])
+  }
+  @framework_enums %{
+    "oban_job_state" =>
+      "'available', 'suspended', 'scheduled', 'executing', 'retryable', 'completed', 'discarded', 'cancelled'"
+  }
+  @framework_relation_kinds %{
+    "oban_jobs" => :regular,
+    "oban_peers" => :unlogged,
+    "schema_migrations" => :regular
+  }
+  @framework_columns MapSet.new([
+                       {"oban_jobs", "args", "jsonb DEFAULT '{}'::jsonb NOT NULL"},
+                       {"oban_jobs", "attempt", "integer DEFAULT 0 NOT NULL"},
+                       {"oban_jobs", "attempted_at", "timestamp without time zone"},
+                       {"oban_jobs", "attempted_by", "text[]"},
+                       {"oban_jobs", "cancelled_at", "timestamp without time zone"},
+                       {"oban_jobs", "completed_at", "timestamp without time zone"},
+                       {"oban_jobs", "discarded_at", "timestamp without time zone"},
+                       {"oban_jobs", "errors", "jsonb[] DEFAULT ARRAY[]::jsonb[] NOT NULL"},
+                       {"oban_jobs", "id",
+                        "bigint DEFAULT nextval('oban_jobs_id_seq'::regclass) NOT NULL"},
+                       {"oban_jobs", "inserted_at",
+                        "timestamp without time zone DEFAULT timezone('UTC'::text, now()) NOT NULL"},
+                       {"oban_jobs", "max_attempts", "integer DEFAULT 20 NOT NULL"},
+                       {"oban_jobs", "meta", "jsonb DEFAULT '{}'::jsonb"},
+                       {"oban_jobs", "priority", "integer DEFAULT 0 NOT NULL"},
+                       {"oban_jobs", "queue", "text DEFAULT 'default'::text NOT NULL"},
+                       {"oban_jobs", "scheduled_at",
+                        "timestamp without time zone DEFAULT timezone('UTC'::text, now()) NOT NULL"},
+                       {"oban_jobs", "state",
+                        "public.oban_job_state DEFAULT 'available'::public.oban_job_state NOT NULL"},
+                       {"oban_jobs", "tags", "text[] DEFAULT ARRAY[]::text[]"},
+                       {"oban_jobs", "worker", "text NOT NULL"},
+                       {"oban_peers", "expires_at", "timestamp without time zone NOT NULL"},
+                       {"oban_peers", "name", "text NOT NULL"},
+                       {"oban_peers", "node", "text NOT NULL"},
+                       {"oban_peers", "started_at", "timestamp without time zone NOT NULL"},
+                       {"schema_migrations", "inserted_at", "timestamp(0) without time zone"},
+                       {"schema_migrations", "version", "bigint NOT NULL"}
+                     ])
+  @framework_primary_keys MapSet.new([
+                            {"oban_jobs", "oban_jobs_pkey"},
+                            {"oban_peers", "oban_peers_pkey"},
+                            {"schema_migrations", "schema_migrations_pkey"}
+                          ])
+  @framework_constraints MapSet.new([
+                           {"oban_jobs", "oban_jobs_pkey", "PRIMARY KEY (id)"},
+                           {"oban_peers", "oban_peers_pkey", "PRIMARY KEY (name)"},
+                           {"schema_migrations", "schema_migrations_pkey",
+                            "PRIMARY KEY (version)"}
+                         ])
+  @framework_indexes MapSet.new([
+                       {"oban_jobs", "oban_jobs_args_index", "USING gin (args)"},
+                       {"oban_jobs", "oban_jobs_meta_index", "USING gin (meta)"},
+                       {"oban_jobs", "oban_jobs_state_cancelled_at_index",
+                        "USING btree (state, cancelled_at)"},
+                       {"oban_jobs", "oban_jobs_state_discarded_at_index",
+                        "USING btree (state, discarded_at)"},
+                       {"oban_jobs", "oban_jobs_state_queue_priority_scheduled_at_id_index",
+                        "USING btree (state, queue, priority, scheduled_at, id)"}
+                     ])
+  @allowed_extensions MapSet.new(["plpgsql"])
+  @grant_object_types [
+    "ALL FUNCTIONS IN SCHEMA",
+    "ALL PROCEDURES IN SCHEMA",
+    "ALL ROUTINES IN SCHEMA",
+    "ALL SEQUENCES IN SCHEMA",
+    "ALL TABLES IN SCHEMA",
+    "FOREIGN DATA WRAPPER",
+    "FOREIGN SERVER",
+    "LARGE OBJECT",
+    "TABLESPACE",
+    "DATABASE",
+    "FUNCTION",
+    "LANGUAGE",
+    "PARAMETER",
+    "PROCEDURE",
+    "ROUTINE",
+    "SCHEMA",
+    "SEQUENCE",
+    "TABLE",
+    "TYPE"
+  ]
+  @approved_exceptions_path "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
 
   def migration_tables do
-    migration_inventory().tables
+    terminal_inventory().tables
+    |> reject_framework_objects(:table)
+    |> Enum.sort()
   end
 
   def resource_table_identities(expected_resources) do
     expected_resources
-    |> Enum.map(fn {table, {_domain, resource}} -> resource_table_identity(table, resource) end)
+    |> Enum.map(fn {_table, {_domain, resource}} -> resource_table_identity(resource) end)
     |> Enum.sort()
   end
 
-  def migration_foreign_key_relationship_errors(expected_resources) do
+  def migration_foreign_key_relationship_errors(
+        expected_resources,
+        inventory \\ terminal_inventory()
+      ) do
     resources_by_table =
-      Map.new(expected_resources, fn {table, {_domain, resource}} ->
-        {resource_table_identity(table, resource), resource}
+      Map.new(expected_resources, fn {_table, {_domain, resource}} ->
+        {resource_table_identity(resource), resource}
       end)
 
-    migration_foreign_keys()
+    inventory.foreign_keys
     |> Enum.flat_map(fn {source_table, source_attribute, destination_table, destination_attribute} ->
-      with source when not is_nil(source) <- Map.get(resources_by_table, source_table),
-           destination when not is_nil(destination) <-
-             Map.get(resources_by_table, destination_table),
-           source_attribute <- String.to_existing_atom(source_attribute),
-           destination_attribute <- String.to_existing_atom(destination_attribute),
-           nil <-
-             Enum.find(Ash.Resource.Info.relationships(source), fn relationship ->
-               match?(%Ash.Resource.Relationships.BelongsTo{}, relationship) and
-                 relationship.source_attribute == source_attribute and
-                 relationship.destination == destination and
-                 relationship.destination_attribute == destination_attribute
-             end) do
-        [
-          "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
-        ]
-      else
-        %Ash.Resource.Relationships.BelongsTo{} -> []
-        _table_without_resource -> []
+      case Map.fetch(resources_by_table, source_table) do
+        :error ->
+          []
+
+        {:ok, source} ->
+          case Map.fetch(resources_by_table, destination_table) do
+            :error ->
+              foreign_key_relationship_error(
+                source_table,
+                source_attribute,
+                destination_table,
+                destination_attribute
+              )
+
+            {:ok, destination} ->
+              source_columns = identifier_list(source_attribute)
+              destination_columns = identifier_list(destination_attribute)
+
+              if matching_belongs_to?(
+                   source,
+                   destination,
+                   destination_table,
+                   source_columns,
+                   destination_columns
+                 ) do
+                []
+              else
+                foreign_key_relationship_error(
+                  source_table,
+                  source_attribute,
+                  destination_table,
+                  destination_attribute
+                )
+              end
+          end
       end
     end)
     |> Enum.sort()
   end
 
-  defp migration_foreign_keys do
-    migration_inventory().foreign_keys
+  def terminal_database_errors(
+        expected_resources \\ expected_resource_map(),
+        inventory \\ terminal_inventory(),
+        approved_terminal_objects \\ approved_terminal_objects()
+      ) do
+    expected_tables = expected_resources |> resource_table_identities() |> MapSet.new()
+    project_tables = reject_framework_objects(inventory.tables, :table)
+
+    missing_tables =
+      expected_tables
+      |> MapSet.difference(project_tables)
+      |> Enum.map(&"missing Ash-owned table #{&1}")
+
+    unexpected_tables =
+      project_tables
+      |> MapSet.difference(expected_tables)
+      |> Enum.map(&"unexpected project table #{&1}")
+
+    expected_sequences = expected_sequences(expected_resources)
+    project_sequences = reject_framework_objects(inventory.sequences, :sequence)
+
+    missing_sequences =
+      expected_sequences
+      |> MapSet.difference(project_sequences)
+      |> Enum.map(&"missing Ash-owned sequence #{&1}")
+
+    unexpected_sequences =
+      project_sequences
+      |> MapSet.difference(expected_sequences)
+      |> Enum.map(&"unexpected project sequence #{&1}")
+
+    prohibited_objects = terminal_object_errors(inventory, approved_terminal_objects)
+
+    (missing_tables ++
+       unexpected_tables ++
+       missing_sequences ++
+       unexpected_sequences ++
+       framework_presence_errors(inventory) ++
+       framework_enum_definition_errors(inventory) ++
+       relation_kind_errors(inventory, expected_tables) ++
+       sequence_definition_errors(inventory, expected_resources) ++
+       table_shape_errors(inventory, expected_resources, project_tables) ++
+       framework_table_shape_errors(inventory) ++
+       prohibited_objects ++
+       migration_foreign_key_relationship_errors(expected_resources, inventory))
+    |> Enum.sort()
   end
 
-  defp migration_inventory do
-    key = {__MODULE__, :migration_inventory, File.cwd!()}
+  defp framework_presence_errors(inventory) do
+    missing_enums =
+      @framework_objects.enum
+      |> MapSet.difference(inventory.enums |> Map.keys() |> MapSet.new())
+      |> Enum.map(&"missing framework enum #{&1}")
+
+    missing_tables =
+      @framework_objects.table
+      |> MapSet.difference(inventory.tables)
+      |> Enum.map(&"missing framework table #{&1}")
+
+    missing_sequences =
+      @framework_objects.sequence
+      |> MapSet.difference(inventory.sequences)
+      |> Enum.map(&"missing framework sequence #{&1}")
+
+    missing_enums ++ missing_tables ++ missing_sequences
+  end
+
+  defp framework_enum_definition_errors(inventory) do
+    Enum.flat_map(@framework_enums, fn {identity, expected_definition} ->
+      case Map.fetch(inventory.enums, identity) do
+        {:ok, ^expected_definition} ->
+          []
+
+        {:ok, _actual_definition} ->
+          ["enum definition mismatch for framework enum #{identity}"]
+
+        :error ->
+          []
+      end
+    end)
+  end
+
+  defp relation_kind_errors(inventory, expected_tables) do
+    framework_tables =
+      Enum.reduce(@framework_relation_kinds, MapSet.new(), fn {table, _kind}, tables ->
+        if Map.has_key?(inventory.relations, table), do: MapSet.put(tables, table), else: tables
+      end)
+
+    expected_tables
+    |> MapSet.union(framework_tables)
+    |> Enum.flat_map(fn table ->
+      expected_kind =
+        if MapSet.member?(expected_tables, table),
+          do: :regular,
+          else: Map.fetch!(@framework_relation_kinds, table)
+
+      case Map.get(inventory.relations, table) do
+        ^expected_kind ->
+          []
+
+        nil ->
+          []
+
+        actual ->
+          owner = if MapSet.member?(expected_tables, table), do: "Ash-owned", else: "framework"
+
+          [
+            "relation kind mismatch for #{owner} table #{table}: expected #{expected_kind}, got #{actual}"
+          ]
+      end
+    end)
+  end
+
+  defp sequence_definition_errors(inventory, expected_resources) do
+    expected = expected_sequence_definitions(expected_resources)
+
+    expected =
+      if MapSet.member?(inventory.tables, "oban_jobs") or
+           MapSet.member?(inventory.sequences, "oban_jobs_id_seq") do
+        Map.put(
+          expected,
+          "oban_jobs_id_seq",
+          default_sequence_definition("bigint", "oban_jobs.id")
+        )
+      else
+        expected
+      end
+
+    Enum.flat_map(expected, fn {identity, expected_definition} ->
+      case Map.fetch(inventory.sequence_definitions, identity) do
+        {:ok, ^expected_definition} ->
+          []
+
+        {:ok, _actual_definition} ->
+          ["sequence definition mismatch for #{identity}"]
+
+        :error ->
+          if MapSet.member?(inventory.sequences, identity) do
+            ["sequence definition unavailable for #{identity}"]
+          else
+            []
+          end
+      end
+    end)
+  end
+
+  def verify_terminal_database! do
+    case terminal_database_errors() do
+      [] ->
+        :ok
+
+      errors ->
+        raise "terminal database inventory does not match Ash ownership:\n" <>
+                Enum.map_join(errors, "\n", &"  * #{&1}")
+    end
+  end
+
+  def terminal_inventory do
+    key = {__MODULE__, :terminal_inventory, File.cwd!()}
 
     case Process.get(key) do
       nil ->
-        inventory = build_migration_inventory()
+        inventory = dump_terminal_inventory!()
         Process.put(key, inventory)
         inventory
 
@@ -67,3330 +326,2054 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     end
   end
 
-  defp build_migration_inventory do
-    repository_helpers = repository_migration_helpers()
+  def parse_dump(dump) when is_binary(dump) do
+    initial = %{
+      columns: MapSet.new(),
+      constraints: MapSet.new(),
+      enums: %{},
+      extensions: MapSet.new(),
+      foreign_keys: MapSet.new(),
+      grants: MapSet.new(),
+      indexes: MapSet.new(),
+      materialized_views: MapSet.new(),
+      policies: MapSet.new(),
+      primary_keys: MapSet.new(),
+      relations: %{},
+      rls_states: MapSet.new(),
+      routines: MapSet.new(),
+      sequence_definitions: %{},
+      sequences: MapSet.new(),
+      tables: MapSet.new(),
+      terminal_objects: MapSet.new(),
+      triggers: MapSet.new(),
+      views: MapSet.new()
+    }
 
-    {tables, foreign_keys} =
-      "priv/repo/migrations/*.exs"
-      |> Path.wildcard()
-      |> Enum.sort()
-      |> Enum.reduce({MapSet.new(), %{}}, fn path, {tables, foreign_keys} ->
-        forward_ast =
-          path
-          |> File.read!()
-          |> migration_forward_ast(repository_helpers)
-
-        tables =
-          forward_ast
-          |> migration_table_operations()
-          |> Enum.reduce(tables, &apply_table_operation/2)
-
-        foreign_keys =
-          forward_ast
-          |> migration_foreign_key_operations()
-          |> Enum.reduce(foreign_keys, &apply_foreign_key_operation/2)
-
-        {tables, foreign_keys}
+    inventory =
+      dump
+      |> String.split("\n")
+      |> Enum.reduce({initial, nil}, &parse_dump_line/2)
+      |> elem(0)
+      |> Map.update!(:foreign_keys, fn keys ->
+        keys
+        |> MapSet.to_list()
+        |> Enum.sort()
       end)
 
-    %{
-      tables: tables |> MapSet.to_list() |> Enum.sort(),
-      foreign_keys:
-        foreign_keys
-        |> Map.values()
-        |> Enum.flat_map(&MapSet.to_list/1)
-        |> Enum.map(fn {source_table, source_attribute, destination_table, destination_attribute,
-                        _constraint_name} ->
-          {source_table, source_attribute, destination_table, destination_attribute}
-        end)
-        |> Enum.uniq()
-        |> Enum.sort()
-    }
+    inventory
+    |> Map.put(:enums, enum_definitions(dump))
+    |> Map.put(:sequence_definitions, sequence_definitions(dump))
+    |> Map.put(:terminal_objects, terminal_objects(dump))
   end
 
-  defp migration_forward_ast(source, repository_helpers) do
-    ast = Code.string_to_quoted!(source)
-    module_body = migration_module_body(ast)
+  defp terminal_object_errors(inventory, approved_terminal_objects) do
+    actual =
+      inventory
+      |> Map.get(:terminal_objects, MapSet.new())
+      |> Enum.reject(fn {class, identity, _fingerprint} ->
+        allowed_terminal_object?(class, identity)
+      end)
+      |> Enum.group_by(fn {class, identity, _fingerprint} -> {class, identity} end, fn {
+                                                                                         _class,
+                                                                                         _identity,
+                                                                                         fingerprint
+                                                                                       } ->
+        fingerprint
+      end)
+      |> Map.new(fn {identity, fingerprints} -> {identity, MapSet.new(fingerprints)} end)
 
-    repository_helpers =
-      Map.merge(
-        repository_helpers,
-        collect_repository_helper_modules(ast, nil, %{}),
-        fn _module, repository_keys, same_file_keys ->
-          MapSet.union(repository_keys, same_file_keys)
+    approved =
+      approved_terminal_objects
+      |> Enum.map(&normalize_terminal_approval!/1)
+      |> Enum.group_by(fn {class, identity, _fingerprint} -> {class, identity} end, fn {
+                                                                                         _class,
+                                                                                         _identity,
+                                                                                         fingerprint
+                                                                                       } ->
+        fingerprint
+      end)
+      |> Map.new(fn {identity, fingerprints} -> {identity, MapSet.new(fingerprints)} end)
+
+    actual_keys = actual |> Map.keys() |> MapSet.new()
+    approved_keys = approved |> Map.keys() |> MapSet.new()
+
+    missing_definitions =
+      inventory
+      |> prohibited_terminal_identities()
+      |> MapSet.difference(actual_keys)
+      |> Enum.map(fn {class, identity} ->
+        "terminal definition unavailable for project #{class} #{identity}"
+      end)
+
+    comparison_errors =
+      actual_keys
+      |> MapSet.union(approved_keys)
+      |> Enum.flat_map(fn {class, identity} = key ->
+        case {Map.fetch(actual, key), Map.fetch(approved, key)} do
+          {{:ok, _actual}, :error} ->
+            ["unexpected project #{class} #{identity}"]
+
+          {:error, {:ok, _approved}} ->
+            ["missing approved project #{class} #{identity}"]
+
+          {{:ok, fingerprints}, {:ok, fingerprints}} ->
+            []
+
+          {{:ok, _actual}, {:ok, _approved}} ->
+            ["terminal definition mismatch for approved project #{class} #{identity}"]
         end
-      )
+      end)
 
-    repository_helper_imports =
-      repository_migration_helper_imports(module_body, repository_helpers)
+    (missing_definitions ++ comparison_errors)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
-    functions = migration_functions(ast)
+  defp prohibited_terminal_identities(inventory) do
+    [
+      {"view", inventory.views},
+      {"materialized view", inventory.materialized_views},
+      {"materialized view index", materialized_view_index_identities(inventory)},
+      {"enum", inventory.enums |> Map.keys() |> reject_framework_objects(:enum)},
+      {"routine", inventory.routines},
+      {"trigger", inventory.triggers},
+      {"RLS policy", inventory.policies},
+      {"RLS state", inventory.rls_states},
+      {"grant", inventory.grants},
+      {"extension", MapSet.difference(inventory.extensions, @allowed_extensions)}
+    ]
+    |> Enum.flat_map(fn {class, identities} ->
+      Enum.map(identities, &{class, &1})
+    end)
+    |> MapSet.new()
+  end
 
-    forward_ast =
-      case migration_entrypoint(functions, {:up, 0}) ||
-             migration_entrypoint(functions, {:change, 0}) do
-        definitions when is_list(definitions) ->
-          definitions
-          |> Enum.map(fn %{body: body, key: key} ->
-            expand_local_calls(body, functions, [key])
-          end)
-          |> block()
-          |> resolve_local_bindings()
+  defp allowed_terminal_object?("extension", identity),
+    do: MapSet.member?(@allowed_extensions, identity)
+
+  defp allowed_terminal_object?("enum", identity), do: framework_owned?(:enum, identity)
+
+  defp allowed_terminal_object?(_class, _identity), do: false
+
+  defp approved_terminal_objects do
+    @approved_exceptions_path
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.fetch!("exceptions")
+    |> Enum.flat_map(&Map.get(&1, "terminal_objects", []))
+  end
+
+  defp normalize_terminal_approval!(%{
+         "class" => class,
+         "identity" => identity,
+         "fingerprint" => fingerprint
+       })
+       when is_binary(class) and class != "" and is_binary(identity) and identity != "" and
+              is_binary(fingerprint) and fingerprint != "",
+       do: {class, identity, fingerprint}
+
+  defp normalize_terminal_approval!({class, identity, fingerprint})
+       when is_binary(class) and is_binary(identity) and is_binary(fingerprint),
+       do: {class, identity, fingerprint}
+
+  defp normalize_terminal_approval!(approval) do
+    raise ArgumentError, "invalid approved terminal database object: #{inspect(approval)}"
+  end
+
+  defp terminal_objects(dump) do
+    statements = sql_statements(dump)
+
+    views =
+      statements
+      |> Enum.flat_map(fn statement ->
+        case prefixed_identity(statement, "CREATE VIEW ") do
+          nil -> []
+          identity -> [identity]
+        end
+      end)
+      |> MapSet.new()
+
+    materialized_views =
+      statements
+      |> Enum.flat_map(fn statement ->
+        case prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") do
+          nil -> []
+          identity -> [identity]
+        end
+      end)
+      |> MapSet.new()
+
+    statements
+    |> Enum.flat_map(fn statement ->
+      case terminal_object_identity(statement, views, materialized_views) do
+        nil -> []
+        {class, identity} -> [{class, identity, fingerprint_statement(statement)}]
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp enum_definitions(dump) do
+    dump
+    |> sql_statements()
+    |> Enum.reduce(%{}, fn statement, definitions ->
+      case enum_definition(statement) do
+        {identity, definition} -> Map.put(definitions, identity, definition)
+        nil -> definitions
+      end
+    end)
+  end
+
+  defp enum_definition(statement) do
+    with {identity, rest} <- PostgresDump.identifier_after(statement, "CREATE TYPE "),
+         rest <- String.trim_leading(rest),
+         true <- String.starts_with?(rest, "AS ENUM"),
+         rest <- rest |> String.replace_prefix("AS ENUM", "") |> String.trim_leading(),
+         {labels, trailing} <- PostgresDump.take_parenthesized(rest),
+         true <- trailing |> String.trim() |> String.trim_trailing(";") |> String.trim() == "" do
+      {identity, normalize_definition(labels)}
+    else
+      _not_enum -> nil
+    end
+  end
+
+  defp sequence_definitions(dump) do
+    dump
+    |> sql_statements()
+    |> Enum.reduce(%{}, fn statement, definitions ->
+      case PostgresDump.identifier_after(statement, "CREATE SEQUENCE ") do
+        {identity, rest} ->
+          Map.put(definitions, identity, sequence_definition(rest, nil))
 
         nil ->
-          {:__block__, [], []}
-      end
-
-    forward_ast
-    |> reject_unmodeled_migration_enum_calls!()
-    |> reject_schema_ownership_sql!()
-    |> reject_repository_migration_helpers!(repository_helpers, repository_helper_imports)
-  end
-
-  defp reject_unmodeled_migration_enum_calls!(ast) do
-    Macro.prewalk(ast, fn
-      {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node
-      when is_atom(operation) and is_list(arguments) ->
-        if receiver == "Enum" or module_name(receiver) == "Enum" do
-          raise ArgumentError,
-                "cannot statically verify migration Enum.#{operation}/#{length(arguments)}; " <>
-                  "use direct declarative Ecto migration constructs"
-        end
-
-        node
-
-      node ->
-        node
-    end)
-
-    ast
-  end
-
-  defp reject_schema_ownership_sql!(ast) do
-    Macro.prewalk(ast, fn node ->
-      with {:ok, sql_payload} <- migration_inline_sql_payload(node),
-           {:ok, sql} <- static_migration_sql(sql_payload),
-           true <- schema_ownership_sql?(sql) do
-        raise ArgumentError,
-              "migration SQL changes table or foreign-key ownership; " <>
-                "use declarative Ecto migration constructs so conformance can inventory it"
-      end
-
-      reject_execute_file_ownership_sql!(node)
-
-      node
-    end)
-  end
-
-  defp reject_execute_file_ownership_sql!(node) do
-    case migration_execute_file_arguments(node) do
-      {:ok, arguments} ->
-        path =
-          case arguments |> List.first() |> static_migration_file_path() do
-            {:ok, path} ->
-              path
-
-            :error ->
-              raise ArgumentError,
-                    "cannot statically resolve migration execute_file path inside project root"
-          end
-
-        if path |> File.read!() |> schema_ownership_sql?() do
-          raise ArgumentError,
-                "migration execute SQL changes table or foreign-key ownership; " <>
-                  "use declarative Ecto migration constructs so conformance can inventory it"
-        end
-
-      :error ->
-        :ok
-    end
-  end
-
-  defp repository_migration_helpers do
-    ["lib/**/*.ex", "lib/**/*.exs"]
-    |> Enum.flat_map(&Path.wildcard/1)
-    |> Enum.sort()
-    |> Enum.reduce(%{}, fn path, helpers ->
-      path
-      |> File.read!()
-      |> Code.string_to_quoted!(file: path)
-      |> collect_repository_helper_modules(nil, helpers)
-    end)
-  end
-
-  defp collect_repository_helper_modules(
-         {:defmodule, _metadata, [module, [do: body]]},
-         parent_module,
-         helpers
-       ) do
-    module = repository_module_name(module, parent_module)
-
-    helpers =
-      if is_binary(module) do
-        keys = repository_public_function_keys(body)
-        Map.update(helpers, module, keys, &MapSet.union(&1, keys))
-      else
-        helpers
-      end
-
-    body
-    |> module_expressions()
-    |> Enum.reduce(helpers, fn expression, helpers ->
-      collect_repository_helper_modules(expression, module, helpers)
-    end)
-  end
-
-  defp collect_repository_helper_modules(nodes, parent_module, helpers) when is_list(nodes) do
-    Enum.reduce(nodes, helpers, fn node, helpers ->
-      collect_repository_helper_modules(node, parent_module, helpers)
-    end)
-  end
-
-  defp collect_repository_helper_modules(node, parent_module, helpers) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> collect_repository_helper_modules(parent_module, helpers)
-  end
-
-  defp collect_repository_helper_modules(_node, _parent_module, helpers), do: helpers
-
-  defp repository_module_name(module, parent_module) do
-    case module_name(module) do
-      nil ->
-        nil
-
-      module when is_binary(parent_module) ->
-        if String.contains?(module, "."), do: module, else: "#{parent_module}.#{module}"
-
-      module ->
-        module
-    end
-  end
-
-  defp repository_public_function_keys(body) do
-    body
-    |> module_expressions()
-    |> Enum.reduce(MapSet.new(), fn
-      {kind, _metadata, [head, body_options]}, keys
-      when kind in [:def, :defmacro] and is_list(body_options) ->
-        case {local_function_head(head), Keyword.fetch(body_options, :do)} do
-          {{key, parameters, guards}, {:ok, body}} ->
-            key
-            |> local_function_definitions(kind, parameters, guards, body)
-            |> Enum.reduce(keys, &MapSet.put(&2, &1.key))
-
-          _not_a_public_definition ->
-            keys
-        end
-
-      {:defdelegate, _metadata, [head, options]}, keys when is_list(options) ->
-        case local_function_head(head) do
-          {key, parameters, guards} ->
-            key
-            |> local_function_definitions(:def, parameters, guards, nil)
-            |> Enum.reduce(keys, &MapSet.put(&2, &1.key))
-
-          nil ->
-            keys
-        end
-
-      _expression, keys ->
-        keys
-    end)
-  end
-
-  defp repository_migration_helper_imports(body, repository_helpers) do
-    {_aliases, imports} =
-      body
-      |> module_expressions()
-      |> Enum.reduce({%{}, []}, fn
-        {:alias, _metadata, arguments}, {aliases, imports} ->
-          {put_module_aliases(aliases, arguments), imports}
-
-        {:import, _metadata, [target | _options]}, {aliases, imports} ->
-          module = resolve_module_name(target, aliases)
-
-          if Map.has_key?(repository_helpers, module),
-            do: {aliases, [module | imports]},
-            else: {aliases, imports}
-
-        _expression, accumulator ->
-          accumulator
-      end)
-
-    Enum.uniq(imports)
-  end
-
-  defp reject_repository_migration_helpers!(ast, repository_helpers, imported_helpers) do
-    Macro.prewalk(ast, fn
-      {:import, _metadata, [target | _options]} = node ->
-        module = migration_module_name(target)
-
-        if Map.has_key?(repository_helpers, module) do
-          raise ArgumentError, repository_migration_helper_message(module)
-        end
-
-        node
-
-      {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments} = node
-      when is_atom(operation) and is_list(arguments) ->
-        module = migration_module_name(receiver)
-
-        if repository_helper_call?(
-             repository_helpers,
-             module,
-             {operation, length(arguments)}
-           ) do
-          raise ArgumentError,
-                repository_migration_helper_message(module, operation, length(arguments))
-        end
-
-        node
-
-      {operation, _metadata, arguments} = node
-      when is_atom(operation) and is_list(arguments) ->
-        case Enum.find(imported_helpers, fn module ->
-               repository_helper_call?(
-                 repository_helpers,
-                 module,
-                 {operation, length(arguments)}
-               )
-             end) do
-          nil ->
-            :ok
-
-          module ->
-            raise ArgumentError,
-                  repository_migration_helper_message(module, operation, length(arguments))
-        end
-
-        node
-
-      node ->
-        node
-    end)
-
-    ast
-  end
-
-  defp repository_helper_call?(repository_helpers, module, key) when is_binary(module) do
-    repository_helpers
-    |> Map.get(module, MapSet.new())
-    |> MapSet.member?(key)
-  end
-
-  defp repository_helper_call?(_repository_helpers, _module, _key), do: false
-
-  defp repository_migration_helper_message(module),
-    do:
-      "migration imports repository migration helper #{module}; " <>
-        "inline declarative Ecto migration constructs so conformance can inventory them"
-
-  defp repository_migration_helper_message(module, operation, arity),
-    do:
-      "migration delegates lifecycle analysis to repository migration helper " <>
-        "#{module}.#{operation}/#{arity}; inline declarative Ecto migration constructs " <>
-        "so conformance can inventory them"
-
-  defp migration_inline_sql_payload(node) do
-    case migration_execute_arguments(node) do
-      {:ok, arguments} ->
-        arguments |> List.first() |> then(&{:ok, &1})
-
-      :error ->
-        migration_query_sql_payload(node)
-    end
-  end
-
-  defp migration_query_sql_payload(
-         {{:., _dot_metadata, [receiver, operation]}, _metadata, arguments}
-       )
-       when operation in @migration_query_operations and is_list(arguments) do
-    if migration_repo_query_receiver?(receiver) and arguments != [],
-      do: {:ok, List.first(arguments)},
-      else: migration_sql_adapter_payload(receiver, operation, arguments)
-  end
-
-  defp migration_query_sql_payload(_node), do: :error
-
-  defp migration_sql_adapter_payload(receiver, operation, [_repo, sql | _arguments])
-       when operation in @migration_query_operations do
-    if migration_module_name(receiver) == "Ecto.Adapters.SQL",
-      do: {:ok, sql},
-      else: :error
-  end
-
-  defp migration_sql_adapter_payload(_receiver, _operation, _arguments), do: :error
-
-  defp migration_repo_query_receiver?({:repo, _metadata, arguments})
-       when arguments in [nil, []],
-       do: true
-
-  defp migration_repo_query_receiver?(
-         {{:., _dot_metadata, [receiver, :repo]}, _metadata, arguments}
-       )
-       when arguments in [nil, []],
-       do: migration_module_name(receiver) == "Ecto.Migration"
-
-  defp migration_repo_query_receiver?(receiver) do
-    case migration_module_name(receiver) do
-      nil -> false
-      name -> name |> String.split(".") |> List.last() |> String.ends_with?("Repo")
-    end
-  end
-
-  defp migration_module_name({:__aliases__, _metadata, parts}) when is_list(parts),
-    do: Enum.join(parts, ".")
-
-  defp migration_module_name(module) when is_binary(module), do: module
-  defp migration_module_name(module) when is_atom(module), do: Atom.to_string(module)
-  defp migration_module_name(_module), do: nil
-
-  defp migration_execute_arguments({:execute, _metadata, arguments}) when is_list(arguments),
-    do: {:ok, arguments}
-
-  defp migration_execute_arguments(
-         {{:., _dot_metadata, [_receiver, :execute]}, _metadata, arguments}
-       )
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_arguments({:apply, _metadata, [_receiver, :execute, arguments]})
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_arguments(
-         {{:., _dot_metadata, [_apply_receiver, :apply]}, _metadata,
-          [_receiver, :execute, arguments]}
-       )
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_arguments(_node), do: :error
-
-  defp migration_execute_file_arguments({:execute_file, _metadata, arguments})
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_file_arguments(
-         {{:., _dot_metadata, [_receiver, :execute_file]}, _metadata, arguments}
-       )
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_file_arguments(
-         {:apply, _metadata, [_receiver, :execute_file, arguments]}
-       )
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_file_arguments(
-         {{:., _dot_metadata, [_apply_receiver, :apply]}, _metadata,
-          [_receiver, :execute_file, arguments]}
-       )
-       when is_list(arguments),
-       do: {:ok, arguments}
-
-  defp migration_execute_file_arguments(_node), do: :error
-
-  defp static_migration_sql(sql) when is_binary(sql), do: {:ok, sql}
-
-  defp static_migration_sql({:<>, _metadata, [left, right]}) do
-    with {:ok, left} <- static_migration_sql(left),
-         {:ok, right} <- static_migration_sql(right),
-         do: {:ok, left <> right}
-  end
-
-  defp static_migration_sql({:<<>>, _metadata, segments}) when is_list(segments) do
-    segments
-    |> Enum.reduce_while({:ok, []}, fn segment, {:ok, values} ->
-      case static_migration_sql_segment(segment) do
-        {:ok, value} -> {:cont, {:ok, [value | values]}}
-        :error -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, values |> Enum.reverse() |> IO.iodata_to_binary()}
-      :error -> :error
-    end
-  end
-
-  defp static_migration_sql(_sql), do: :error
-
-  defp static_migration_file_path(path) do
-    with {:ok, path} when is_binary(path) <- static_migration_sql(path),
-         :relative <- Path.type(path),
-         project_root <- Path.expand(File.cwd!()),
-         expanded <- Path.expand(path, project_root),
-         relative <- Path.relative_to(expanded, project_root),
-         false <- relative in ["", ".", ".."],
-         false <- String.starts_with?(relative, "../"),
-         true <- File.regular?(expanded) do
-      {:ok, expanded}
-    else
-      _unavailable -> :error
-    end
-  end
-
-  defp static_migration_sql_segment(segment) when is_binary(segment), do: {:ok, segment}
-
-  defp static_migration_sql_segment(
-         {:"::", _metadata,
-          [
-            {{:., _dot_metadata, [Kernel, :to_string]}, interpolation_metadata, [value]},
-            {:binary, _binary_metadata, nil}
-          ]}
-       ) do
-    if Keyword.get(interpolation_metadata, :from_interpolation, false),
-      do: static_interpolation_string(value),
-      else: :error
-  end
-
-  defp static_migration_sql_segment(_segment), do: :error
-
-  defp static_interpolation_string(value)
-       when is_atom(value) or is_binary(value) or is_number(value),
-       do: {:ok, to_string(value)}
-
-  defp static_interpolation_string(value) when is_list(value) do
-    if Enum.all?(value, &is_integer/1), do: {:ok, List.to_string(value)}, else: :error
-  end
-
-  defp static_interpolation_string(_value), do: :error
-
-  defp schema_ownership_sql?(sql) do
-    executable_sql = sql_code_without_comments_or_literals(sql)
-    top_level_sql = sql_code_without_comments_or_literals(sql, false)
-
-    Regex.match?(
-      ~r/\b(?:CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?|ALTER\s+|DROP\s+)(?:FOREIGN\s+)?TABLE\b/i,
-      executable_sql
-    ) or Regex.match?(~r/\bIMPORT\s+FOREIGN\s+SCHEMA\b/i, executable_sql) or
-      table_creating_select_into?(top_level_sql, executable_sql)
-  end
-
-  defp table_creating_select_into?(top_level_sql, executable_sql) do
-    Regex.match?(~r/\bSELECT\b[^;]*\bINTO\b/i, top_level_sql) or
-      Regex.match?(~r/\bEXECUTE\b[^;]*\bSELECT\b[^;]*\bINTO\b/i, executable_sql)
-  end
-
-  defp sql_code_without_comments_or_literals(sql, preserve_procedural_bodies? \\ true) do
-    sql
-    |> do_sql_code_without_comments_or_literals([], preserve_procedural_bodies?)
-    |> Enum.reverse()
-    |> IO.iodata_to_binary()
-  end
-
-  defp do_sql_code_without_comments_or_literals(<<>>, code, _preserve_procedural_bodies?),
-    do: code
-
-  defp do_sql_code_without_comments_or_literals(
-         <<"--", rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_line_comment(rest, [" " | code], preserve_procedural_bodies?)
-
-  defp do_sql_code_without_comments_or_literals(
-         <<"/*", rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_block_comment(rest, 1, [" " | code], preserve_procedural_bodies?)
-
-  defp do_sql_code_without_comments_or_literals(
-         <<"'", rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ) do
-    quote_mode = sql_single_quote_mode(code)
-
-    cond do
-      preserve_procedural_bodies? and sql_do_block_prefix?(code) ->
-        preserve_sql_single_quoted_code(
-          rest,
-          code,
-          quote_mode,
-          preserve_procedural_bodies?
-        )
-
-      sql_dynamic_execute_prefix?(code) ->
-        preserve_sql_single_quoted_code(
-          rest,
-          code,
-          quote_mode,
-          preserve_procedural_bodies?
-        )
-
-      preserve_procedural_bodies? and sql_routine_definition_prefix?(code) ->
-        preserve_sql_single_quoted_code(
-          rest,
-          code,
-          quote_mode,
-          preserve_procedural_bodies?
-        )
-
-      true ->
-        skip_sql_single_quoted(
-          rest,
-          [" " | code],
-          quote_mode,
-          preserve_procedural_bodies?
-        )
-    end
-  end
-
-  defp do_sql_code_without_comments_or_literals(
-         <<"\"", rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_double_quoted(rest, [" " | code], preserve_procedural_bodies?)
-
-  defp do_sql_code_without_comments_or_literals(
-         <<"$", _rest::binary>> = sql,
-         code,
-         preserve_procedural_bodies?
-       ) do
-    case sql_dollar_quote_delimiter(sql) do
-      nil ->
-        consume_sql_codepoint(sql, code, preserve_procedural_bodies?)
-
-      delimiter ->
-        cond do
-          preserve_procedural_bodies? and sql_do_block_prefix?(code) ->
-            preserve_sql_dollar_quoted_code(
-              sql,
-              delimiter,
-              code,
-              preserve_procedural_bodies?
-            )
-
-          sql_dynamic_execute_prefix?(code) ->
-            preserve_sql_dollar_quoted_code(
-              sql,
-              delimiter,
-              code,
-              preserve_procedural_bodies?
-            )
-
-          preserve_procedural_bodies? and sql_routine_definition_prefix?(code) ->
-            preserve_sql_dollar_quoted_code(
-              sql,
-              delimiter,
-              code,
-              preserve_procedural_bodies?
-            )
-
-          true ->
-            skip_sql_dollar_quoted(
-              sql,
-              delimiter,
-              [" " | code],
-              preserve_procedural_bodies?
-            )
-        end
-    end
-  end
-
-  defp do_sql_code_without_comments_or_literals(sql, code, preserve_procedural_bodies?),
-    do: consume_sql_codepoint(sql, code, preserve_procedural_bodies?)
-
-  defp consume_sql_codepoint(
-         <<codepoint::utf8, rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do:
-         do_sql_code_without_comments_or_literals(
-           rest,
-           [<<codepoint::utf8>> | code],
-           preserve_procedural_bodies?
-         )
-
-  defp skip_sql_line_comment(<<>>, code, _preserve_procedural_bodies?), do: code
-
-  defp skip_sql_line_comment(<<line_break, rest::binary>>, code, preserve_procedural_bodies?)
-       when line_break in [?\n, ?\r],
-       do:
-         do_sql_code_without_comments_or_literals(
-           rest,
-           [" " | code],
-           preserve_procedural_bodies?
-         )
-
-  defp skip_sql_line_comment(
-         <<_codepoint::utf8, rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_line_comment(rest, code, preserve_procedural_bodies?)
-
-  defp skip_sql_block_comment(<<>>, _depth, code, _preserve_procedural_bodies?), do: code
-
-  defp skip_sql_block_comment(
-         <<"/*", rest::binary>>,
-         depth,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_block_comment(rest, depth + 1, code, preserve_procedural_bodies?)
-
-  defp skip_sql_block_comment(<<"*/", rest::binary>>, 1, code, preserve_procedural_bodies?),
-    do: do_sql_code_without_comments_or_literals(rest, code, preserve_procedural_bodies?)
-
-  defp skip_sql_block_comment(
-         <<"*/", rest::binary>>,
-         depth,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_block_comment(rest, depth - 1, code, preserve_procedural_bodies?)
-
-  defp skip_sql_block_comment(
-         <<_codepoint::utf8, rest::binary>>,
-         depth,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_block_comment(rest, depth, code, preserve_procedural_bodies?)
-
-  defp skip_sql_single_quoted(<<>>, code, _quote_mode, _preserve_procedural_bodies?),
-    do: code
-
-  defp skip_sql_single_quoted(
-         <<"''", rest::binary>>,
-         code,
-         quote_mode,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_single_quoted(rest, code, quote_mode, preserve_procedural_bodies?)
-
-  defp skip_sql_single_quoted(
-         <<"\\", _escaped_codepoint::utf8, rest::binary>>,
-         code,
-         :escape,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_single_quoted(rest, code, :escape, preserve_procedural_bodies?)
-
-  defp skip_sql_single_quoted(
-         <<"'", rest::binary>>,
-         code,
-         _quote_mode,
-         preserve_procedural_bodies?
-       ),
-       do: do_sql_code_without_comments_or_literals(rest, code, preserve_procedural_bodies?)
-
-  defp skip_sql_single_quoted(
-         <<_codepoint::utf8, rest::binary>>,
-         code,
-         quote_mode,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_single_quoted(rest, code, quote_mode, preserve_procedural_bodies?)
-
-  defp preserve_sql_single_quoted_code(
-         sql,
-         code,
-         quote_mode,
-         preserve_procedural_bodies?
-       ) do
-    case take_sql_single_quoted(sql, [], quote_mode) do
-      {:ok, body, trailing} ->
-        body_code =
-          sql_code_without_comments_or_literals(body, preserve_procedural_bodies?)
-
-        do_sql_code_without_comments_or_literals(
-          trailing,
-          [" ", body_code, " " | code],
-          preserve_procedural_bodies?
-        )
-
-      :error ->
-        code
-    end
-  end
-
-  defp take_sql_single_quoted(<<>>, _body, _quote_mode), do: :error
-
-  defp take_sql_single_quoted(<<"''", rest::binary>>, body, quote_mode),
-    do: take_sql_single_quoted(rest, ["'" | body], quote_mode)
-
-  defp take_sql_single_quoted(
-         <<"\\", escaped_codepoint::utf8, rest::binary>>,
-         body,
-         :escape
-       ),
-       do:
-         take_sql_single_quoted(
-           rest,
-           [<<escaped_codepoint::utf8>>, "\\" | body],
-           :escape
-         )
-
-  defp take_sql_single_quoted(<<"'", rest::binary>>, body, _quote_mode),
-    do: {:ok, body |> Enum.reverse() |> IO.iodata_to_binary(), rest}
-
-  defp take_sql_single_quoted(<<codepoint::utf8, rest::binary>>, body, quote_mode),
-    do: take_sql_single_quoted(rest, [<<codepoint::utf8>> | body], quote_mode)
-
-  defp skip_sql_double_quoted(<<>>, code, _preserve_procedural_bodies?), do: code
-
-  defp skip_sql_double_quoted(<<"\"\"", rest::binary>>, code, preserve_procedural_bodies?),
-    do: skip_sql_double_quoted(rest, code, preserve_procedural_bodies?)
-
-  defp skip_sql_double_quoted(<<"\"", rest::binary>>, code, preserve_procedural_bodies?),
-    do: do_sql_code_without_comments_or_literals(rest, code, preserve_procedural_bodies?)
-
-  defp skip_sql_double_quoted(
-         <<_codepoint::utf8, rest::binary>>,
-         code,
-         preserve_procedural_bodies?
-       ),
-       do: skip_sql_double_quoted(rest, code, preserve_procedural_bodies?)
-
-  defp sql_dollar_quote_delimiter(sql) do
-    case Regex.run(~r/\A\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/, sql) do
-      [delimiter] -> delimiter
-      nil -> nil
-    end
-  end
-
-  defp skip_sql_dollar_quoted(sql, delimiter, code, preserve_procedural_bodies?) do
-    delimiter_size = byte_size(delimiter)
-    rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
-
-    case :binary.match(rest, delimiter) do
-      {closing_offset, ^delimiter_size} ->
-        trailing_offset = closing_offset + delimiter_size
-        trailing_size = byte_size(rest) - trailing_offset
-        trailing = binary_part(rest, trailing_offset, trailing_size)
-        do_sql_code_without_comments_or_literals(trailing, code, preserve_procedural_bodies?)
-
-      :nomatch ->
-        code
-    end
-  end
-
-  defp preserve_sql_dollar_quoted_code(
-         sql,
-         delimiter,
-         code,
-         preserve_procedural_bodies?
-       ) do
-    delimiter_size = byte_size(delimiter)
-    rest = binary_part(sql, delimiter_size, byte_size(sql) - delimiter_size)
-
-    case :binary.match(rest, delimiter) do
-      {closing_offset, ^delimiter_size} ->
-        body = binary_part(rest, 0, closing_offset)
-        trailing_offset = closing_offset + delimiter_size
-        trailing_size = byte_size(rest) - trailing_offset
-        trailing = binary_part(rest, trailing_offset, trailing_size)
-
-        body_code =
-          sql_code_without_comments_or_literals(body, preserve_procedural_bodies?)
-
-        do_sql_code_without_comments_or_literals(
-          trailing,
-          [" ", body_code, " " | code],
-          preserve_procedural_bodies?
-        )
-
-      :nomatch ->
-        code
-    end
-  end
-
-  defp sql_do_block_prefix?(code) do
-    code =
-      code
-      |> Enum.reverse()
-      |> IO.iodata_to_binary()
-      |> strip_sql_string_literal_prefix()
-
-    Regex.match?(
-      ~r/(?:^|;)\s*DO(?:\s+LANGUAGE\s+[A-Za-z_][A-Za-z0-9_$]*)?\s*\z/i,
-      code
-    )
-  end
-
-  defp sql_dynamic_execute_prefix?(code) do
-    code = code |> Enum.reverse() |> IO.iodata_to_binary()
-
-    case Regex.run(~r/\bEXECUTE\b([^;]*)\z/is, code, capture: :all_but_first) do
-      [expression] -> dynamic_execute_literal_prefix?(expression)
-      nil -> false
-    end
-  end
-
-  defp sql_routine_definition_prefix?(code) do
-    code =
-      code
-      |> Enum.reverse()
-      |> IO.iodata_to_binary()
-      |> strip_sql_string_literal_prefix()
-
-    Regex.match?(
-      ~r/(?:^|;)\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:PROCEDURE|FUNCTION)\b[^;]*\bAS\s*\z/i,
-      code
-    )
-  end
-
-  defp dynamic_execute_literal_prefix?(expression) do
-    expression = expression |> String.trim() |> strip_sql_string_literal_prefix()
-
-    direct_literal? = Regex.match?(~r/\A(?:\(\s*)*\z/, expression)
-
-    format_template? =
-      Regex.match?(
-        ~r/\A(?:\(\s*)*(?:pg_catalog\.)?format\s*\(\s*\z/i,
-        expression
-      )
-
-    concatenated_fragment? =
-      String.ends_with?(expression, "||") and
-        expression
-        |> binary_part(0, byte_size(expression) - 2)
-        |> dynamic_execute_concat_literal_context?()
-
-    direct_literal? or format_template? or concatenated_fragment?
-  end
-
-  defp sql_single_quote_mode(code) do
-    code = code |> Enum.reverse() |> IO.iodata_to_binary()
-
-    if Regex.match?(~r/(?<![A-Za-z0-9_$])E\z/i, code), do: :escape, else: :standard
-  end
-
-  defp strip_sql_string_literal_prefix(expression) do
-    Regex.replace(~r/(?<![A-Za-z0-9_$])(?:E|N|U&)\z/i, expression, "")
-  end
-
-  defp dynamic_execute_concat_literal_context?(expression) do
-    expression
-    |> dynamic_execute_open_frames([], "", false)
-    |> Enum.all?(fn
-      :group -> true
-      {:format, 0} -> true
-      _function_or_format_argument -> false
-    end)
-  end
-
-  defp dynamic_execute_open_frames(<<>>, frames, _identifier, _separated?), do: frames
-
-  defp dynamic_execute_open_frames(<<codepoint, rest::binary>>, frames, identifier, separated?)
-       when codepoint in ?a..?z or codepoint in ?A..?Z or codepoint in ?0..?9 or
-              codepoint in [?_, ?$, ?.] do
-    next = <<codepoint>>
-    identifier = if separated? and identifier != "", do: next, else: identifier <> next
-    dynamic_execute_open_frames(rest, frames, identifier, false)
-  end
-
-  defp dynamic_execute_open_frames(<<codepoint, rest::binary>>, frames, identifier, _separated?)
-       when codepoint in [32, ?\t, ?\n, ?\r] do
-    dynamic_execute_open_frames(rest, frames, identifier, true)
-  end
-
-  defp dynamic_execute_open_frames(<<"(", rest::binary>>, frames, identifier, _separated?) do
-    frame =
-      case String.downcase(identifier) do
-        "" ->
-          :group
-
-        "format" ->
-          {:format, 0}
-
-        identifier ->
-          if String.ends_with?(identifier, ".format"), do: {:format, 0}, else: :function
-      end
-
-    dynamic_execute_open_frames(rest, [frame | frames], "", false)
-  end
-
-  defp dynamic_execute_open_frames(
-         <<")", rest::binary>>,
-         [_frame | frames],
-         _identifier,
-         _separated?
-       ),
-       do: dynamic_execute_open_frames(rest, frames, "", false)
-
-  defp dynamic_execute_open_frames(<<")", rest::binary>>, [], _identifier, _separated?),
-    do: dynamic_execute_open_frames(rest, [], "", false)
-
-  defp dynamic_execute_open_frames(<<",", rest::binary>>, frames, _identifier, _separated?) do
-    frames =
-      case frames do
-        [{:format, argument_index} | outer_frames] ->
-          [{:format, argument_index + 1} | outer_frames]
-
-        frames ->
-          frames
-      end
-
-    dynamic_execute_open_frames(rest, frames, "", false)
-  end
-
-  defp dynamic_execute_open_frames(
-         <<_codepoint, rest::binary>>,
-         frames,
-         _identifier,
-         _separated?
-       ),
-       do: dynamic_execute_open_frames(rest, frames, "", false)
-
-  defp migration_entrypoint(functions, key) do
-    public_definitions =
-      functions
-      |> Map.get(key, [])
-      |> Enum.filter(&(&1.kind == :function and &1.visibility == :public))
-
-    definitions = matching_definitions(public_definitions, [])
-
-    case {public_definitions, definitions} do
-      {[], []} ->
-        nil
-
-      {[_definition | _remaining], []} ->
-        {name, arity} = key
-
-        raise ArgumentError,
-              "no statically matching guarded migration entrypoint #{name}/#{arity}; " <>
-                "use a matching unconditional clause"
-
-      {_public_definitions, definitions} ->
-        if Enum.any?(definitions, &(guards_match(&1.guards, %{}) == :unknown)) do
-          {name, arity} = key
-
-          raise ArgumentError,
-                "cannot statically verify guarded migration entrypoint #{name}/#{arity}; " <>
-                  "use a statically decidable guard or a single unconditional entrypoint"
-        end
-
-        definitions
-    end
-  end
-
-  defp migration_functions(ast) do
-    expressions = ast |> migration_module_body() |> module_expressions()
-    local_function_keys = migration_local_function_keys(expressions)
-
-    {functions, _attributes, _aliases, _bindings} =
-      Enum.reduce(expressions, {%{}, %{}, %{}, %{}}, fn
-        {:alias, _metadata, arguments}, {functions, attributes, aliases, bindings} ->
-          {functions, attributes, put_module_aliases(aliases, arguments), bindings}
-
-        {:@, _metadata, [{name, _name_metadata, [value]}]},
-        {functions, attributes, aliases, bindings}
-        when is_atom(name) ->
-          {value, bindings} =
-            value
-            |> resolve_module_attributes(attributes)
-            |> resolve_local_bindings(bindings)
-
-          attributes = Map.put(attributes, name, value)
-          {functions, attributes, aliases, bindings}
-
-        {:=, _metadata, [_pattern, _value]} = assignment,
-        {functions, attributes, aliases, bindings} ->
-          {_resolved_value, bindings} =
-            assignment
-            |> resolve_module_attributes(attributes)
-            |> resolve_local_bindings(bindings)
-
-          {functions, attributes, aliases, bindings}
-
-        {kind, _meta, [head, body_options]}, {functions, attributes, aliases, bindings}
-        when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
-          head = resolve_module_attributes(head, attributes)
-
-          case {local_function_head(head), Keyword.fetch(body_options, :do)} do
-            {{key, parameters, guards}, {:ok, body}} ->
-              functions =
-                key
-                |> local_function_definitions(
-                  kind,
-                  parameters,
-                  guards,
-                  body
-                  |> resolve_module_attributes(attributes)
-                  |> normalize_migration_calls(aliases, local_function_keys)
-                  |> normalize_resolved_migration_function_calls(
-                    kind,
-                    aliases,
-                    local_function_keys
+          case PostgresDump.identifier_after(statement, "ALTER SEQUENCE ") do
+            {identity, rest} ->
+              case PostgresDump.identifier_after_keyword(rest, " OWNED BY ") do
+                {owner, _rest} ->
+                  Map.update(
+                    definitions,
+                    identity,
+                    sequence_definition("", owner),
+                    &put_sequence_owner(&1, owner)
                   )
-                )
-                |> Enum.reduce(functions, fn definition, functions ->
-                  Map.update(functions, definition.key, [definition], fn definitions ->
-                    [definition | definitions]
-                  end)
-                end)
 
-              {functions, attributes, aliases, bindings}
+                nil ->
+                  definitions
+              end
 
-            _not_a_function_definition ->
-              {functions, attributes, aliases, bindings}
+            nil ->
+              definitions
           end
-
-        _module_expression, accumulator ->
-          accumulator
-      end)
-
-    Map.new(functions, fn {key, definitions} -> {key, Enum.reverse(definitions)} end)
+      end
+    end)
   end
 
-  defp normalize_resolved_migration_function_calls(
-         body,
-         kind,
-         aliases,
-         local_function_keys
-       )
-       when kind in [:def, :defp] do
-    body
-    |> resolve_local_bindings()
-    |> normalize_migration_calls(aliases, local_function_keys)
+  defp sequence_definition(options, owner) do
+    options = PostgresDump.normalize_definition(options)
+
+    %{
+      type: sequence_option(options, ~r/\bAS (?<value>[^ ]+)/, "bigint"),
+      start: sequence_option(options, ~r/\bSTART WITH (?<value>-?\d+)/, "1"),
+      increment: sequence_option(options, ~r/\bINCREMENT BY (?<value>-?\d+)/, "1"),
+      minimum: sequence_bound(options, "MINVALUE"),
+      maximum: sequence_bound(options, "MAXVALUE"),
+      cache: sequence_option(options, ~r/\bCACHE (?<value>\d+)/, "1"),
+      cycle: not String.contains?(options, "NO CYCLE") and Regex.match?(~r/\bCYCLE\b/, options),
+      owner: owner
+    }
+    |> format_sequence_definition()
   end
 
-  defp normalize_resolved_migration_function_calls(
-         body,
-         _kind,
-         _aliases,
-         _local_function_keys
-       ),
-       do: body
-
-  defp migration_module_body(ast) do
-    case migration_module_candidates(ast) do
-      [{_module, body}] ->
-        body
-
-      [] ->
-        reject_unrecognized_migration_module!(ast)
-
-      candidates ->
-        modules = candidates |> Enum.map(&elem(&1, 0)) |> Enum.intersperse(", ")
-
-        raise ArgumentError,
-              IO.iodata_to_binary([
-                "cannot statically verify migration file: expected exactly one recognized migration module, found ",
-                modules
-              ])
+  defp sequence_option(options, regex, default) do
+    case Regex.named_captures(regex, options) do
+      %{"value" => value} -> value
+      nil -> default
     end
   end
 
-  defp migration_module_candidates({:__block__, _metadata, expressions}) do
-    Enum.flat_map(expressions, &migration_module_candidates/1)
-  end
+  defp sequence_bound(options, name) do
+    cond do
+      String.contains?(options, "NO #{name}") ->
+        "NO #{name}"
 
-  defp migration_module_candidates({:defmodule, _metadata, [module, [do: body]]}) do
-    candidates = migration_module_candidates(body)
+      captures = Regex.named_captures(~r/\b#{name} (?<value>-?\d+)/, options) ->
+        "#{name} #{captures["value"]}"
 
-    if uses_ecto_migration?(body) do
-      module = module_name(module) || Macro.to_string(module)
-      [{module, body} | candidates]
-    else
-      candidates
+      true ->
+        "NO #{name}"
     end
   end
 
-  defp migration_module_candidates(_ast), do: []
+  defp format_sequence_definition(config) when is_map(config) do
+    [
+      "AS #{config.type}",
+      "START WITH #{config.start}",
+      "INCREMENT BY #{config.increment}",
+      config.minimum,
+      config.maximum,
+      "CACHE #{config.cache}",
+      if(config.cycle, do: "CYCLE", else: "NO CYCLE"),
+      if(config.owner, do: "OWNED BY #{config.owner}")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
 
-  defp reject_unrecognized_migration_module!(ast) do
-    case unrecognized_migration_module(ast) do
+  defp put_sequence_owner(definition, owner), do: "#{definition} OWNED BY #{owner}"
+
+  defp terminal_object_identity(statement, views, materialized_views) do
+    materialized_view_index = materialized_view_index_identity(statement, materialized_views)
+    view_column_default = view_column_default_identity(statement, views, materialized_views)
+    enum = enum_definition(statement)
+
+    cond do
+      identity = prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") ->
+        {"materialized view", identity}
+
+      materialized_view_index ->
+        {"materialized view index", materialized_view_index}
+
+      identity = prefixed_identity(statement, "CREATE VIEW ") ->
+        {"view", identity}
+
+      view_column_default ->
+        view_column_default
+
+      enum ->
+        {identity, _definition} = enum
+        {"enum", identity}
+
+      identity = routine_identity(statement) ->
+        {"routine", identity}
+
+      event_trigger = prefixed_identity(statement, "CREATE EVENT TRIGGER ") ->
+        {"trigger", normalize_event_trigger(event_trigger)}
+
+      trigger = trigger_identity(statement) ->
+        {"trigger", trigger}
+
+      trigger_state = trigger_state_identity(statement) ->
+        {"trigger", trigger_state}
+
+      policy = policy_identity(statement) ->
+        {"RLS policy", policy}
+
+      rls_state = rls_state_identity(statement) ->
+        {"RLS state", rls_state}
+
+      extension = prefixed_identity(statement, "CREATE EXTENSION IF NOT EXISTS ") ->
+        {"extension", extension}
+
+      grant = grant_identity(statement) ->
+        {"grant", grant}
+
+      true ->
+        nil
+    end
+  end
+
+  defp view_column_default_identity(statement, views, materialized_views) do
+    case alter_column_default_relation(statement) do
       nil ->
         nil
 
-      {module, []} ->
-        raise ArgumentError,
-              "cannot statically verify migration module #{module}: " <>
-                "expected use Ecto.Migration directly or through an explicit alias"
-
-      {module, use_targets} ->
-        raise ArgumentError,
-              IO.iodata_to_binary([
-                "cannot statically verify migration module ",
-                module,
-                ": unrecognized migration use target(s) ",
-                Enum.intersperse(use_targets, ", "),
-                "; wrapper macros must not hide migration ownership operations"
-              ])
+      relation ->
+        cond do
+          MapSet.member?(views, relation) -> {"view", relation}
+          MapSet.member?(materialized_views, relation) -> {"materialized view", relation}
+          true -> nil
+        end
     end
   end
 
-  defp unrecognized_migration_module({:__block__, _metadata, expressions}) do
-    Enum.find_value(expressions, &unrecognized_migration_module/1)
+  defp alter_column_default_relation(statement) do
+    [
+      "ALTER MATERIALIZED VIEW ONLY ",
+      "ALTER MATERIALIZED VIEW ",
+      "ALTER VIEW ONLY ",
+      "ALTER VIEW ",
+      "ALTER TABLE ONLY ",
+      "ALTER TABLE "
+    ]
+    |> Enum.find_value(fn prefix ->
+      with {relation, rest} <- PostgresDump.identifier_after(statement, prefix),
+           {_column, default} <- alter_column_default(rest),
+           true <- String.starts_with?(String.trim_leading(default), "SET DEFAULT ") do
+        relation
+      else
+        _not_default -> nil
+      end
+    end)
   end
 
-  defp unrecognized_migration_module({:defmodule, _metadata, [module, [do: body]]}) do
-    if migration_entrypoint_module?(body) do
-      {module_name(module) || Macro.to_string(module), migration_use_targets(body)}
-    else
-      unrecognized_migration_module(body)
-    end
+  defp alter_column_default(rest) do
+    rest = String.trim_leading(rest)
+
+    PostgresDump.identifier_after(rest, "ALTER COLUMN ") ||
+      PostgresDump.identifier_after(rest, "ALTER ")
   end
 
-  defp unrecognized_migration_module(_ast), do: nil
+  defp fingerprint_statement(statement) do
+    "sha256:" <>
+      Base.encode16(:crypto.hash(:sha256, String.trim(statement)), case: :lower)
+  end
 
-  defp migration_entrypoint_module?(body) do
-    body
-    |> module_expressions()
-    |> Enum.any?(fn
-      {:def, _metadata, [head, body_options]} when is_list(body_options) ->
-        case local_function_head(head) do
-          {key, parameters, guards} ->
-            key
-            |> local_function_definitions(:def, parameters, guards, nil)
-            |> Enum.any?(&(&1.key in [{:up, 0}, {:change, 0}]))
+  defp routine_identity(statement) do
+    statement = String.trim(statement)
 
-          nil ->
-            false
+    result =
+      Enum.find_value(
+        [
+          "CREATE FUNCTION ",
+          "CREATE OR REPLACE FUNCTION ",
+          "CREATE PROCEDURE ",
+          "CREATE OR REPLACE PROCEDURE "
+        ],
+        &PostgresDump.identifier_after(statement, &1)
+      )
+
+    case result do
+      {name, rest} ->
+        case PostgresDump.take_parenthesized(rest) do
+          {arguments, _rest} -> "#{name}(#{PostgresDump.normalize_definition(arguments)})"
+          nil -> nil
         end
 
-      _module_expression ->
-        false
-    end)
-  end
-
-  defp migration_use_targets(body) do
-    {targets, _aliases} =
-      body
-      |> module_expressions()
-      |> Enum.reduce({[], %{}}, fn
-        {:alias, _metadata, arguments}, {targets, aliases} ->
-          {targets, put_module_aliases(aliases, arguments)}
-
-        {:use, _metadata, [target | _options]}, {targets, aliases} ->
-          target = resolve_module_name(target, aliases) || Macro.to_string(target)
-          {[target | targets], aliases}
-
-        _module_expression, accumulator ->
-          accumulator
-      end)
-
-    targets |> Enum.reverse() |> Enum.uniq()
-  end
-
-  defp uses_ecto_migration?(body) do
-    body
-    |> module_expressions()
-    |> Enum.reduce_while(%{}, fn
-      {:alias, _metadata, arguments}, aliases ->
-        {:cont, put_module_aliases(aliases, arguments)}
-
-      {:use, _metadata, [target | _options]}, aliases ->
-        if resolve_module_name(target, aliases) == "Ecto.Migration",
-          do: {:halt, true},
-          else: {:cont, aliases}
-
-      _module_expression, aliases ->
-        {:cont, aliases}
-    end)
-    |> Kernel.==(true)
-  end
-
-  defp module_expressions({:__block__, _metadata, expressions}), do: expressions
-  defp module_expressions(nil), do: []
-  defp module_expressions(expression), do: [expression]
-
-  defp migration_local_function_keys(expressions) do
-    Enum.reduce(expressions, %{all: MapSet.new(), exported: MapSet.new()}, fn
-      {kind, _metadata, [head, body_options]}, keys
-      when kind in [:def, :defp, :defmacro, :defmacrop] and is_list(body_options) ->
-        case local_function_head(head) do
-          {key, parameters, guards} ->
-            key
-            |> local_function_definitions(kind, parameters, guards, nil)
-            |> Enum.reduce(keys, fn definition, keys ->
-              keys = %{keys | all: MapSet.put(keys.all, definition.key)}
-
-              if definition.kind == :function and definition.visibility == :public do
-                %{keys | exported: MapSet.put(keys.exported, definition.key)}
-              else
-                keys
-              end
-            end)
-
-          nil ->
-            keys
-        end
-
-      _expression, keys ->
-        keys
-    end)
-  end
-
-  defp normalize_migration_calls(
-         {:__block__, metadata, expressions},
-         aliases,
-         local_function_keys
-       ) do
-    {expressions, _aliases} =
-      Enum.map_reduce(expressions, aliases, fn expression, aliases ->
-        normalized = normalize_migration_calls(expression, aliases, local_function_keys)
-
-        aliases =
-          case expression do
-            {:alias, _metadata, arguments} -> put_module_aliases(aliases, arguments)
-            _expression -> aliases
-          end
-
-        {normalized, aliases}
-      end)
-
-    {:__block__, metadata, expressions}
-  end
-
-  defp normalize_migration_calls(
-         {:|>, _metadata, _arguments} = pipeline,
-         aliases,
-         local_function_keys
-       ) do
-    pipeline
-    |> expand_pipeline()
-    |> normalize_migration_calls(aliases, local_function_keys)
-  end
-
-  defp normalize_migration_calls(
-         {:import, metadata, [target | options]},
-         aliases,
-         local_function_keys
-       ) do
-    target = resolve_module_name(target, aliases) || target
-
-    options =
-      Enum.map(options, &normalize_migration_calls(&1, aliases, local_function_keys))
-
-    {:import, metadata, [target | options]}
-  end
-
-  defp normalize_migration_calls(
-         {:apply, metadata, [receiver, operation, arguments]},
-         aliases,
-         local_function_keys
-       ) do
-    arguments = normalize_migration_calls(arguments, aliases, local_function_keys)
-    fallback = {:apply, metadata, [receiver, operation, arguments]}
-
-    if migration_local_function_defined?(local_function_keys, {:apply, 3}) do
-      fallback
-    else
-      normalize_static_migration_apply(
-        receiver,
-        operation,
-        arguments,
-        metadata,
-        fallback,
-        aliases,
-        local_function_keys
-      )
+      nil ->
+        nil
     end
   end
 
-  defp normalize_migration_calls(
-         {{:., dot_metadata, [apply_receiver, :apply]}, metadata,
-          [receiver, operation, arguments]},
-         aliases,
-         local_function_keys
-       ) do
-    arguments = normalize_migration_calls(arguments, aliases, local_function_keys)
+  defp grant_identity(statement) do
+    statement = String.trim(statement)
 
-    fallback =
-      {{:., dot_metadata, [apply_receiver, :apply]}, metadata, [receiver, operation, arguments]}
-
-    if migration_apply_receiver?(apply_receiver, aliases) do
-      normalize_static_migration_apply(
-        receiver,
-        operation,
-        arguments,
-        metadata,
-        fallback,
-        aliases,
-        local_function_keys
-      )
-    else
-      fallback
-    end
-  end
-
-  defp normalize_migration_calls(
-         {{:., dot_metadata, [receiver, operation]}, metadata, arguments} = node,
-         aliases,
-         local_function_keys
-       )
-       when is_atom(operation) and is_list(arguments) do
-    arguments =
-      Enum.map(arguments, &normalize_migration_calls(&1, aliases, local_function_keys))
-
-    case resolve_module_name(receiver, aliases) do
-      "Ecto.Migration" ->
-        {operation, metadata, arguments}
-
-      receiver when is_binary(receiver) ->
-        {{:., dot_metadata, [receiver, operation]}, metadata, arguments}
-
-      _unresolved_receiver ->
-        put_elem(node, 2, arguments)
-    end
-  end
-
-  defp normalize_migration_calls(nodes, aliases, local_function_keys) when is_list(nodes),
-    do: Enum.map(nodes, &normalize_migration_calls(&1, aliases, local_function_keys))
-
-  defp normalize_migration_calls(node, aliases, local_function_keys) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> Enum.map(&normalize_migration_calls(&1, aliases, local_function_keys))
-    |> List.to_tuple()
-  end
-
-  defp normalize_migration_calls(node, _aliases, _local_function_keys), do: node
-
-  defp normalize_static_migration_apply(
-         receiver,
-         operation,
-         arguments,
-         metadata,
-         fallback,
-         aliases,
-         local_function_keys
-       )
-       when is_atom(operation) and is_list(arguments) do
     cond do
-      resolve_module_name(receiver, aliases) == "Ecto.Migration" ->
-        {operation, metadata, arguments}
+      String.starts_with?(statement, "ALTER DEFAULT PRIVILEGES ") and
+          Regex.match?(~r/\s(?:GRANT|REVOKE)\s/s, statement) ->
+        normalize_definition(statement)
 
-      migration_local_module_receiver?(receiver) and
-          migration_exported_function_defined?(
-            local_function_keys,
-            {operation, length(arguments)}
-          ) ->
-        {operation, metadata, arguments}
+      String.starts_with?(statement, "GRANT ") ->
+        parse_grant_identity(statement)
+
+      Regex.match?(~r/^REVOKE .+;$/s, statement) ->
+        normalize_definition(statement)
 
       true ->
-        fallback
+        nil
     end
   end
 
-  defp normalize_static_migration_apply(
-         _receiver,
-         _operation,
-         _arguments,
-         _metadata,
-         fallback,
-         _aliases,
-         _local_function_keys
-       ),
-       do: fallback
+  defp parse_grant_identity(statement) do
+    body = statement |> String.trim_leading("GRANT ") |> String.trim_trailing(";")
 
-  defp migration_local_module_receiver?({:__MODULE__, _metadata, _context}), do: true
-  defp migration_local_module_receiver?(_receiver), do: false
+    with {privileges, target_and_grantees} <-
+           PostgresDump.split_once_outside_quotes(body, " ON "),
+         {target, grantees} <-
+           PostgresDump.split_once_outside_quotes(target_and_grantees, " TO "),
+         {object_type, identity} <- split_grant_target(target) do
+      "#{normalize_definition(privileges)} ON #{object_type} #{normalize_grant_target(object_type, identity)} TO #{normalize_definition(grantees)}"
+    else
+      _unrecognized -> normalize_definition(statement)
+    end
+  end
 
-  defp migration_local_function_defined?(local_function_keys, key),
-    do: MapSet.member?(local_function_keys.all, key)
+  defp split_grant_target(target) do
+    Enum.find_value(@grant_object_types, fn object_type ->
+      prefix = object_type <> " "
 
-  defp migration_exported_function_defined?(local_function_keys, key),
-    do: MapSet.member?(local_function_keys.exported, key)
-
-  defp migration_apply_receiver?(:erlang, _aliases), do: true
-
-  defp migration_apply_receiver?(receiver, aliases),
-    do: resolve_module_name(receiver, aliases) == "Kernel"
-
-  defp expand_pipeline(pipeline) do
-    [{first, _position} | rest] = Macro.unpipe(pipeline)
-
-    Enum.reduce(rest, first, fn {call, position}, piped ->
-      Macro.pipe(piped, call, position)
+      if String.starts_with?(target, prefix) do
+        identity = binary_part(target, byte_size(prefix), byte_size(target) - byte_size(prefix))
+        {object_type, identity}
+      end
     end)
   end
 
-  defp put_module_aliases(aliases, [target]),
-    do: apply_module_aliases(aliases, target, [])
+  defp normalize_grant_target(object_type, identity)
+       when object_type in ["FUNCTION", "PROCEDURE", "ROUTINE"] do
+    with {name, rest} <- PostgresDump.take_identifier(identity),
+         {arguments, trailing} <- PostgresDump.take_parenthesized(rest),
+         true <- String.trim(trailing) == "" do
+      "#{name}(#{normalize_definition(arguments)})"
+    else
+      _unrecognized -> normalize_definition(identity)
+    end
+  end
 
-  defp put_module_aliases(aliases, [target, options]) when is_list(options),
-    do: apply_module_aliases(aliases, target, options)
+  defp normalize_grant_target(_object_type, identity) do
+    case PostgresDump.take_identifier(identity) do
+      {name, trailing} ->
+        if String.trim(trailing) == "", do: name, else: normalize_definition(identity)
 
-  defp put_module_aliases(aliases, _arguments), do: aliases
+      nil ->
+        normalize_definition(identity)
+    end
+  end
 
-  defp apply_module_aliases(aliases, target, options) do
-    target
-    |> module_alias_target_names()
-    |> Enum.reduce(aliases, fn target_name, aliases ->
-      resolved_target = resolve_module_name(target_name, aliases)
+  defp sql_statements(dump), do: PostgresDump.split_statements(dump)
 
-      alias_name =
-        case Keyword.get(options, :as) do
-          nil -> target_name |> String.split(".") |> List.last()
-          explicit_alias -> module_name(explicit_alias)
+  defp dump_terminal_inventory! do
+    config = OfficeGraph.Repo.config()
+
+    args = [
+      "--schema-only",
+      "--no-owner",
+      "--host",
+      to_string(Keyword.fetch!(config, :hostname)),
+      "--port",
+      to_string(Keyword.fetch!(config, :port)),
+      "--username",
+      to_string(Keyword.fetch!(config, :username)),
+      "--dbname",
+      to_string(Keyword.fetch!(config, :database))
+    ]
+
+    env =
+      case Keyword.get(config, :password) do
+        nil -> []
+        password -> [{"PGPASSWORD", to_string(password)}]
+      end
+
+    case System.find_executable("pg_dump") do
+      nil ->
+        dump_with_docker_or_raise!(config, "pg_dump is not available on PATH", :unavailable)
+
+      _executable ->
+        case System.cmd("pg_dump", args, env: env, stderr_to_stdout: true) do
+          {dump, 0} -> parse_dump(dump)
+          {output, status} -> dump_with_docker_or_raise!(config, output, status)
+        end
+    end
+  end
+
+  defp dump_with_docker_or_raise!(config, local_output, local_status) do
+    with true <- docker_fallback_allowed?(Keyword.get(config, :hostname)),
+         {:ok, container} <- compose_postgres_container(),
+         {:ok, dump} <- docker_pg_dump(container, config) do
+      parse_dump(dump)
+    else
+      false ->
+        raise "pg_dump failed with status #{local_status}; Docker fallback is limited to loopback database hosts:\n#{local_output}"
+
+      {:error, reason} ->
+        raise "pg_dump failed with status #{local_status} and Docker fallback failed (#{reason}):\n#{local_output}"
+    end
+  end
+
+  @doc false
+  def docker_fallback_allowed?(hostname), do: hostname in ["localhost", "127.0.0.1", "::1"]
+
+  defp compose_postgres_container do
+    case System.cmd("docker", ["compose", "ps", "-q", "postgres"], stderr_to_stdout: true) do
+      {output, 0} ->
+        case String.split(output, "\n", trim: true) do
+          [container] -> {:ok, container}
+          [] -> {:error, "the current Compose project has no running postgres service"}
+          _containers -> {:error, "the current Compose project has multiple postgres containers"}
         end
 
-      if is_binary(alias_name) and is_binary(resolved_target),
-        do: Map.put(aliases, alias_name, resolved_target),
-        else: aliases
+      {output, status} ->
+        {:error, "docker compose ps failed with status #{status}: #{String.trim(output)}"}
+    end
+  end
+
+  defp docker_pg_dump(container, config) do
+    case System.cmd(
+           "docker",
+           [
+             "exec",
+             "-e",
+             "PGPASSWORD=#{Keyword.get(config, :password)}",
+             container,
+             "pg_dump",
+             "--schema-only",
+             "--no-owner",
+             "--username",
+             to_string(Keyword.fetch!(config, :username)),
+             "--dbname",
+             to_string(Keyword.fetch!(config, :database))
+           ],
+           stderr_to_stdout: true
+         ) do
+      {dump, 0} ->
+        {:ok, dump}
+
+      {output, status} ->
+        {:error, "docker pg_dump failed with status #{status}: #{String.trim(output)}"}
+    end
+  end
+
+  defp relation_header(line) do
+    Enum.find_value(
+      [
+        {"CREATE TABLE ", :regular},
+        {"CREATE UNLOGGED TABLE ", :unlogged},
+        {"CREATE FOREIGN TABLE ", :foreign}
+      ],
+      fn {prefix, kind} ->
+        case PostgresDump.identifier_after(line, prefix) do
+          {identity, rest} -> if String.trim_leading(rest) == "(", do: {identity, kind}
+          nil -> nil
+        end
+      end
+    )
+  end
+
+  defp alter_table_header(line) do
+    case PostgresDump.identifier_after(line, "ALTER TABLE ONLY ") do
+      {identity, rest} -> if String.trim(rest) == "", do: identity
+      nil -> nil
+    end
+  end
+
+  defp constraint_parts(line) do
+    with {table, rest} <- PostgresDump.identifier_after(line, "ALTER TABLE ONLY "),
+         {name, definition} <- PostgresDump.identifier_after(rest, "ADD CONSTRAINT ") do
+      {table, name, definition}
+    else
+      _not_constraint -> nil
+    end
+  end
+
+  defp partition_attachment(line) do
+    with {parent, rest} <- PostgresDump.identifier_after(line, "ALTER TABLE ONLY "),
+         {child, _rest} <- PostgresDump.identifier_after(rest, "ATTACH PARTITION ") do
+      {parent, child}
+    else
+      _not_partition_attachment -> nil
+    end
+  end
+
+  defp prefixed_identity(statement, prefix) do
+    case PostgresDump.identifier_after(statement, prefix) do
+      {identity, _rest} -> identity
+      nil -> nil
+    end
+  end
+
+  defp trigger_identity(statement) do
+    trigger =
+      PostgresDump.identifier_after(statement, "CREATE TRIGGER ") ||
+        PostgresDump.identifier_after(statement, "CREATE CONSTRAINT TRIGGER ")
+
+    with {name, rest} <- trigger,
+         {table, _rest} <- PostgresDump.identifier_after_keyword(rest, " ON ") do
+      "#{name} ON #{table}"
+    else
+      _not_trigger -> nil
+    end
+  end
+
+  defp policy_identity(statement) do
+    with {name, rest} <- PostgresDump.identifier_after(statement, "CREATE POLICY "),
+         {table, _rest} <- PostgresDump.identifier_after_keyword(rest, " ON ") do
+      "#{name} ON #{table}"
+    else
+      _not_policy -> nil
+    end
+  end
+
+  defp parse_dump_line(line, {inventory, current_table}) do
+    cond do
+      relation = relation_header(line) ->
+        {table, kind} = relation
+
+        inventory =
+          inventory
+          |> Map.update!(:tables, &MapSet.put(&1, table))
+          |> Map.update!(:relations, &Map.put(&1, table, kind))
+
+        {inventory, {:create_table, table}}
+
+      match?({:create_table, _table}, current_table) &&
+          String.starts_with?(String.trim_leading(line), ")") ->
+        {:create_table, table} = current_table
+
+        inventory =
+          if Regex.match?(~r/^\)\s+PARTITION BY(?:\s|$)/i, String.trim_leading(line)) do
+            Map.update!(inventory, :relations, &Map.put(&1, table, :partitioned))
+          else
+            inventory
+          end
+
+        {inventory, nil}
+
+      match?({:create_table, _table}, current_table) ->
+        {:create_table, table} = current_table
+        {parse_table_column(line, table, inventory), current_table}
+
+      alter_default = parse_alter_column_default(line) ->
+        {put_column_default(inventory, alter_default), current_table}
+
+      partition = partition_attachment(line) ->
+        {parent, child} = partition
+
+        inventory =
+          inventory
+          |> Map.update!(:tables, &(&1 |> MapSet.put(parent) |> MapSet.put(child)))
+          |> Map.update!(
+            :relations,
+            &(&1 |> Map.put(parent, :partitioned) |> Map.put(child, :partition))
+          )
+
+        {inventory, current_table}
+
+      constraint_table = alter_table_header(line) ->
+        {inventory, {:alter_table, constraint_table}}
+
+      match?({:alter_table, _table}, current_table) ->
+        {:alter_table, table} = current_table
+        {parse_alter_table_line(line, table, inventory), nil}
+
+      sequence = prefixed_identity(line, "CREATE SEQUENCE ") ->
+        {Map.update!(inventory, :sequences, &MapSet.put(&1, sequence)), current_table}
+
+      view = prefixed_identity(line, "CREATE VIEW ") ->
+        {Map.update!(inventory, :views, &MapSet.put(&1, view)), current_table}
+
+      view = prefixed_identity(line, "CREATE MATERIALIZED VIEW ") ->
+        {Map.update!(inventory, :materialized_views, &MapSet.put(&1, view)), current_table}
+
+      routine = routine_identity(line) ->
+        {Map.update!(inventory, :routines, &MapSet.put(&1, routine)), current_table}
+
+      event_trigger = prefixed_identity(line, "CREATE EVENT TRIGGER ") ->
+        {Map.update!(
+           inventory,
+           :triggers,
+           &MapSet.put(&1, normalize_event_trigger(event_trigger))
+         ), current_table}
+
+      trigger = trigger_identity(line) ->
+        {Map.update!(inventory, :triggers, &MapSet.put(&1, trigger)), current_table}
+
+      trigger_state = trigger_state_identity(line) ->
+        {Map.update!(inventory, :triggers, &MapSet.put(&1, trigger_state)), current_table}
+
+      policy = policy_identity(line) ->
+        {Map.update!(inventory, :policies, &MapSet.put(&1, policy)), current_table}
+
+      rls_state = rls_state_identity(line) ->
+        {Map.update!(inventory, :rls_states, &MapSet.put(&1, rls_state)), current_table}
+
+      extension = prefixed_identity(line, "CREATE EXTENSION IF NOT EXISTS ") ->
+        {Map.update!(inventory, :extensions, &MapSet.put(&1, extension)), current_table}
+
+      grant = grant_identity(line) ->
+        {Map.update!(inventory, :grants, &MapSet.put(&1, grant)), current_table}
+
+      index = parse_index(line) ->
+        {Map.update!(inventory, :indexes, &MapSet.put(&1, index)), current_table}
+
+      constraint = constraint_parts(line) ->
+        {parse_constraint(constraint, inventory), current_table}
+
+      true ->
+        {inventory, current_table}
+    end
+  end
+
+  defp parse_alter_table_line(line, table, inventory) do
+    case PostgresDump.identifier_after(String.trim_leading(line), "ADD CONSTRAINT ") do
+      {name, definition} ->
+        parse_constraint(table, name, definition, inventory)
+
+      nil ->
+        inventory
+    end
+  end
+
+  defp parse_alter_column_default(line) do
+    with {table, rest} <- PostgresDump.identifier_after(line, "ALTER TABLE ONLY "),
+         {column, default} <- PostgresDump.identifier_after(rest, "ALTER COLUMN "),
+         default <- String.trim_leading(default),
+         true <- String.starts_with?(default, "SET DEFAULT ") do
+      default = String.replace_prefix(default, "SET DEFAULT ", "")
+      {table, column, normalize_definition(default)}
+    else
+      _not_default -> nil
+    end
+  end
+
+  defp put_column_default(inventory, {table, column, default}) do
+    Map.update!(inventory, :columns, fn columns ->
+      case Enum.find(columns, fn
+             {^table, ^column, _definition} -> true
+             _column -> false
+           end) do
+        {^table, ^column, definition} = existing ->
+          columns
+          |> MapSet.delete(existing)
+          |> MapSet.put({table, column, insert_column_default(definition, default)})
+
+        nil ->
+          MapSet.put(columns, {table, column, "DEFAULT #{default}"})
+      end
     end)
   end
 
-  defp module_alias_target_names({{:., _dot_metadata, [prefix, :{}]}, _metadata, suffixes})
-       when is_list(suffixes) do
-    case module_name(prefix) do
-      nil ->
-        []
-
-      prefix_name ->
-        Enum.flat_map(suffixes, fn suffix ->
-          case module_name(suffix) do
-            nil -> []
-            suffix_name -> ["#{prefix_name}.#{suffix_name}"]
-          end
-        end)
-    end
-  end
-
-  defp module_alias_target_names(target) do
-    case module_name(target) do
-      nil -> []
-      target_name -> [target_name]
-    end
-  end
-
-  defp resolve_module_name(target, aliases) when is_binary(target) do
-    case String.split(target, ".", parts: 2) do
-      [alias_name] -> Map.get(aliases, alias_name, target)
-      [alias_name, rest] -> "#{Map.get(aliases, alias_name, alias_name)}.#{rest}"
-    end
-  end
-
-  defp resolve_module_name(target, aliases) do
-    case module_name(target) do
-      nil -> nil
-      target_name -> resolve_module_name(target_name, aliases)
-    end
-  end
-
-  defp module_name({:__aliases__, _metadata, parts}) do
-    if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, ".")
-  end
-
-  defp module_name(_target), do: nil
-
-  defp resolve_module_attributes(node, attributes),
-    do: resolve_module_attributes(node, attributes, [])
-
-  defp resolve_module_attributes(
-         {:@, _metadata, [{name, _name_metadata, nil}]} = reference,
-         attributes,
-         resolving
-       )
-       when is_atom(name) do
-    if name in resolving do
-      reference
+  defp insert_column_default(definition, default) do
+    if String.ends_with?(definition, " NOT NULL") do
+      base = String.trim_trailing(definition, " NOT NULL")
+      "#{base} DEFAULT #{default} NOT NULL"
     else
-      case Map.fetch(attributes, name) do
-        {:ok, value} ->
-          resolve_module_attributes(value, attributes, [name | resolving])
+      "#{definition} DEFAULT #{default}"
+    end
+  end
 
-        :error ->
-          reference
+  defp parse_table_column(line, table, inventory) do
+    line = String.trim_leading(line)
+
+    if Regex.match?(~r/^CONSTRAINT(?:\s|$)/i, line) do
+      inventory
+    else
+      case PostgresDump.take_identifier(line) do
+        {name, definition} when definition != "" ->
+          definition = normalize_column_definition(table, name, definition)
+          column = {table, name, definition}
+          Map.update!(inventory, :columns, &MapSet.put(&1, column))
+
+        nil ->
+          inventory
       end
     end
   end
 
-  defp resolve_module_attributes(nodes, attributes, resolving) when is_list(nodes) do
-    Enum.map(nodes, &resolve_module_attributes(&1, attributes, resolving))
+  defp parse_constraint({table, name, definition}, inventory) do
+    parse_constraint(table, name, definition, inventory)
   end
 
-  defp resolve_module_attributes(node, attributes, resolving) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> Enum.map(&resolve_module_attributes(&1, attributes, resolving))
-    |> List.to_tuple()
-  end
+  defp normalize_column_definition(table, column, definition) do
+    definition = normalize_definition(definition)
+    expected_name = generated_not_null_constraint_name(table, column)
 
-  defp resolve_module_attributes(node, _attributes, _resolving), do: node
+    case PostgresDump.split_once_outside_quotes(definition, "CONSTRAINT ") do
+      {prefix, rest} ->
+        normalize_generated_not_null(prefix, rest, expected_name, definition)
 
-  defp local_function_head({:when, _meta, [head | guards]}) do
-    case local_function_head(head) do
-      {key, parameters, []} -> {key, parameters, guards}
-      nil -> nil
+      nil ->
+        definition
     end
   end
 
-  defp local_function_head({name, _meta, parameters})
-       when is_atom(name) and (is_list(parameters) or is_nil(parameters)) do
-    parameters = parameters || []
-    {{name, length(parameters)}, parameters, []}
+  defp normalize_generated_not_null(prefix, rest, expected_name, definition) do
+    expected_name = PostgresDump.configured_identifier(expected_name)
+
+    case PostgresDump.take_identifier(rest) do
+      {^expected_name, <<" NOT NULL", suffix::binary>>} ->
+        if suffix == "" or String.starts_with?(suffix, " ") do
+          prefix <> "NOT NULL" <> suffix
+        else
+          definition
+        end
+
+      _other ->
+        definition
+    end
   end
 
-  defp local_function_head(_head), do: nil
+  defp generated_not_null_constraint_name(table, column) do
+    table = table_name(table)
+    column = PostgresDump.unqualified_identifier_value(column) || to_string(column)
+    label = "not_null"
+    available = 63 - byte_size(label) - 2
 
-  defp local_function_definitions({name, _arity} = key, kind, parameters, guards, body) do
-    {parameters, defaults} = normalize_default_parameters(parameters)
+    {table_size, column_size} =
+      fit_identifier_parts(byte_size(table), byte_size(column), available)
 
-    definition = %{
-      body: body,
-      guards: guards,
-      key: key,
-      kind: definition_kind(kind),
-      parameters: parameters,
-      visibility: definition_visibility(kind)
-    }
+    "#{utf8_byte_prefix(table, table_size)}_#{utf8_byte_prefix(column, column_size)}_#{label}"
+  end
 
-    defaults_by_index = Map.new(defaults)
+  defp fit_identifier_parts(left, right, available) when left + right <= available,
+    do: {left, right}
 
-    wrappers =
-      defaults
-      |> Enum.with_index(1)
-      |> Enum.map(fn {_default, omitted_count} ->
-        omitted_indexes =
-          defaults
-          |> Enum.take(-omitted_count)
-          |> MapSet.new(fn {index, _default} -> index end)
+  defp fit_identifier_parts(left, right, available) when left > right,
+    do: fit_identifier_parts(left - 1, right, available)
 
-        wrapper_parameters =
-          parameters
-          |> Enum.with_index()
-          |> Enum.reject(fn {_parameter, index} -> MapSet.member?(omitted_indexes, index) end)
-          |> Enum.map(&elem(&1, 0))
+  defp fit_identifier_parts(left, right, available),
+    do: fit_identifier_parts(left, right - 1, available)
 
-        call_arguments =
-          parameters
-          |> Enum.with_index()
-          |> Enum.map(fn {parameter, index} ->
-            if MapSet.member?(omitted_indexes, index),
-              do: Map.fetch!(defaults_by_index, index),
-              else: parameter
-          end)
+  defp utf8_byte_prefix(value, limit), do: utf8_byte_prefix(value, limit, [])
 
-        %{
-          body: {name, [], call_arguments},
-          guards: [],
-          key: {name, length(wrapper_parameters)},
-          kind: :function,
-          parameters: wrapper_parameters,
-          visibility: definition.visibility
+  defp utf8_byte_prefix(<<>>, _remaining, output),
+    do: output |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp utf8_byte_prefix(<<character::utf8, rest::binary>>, remaining, output) do
+    codepoint = <<character::utf8>>
+
+    if byte_size(codepoint) <= remaining do
+      utf8_byte_prefix(rest, remaining - byte_size(codepoint), [codepoint | output])
+    else
+      output |> Enum.reverse() |> IO.iodata_to_binary()
+    end
+  end
+
+  defp parse_constraint(table, name, definition, inventory) do
+    definition = normalize_definition(definition)
+
+    inventory = Map.update!(inventory, :constraints, &MapSet.put(&1, {table, name, definition}))
+
+    inventory =
+      if String.starts_with?(definition, "PRIMARY KEY") do
+        Map.update!(inventory, :primary_keys, &MapSet.put(&1, {table, name}))
+      else
+        inventory
+      end
+
+    case foreign_key_definition_parts(definition) do
+      {source_attribute, destination_table, destination_attribute, _suffix} ->
+        foreign_key =
+          {table, normalize_identifier_list(source_attribute), destination_table,
+           normalize_identifier_list(destination_attribute)}
+
+        Map.update!(inventory, :foreign_keys, &MapSet.put(&1, foreign_key))
+
+      nil ->
+        inventory
+    end
+  end
+
+  defp foreign_key_definition_parts("FOREIGN KEY " <> rest) do
+    with {sources, rest} <- PostgresDump.take_parenthesized(rest),
+         {table, rest} <- PostgresDump.identifier_after(rest, "REFERENCES "),
+         {destinations, suffix} <- PostgresDump.take_parenthesized(rest) do
+      {sources, table, destinations, suffix}
+    else
+      _unrecognized -> nil
+    end
+  end
+
+  defp foreign_key_definition_parts(_definition), do: nil
+
+  defp expected_resource_map do
+    :office_graph
+    |> Application.fetch_env!(:ash_domains)
+    |> Enum.flat_map(fn domain ->
+      domain
+      |> Ash.Domain.Info.resources()
+      |> Enum.map(&{domain, &1})
+    end)
+    |> Enum.filter(fn {_domain, resource} -> migration_authoritative?(resource) end)
+    |> Map.new(fn {domain, resource} ->
+      {resource_table_identity(resource), {domain, resource}}
+    end)
+  end
+
+  defp matching_belongs_to?(
+         source,
+         destination,
+         destination_table,
+         source_columns,
+         destination_columns
+       ) do
+    same_arity? = length(source_columns) == length(destination_columns)
+    actual_pairs = Enum.zip(source_columns, destination_columns) |> Enum.sort()
+
+    same_arity? and
+      Enum.any?(Ash.Resource.Info.relationships(source), fn
+        %Ash.Resource.Relationships.BelongsTo{} = relationship ->
+          relationship.destination == destination and
+            relationship_destination_identity(relationship) == destination_table and
+            relationship_column_pairs(source, relationship) == actual_pairs
+
+        _other ->
+          false
+      end)
+  end
+
+  defp relationship_column_pairs(source, relationship) do
+    source_attribute = Ash.Resource.Info.attribute(source, relationship.source_attribute)
+
+    destination_attribute =
+      Ash.Resource.Info.attribute(relationship.destination, relationship.destination_attribute)
+
+    reference = AshPostgres.DataLayer.Info.reference(source, relationship.name)
+    base_pair = {attribute_column(source_attribute), attribute_column(destination_attribute)}
+
+    matched_pairs =
+      ((reference && reference.match_with) || %{})
+      |> Enum.map(fn {source_name, destination_name} ->
+        {
+          source |> Ash.Resource.Info.attribute(source_name) |> attribute_column(),
+          relationship.destination
+          |> Ash.Resource.Info.attribute(destination_name)
+          |> attribute_column()
         }
       end)
 
-    [definition | wrappers]
+    Enum.sort([base_pair | matched_pairs])
   end
 
-  defp normalize_default_parameters(parameters) do
-    parameters
-    |> Stream.with_index()
-    |> Enum.reduce({[], []}, fn
-      {{:\\, _metadata, [parameter, default]}, index}, {parameters, defaults} ->
-        {[parameter | parameters], [{index, default} | defaults]}
-
-      {parameter, _index}, {parameters, defaults} ->
-        {[parameter | parameters], defaults}
-    end)
-    |> then(fn {parameters, defaults} ->
-      {Enum.reverse(parameters), Enum.reverse(defaults)}
-    end)
-  end
-
-  defp expand_local_calls({name, metadata, arguments}, functions, call_stack)
-       when is_atom(name) and is_list(arguments) do
-    key = {name, length(arguments)}
-
-    case Map.get(functions, key) do
-      definitions when is_list(definitions) ->
-        if key in call_stack do
-          {name, metadata, expand_local_calls(arguments, functions, call_stack)}
-        else
-          definitions
-          |> matching_definitions(arguments)
-          |> Enum.map(&expand_definition(&1, functions, [key | call_stack]))
-          |> block()
-        end
-
-      _not_a_reachable_helper ->
-        {name, metadata, expand_local_calls(arguments, functions, call_stack)}
-    end
-  end
-
-  defp expand_local_calls({name, _metadata, nil} = node, functions, call_stack)
-       when is_atom(name) do
-    key = {name, 0}
-
-    case Map.get(functions, key) do
-      definitions when is_list(definitions) ->
-        if key in call_stack do
-          node
-        else
-          definitions
-          |> matching_definitions([])
-          |> Enum.map(&expand_definition(&1, functions, [key | call_stack]))
-          |> block()
-        end
-
-      _variable_or_recursive_call ->
-        node
-    end
-  end
-
-  defp expand_local_calls(nodes, functions, call_stack) when is_list(nodes) do
-    Enum.map(nodes, &expand_local_calls(&1, functions, call_stack))
-  end
-
-  defp expand_local_calls(node, functions, call_stack) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> expand_local_calls(functions, call_stack)
-    |> List.to_tuple()
-  end
-
-  defp expand_local_calls(node, _functions, _call_stack), do: node
-
-  defp expand_definition(
-         %{bindings: bindings, body: body, kind: :function},
-         functions,
-         call_stack
+  defp foreign_key_relationship_error(
+         source_table,
+         source_attribute,
+         destination_table,
+         destination_attribute
        ) do
-    body
-    |> substitute_bindings(bindings)
-    |> resolve_local_bindings()
-    |> expand_local_calls(functions, call_stack)
-  end
-
-  defp expand_definition(%{bindings: bindings, body: body, kind: :macro}, functions, call_stack) do
-    body
-    |> expand_macro_body(bindings)
-    |> expand_local_calls(functions, call_stack)
-  end
-
-  defp expand_macro_body({:quote, _metadata, arguments}, bindings) when is_list(arguments) do
-    options = quote_options(arguments)
-
-    body =
-      if quote_unquotes?(options) do
-        options
-        |> Keyword.get(:do)
-        |> Macro.postwalk(fn
-          {:unquote, _metadata, [expression]} -> substitute_bindings(expression, bindings)
-          node -> node
-        end)
-      else
-        Keyword.get(options, :do)
-      end
-
-    {body, _macro_bindings} =
-      resolve_local_bindings(body, bind_quoted_bindings(options, bindings))
-
-    body
-  end
-
-  defp expand_macro_body(body, bindings), do: substitute_bindings(body, bindings)
-
-  defp quote_options(arguments) do
-    Enum.flat_map(arguments, fn
-      options when is_list(options) ->
-        if Keyword.keyword?(options), do: options, else: []
-
-      _argument ->
-        []
-    end)
-  end
-
-  defp quote_unquotes?(options) do
-    Keyword.get(options, :unquote, not Keyword.has_key?(options, :bind_quoted))
-  end
-
-  defp bind_quoted_bindings(options, call_bindings) do
-    options
-    |> Keyword.get(:bind_quoted, [])
-    |> Enum.reduce(%{}, fn
-      {name, expression}, bindings when is_atom(name) ->
-        Map.put(bindings, name, substitute_bindings(expression, call_bindings))
-
-      _binding, bindings ->
-        bindings
-    end)
-  end
-
-  defp definition_kind(kind) when kind in [:defmacro, :defmacrop], do: :macro
-  defp definition_kind(kind) when kind in [:def, :defp], do: :function
-
-  defp definition_visibility(kind) when kind in [:def, :defmacro], do: :public
-  defp definition_visibility(kind) when kind in [:defp, :defmacrop], do: :private
-
-  defp matching_definitions(definitions, arguments) do
-    definitions
-    |> Enum.reduce_while([], fn definition, matches ->
-      {pattern_status, bindings} = match_parameters(definition.parameters, arguments)
-      bindings = Map.merge(Map.get(definition, :captured_bindings, %{}), bindings)
-      guard_status = guards_match(definition.guards, bindings)
-      definition = Map.put(definition, :bindings, bindings)
-
-      case {pattern_status, guard_status} do
-        {:no_match, _guard_status} ->
-          {:cont, matches}
-
-        {_pattern_status, :no_match} ->
-          {:cont, matches}
-
-        {:match, :match} ->
-          {:halt, [definition | matches]}
-
-        {_possible_pattern, _possible_guard} ->
-          {:cont, [definition | matches]}
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp match_parameters(patterns, arguments) do
-    match_parameter_elements(patterns, arguments, %{})
-  end
-
-  defp match_parameter_pattern({:^, _metadata, [_pattern]}, _argument, bindings),
-    do: {:unknown, bindings}
-
-  defp match_parameter_pattern({name, _metadata, binding_context}, argument, bindings)
-       when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) do
-    cond do
-      name == :_ ->
-        {:match, bindings}
-
-      Map.has_key?(bindings, name) ->
-        {repeated_binding_status(Map.fetch!(bindings, name), argument), bindings}
-
-      true ->
-        {:match, Map.put(bindings, name, argument)}
-    end
-  end
-
-  defp match_parameter_pattern(
-         {:{}, _pattern_metadata, patterns},
-         {:{}, _argument_metadata, arguments},
-         bindings
-       ) do
-    if length(patterns) == length(arguments),
-      do: match_parameter_elements(patterns, arguments, bindings),
-      else: {:no_match, bindings}
-  end
-
-  defp match_parameter_pattern(
-         {left_pattern, right_pattern},
-         {left_argument, right_argument},
-         bindings
-       ) do
-    {left_status, bindings} =
-      match_parameter_pattern(left_pattern, left_argument, bindings)
-
-    {right_status, bindings} =
-      match_parameter_pattern(right_pattern, right_argument, bindings)
-
-    {combine_match_status(left_status, right_status), bindings}
-  end
-
-  defp match_parameter_pattern(patterns, arguments, bindings)
-       when is_list(patterns) and is_list(arguments) do
-    if length(patterns) == length(arguments),
-      do: match_parameter_elements(patterns, arguments, bindings),
-      else: {:no_match, bindings}
-  end
-
-  defp match_parameter_pattern(pattern, argument, bindings)
-       when is_atom(pattern) or is_binary(pattern) or is_number(pattern) do
-    status =
-      cond do
-        pattern == argument -> :match
-        is_atom(argument) or is_binary(argument) or is_number(argument) -> :no_match
-        true -> :unknown
-      end
-
-    {status, bindings}
-  end
-
-  defp match_parameter_pattern(_pattern, _argument, bindings), do: {:unknown, bindings}
-
-  defp match_parameter_elements(patterns, arguments, bindings) do
-    patterns
-    |> Enum.zip(arguments)
-    |> Enum.reduce({:match, bindings}, fn {pattern, argument}, {status, bindings} ->
-      {next_status, bindings} = match_parameter_pattern(pattern, argument, bindings)
-      {combine_match_status(status, next_status), bindings}
-    end)
-  end
-
-  defp combine_match_status(:no_match, _status), do: :no_match
-  defp combine_match_status(_status, :no_match), do: :no_match
-  defp combine_match_status(:unknown, _status), do: :unknown
-  defp combine_match_status(_status, :unknown), do: :unknown
-  defp combine_match_status(:match, :match), do: :match
-
-  defp repeated_binding_status(existing, argument) do
-    if Macro.to_string(existing) == Macro.to_string(argument) do
-      :match
-    else
-      with {:known, existing} <- static_guard_value(existing),
-           {:known, argument} <- static_guard_value(argument) do
-        if existing === argument, do: :match, else: :no_match
-      end
-    end
-  end
-
-  defp block([body]), do: body
-  defp block(bodies), do: {:__block__, [], bodies}
-
-  defp substitute_bindings(body, bindings) do
-    Macro.postwalk(body, fn
-      {name, _metadata, binding_context} = node
-      when is_atom(name) and (is_atom(binding_context) or is_nil(binding_context)) ->
-        Map.get(bindings, name, node)
-
-      node ->
-        node
-    end)
-  end
-
-  defp resolve_local_bindings(ast) do
-    {ast, _bindings} = resolve_local_bindings(ast, %{})
-    ast
-  end
-
-  defp resolve_local_bindings({:__block__, metadata, expressions}, bindings) do
-    {expressions, bindings} =
-      Enum.map_reduce(expressions, bindings, &resolve_local_bindings/2)
-
-    {{:__block__, metadata, expressions}, bindings}
-  end
-
-  defp resolve_local_bindings({:=, _metadata, [pattern, value]}, bindings) do
-    resolved_value = resolve_assignment_value(value, bindings)
-
-    bindings =
-      case match_parameter_pattern(pattern, resolved_value, %{}) do
-        {:no_match, _new_bindings} -> bindings
-        {_status, new_bindings} -> Map.merge(bindings, new_bindings)
-      end
-
-    emitted_value =
-      if static_migration_closure?(resolved_value),
-        do: {:__block__, [], []},
-        else: resolved_value
-
-    {emitted_value, bindings}
-  end
-
-  defp resolve_local_bindings(
-         {{:., _dot_metadata, [callee]}, _metadata, arguments} = node,
-         bindings
-       )
-       when is_list(arguments) do
-    callee = substitute_bindings(callee, bindings)
-
-    arguments =
-      Enum.map(arguments, fn argument ->
-        {argument, _argument_bindings} = resolve_local_bindings(argument, bindings)
-        substitute_bindings(argument, bindings)
-      end)
-
-    case normalize_migration_closure(callee, bindings) do
-      {:ok, clauses, captured_bindings} ->
-        {expand_migration_closure(clauses, arguments, captured_bindings), bindings}
-
-      :error ->
-        resolve_local_binding_tuple(node, bindings)
-    end
-  end
-
-  defp resolve_local_bindings({:quote, _metadata, arguments}, bindings)
-       when is_list(arguments) do
-    {expressions, bindings} =
-      arguments
-      |> quote_runtime_expressions()
-      |> Enum.map_reduce(bindings, &resolve_local_bindings/2)
-
-    {block(expressions), bindings}
-  end
-
-  defp resolve_local_bindings({:fn, _metadata, clauses}, bindings) when is_list(clauses),
-    do: {{:__block__, [], []}, bindings}
-
-  defp resolve_local_bindings({:with, _metadata, arguments} = node, bindings)
-       when is_list(arguments) do
-    case static_with_parts(arguments) do
-      {:ok, qualifiers, body, else_clauses} ->
-        case resolve_static_with_path(
-               qualifiers,
-               body,
-               else_clauses,
-               bindings,
-               bindings,
-               :definite
-             ) do
-          {:ok, bodies} -> {block(bodies), bindings}
-          :unknown -> resolve_local_binding_tuple(node, bindings)
-        end
-
-      :unknown ->
-        resolve_local_binding_tuple(node, bindings)
-    end
-  end
-
-  defp resolve_local_bindings({:try, _metadata, [options]} = node, bindings)
-       when is_list(options) do
-    with {:ok, body} <- Keyword.fetch(options, :do),
-         {resolved_body, _body_bindings} <- resolve_local_bindings(body, bindings),
-         result <- migration_expression_result(resolved_body),
-         {:ok, else_bodies} <- resolve_try_else_bodies(options, result, bindings) do
-      possible_exception_bodies =
-        [:rescue, :catch]
-        |> Enum.flat_map(&Keyword.get(options, &1, []))
-        |> resolve_possible_try_clause_bodies(bindings)
-
-      after_bodies =
-        case Keyword.fetch(options, :after) do
-          {:ok, after_body} ->
-            {after_body, _after_bindings} = resolve_local_bindings(after_body, bindings)
-            [after_body]
-
-          :error ->
-            []
-        end
-
-      bodies = [resolved_body | else_bodies ++ possible_exception_bodies ++ after_bodies]
-      {block(bodies), bindings}
-    else
-      _unsupported_try -> resolve_local_binding_tuple(node, bindings)
-    end
-  end
-
-  defp resolve_local_bindings({:case, _metadata, [value, options]} = node, bindings)
-       when is_list(options) do
-    case Keyword.fetch(options, :do) do
-      {:ok, clauses} when is_list(clauses) ->
-        {value, _value_bindings} = resolve_local_bindings(value, bindings)
-        value = substitute_bindings(value, bindings)
-
-        case resolve_static_case_bodies(clauses, value, bindings) do
-          {:ok, bodies} -> {block([value | bodies]), bindings}
-          :unknown -> resolve_local_binding_tuple(node, bindings)
-        end
-
-      _not_a_case_expression ->
-        resolve_local_binding_tuple(node, bindings)
-    end
-  end
-
-  defp resolve_local_bindings({:for, _metadata, arguments} = node, bindings)
-       when is_list(arguments) do
-    case static_for_parts(arguments) do
-      {:ok, qualifiers, body} ->
-        case static_for_bindings(qualifiers, [{:definite, bindings}]) do
-          {:known, iteration_bindings} ->
-            resolve_static_for_bodies(body, iteration_bindings, bindings)
-
-          {:unknown, partial_iteration_bindings} ->
-            partial_iteration_bindings =
-              Enum.map(partial_iteration_bindings, fn {_certainty, iteration_bindings} ->
-                {:possible, iteration_bindings}
-              end)
-
-            resolve_static_for_bodies(body, partial_iteration_bindings, bindings)
-        end
-
-      :unknown ->
-        resolve_local_binding_tuple(node, bindings)
-    end
-  end
-
-  defp resolve_local_bindings(nodes, bindings) when is_list(nodes) do
-    nodes =
-      Enum.map(nodes, fn node ->
-        {node, _child_bindings} = resolve_local_bindings(node, bindings)
-        node
-      end)
-
-    {nodes, bindings}
-  end
-
-  defp resolve_local_bindings(node, bindings) when is_tuple(node) do
-    resolve_local_binding_tuple(node, bindings)
-  end
-
-  defp resolve_local_bindings(node, bindings), do: {node, bindings}
-
-  defp resolve_assignment_value({:fn, metadata, clauses}, bindings) when is_list(clauses),
-    do: {:__migration_closure__, metadata, [clauses, bindings]}
-
-  defp resolve_assignment_value(value, bindings), do: substitute_bindings(value, bindings)
-
-  defp quote_runtime_expressions(arguments) do
-    options = quote_options(arguments)
-
-    option_expressions =
-      Enum.flat_map(options, fn
-        {:do, _body} ->
-          []
-
-        {:bind_quoted, quoted_bindings} when is_list(quoted_bindings) ->
-          Enum.flat_map(quoted_bindings, fn
-            {_name, expression} -> [expression]
-            _invalid_binding -> []
-          end)
-
-        {_option, expression} ->
-          [expression]
-      end)
-
-    unquoted_expressions =
-      if quote_unquotes?(options) do
-        options
-        |> Keyword.get(:do)
-        |> quote_unquoted_expressions()
-      else
-        []
-      end
-
-    option_expressions ++ unquoted_expressions
-  end
-
-  defp quote_unquoted_expressions({:quote, _metadata, _arguments}), do: []
-
-  defp quote_unquoted_expressions({operation, _metadata, [expression]})
-       when operation in [:unquote, :unquote_splicing],
-       do: [expression]
-
-  defp quote_unquoted_expressions(nodes) when is_list(nodes),
-    do: Enum.flat_map(nodes, &quote_unquoted_expressions/1)
-
-  defp quote_unquoted_expressions(node) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> Enum.flat_map(&quote_unquoted_expressions/1)
-  end
-
-  defp quote_unquoted_expressions(_node), do: []
-
-  defp migration_expression_result({:__block__, _metadata, expressions})
-       when is_list(expressions) and expressions != [],
-       do: expressions |> List.last() |> migration_expression_result()
-
-  defp migration_expression_result(expression), do: expression
-
-  defp static_with_parts(arguments) do
-    case Enum.split(arguments, -1) do
-      {qualifiers, [options]} when is_list(options) ->
-        if Keyword.keyword?(options) and Keyword.has_key?(options, :do) do
-          else_clauses = Keyword.get(options, :else, [])
-
-          if is_list(else_clauses),
-            do: {:ok, qualifiers, Keyword.fetch!(options, :do), else_clauses},
-            else: :unknown
-        else
-          :unknown
-        end
-
-      _invalid_with ->
-        :unknown
-    end
-  end
-
-  defp resolve_static_with_path(
-         [],
-         body,
-         _else_clauses,
-         _outer_bindings,
-         bindings,
-         certainty
-       ) do
-    {body, _body_bindings} = resolve_local_bindings(body, bindings)
-    {:ok, [with_ast_certainty(body, certainty)]}
-  end
-
-  defp resolve_static_with_path(
-         [{:<-, _metadata, [pattern, source]} | qualifiers],
-         body,
-         else_clauses,
-         outer_bindings,
-         bindings,
-         certainty
-       ) do
-    {source, _source_bindings} = resolve_local_bindings(source, bindings)
-    source = substitute_bindings(source, bindings)
-    result = migration_expression_result(source)
-    emitted_source = with_ast_certainty(source, certainty)
-
-    case static_with_pattern_match(pattern, result, bindings) do
-      {:match, pattern_bindings} ->
-        with {:ok, bodies} <-
-               resolve_static_with_path(
-                 qualifiers,
-                 body,
-                 else_clauses,
-                 outer_bindings,
-                 Map.merge(bindings, pattern_bindings),
-                 certainty
-               ),
-             do: {:ok, [emitted_source | bodies]}
-
-      {:no_match, _pattern_bindings} ->
-        {:ok,
-         [
-           emitted_source
-           | resolve_static_with_else(result, else_clauses, outer_bindings, certainty)
-         ]}
-
-      {:unknown, pattern_bindings} ->
-        possible_certainty = possible_certainty(certainty)
-
-        with {:ok, success_bodies} <-
-               resolve_static_with_path(
-                 qualifiers,
-                 body,
-                 else_clauses,
-                 outer_bindings,
-                 Map.merge(bindings, pattern_bindings),
-                 possible_certainty
-               ) do
-          failure_bodies =
-            resolve_static_with_else(
-              result,
-              else_clauses,
-              outer_bindings,
-              possible_certainty
-            )
-
-          {:ok, [emitted_source | success_bodies ++ failure_bodies]}
-        end
-
-      :unknown ->
-        :unknown
-    end
-  end
-
-  defp resolve_static_with_path(
-         [qualifier | qualifiers],
-         body,
-         else_clauses,
-         outer_bindings,
-         bindings,
-         certainty
-       ) do
-    {qualifier, bindings} = resolve_local_bindings(qualifier, bindings)
-
-    with {:ok, bodies} <-
-           resolve_static_with_path(
-             qualifiers,
-             body,
-             else_clauses,
-             outer_bindings,
-             bindings,
-             certainty
-           ),
-         do: {:ok, [with_ast_certainty(qualifier, certainty) | bodies]}
-  end
-
-  defp static_with_pattern_match(pattern, value, bindings) do
-    with {:ok, pattern, guards} <- static_case_head([pattern]) do
-      {pattern_status, pattern_bindings} = match_parameter_pattern(pattern, value, %{})
-      guard_status = guards_match(guards, Map.merge(bindings, pattern_bindings))
-
-      case {pattern_status, guard_status} do
-        {:no_match, _guard_status} -> {:no_match, pattern_bindings}
-        {_pattern_status, :no_match} -> {:no_match, pattern_bindings}
-        {:match, :match} -> {:match, pattern_bindings}
-        {_possible_pattern, _possible_guard} -> {:unknown, pattern_bindings}
-      end
-    else
-      _unsupported_pattern -> :unknown
-    end
-  end
-
-  defp resolve_static_with_else(_value, [], _bindings, _certainty), do: []
-
-  defp resolve_static_with_else(value, clauses, bindings, certainty) do
-    case resolve_static_case_bodies(clauses, value, bindings) do
-      {:ok, bodies} -> Enum.map(bodies, &with_ast_certainty(&1, certainty))
-      :unknown -> resolve_possible_with_else_bodies(clauses, bindings, certainty)
-    end
-  end
-
-  defp resolve_possible_with_else_bodies(clauses, bindings, certainty) do
-    possible_certainty = possible_certainty(certainty)
-
-    Enum.flat_map(clauses, fn
-      {:->, _metadata, [_heads, body]} ->
-        {body, _body_bindings} = resolve_local_bindings(body, bindings)
-        [with_ast_certainty(body, possible_certainty)]
-
-      _invalid_clause ->
-        []
-    end)
-  end
-
-  defp resolve_try_else_bodies(options, result, bindings) do
-    case Keyword.fetch(options, :else) do
-      {:ok, clauses} when is_list(clauses) ->
-        resolve_static_case_bodies(clauses, result, bindings)
-
-      :error ->
-        {:ok, []}
-
-      _invalid_else ->
-        :unknown
-    end
-  end
-
-  defp resolve_possible_try_clause_bodies(clauses, bindings) do
-    Enum.flat_map(clauses, fn
-      {:->, _metadata, [_heads, body]} ->
-        {body, _body_bindings} = resolve_local_bindings(body, bindings)
-        [with_ast_certainty(body, :possible)]
-
-      _invalid_clause ->
-        []
-    end)
-  end
-
-  defp static_migration_closure?({:__migration_closure__, _metadata, [_clauses, _bindings]}),
-    do: true
-
-  defp static_migration_closure?(_value), do: false
-
-  defp normalize_migration_closure(
-         {:__migration_closure__, _metadata, [clauses, captured_bindings]},
-         _bindings
-       )
-       when is_list(clauses) and is_map(captured_bindings),
-       do: {:ok, clauses, captured_bindings}
-
-  defp normalize_migration_closure({:fn, _metadata, clauses}, bindings) when is_list(clauses),
-    do: {:ok, clauses, bindings}
-
-  defp normalize_migration_closure(_callee, _bindings), do: :error
-
-  defp expand_migration_closure(clauses, arguments, captured_bindings) do
-    clauses
-    |> Enum.flat_map(&migration_closure_definition(&1, captured_bindings))
-    |> matching_definitions(arguments)
-    |> Enum.map(fn %{bindings: bindings, body: body} ->
-      body
-      |> substitute_bindings(bindings)
-      |> resolve_local_bindings()
-    end)
-    |> block()
-  end
-
-  defp migration_closure_definition(
-         {:->, _metadata, [heads, body]},
-         captured_bindings
-       )
-       when is_list(heads) do
-    {parameters, guards} = migration_closure_head(heads)
-
     [
-      %{
-        body: body,
-        captured_bindings: captured_bindings,
-        guards: guards,
-        parameters: parameters
-      }
+      "#{source_table}.#{source_attribute} references #{destination_table}.#{destination_attribute} without a matching belongs_to"
     ]
   end
 
-  defp migration_closure_definition(_clause, _captured_bindings), do: []
-
-  defp migration_closure_head([
-         {:when, _metadata, [_parameter, _guard | _remaining] = guarded_parameters}
-       ]) do
-    {Enum.drop(guarded_parameters, -1), [List.last(guarded_parameters)]}
+  defp relationship_destination_identity(relationship) do
+    schema_table_identity(
+      relationship.context[:data_layer][:table] ||
+        AshPostgres.DataLayer.Info.table(relationship.destination),
+      relationship.context[:data_layer][:schema] ||
+        AshPostgres.DataLayer.Info.schema(relationship.destination)
+    )
   end
 
-  defp migration_closure_head(parameters), do: {parameters, []}
+  defp attribute_column(nil), do: nil
 
-  defp resolve_local_binding_tuple(node, bindings) do
-    node =
-      node
-      |> Tuple.to_list()
-      |> Enum.map(fn child ->
-        {child, _child_bindings} = resolve_local_bindings(child, bindings)
-        child
+  defp attribute_column(attribute),
+    do: PostgresDump.configured_identifier(attribute.source || attribute.name)
+
+  defp identifier_list(attributes) do
+    attributes
+    |> PostgresDump.split_outside_quotes(",")
+    |> Enum.map(&trim_identifier/1)
+  end
+
+  defp table_shape_errors(inventory, expected_resources, project_tables) do
+    expected_shape = expected_table_shape(expected_resources)
+    shape_errors(inventory, expected_shape, project_tables, "Ash-owned")
+  end
+
+  defp framework_table_shape_errors(inventory) do
+    framework_tables =
+      inventory.tables
+      |> Enum.filter(&framework_owned?(:table, &1))
+      |> MapSet.new()
+
+    framework_tables
+    |> framework_table_shape()
+    |> then(&shape_errors(inventory, &1, framework_tables, "framework-owned"))
+  end
+
+  defp shape_errors(inventory, expected_shape, compared_tables, missing_owner) do
+    actual_columns = project_definitions(inventory.columns, compared_tables)
+    expected_columns = definition_map(expected_shape.columns)
+    actual_column_keys = actual_columns |> Map.keys() |> MapSet.new()
+    expected_column_keys = expected_columns |> Map.keys() |> MapSet.new()
+
+    unexpected_columns =
+      actual_column_keys
+      |> MapSet.difference(expected_column_keys)
+      |> Enum.map(fn {table, column} -> "unexpected project column #{table}.#{column}" end)
+
+    missing_columns =
+      expected_column_keys
+      |> MapSet.difference(actual_column_keys)
+      |> Enum.map(fn {table, column} -> "missing #{missing_owner} column #{table}.#{column}" end)
+
+    mismatched_columns =
+      definition_mismatches(expected_columns, actual_columns, fn {table, column},
+                                                                 expected,
+                                                                 actual ->
+        "column definition mismatch for #{table}.#{column}: expected #{expected}, got #{actual}"
       end)
-      |> List.to_tuple()
-      |> substitute_bindings(bindings)
 
-    {node, bindings}
-  end
+    actual_primary_keys =
+      inventory.primary_keys
+      |> Enum.filter(fn {table, _name} -> MapSet.member?(compared_tables, table) end)
+      |> MapSet.new()
 
-  defp static_for_parts(arguments) do
-    case Enum.split(arguments, -1) do
-      {qualifiers, [options]} when is_list(options) ->
-        if Keyword.keyword?(options) and Keyword.keys(options) == [:do],
-          do: {:ok, qualifiers, Keyword.fetch!(options, :do)},
-          else: :unknown
+    missing_primary_keys =
+      expected_shape.primary_keys
+      |> MapSet.difference(actual_primary_keys)
+      |> Enum.map(fn {table, name} -> "missing #{missing_owner} primary key #{table}.#{name}" end)
 
-      _not_a_plain_comprehension ->
-        :unknown
-    end
-  end
+    unexpected_primary_keys =
+      actual_primary_keys
+      |> MapSet.difference(expected_shape.primary_keys)
+      |> Enum.map(fn {table, name} -> "unexpected project primary key #{table}.#{name}" end)
 
-  defp static_for_bindings([], bindings), do: {:known, bindings}
+    actual_constraints = project_definitions(inventory.constraints, compared_tables)
+    expected_constraints = definition_map(expected_shape.constraints)
+    actual_constraint_keys = actual_constraints |> Map.keys() |> MapSet.new()
+    expected_constraint_keys = expected_constraints |> Map.keys() |> MapSet.new()
 
-  defp static_for_bindings([qualifier | qualifiers], bindings) do
-    case apply_static_for_qualifier(qualifier, bindings) do
-      {:known, bindings} -> static_for_bindings(qualifiers, bindings)
-      {:unknown, bindings} -> {:unknown, bindings}
-    end
-  end
+    missing_constraints =
+      expected_constraint_keys
+      |> MapSet.difference(actual_constraint_keys)
+      |> Enum.map(fn {table, name} -> "missing #{missing_owner} constraint #{table}.#{name}" end)
 
-  defp resolve_static_for_bodies(body, iteration_bindings, outer_bindings) do
-    bodies =
-      Enum.map(iteration_bindings, fn {certainty, iteration_bindings} ->
-        {body, _body_bindings} = resolve_local_bindings(body, iteration_bindings)
-        with_ast_certainty(body, certainty)
-      end)
+    unexpected_constraints =
+      actual_constraint_keys
+      |> MapSet.difference(expected_constraint_keys)
+      |> Enum.map(fn {table, name} -> "unexpected project constraint #{table}.#{name}" end)
 
-    {block(bodies), outer_bindings}
-  end
-
-  defp resolve_static_case_bodies(clauses, value, bindings) do
-    Enum.reduce_while(clauses, {:ok, [], false}, fn clause, {:ok, bodies, preceding_possible?} ->
-      case resolve_static_case_clause(clause, value, bindings) do
-        :no_match ->
-          {:cont, {:ok, bodies, preceding_possible?}}
-
-        {:possible, body} ->
-          {:cont, {:ok, [with_ast_certainty(body, :possible) | bodies], true}}
-
-        {:definite, body} when preceding_possible? ->
-          {:halt, {:ok, [with_ast_certainty(body, :possible) | bodies], true}}
-
-        {:definite, body} ->
-          {:halt, {:ok, [body | bodies], false}}
-
-        :unknown ->
-          {:halt, :unknown}
-      end
-    end)
-    |> case do
-      {:ok, bodies, _preceding_possible?} -> {:ok, Enum.reverse(bodies)}
-      :unknown -> :unknown
-    end
-  end
-
-  defp resolve_static_case_clause({:->, _metadata, [heads, body]}, value, bindings)
-       when is_list(heads) do
-    with {:ok, pattern, guards} <- static_case_head(heads) do
-      {pattern_status, pattern_bindings} = match_parameter_pattern(pattern, value, %{})
-      clause_bindings = Map.merge(bindings, pattern_bindings)
-      guard_status = guards_match(guards, clause_bindings)
-
-      case {pattern_status, guard_status} do
-        {:no_match, _guard_status} ->
-          :no_match
-
-        {_pattern_status, :no_match} ->
-          :no_match
-
-        {:match, :match} ->
-          resolve_static_case_body(body, clause_bindings, :definite)
-
-        {_possible_pattern, _possible_guard} ->
-          resolve_static_case_body(body, clause_bindings, :possible)
-      end
-    end
-  end
-
-  defp resolve_static_case_clause(_clause, _value, _bindings), do: :unknown
-
-  defp resolve_static_case_body(body, bindings, certainty) do
-    {body, _body_bindings} = resolve_local_bindings(body, bindings)
-    {certainty, body}
-  end
-
-  defp static_case_head([{:when, _metadata, [pattern | guards]}]),
-    do: {:ok, pattern, guards}
-
-  defp static_case_head([pattern]), do: {:ok, pattern, []}
-  defp static_case_head(_heads), do: :unknown
-
-  defp apply_static_for_qualifier({:<-, _metadata, [pattern, source]}, bindings) do
-    Enum.reduce_while(bindings, {:known, []}, fn {certainty, iteration_bindings},
-                                                 {:known, reversed_matches} ->
-      source = substitute_bindings(source, iteration_bindings)
-
-      case static_for_values(source) do
-        {:known, values} ->
-          case bind_static_for_values(pattern, values, iteration_bindings) do
-            {:known, value_bindings} ->
-              value_bindings =
-                Enum.map(value_bindings, &{certainty, &1})
-
-              {:cont, {:known, Enum.reverse(value_bindings, reversed_matches)}}
-
-            :unknown ->
-              {:halt, :unknown}
-          end
-
-        :unknown ->
-          {:halt, :unknown}
-      end
-    end)
-    |> case do
-      {:known, reversed_matches} -> {:known, Enum.reverse(reversed_matches)}
-      :unknown -> {:unknown, bindings}
-    end
-  end
-
-  defp apply_static_for_qualifier(qualifier, bindings) do
-    bindings =
-      Enum.reduce(bindings, [], fn {certainty, iteration_bindings}, matches ->
-        qualifier = substitute_bindings(qualifier, iteration_bindings)
-
-        case static_guard_result(qualifier) do
-          :match -> [{certainty, iteration_bindings} | matches]
-          :no_match -> matches
-          :unknown -> [{:possible, iteration_bindings} | matches]
+    mismatched_constraints =
+      definition_mismatches(
+        expected_constraints,
+        actual_constraints,
+        fn {table, name}, expected, actual ->
+          "constraint definition mismatch for #{name} ON #{table}: expected #{expected}, got #{actual}"
         end
+      )
+
+    actual_indexes = project_definitions(inventory.indexes, compared_tables)
+    expected_indexes = definition_map(expected_shape.indexes)
+    actual_index_keys = actual_indexes |> Map.keys() |> MapSet.new()
+    expected_index_keys = expected_indexes |> Map.keys() |> MapSet.new()
+
+    missing_indexes =
+      expected_index_keys
+      |> MapSet.difference(actual_index_keys)
+      |> Enum.map(fn {table, name} -> "missing #{missing_owner} index #{name} ON #{table}" end)
+
+    unexpected_indexes =
+      actual_index_keys
+      |> MapSet.difference(expected_index_keys)
+      |> Enum.map(fn {table, name} -> "unexpected project index #{name} ON #{table}" end)
+
+    mismatched_indexes =
+      definition_mismatches(expected_indexes, actual_indexes, fn {table, name},
+                                                                 expected,
+                                                                 actual ->
+        "index definition mismatch for #{name} ON #{table}: expected #{expected}, got #{actual}"
       end)
 
-    {:known, Enum.reverse(bindings)}
+    missing_columns ++
+      unexpected_columns ++
+      mismatched_columns ++
+      missing_primary_keys ++
+      unexpected_primary_keys ++
+      missing_constraints ++
+      unexpected_constraints ++
+      mismatched_constraints ++
+      missing_indexes ++ unexpected_indexes ++ mismatched_indexes
   end
 
-  defp with_ast_certainty(body, :definite), do: body
-
-  defp with_ast_certainty(body, :possible),
-    do: {:__possible_migration_operations__, [], [body]}
-
-  defp static_for_values(values) when is_list(values) do
-    case static_guard_value(values) do
-      {:known, _values} -> {:known, values}
-      :unknown -> :unknown
-    end
-  end
-
-  defp static_for_values(_source), do: :unknown
-
-  defp bind_static_for_values(pattern, values, bindings) do
-    Enum.reduce_while(values, {:known, []}, fn value, {:known, matches} ->
-      case match_parameter_pattern(pattern, value, %{}) do
-        {:match, pattern_bindings} ->
-          {:cont, {:known, [Map.merge(bindings, pattern_bindings) | matches]}}
-
-        {:no_match, _pattern_bindings} ->
-          {:cont, {:known, matches}}
-
-        {:unknown, _pattern_bindings} ->
-          {:halt, :unknown}
-      end
-    end)
-    |> case do
-      {:known, matches} -> {:known, Enum.reverse(matches)}
-      :unknown -> :unknown
-    end
-  end
-
-  defp guards_match([], _bindings), do: :match
-
-  defp guards_match(guards, bindings) do
-    Enum.reduce(guards, :match, fn guard, status ->
-      guard_status = guard |> substitute_bindings(bindings) |> static_guard_result()
-      combine_guard_and(status, guard_status)
-    end)
-  end
-
-  defp static_guard_result(true), do: :match
-  defp static_guard_result(false), do: :no_match
-  defp static_guard_result(nil), do: :no_match
-
-  defp static_guard_result({:when, _metadata, guards}) when is_list(guards) do
-    Enum.reduce(guards, :no_match, fn guard, status ->
-      combine_guard_or(status, static_guard_result(guard))
-    end)
-  end
-
-  defp static_guard_result({operation, _metadata, [left, right]})
-       when operation in [:and, :or] do
-    left_status = static_guard_result(left)
-    right_status = static_guard_result(right)
-
-    case operation do
-      :and -> combine_guard_and(left_status, right_status)
-      :or -> combine_guard_or(left_status, right_status)
-    end
-  end
-
-  defp static_guard_result({operation, _metadata, [left, right]})
-       when operation in [:==, :===, :!=, :!==] do
-    with {:known, left} <- static_guard_value(left),
-         {:known, right} <- static_guard_value(right) do
-      result =
-        case operation do
-          :== -> left == right
-          :=== -> left === right
-          :!= -> left != right
-          :!== -> left !== right
-        end
-
-      if result, do: :match, else: :no_match
-    end
-  end
-
-  defp static_guard_result(_guard), do: :unknown
-
-  defp static_guard_value(value)
-       when is_atom(value) or is_binary(value) or is_number(value),
-       do: {:known, value}
-
-  defp static_guard_value(values) when is_list(values) do
-    static_guard_values(values, [])
-  end
-
-  defp static_guard_value({:{}, _metadata, values}) do
-    case static_guard_values(values, []) do
-      {:known, values} -> {:known, List.to_tuple(values)}
-      :unknown -> :unknown
-    end
-  end
-
-  defp static_guard_value({left, right}) do
-    with {:known, left} <- static_guard_value(left),
-         {:known, right} <- static_guard_value(right),
-         do: {:known, {left, right}}
-  end
-
-  defp static_guard_value(_value), do: :unknown
-
-  defp static_guard_values([], values), do: {:known, Enum.reverse(values)}
-
-  defp static_guard_values([value | remaining], values) do
-    case static_guard_value(value) do
-      {:known, value} -> static_guard_values(remaining, [value | values])
-      :unknown -> :unknown
-    end
-  end
-
-  defp combine_guard_and(:no_match, _status), do: :no_match
-  defp combine_guard_and(_status, :no_match), do: :no_match
-  defp combine_guard_and(:unknown, _status), do: :unknown
-  defp combine_guard_and(_status, :unknown), do: :unknown
-  defp combine_guard_and(:match, :match), do: :match
-
-  defp combine_guard_or(:match, _status), do: :match
-  defp combine_guard_or(_status, :match), do: :match
-  defp combine_guard_or(:unknown, _status), do: :unknown
-  defp combine_guard_or(_status, :unknown), do: :unknown
-  defp combine_guard_or(:no_match, :no_match), do: :no_match
-
-  defp migration_foreign_key_operations(ast) do
-    collect_foreign_key_operations(ast, nil, :definite)
-  end
-
-  defp collect_foreign_key_operations(
-         {:__possible_migration_operations__, _metadata, [body]},
-         table,
-         certainty
-       ) do
-    collect_foreign_key_operations(body, table, possible_certainty(certainty))
-  end
-
-  defp collect_foreign_key_operations(
-         {:cond, _metadata, [[do: clauses]]},
-         table,
-         certainty
-       )
-       when is_list(clauses) do
-    collect_cond_operations(clauses, certainty, fn expression, branch_certainty ->
-      collect_foreign_key_operations(expression, table, branch_certainty)
-    end)
-  end
-
-  defp collect_foreign_key_operations(
-         {:receive, _metadata, [options]},
-         table,
-         certainty
-       )
-       when is_list(options) do
-    collect_receive_operations(options, certainty, fn expression, branch_certainty ->
-      collect_foreign_key_operations(expression, table, branch_certainty)
-    end)
-  end
-
-  defp collect_foreign_key_operations(
-         {operator, _metadata, [condition, options]},
-         table,
-         certainty
-       )
-       when operator in [:if, :unless] and is_list(options) do
-    condition_operations = collect_foreign_key_operations(condition, table, certainty)
-    do_branch = Keyword.get(options, :do)
-    else_branch = Keyword.get(options, :else)
-
-    branch_operations =
-      case selected_static_branch(operator, condition) do
-        :do ->
-          collect_foreign_key_operations(do_branch, table, certainty)
-
-        :else ->
-          collect_foreign_key_operations(else_branch, table, certainty)
-
-        :unknown ->
-          possible_certainty = possible_certainty(certainty)
-
-          [do_branch, else_branch]
-          |> Enum.flat_map(&collect_foreign_key_operations(&1, table, possible_certainty))
-      end
-
-    condition_operations ++ branch_operations
-  end
-
-  defp collect_foreign_key_operations(
-         {operator, _metadata, [left, right]},
-         table,
-         certainty
-       )
-       when operator in [:&&, :and, :||, :or] do
-    collect_short_circuit_operations(operator, left, right, certainty, fn expression,
-                                                                          operand_certainty ->
-      collect_foreign_key_operations(expression, table, operand_certainty)
-    end)
-  end
-
-  defp collect_foreign_key_operations(
-         {:rename, _metadata,
-          [
-            {:table, _old_table_metadata, [old_table | old_table_options]},
-            [to: {:table, _new_table_metadata, [new_table | new_table_options]}]
-          ]},
-         _table,
-         certainty
-       ) do
-    operation =
-      {:rename_table, table_identity(old_table, old_table_options),
-       table_identity(new_table, new_table_options)}
-
-    [with_certainty(operation, certainty)]
-  end
-
-  defp collect_foreign_key_operations(
-         {:rename, _metadata,
-          [
-            {:table, _table_metadata, [table | table_options]},
-            old_column,
-            [to: new_column]
-          ]},
-         _table,
-         certainty
-       )
-       when is_atom(old_column) and is_atom(new_column) do
-    operation =
-      {:rename_column, table_identity(table, table_options), Atom.to_string(old_column),
-       Atom.to_string(new_column)}
-
-    [with_certainty(operation, certainty)]
-  end
-
-  defp collect_foreign_key_operations(
-         {operation, _metadata,
-          [{:table, _table_metadata, [table | table_options]}, [do: block]]},
-         _current_table,
-         certainty
-       )
-       when operation in @table_definition_operations do
-    collect_foreign_key_operations(block, table_identity(table, table_options), certainty)
-  end
-
-  defp collect_foreign_key_operations(
-         {operation, _metadata,
-          [{:constraint, _constraint_metadata, [table, name | constraint_options]}]},
-         _current_table,
-         certainty
-       )
-       when operation in @table_drop_operations and
-              (is_atom(name) or is_binary(name)) do
-    operation = {:drop_constraint, table_identity(table, constraint_options), to_string(name)}
-    [with_certainty(operation, certainty)]
-  end
-
-  defp collect_foreign_key_operations(
-         {operation, _metadata,
-          [{:table, _table_metadata, [table | table_options]} | drop_options]},
-         _current_table,
-         certainty
-       )
-       when operation in @table_drop_operations do
-    operation =
-      {:drop_table, table_identity(table, table_options), cascading_drop?(drop_options)}
-
-    [with_certainty(operation, certainty)]
-  end
-
-  defp collect_foreign_key_operations(
-         {operation, _metadata,
-          [
-            column,
-            {:references, _references_metadata, [destination | reference_options]}
-            | _column_options
-          ]},
-         table,
-         certainty
-       )
-       when operation in @foreign_key_definition_operations and is_binary(table) and
-              is_atom(column) do
-    reference_options = List.flatten(reference_options)
-
-    foreign_key = {
-      table,
-      Atom.to_string(column),
-      table_identity(destination, reference_options, table_prefix_from_identity(table)),
-      reference_options |> Keyword.get(:column, :id) |> Atom.to_string(),
-      foreign_key_constraint_name(table, column, reference_options)
+  defp framework_table_shape(tables) do
+    %{
+      columns: filter_definitions(@framework_columns, tables),
+      constraints: filter_definitions(@framework_constraints, tables),
+      indexes: filter_definitions(@framework_indexes, tables),
+      primary_keys:
+        @framework_primary_keys
+        |> Enum.filter(fn {table, _name} -> MapSet.member?(tables, table) end)
+        |> MapSet.new()
     }
-
-    [with_certainty({:put, foreign_key}, certainty)]
   end
 
-  defp collect_foreign_key_operations(
-         {operation, _metadata, [column | _options]},
-         table,
-         certainty
-       )
-       when operation in [:remove, :remove_if_exists] and is_binary(table) and is_atom(column) do
-    operation = {:remove, table, Atom.to_string(column)}
-    [with_certainty(operation, certainty)]
+  defp filter_definitions(definitions, tables) do
+    definitions
+    |> Enum.filter(fn {table, _name, _definition} -> MapSet.member?(tables, table) end)
+    |> MapSet.new()
   end
 
-  defp collect_foreign_key_operations(nodes, table, certainty) when is_list(nodes) do
-    Enum.flat_map(nodes, &collect_foreign_key_operations(&1, table, certainty))
+  defp project_definitions(definitions, project_tables) do
+    definitions
+    |> Enum.filter(fn {table, _name, _definition} -> MapSet.member?(project_tables, table) end)
+    |> definition_map()
   end
 
-  defp collect_foreign_key_operations(node, table, certainty) when is_tuple(node) do
-    node
-    |> Tuple.to_list()
-    |> Enum.flat_map(&collect_foreign_key_operations(&1, table, certainty))
+  defp definition_map(definitions) do
+    Map.new(definitions, fn {table, name, definition} -> {{table, name}, definition} end)
   end
 
-  defp collect_foreign_key_operations(_node, _table, _certainty), do: []
+  defp definition_mismatches(expected, actual, message) do
+    expected
+    |> Map.keys()
+    |> MapSet.new()
+    |> MapSet.intersection(actual |> Map.keys() |> MapSet.new())
+    |> Enum.flat_map(fn key ->
+      expected_definition = Map.fetch!(expected, key)
+      actual_definition = Map.fetch!(actual, key)
 
-  defp foreign_key_constraint_name(table, column, reference_options) do
-    case Keyword.get(reference_options, :name) do
-      nil -> "#{table_name_from_identity(table)}_#{column}_fkey"
-      name when is_atom(name) or is_binary(name) -> to_string(name)
-    end
-  end
-
-  defp cascading_drop?(drop_options) do
-    options =
-      Enum.flat_map(drop_options, fn
-        options when is_list(options) -> options
-        _option -> []
-      end)
-
-    Keyword.get(options, :mode) == :cascade
-  end
-
-  defp migration_table_operations(ast) do
-    collect_table_operations(ast, :definite)
-  end
-
-  defp collect_table_operations(
-         {:__possible_migration_operations__, _metadata, [body]},
-         certainty
-       ) do
-    collect_table_operations(body, possible_certainty(certainty))
-  end
-
-  defp collect_table_operations({:cond, _metadata, [[do: clauses]]}, certainty)
-       when is_list(clauses) do
-    collect_cond_operations(clauses, certainty, &collect_table_operations/2)
-  end
-
-  defp collect_table_operations({:receive, _metadata, [options]}, certainty)
-       when is_list(options) do
-    collect_receive_operations(options, certainty, &collect_table_operations/2)
-  end
-
-  defp collect_table_operations(
-         {operator, _metadata, [condition, options]},
-         certainty
-       )
-       when operator in [:if, :unless] and is_list(options) do
-    condition_operations = collect_table_operations(condition, certainty)
-
-    do_branch = Keyword.get(options, :do)
-    else_branch = Keyword.get(options, :else)
-
-    branch_operations =
-      case selected_static_branch(operator, condition) do
-        :do ->
-          collect_table_operations(do_branch, certainty)
-
-        :else ->
-          collect_table_operations(else_branch, certainty)
-
-        :unknown ->
-          possible_certainty = possible_certainty(certainty)
-
-          [do_branch, else_branch]
-          |> Enum.flat_map(&collect_table_operations(&1, possible_certainty))
+      if expected_definition == actual_definition do
+        []
+      else
+        [message.(key, expected_definition, actual_definition)]
       end
-
-    condition_operations ++ branch_operations
-  end
-
-  defp collect_table_operations({operator, _metadata, [left, right]}, certainty)
-       when operator in [:&&, :and, :||, :or] do
-    collect_short_circuit_operations(
-      operator,
-      left,
-      right,
-      certainty,
-      &collect_table_operations/2
-    )
-  end
-
-  defp collect_table_operations(nodes, certainty) when is_list(nodes) do
-    Enum.flat_map(nodes, &collect_table_operations(&1, certainty))
-  end
-
-  defp collect_table_operations(node, certainty) when is_tuple(node) do
-    operation =
-      case table_operation(node) do
-        nil -> []
-        operation -> [with_certainty(operation, certainty)]
-      end
-
-    children =
-      node
-      |> Tuple.to_list()
-      |> Enum.flat_map(&collect_table_operations(&1, certainty))
-
-    operation ++ children
-  end
-
-  defp collect_table_operations(_node, _certainty), do: []
-
-  defp collect_cond_operations(clauses, certainty, collect_operations) do
-    {operation_chunks, _remaining_certainty} =
-      Enum.reduce_while(clauses, {[], certainty}, fn
-        {:->, _metadata, [[condition], body]}, {operation_chunks, branch_certainty} ->
-          condition_operations = collect_operations.(condition, branch_certainty)
-
-          case static_truthiness(condition) do
-            :truthy ->
-              branch_operations = collect_operations.(body, branch_certainty)
-
-              {:halt, {[branch_operations, condition_operations | operation_chunks], nil}}
-
-            :falsy ->
-              {:cont, {[condition_operations | operation_chunks], branch_certainty}}
-
-            :unknown ->
-              possible_certainty = possible_certainty(branch_certainty)
-              branch_operations = collect_operations.(body, possible_certainty)
-
-              {:cont,
-               {[branch_operations, condition_operations | operation_chunks], possible_certainty}}
-          end
-
-        clause, {operation_chunks, branch_certainty} ->
-          possible_certainty = possible_certainty(branch_certainty)
-
-          {:cont,
-           {[collect_operations.(clause, possible_certainty) | operation_chunks],
-            possible_certainty}}
-      end)
-
-    operation_chunks |> Enum.reverse() |> List.flatten()
-  end
-
-  defp collect_receive_operations(options, certainty, collect_operations) do
-    possible_certainty = possible_certainty(certainty)
-
-    message_branch_operations =
-      options
-      |> Keyword.get(:do, [])
-      |> collect_possible_clause_bodies(possible_certainty, collect_operations)
-
-    {timeout_operations, timeout_branch_operations} =
-      options
-      |> Keyword.get(:after, [])
-      |> Enum.reduce({[], []}, fn
-        {:->, _metadata, [timeout_expressions, body]}, {timeout_operations, branch_operations}
-        when is_list(timeout_expressions) ->
-          {
-            [collect_operations.(timeout_expressions, certainty) | timeout_operations],
-            [collect_operations.(body, possible_certainty) | branch_operations]
-          }
-
-        clause, {timeout_operations, branch_operations} ->
-          {
-            timeout_operations,
-            [collect_operations.(clause, possible_certainty) | branch_operations]
-          }
-      end)
-
-    timeout_operations = timeout_operations |> Enum.reverse() |> List.flatten()
-    timeout_branch_operations = timeout_branch_operations |> Enum.reverse() |> List.flatten()
-
-    timeout_operations ++ message_branch_operations ++ timeout_branch_operations
-  end
-
-  defp collect_possible_clause_bodies(clauses, certainty, collect_operations)
-       when is_list(clauses) do
-    Enum.flat_map(clauses, fn
-      {:->, _metadata, [_heads, body]} -> collect_operations.(body, certainty)
-      clause -> collect_operations.(clause, certainty)
     end)
   end
 
-  defp collect_possible_clause_bodies(clause, certainty, collect_operations),
-    do: collect_operations.(clause, certainty)
+  defp expected_table_shape(expected_resources) do
+    expected_resources
+    |> Enum.reduce(
+      %{
+        columns: MapSet.new(),
+        constraints: MapSet.new(),
+        indexes: MapSet.new(),
+        primary_keys: MapSet.new()
+      },
+      fn {_table, {_domain, resource}}, shape ->
+        table = resource_table_identity(resource)
 
-  defp collect_short_circuit_operations(
-         operator,
-         left,
-         right,
-         certainty,
-         collect_operations
-       ) do
-    left_operations = collect_operations.(left, certainty)
+        shape
+        |> Map.update!(:columns, &MapSet.union(&1, expected_columns(table, resource)))
+        |> Map.update!(:primary_keys, &MapSet.union(&1, expected_primary_keys(table, resource)))
+        |> Map.update!(:constraints, &MapSet.union(&1, expected_constraints(table, resource)))
+        |> Map.update!(:indexes, &MapSet.union(&1, expected_indexes(table, resource)))
+      end
+    )
+  end
 
-    right_operations =
-      case short_circuit_right_certainty(operator, static_truthiness(left), certainty) do
-        :unreachable -> []
-        right_certainty -> collect_operations.(right, right_certainty)
+  defp expected_columns(table, resource) do
+    resource
+    |> migrated_attributes()
+    |> Enum.map(fn attribute ->
+      {table, attribute_column(attribute), expected_column_definition(resource, attribute)}
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_sequences(expected_resources) do
+    expected_resources
+    |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+      table = resource_table_identity(resource)
+
+      resource
+      |> migrated_attributes()
+      |> Enum.filter(fn attribute ->
+        type = expected_migration_type(resource, attribute)
+        default = raw_expected_default(resource, attribute, type)
+
+        sequence_backed_generated?(attribute, type, default)
+      end)
+      |> Enum.map(&sequence_identity(table, &1))
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_sequence_definitions(expected_resources) do
+    Map.new(
+      expected_resources
+      |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+        table = resource_table_identity(resource)
+
+        resource
+        |> migrated_attributes()
+        |> Enum.flat_map(fn attribute ->
+          type = expected_migration_type(resource, attribute)
+          default = raw_expected_default(resource, attribute, type)
+
+          if sequence_backed_generated?(attribute, type, default) do
+            identity = sequence_identity(table, attribute)
+            owner = "#{table}.#{attribute_column(attribute)}"
+            [{identity, default_sequence_definition(postgres_type(type), owner)}]
+          else
+            []
+          end
+        end)
+      end)
+    )
+  end
+
+  defp default_sequence_definition(type, owner) do
+    %{
+      type: type,
+      start: "1",
+      increment: "1",
+      minimum: "NO MINVALUE",
+      maximum: "NO MAXVALUE",
+      cache: "1",
+      cycle: false,
+      owner: owner
+    }
+    |> format_sequence_definition()
+  end
+
+  defp migrated_attributes(resource) do
+    ignored = AshPostgres.DataLayer.Info.migration_ignore_attributes(resource) || []
+
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.reject(&(&1.name in ignored))
+  end
+
+  defp expected_column_definition(resource, attribute) do
+    type = expected_migration_type(resource, attribute)
+
+    [
+      postgres_type(type, resource),
+      expected_default(resource, attribute, type),
+      if(attribute.allow_nil?, do: nil, else: "NOT NULL")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+    |> normalize_definition()
+  end
+
+  defp expected_migration_type(resource, attribute) do
+    type =
+      AshPostgres.DataLayer.Info.migration_types(resource)[attribute.name] ||
+        AshPostgres.MigrationGenerator.get_migration_type(attribute.type, attribute.constraints)
+
+    repo = AshPostgres.DataLayer.Info.repo(resource, :mutate)
+
+    if function_exported?(repo, :override_migration_type, 1) do
+      repo.override_migration_type(type)
+    else
+      type
+    end
+  end
+
+  @postgres_builtin_migration_type_names %{
+    :bigint => "bigint",
+    :int8 => "bigint",
+    :bit => "bit(1)",
+    :"bit varying" => "bit varying",
+    :varbit => "bit varying",
+    :boolean => "boolean",
+    :bool => "boolean",
+    :box => "box",
+    :bytea => "bytea",
+    :character => "character(1)",
+    :char => "character(1)",
+    :"character varying" => "character varying",
+    :varchar => "character varying",
+    :cidr => "cidr",
+    :circle => "circle",
+    :date => "date",
+    :"double precision" => "double precision",
+    :float8 => "double precision",
+    :inet => "inet",
+    :integer => "integer",
+    :int => "integer",
+    :int4 => "integer",
+    :interval => "interval",
+    :json => "json",
+    :jsonb => "jsonb",
+    :jsonpath => "jsonpath",
+    :line => "line",
+    :lseg => "lseg",
+    :macaddr => "macaddr",
+    :macaddr8 => "macaddr8",
+    :money => "money",
+    :name => "name",
+    :numeric => "numeric",
+    :decimal => "numeric",
+    :oid => "oid",
+    :path => "path",
+    :pg_lsn => "pg_lsn",
+    :pg_snapshot => "pg_snapshot",
+    :point => "point",
+    :polygon => "polygon",
+    :real => "real",
+    :float4 => "real",
+    :regclass => "regclass",
+    :regcollation => "regcollation",
+    :regconfig => "regconfig",
+    :regdictionary => "regdictionary",
+    :regnamespace => "regnamespace",
+    :regoper => "regoper",
+    :regoperator => "regoperator",
+    :regproc => "regproc",
+    :regprocedure => "regprocedure",
+    :regrole => "regrole",
+    :regtype => "regtype",
+    :smallint => "smallint",
+    :int2 => "smallint",
+    :text => "text",
+    :timetz => "time with time zone",
+    :timestamp => "timestamp without time zone",
+    :timestamptz => "timestamp with time zone",
+    :tsquery => "tsquery",
+    :tsvector => "tsvector",
+    :txid_snapshot => "txid_snapshot",
+    :uuid => "uuid",
+    :xml => "xml",
+    :xid => "xid",
+    :xid8 => "xid8",
+    :cid => "cid",
+    :tid => "tid"
+  }
+  @resource_independent_migration_types Map.keys(@postgres_builtin_migration_type_names) ++
+                                          [
+                                            :binary,
+                                            :citext,
+                                            :float,
+                                            :map,
+                                            :naive_datetime,
+                                            :naive_datetime_usec,
+                                            :string,
+                                            :time,
+                                            :time_usec,
+                                            :utc_datetime,
+                                            :utc_datetime_usec
+                                          ]
+
+  defp postgres_type({:array, type}), do: "#{postgres_type(type)}[]"
+  defp postgres_type({:varchar, size}), do: "character varying(#{size})"
+  defp postgres_type({:binary, size}), do: "bit varying(#{size})"
+  defp postgres_type({:decimal, precision, scale}), do: "numeric(#{precision},#{scale})"
+  defp postgres_type({:decimal, precision}), do: "numeric(#{precision})"
+  defp postgres_type(:binary), do: "bytea"
+  defp postgres_type(:bigint), do: "bigint"
+  defp postgres_type(:boolean), do: "boolean"
+  defp postgres_type(:citext), do: "public.citext"
+  defp postgres_type(:date), do: "date"
+  defp postgres_type(:decimal), do: "numeric"
+  defp postgres_type(:float), do: "double precision"
+  defp postgres_type(:integer), do: "integer"
+  defp postgres_type(:jsonb), do: "jsonb"
+  defp postgres_type(:map), do: "jsonb"
+  defp postgres_type(:naive_datetime), do: "timestamp(0) without time zone"
+  defp postgres_type(:naive_datetime_usec), do: "timestamp without time zone"
+  defp postgres_type(:string), do: "text"
+  defp postgres_type(:text), do: "text"
+  defp postgres_type(:time), do: "time(0) without time zone"
+  defp postgres_type(:time_usec), do: "time without time zone"
+  defp postgres_type(:utc_datetime), do: "timestamp(0) without time zone"
+  defp postgres_type(:utc_datetime_usec), do: "timestamp without time zone"
+  defp postgres_type(:uuid), do: "uuid"
+
+  defp postgres_type(type) when is_atom(type),
+    do: Map.get(@postgres_builtin_migration_type_names, type, Atom.to_string(type))
+
+  defp postgres_type({type, size}) when is_atom(type) and is_integer(size),
+    do: "#{type}(#{size})"
+
+  defp postgres_type(type), do: "unsupported(#{inspect(type)})"
+
+  defp postgres_type({:array, type}, resource), do: "#{postgres_type(type, resource)}[]"
+
+  defp postgres_type(type, resource)
+       when is_atom(type) do
+    if type in @resource_independent_migration_types do
+      postgres_type(type)
+    else
+      type_parts = type |> Atom.to_string() |> String.split(".")
+
+      case type_parts do
+        [type] ->
+          schema = AshPostgres.DataLayer.Info.schema(resource) || "public"
+
+          "#{PostgresDump.configured_identifier(schema)}.#{PostgresDump.configured_identifier(type)}"
+
+        parts ->
+          Enum.map_join(parts, ".", &PostgresDump.configured_identifier/1)
+      end
+    end
+  end
+
+  defp postgres_type(type, _resource), do: postgres_type(type)
+
+  defp expected_default(resource, attribute, type) do
+    default = raw_expected_default(resource, attribute, type)
+
+    default =
+      if sequence_backed_generated?(attribute, type, default) do
+        table = resource_table_identity(resource)
+
+        table
+        |> sequence_identity(attribute)
+        |> postgres_string_literal()
+        |> then(&"nextval('#{&1}'::regclass)")
+      else
+        default
       end
 
-    left_operations ++ right_operations
-  end
-
-  defp short_circuit_right_certainty(operator, truthiness, certainty)
-       when operator in [:&&, :and] do
-    case truthiness do
-      :truthy -> certainty
-      :falsy -> :unreachable
-      :unknown -> possible_certainty(certainty)
+    case default do
+      nil -> nil
+      default -> "DEFAULT #{default}"
     end
   end
 
-  defp short_circuit_right_certainty(operator, truthiness, certainty)
-       when operator in [:||, :or] do
-    case truthiness do
-      :truthy -> :unreachable
-      :falsy -> certainty
-      :unknown -> possible_certainty(certainty)
+  defp raw_expected_default(resource, attribute, type) do
+    case configured_migration_default(resource, attribute.name) do
+      {:ok, default} -> format_configured_default(default)
+      :error -> format_resource_default(resource, attribute, type)
     end
   end
 
-  defp selected_static_branch(:if, condition) do
-    case static_truthiness(condition) do
-      :truthy -> :do
-      :falsy -> :else
-      :unknown -> :unknown
+  defp sequence_backed_generated?(attribute, type, default),
+    do: attribute.generated? and type in [:bigint, :integer] and is_nil(default)
+
+  defp configured_migration_default(resource, attribute) do
+    defaults = AshPostgres.DataLayer.Info.migration_defaults(resource) || []
+
+    if is_map(defaults) do
+      Map.fetch(defaults, attribute)
+    else
+      Keyword.fetch(defaults, attribute)
     end
   end
 
-  defp selected_static_branch(:unless, condition) do
-    case static_truthiness(condition) do
-      :truthy -> :else
-      :falsy -> :do
-      :unknown -> :unknown
+  defp format_configured_default("nil"), do: nil
+
+  defp format_configured_default(default) when is_binary(default) do
+    case Regex.run(~r/^fragment\("(.*)"\)$/, default, capture: :all_but_first) do
+      [sql] -> sql
+      nil -> default
     end
   end
 
-  defp static_truthiness(condition) do
-    case static_guard_result(condition) do
-      :match ->
-        :truthy
+  defp format_configured_default(default), do: to_string(default)
 
-      :no_match ->
-        :falsy
+  defp format_resource_default(resource, %{generated?: true}, :uuid) do
+    repo = AshPostgres.DataLayer.Info.repo(resource, :mutate)
 
-      :unknown ->
-        case static_guard_value(condition) do
-          {:known, value} when value in [false, nil] -> :falsy
-          {:known, _value} -> :truthy
-          :unknown -> :unknown
+    if repo.use_builtin_uuidv7_function?(), do: "uuidv7()", else: "uuid_generate_v7()"
+  end
+
+  defp format_resource_default(_resource, %{default: default}, _type)
+       when is_nil(default) or is_function(default),
+       do: nil
+
+  defp format_resource_default(resource, %{default: []}, type),
+    do: "ARRAY[]::#{postgres_type(type, resource)}"
+
+  defp format_resource_default(resource, %{default: default}, type) when default == %{},
+    do: "'{}'::#{postgres_type(type, resource)}"
+
+  defp format_resource_default(resource, %{default: default}, type) when is_binary(default),
+    do: "'#{String.replace(default, "'", "''")}'::#{postgres_type(type, resource)}"
+
+  defp format_resource_default(_resource, %{default: default}, _type)
+       when is_boolean(default) or is_integer(default) or is_float(default),
+       do: to_string(default)
+
+  defp format_resource_default(resource, %{default: default}, type) when is_atom(default),
+    do: "'#{default}'::#{postgres_type(type, resource)}"
+
+  defp format_resource_default(_resource, _attribute, _type), do: nil
+
+  defp expected_primary_keys(table, resource) do
+    resource
+    |> migrated_attributes()
+    |> Enum.filter(& &1.primary_key?)
+    |> case do
+      [] -> MapSet.new()
+      _attributes -> MapSet.new([{table, postgres_identifier("#{table_name(table)}_pkey")}])
+    end
+  end
+
+  defp expected_constraints(table, resource) do
+    MapSet.union(
+      expected_primary_key_constraints(table, resource),
+      MapSet.union(
+        expected_foreign_key_constraints(table, resource),
+        expected_check_constraints(table, resource)
+      )
+    )
+  end
+
+  defp expected_primary_key_constraints(table, resource) do
+    attributes =
+      resource
+      |> migrated_attributes()
+      |> Enum.filter(& &1.primary_key?)
+
+    case attributes do
+      [] ->
+        MapSet.new()
+
+      attributes ->
+        name = postgres_identifier("#{table_name(table)}_pkey")
+        fields = Enum.map_join(attributes, ", ", &attribute_column/1)
+        MapSet.new([{table, name, "PRIMARY KEY (#{fields})"}])
+    end
+  end
+
+  defp expected_foreign_key_constraints(table, resource) do
+    resource
+    |> Ash.Resource.Info.relationships()
+    |> Enum.filter(&match?(%Ash.Resource.Relationships.BelongsTo{}, &1))
+    |> Enum.flat_map(fn relationship ->
+      with false <- ignored_reference?(resource, relationship),
+           true <- relationship_migration_visible?(resource, relationship),
+           %Ash.Resource.Attribute{} = source_attribute <-
+             Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
+        name = reference_name(table, source_attribute, resource, relationship)
+        definition = expected_reference_definition(resource, relationship)
+        [{table, name, definition}]
+      else
+        _value -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_check_constraints(table, resource) do
+    resource
+    |> AshPostgres.DataLayer.Info.check_constraints()
+    |> Enum.filter(& &1.check)
+    |> Enum.map(fn constraint ->
+      {table, postgres_identifier(constraint.name),
+       normalize_definition("CHECK (#{constraint.check})")}
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_reference_definition(resource, relationship) do
+    source_attribute = Ash.Resource.Info.attribute(resource, relationship.source_attribute)
+
+    destination_attribute =
+      Ash.Resource.Info.attribute(relationship.destination, relationship.destination_attribute)
+
+    reference = AshPostgres.DataLayer.Info.reference(resource, relationship.name)
+    source = attribute_column(source_attribute)
+    destination = attribute_column(destination_attribute)
+
+    {matched_sources, matched_destinations} =
+      ((reference && reference.match_with) || %{})
+      |> Enum.map(fn {source_name, destination_name} ->
+        {
+          resource |> Ash.Resource.Info.attribute(source_name) |> attribute_column(),
+          relationship.destination
+          |> Ash.Resource.Info.attribute(destination_name)
+          |> attribute_column()
+        }
+      end)
+      |> Enum.unzip()
+
+    sources = [source | matched_sources]
+    destinations = [destination | matched_destinations]
+
+    destination_table =
+      schema_table_identity(
+        relationship.context[:data_layer][:table] ||
+          AshPostgres.DataLayer.Info.table(relationship.destination),
+        relationship.context[:data_layer][:schema] ||
+          AshPostgres.DataLayer.Info.schema(relationship.destination)
+      )
+
+    [
+      "FOREIGN KEY (#{Enum.join(sources, ", ")})",
+      "REFERENCES #{destination_table}(#{Enum.join(destinations, ", ")})",
+      reference_match_type(reference),
+      reference_action("ON UPDATE", reference && reference.on_update),
+      reference_action("ON DELETE", reference && reference.on_delete),
+      reference_deferrability(reference)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+    |> normalize_definition()
+  end
+
+  defp reference_match_type(%{match_type: :simple}), do: nil
+
+  defp reference_match_type(%{match_type: type}) when type in [:full, :partial],
+    do: "MATCH #{type |> to_string() |> String.upcase()}"
+
+  defp reference_match_type(_reference), do: nil
+
+  defp reference_action(prefix, action) when action in [:delete, :update],
+    do: "#{prefix} CASCADE"
+
+  defp reference_action(prefix, action) when action in [:nilify, :nilify_all],
+    do: "#{prefix} SET NULL"
+
+  defp reference_action(prefix, :restrict), do: "#{prefix} RESTRICT"
+  defp reference_action(_prefix, _action), do: nil
+
+  defp reference_deferrability(%{deferrable: :initially}),
+    do: "DEFERRABLE INITIALLY DEFERRED"
+
+  defp reference_deferrability(%{deferrable: true}), do: "DEFERRABLE"
+  defp reference_deferrability(_reference), do: nil
+
+  defp expected_indexes(table, resource) do
+    MapSet.union(
+      expected_identity_indexes(table, resource),
+      MapSet.union(
+        expected_custom_indexes(table, resource),
+        expected_reference_indexes(table, resource)
+      )
+    )
+  end
+
+  defp expected_identity_indexes(table, resource) do
+    identity_index_names = AshPostgres.DataLayer.Info.identity_index_names(resource)
+    skipped = AshPostgres.DataLayer.Info.skip_unique_indexes(resource)
+
+    resource
+    |> Ash.Resource.Info.identities()
+    |> Enum.reject(&(&1.name in skipped))
+    |> Enum.map(fn identity ->
+      name = identity_index_names[identity.name] || "#{table_name(table)}_#{identity.name}_index"
+      name = postgres_identifier(name)
+      fields = expected_index_fields(resource, identity.keys, identity.all_tenants?)
+      where = expected_identity_where(resource, identity)
+
+      definition =
+        expected_index_definition(
+          true,
+          :btree,
+          fields,
+          nil,
+          where,
+          identity.nils_distinct?
+        )
+
+      {table, name, definition}
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_custom_indexes(table, resource) do
+    schema = AshPostgres.DataLayer.Info.schema(resource)
+
+    resource
+    |> AshPostgres.DataLayer.Info.custom_indexes()
+    |> Enum.map(fn index ->
+      table = schema_table_identity(index.table || table_name(table), index.prefix || schema)
+
+      name =
+        index.name || AshPostgres.CustomIndex.name(table_name(table), %{fields: index.fields})
+
+      name = name |> to_string() |> postgres_identifier()
+      fields = expected_index_fields(resource, index.fields, index.all_tenants?)
+      include = Enum.map(index.include || [], &expected_index_field(resource, &1))
+      where = expected_custom_index_where(resource, index.where)
+
+      definition =
+        expected_index_definition(
+          index.unique,
+          index.using || :btree,
+          fields,
+          include,
+          where,
+          index.nulls_distinct
+        )
+
+      {table, name, definition}
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_reference_indexes(table, resource) do
+    resource
+    |> Ash.Resource.Info.relationships()
+    |> Enum.filter(&match?(%Ash.Resource.Relationships.BelongsTo{}, &1))
+    |> Enum.flat_map(fn relationship ->
+      with false <- ignored_reference?(resource, relationship),
+           true <- relationship_migration_visible?(resource, relationship),
+           true <- reference_index?(resource, relationship),
+           %Ash.Resource.Attribute{} = source_attribute <-
+             Ash.Resource.Info.attribute(resource, relationship.source_attribute) do
+        source = to_string(source_attribute.source || source_attribute.name)
+        name = postgres_identifier("#{table_name(table)}_#{source}_index")
+        fields = [attribute_column(source_attribute)]
+        [{table, name, expected_index_definition(false, :btree, fields, nil, nil, true)}]
+      else
+        _value -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp expected_index_fields(resource, fields, all_tenants?) do
+    fields = Enum.map(fields, &expected_index_field(resource, &1))
+
+    case Ash.Resource.Info.multitenancy_strategy(resource) do
+      :attribute when not all_tenants? ->
+        tenant_attribute = Ash.Resource.Info.multitenancy_attribute(resource)
+        Enum.uniq([expected_index_field(resource, tenant_attribute) | fields])
+
+      _strategy ->
+        fields
+    end
+  end
+
+  defp expected_index_field(resource, field) when is_atom(field) do
+    case Ash.Resource.Info.attribute(resource, field) do
+      nil -> to_string(field)
+      attribute -> attribute_column(attribute)
+    end
+  end
+
+  defp expected_index_field(_resource, field), do: normalize_definition(to_string(field))
+
+  defp expected_identity_where(resource, identity) do
+    identity_where = AshPostgres.DataLayer.Info.identity_wheres_to_sql(resource)[identity.name]
+    base_filter = AshPostgres.DataLayer.Info.base_filter_sql(resource)
+
+    case {identity_where, base_filter} do
+      {nil, nil} -> nil
+      {where, nil} -> "(#{where})"
+      {nil, base_filter} -> "(#{base_filter})"
+      {where, base_filter} -> "(#{where}) AND (#{base_filter})"
+    end
+  end
+
+  defp expected_custom_index_where(resource, where) do
+    case {AshPostgres.DataLayer.Info.base_filter_sql(resource), where} do
+      {nil, nil} -> nil
+      {nil, where} -> where
+      {base_filter, nil} -> base_filter
+      {base_filter, where} -> base_filter <> " AND " <> where
+    end
+  end
+
+  defp expected_index_definition(unique?, using, fields, include, where, nulls_distinct?) do
+    [
+      if(unique?, do: "UNIQUE", else: nil),
+      "USING #{using}",
+      "(#{Enum.join(fields, ", ")})",
+      if(include in [nil, []], do: nil, else: "INCLUDE (#{Enum.join(include, ", ")})"),
+      if(unique? and nulls_distinct? == false, do: "NULLS NOT DISTINCT", else: nil),
+      if(where, do: "WHERE #{normalize_definition(where)}", else: nil)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp ignored_reference?(resource, relationship) do
+    case AshPostgres.DataLayer.Info.reference(resource, relationship.name) do
+      nil -> false
+      reference -> reference.ignore?
+    end
+  end
+
+  defp relationship_migration_visible?(resource, relationship) do
+    reference = AshPostgres.DataLayer.Info.reference(resource, relationship.name)
+    matched_attributes = (reference && reference.match_with) || []
+    {matched_sources, matched_destinations} = Enum.unzip(matched_attributes)
+
+    source_attributes =
+      [relationship.source_attribute | matched_sources]
+      |> MapSet.new()
+
+    destination_attributes =
+      [relationship.destination_attribute | matched_destinations]
+      |> MapSet.new()
+
+    MapSet.subset?(source_attributes, migrated_attribute_names(resource)) and
+      MapSet.subset?(
+        destination_attributes,
+        migrated_attribute_names(relationship.destination)
+      )
+  end
+
+  defp migrated_attribute_names(resource) do
+    resource
+    |> migrated_attributes()
+    |> Enum.map(& &1.name)
+    |> MapSet.new()
+  end
+
+  defp reference_index?(resource, relationship) do
+    case AshPostgres.DataLayer.Info.reference(resource, relationship.name) do
+      nil -> false
+      reference -> reference.index?
+    end
+  end
+
+  defp reference_name(table, source_attribute, resource, relationship) do
+    case AshPostgres.DataLayer.Info.reference(resource, relationship.name) do
+      %{name: name} when is_binary(name) ->
+        postgres_identifier(name)
+
+      _reference ->
+        postgres_identifier(
+          "#{table_name(table)}_#{source_attribute.source || source_attribute.name}_fkey"
+        )
+    end
+  end
+
+  defp migration_authoritative?(resource) do
+    Ash.Resource.Info.data_layer(resource) == AshPostgres.DataLayer and
+      AshPostgres.DataLayer.Info.migrate?(resource)
+  end
+
+  defp reject_framework_objects(objects, class) do
+    objects
+    |> Enum.reject(&framework_owned?(class, &1))
+    |> MapSet.new()
+  end
+
+  defp framework_owned?(class, identity) when is_binary(identity),
+    do: MapSet.member?(Map.get(@framework_objects, class, MapSet.new()), identity)
+
+  defp framework_owned?(_class, _identity), do: false
+
+  defp resource_table_identity(resource) do
+    schema_table_identity(
+      AshPostgres.DataLayer.Info.table(resource),
+      AshPostgres.DataLayer.Info.schema(resource)
+    )
+  end
+
+  defp schema_table_identity(table, schema) when schema in [nil, :public, "public"],
+    do: PostgresDump.configured_identifier(table)
+
+  defp schema_table_identity(table, schema) when is_atom(schema) or is_binary(schema),
+    do:
+      "#{PostgresDump.configured_identifier(schema)}.#{PostgresDump.configured_identifier(table)}"
+
+  defp table_name(table) do
+    table = to_string(table)
+    PostgresDump.unqualified_identifier_value(table) || table
+  end
+
+  defp postgres_identifier(name) do
+    name
+    |> to_string()
+    |> utf8_byte_prefix(63)
+    |> PostgresDump.configured_identifier()
+  end
+
+  defp sequence_identity(table, attribute) do
+    sequence =
+      postgres_identifier("#{table_name(table)}_#{attribute.source || attribute.name}_seq")
+
+    case PostgresDump.identifier_parts(table) do
+      [schema, _table] -> "#{schema}.#{sequence}"
+      [_table] -> sequence
+    end
+  end
+
+  defp normalize_event_trigger(name), do: "#{trim_identifier(name)} ON DATABASE"
+
+  defp trigger_state_identity(statement) do
+    statement = String.trim(statement)
+
+    case PostgresDump.identifier_after(statement, "ALTER EVENT TRIGGER ") do
+      {name, rest} ->
+        if Regex.match?(~r/^ (?:DISABLE|ENABLE(?: REPLICA| ALWAYS)?);$/s, rest),
+          do: normalize_event_trigger(name)
+
+      nil ->
+        with {table, rest} <- alter_table_statement(statement),
+             {name, _rest} <- trigger_name_after_state(rest) do
+          "#{name} ON #{table}"
+        else
+          _not_trigger_state -> nil
         end
     end
   end
 
-  defp possible_certainty(_certainty), do: :possible
-  defp with_certainty(operation, :definite), do: operation
-  defp with_certainty(operation, :possible), do: {:possible, operation}
-
-  defp table_operation(
-         {:rename, _metadata,
-          [
-            {:table, _old_table_metadata, [old_table | old_table_options]},
-            [to: {:table, _new_table_metadata, [new_table | new_table_options]}]
-          ]}
-       ) do
-    {:rename, table_identity(old_table, old_table_options),
-     table_identity(new_table, new_table_options)}
+  defp trigger_name_after_state(rest) do
+    Enum.find_value(
+      [
+        "DISABLE TRIGGER ",
+        "ENABLE TRIGGER ",
+        "ENABLE REPLICA TRIGGER ",
+        "ENABLE ALWAYS TRIGGER "
+      ],
+      &PostgresDump.identifier_after(rest, &1)
+    )
   end
 
-  defp table_operation(
-         {operation, _metadata, [{:table, _table_metadata, [table | table_options]} | _options]}
-       )
-       when operation in @table_lifecycle_operations do
-    lifecycle_operation = if operation in @table_create_operations, do: :create, else: :drop
-    {lifecycle_operation, table_identity(table, table_options)}
-  end
-
-  defp table_operation(_node), do: nil
-
-  defp table_identity(table, options, fallback_prefix \\ nil)
-
-  defp table_identity(table, options, fallback_prefix)
-       when is_atom(table) or is_binary(table) do
-    options = List.flatten(options)
-    prefix = migration_table_prefix(options, fallback_prefix)
-
-    schema_table_identity(table, prefix)
-  end
-
-  defp table_identity(table, _options, _fallback_prefix) do
-    raise ArgumentError,
-          "cannot statically resolve migration table identity: #{Macro.to_string(table)}"
-  end
-
-  defp migration_table_prefix(options, fallback) do
-    case Keyword.fetch(options, :prefix) do
-      {:ok, prefix} when is_nil(prefix) or is_atom(prefix) or is_binary(prefix) ->
-        prefix
-
-      {:ok, prefix} ->
-        raise ArgumentError,
-              "cannot statically resolve migration table prefix: #{Macro.to_string(prefix)}"
-
-      :error ->
-        fallback
+  defp rls_state_identity(statement) do
+    with {table, rest} <- alter_table_statement(String.trim(statement)),
+         state <- PostgresDump.normalize_definition(rest),
+         true <-
+           state in [
+             "ENABLE ROW LEVEL SECURITY",
+             "DISABLE ROW LEVEL SECURITY",
+             "FORCE ROW LEVEL SECURITY",
+             "NO FORCE ROW LEVEL SECURITY"
+           ] do
+      table
+    else
+      _not_rls_state -> nil
     end
   end
 
-  defp schema_table_identity(table, prefix) when prefix in [nil, :public, "public"],
-    do: to_string(table)
+  defp alter_table_statement(statement) do
+    PostgresDump.identifier_after(statement, "ALTER TABLE ONLY ") ||
+      PostgresDump.identifier_after(statement, "ALTER TABLE ")
+  end
 
-  defp schema_table_identity(table, prefix) when is_atom(prefix) or is_binary(prefix),
-    do: "#{prefix}.#{table}"
+  defp parse_index(line) do
+    line = String.trim(line)
 
-  defp resource_table_identity(table, resource),
-    do: schema_table_identity(table, AshPostgres.DataLayer.Info.schema(resource))
+    {unique, index} =
+      case PostgresDump.identifier_after(line, "CREATE UNIQUE INDEX ") do
+        nil -> {false, PostgresDump.identifier_after(line, "CREATE INDEX ")}
+        index -> {true, index}
+      end
 
-  defp table_prefix_from_identity(identity) do
-    case String.split(identity, ".", parts: 2) do
-      [_table] -> nil
-      [prefix, _table] -> prefix
+    with {name, rest} <- index,
+         true <- String.starts_with?(rest, " ON "),
+         rest <- String.replace_prefix(rest, " ON ", "") |> String.trim_leading(),
+         rest <- String.replace_prefix(rest, "ONLY ", ""),
+         {table, definition} <- PostgresDump.take_identifier(rest) do
+      unique = if unique, do: "UNIQUE ", else: ""
+      {table, name, normalize_definition(unique <> definition)}
+    else
+      _not_index -> nil
     end
   end
 
-  defp table_name_from_identity(identity) do
-    case String.split(identity, ".", parts: 2) do
-      [table] -> table
-      [_prefix, table] -> table
+  defp materialized_view_index_identity(statement, materialized_views) do
+    case parse_index(statement) do
+      {table, name, _definition} ->
+        if MapSet.member?(materialized_views, table), do: "#{name} ON #{table}"
+
+      nil ->
+        nil
     end
   end
 
-  defp apply_table_operation({:create, table}, tables), do: MapSet.put(tables, table)
-  defp apply_table_operation({:drop, table}, tables), do: MapSet.delete(tables, table)
-
-  defp apply_table_operation({:possible, {:create, table}}, tables),
-    do: MapSet.put(tables, table)
-
-  defp apply_table_operation({:possible, {:drop, _table}}, tables), do: tables
-
-  defp apply_table_operation({:possible, {:rename, _old_table, new_table}}, tables),
-    do: MapSet.put(tables, new_table)
-
-  defp apply_table_operation({:rename, old_table, new_table}, tables) do
-    tables
-    |> MapSet.delete(old_table)
-    |> MapSet.put(new_table)
+  defp materialized_view_index_identities(inventory) do
+    inventory.indexes
+    |> Enum.filter(fn {table, _name, _definition} ->
+      MapSet.member?(inventory.materialized_views, table)
+    end)
+    |> Enum.map(fn {table, name, _definition} -> "#{name} ON #{table}" end)
+    |> MapSet.new()
   end
 
-  defp apply_foreign_key_operation({:put, foreign_key}, foreign_keys) do
-    Map.put(foreign_keys, foreign_key_identity(foreign_key), MapSet.new([foreign_key]))
+  defp normalize_definition(definition) do
+    definition
+    |> PostgresDump.normalize_definition()
+    |> normalize_foreign_key_definition()
+    |> normalize_sequence_regclass()
   end
 
-  defp apply_foreign_key_operation({:possible, {:put, foreign_key}}, foreign_keys) do
-    Map.update(
-      foreign_keys,
-      foreign_key_identity(foreign_key),
-      MapSet.new([foreign_key]),
-      &MapSet.put(&1, foreign_key)
+  defp normalize_sequence_regclass(definition) do
+    Regex.replace(
+      ~r/nextval\('(?<identity>(?:''|[^'])+)'::regclass\)/,
+      definition,
+      fn _match, identity ->
+        identity =
+          identity
+          |> String.replace("''", "'")
+          |> normalize_identity()
+          |> postgres_string_literal()
+
+        "nextval('#{identity}'::regclass)"
+      end
     )
   end
 
-  defp apply_foreign_key_operation({:remove, table, column}, foreign_keys),
-    do: Map.delete(foreign_keys, {table, column})
+  defp postgres_string_literal(value), do: String.replace(value, "'", "''")
 
-  defp apply_foreign_key_operation({:possible, {:remove, _table, _column}}, foreign_keys),
-    do: foreign_keys
+  defp normalize_foreign_key_definition(definition) do
+    case foreign_key_definition_parts(definition) do
+      {sources, table, destinations, suffix} ->
+        pairs =
+          sources
+          |> PostgresDump.split_outside_quotes(",")
+          |> Enum.map(&trim_identifier/1)
+          |> Enum.zip(
+            destinations
+            |> PostgresDump.split_outside_quotes(",")
+            |> Enum.map(&trim_identifier/1)
+          )
+          |> Enum.sort()
 
-  defp apply_foreign_key_operation({:drop_table, table, cascading?}, foreign_keys) do
-    reject_foreign_keys(foreign_keys, fn
-      {source_table, _source_column, destination_table, _destination_column, _constraint_name} ->
-        source_table == table or (cascading? and destination_table == table)
-    end)
+        {sources, destinations} = Enum.unzip(pairs)
+
+        "FOREIGN KEY (#{Enum.join(sources, ", ")}) REFERENCES #{table}(#{Enum.join(destinations, ", ")})#{suffix}"
+
+      nil ->
+        definition
+    end
   end
 
-  defp apply_foreign_key_operation(
-         {:possible, {:drop_table, _table, _cascading?}},
-         foreign_keys
-       ),
-       do: foreign_keys
-
-  defp apply_foreign_key_operation({:drop_constraint, table, name}, foreign_keys) do
-    reject_foreign_keys(foreign_keys, fn
-      {source_table, _source_column, _destination_table, _destination_column, constraint_name} ->
-        source_table == table and constraint_name == name
-    end)
+  defp normalize_identifier_list(attributes) do
+    attributes
+    |> PostgresDump.split_outside_quotes(",")
+    |> Enum.map_join(", ", &trim_identifier/1)
   end
 
-  defp apply_foreign_key_operation(
-         {:possible, {:drop_constraint, _table, _name}},
-         foreign_keys
-       ),
-       do: foreign_keys
-
-  defp apply_foreign_key_operation({:rename_table, old_table, new_table}, foreign_keys) do
-    remap_foreign_keys(foreign_keys, &rename_foreign_key_table(&1, old_table, new_table))
+  defp normalize_identity(identity) when is_binary(identity) do
+    identity
+    |> String.trim()
+    |> String.trim_trailing(";")
+    |> String.trim_trailing(",")
+    |> PostgresDump.normalize_identifier()
   end
 
-  defp apply_foreign_key_operation(
-         {:possible, {:rename_table, old_table, new_table}},
-         foreign_keys
-       ) do
-    add_possible_foreign_key_variants(
-      foreign_keys,
-      &rename_foreign_key_table(&1, old_table, new_table)
-    )
-  end
+  defp normalize_identity(nil), do: nil
 
-  defp apply_foreign_key_operation(
-         {:rename_column, table, old_column, new_column},
-         foreign_keys
-       ) do
-    remap_foreign_keys(
-      foreign_keys,
-      &rename_foreign_key_column(&1, table, old_column, new_column)
-    )
-  end
-
-  defp apply_foreign_key_operation(
-         {:possible, {:rename_column, table, old_column, new_column}},
-         foreign_keys
-       ) do
-    add_possible_foreign_key_variants(
-      foreign_keys,
-      &rename_foreign_key_column(&1, table, old_column, new_column)
-    )
-  end
-
-  defp foreign_key_identity({table, column, _destination_table, _destination_column, _name}),
-    do: {table, column}
-
-  defp rename_foreign_key_table(
-         {source_table, source_column, destination_table, destination_column, constraint_name},
-         old_table,
-         new_table
-       ) do
-    source_table = if source_table == old_table, do: new_table, else: source_table
-    destination_table = if destination_table == old_table, do: new_table, else: destination_table
-
-    {source_table, source_column, destination_table, destination_column, constraint_name}
-  end
-
-  defp rename_foreign_key_column(
-         {source_table, source_column, destination_table, destination_column, constraint_name},
-         table,
-         old_column,
-         new_column
-       ) do
-    source_column =
-      if source_table == table and source_column == old_column,
-        do: new_column,
-        else: source_column
-
-    destination_column =
-      if destination_table == table and destination_column == old_column,
-        do: new_column,
-        else: destination_column
-
-    {source_table, source_column, destination_table, destination_column, constraint_name}
-  end
-
-  defp remap_foreign_keys(foreign_keys, mapper) do
-    Enum.reduce(foreign_keys, %{}, fn {_identity, candidates}, remapped ->
-      Enum.reduce(candidates, remapped, fn foreign_key, remapped ->
-        foreign_key = mapper.(foreign_key)
-
-        Map.update(
-          remapped,
-          foreign_key_identity(foreign_key),
-          MapSet.new([foreign_key]),
-          &MapSet.put(&1, foreign_key)
-        )
-      end)
-    end)
-  end
-
-  defp add_possible_foreign_key_variants(foreign_keys, mapper) do
-    Enum.reduce(foreign_keys, foreign_keys, fn {_identity, candidates}, expanded ->
-      Enum.reduce(candidates, expanded, fn foreign_key, expanded ->
-        possible_foreign_key = mapper.(foreign_key)
-
-        Map.update(
-          expanded,
-          foreign_key_identity(possible_foreign_key),
-          MapSet.new([possible_foreign_key]),
-          &MapSet.put(&1, possible_foreign_key)
-        )
-      end)
-    end)
-  end
-
-  defp reject_foreign_keys(foreign_keys, reject?) do
-    Enum.reduce(foreign_keys, %{}, fn {identity, candidates}, remaining ->
-      candidates = MapSet.reject(candidates, reject?)
-
-      if MapSet.size(candidates) == 0,
-        do: remaining,
-        else: Map.put(remaining, identity, candidates)
-    end)
-  end
-end
-
-defmodule OfficeGraph.TestSupport.MigrationConformanceSupport.AuditParentResource do
-  @moduledoc false
-
-  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
-
-  postgres do
-    table "parents"
-    schema "audit"
-    repo OfficeGraph.Repo
-    migrate? false
-  end
-
-  attributes do
-    uuid_primary_key :id
-  end
-end
-
-defmodule OfficeGraph.TestSupport.MigrationConformanceSupport.AuditChildResource do
-  @moduledoc false
-
-  use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer
-
-  postgres do
-    table "children"
-    schema "audit"
-    repo OfficeGraph.Repo
-    migrate? false
-  end
-
-  attributes do
-    uuid_primary_key :id
-    attribute :parent_id, :uuid
-  end
+  defp trim_identifier(identifier), do: normalize_identity(identifier)
 end
