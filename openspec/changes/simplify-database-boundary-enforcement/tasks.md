@@ -22,5 +22,5 @@
 - [x] 3.2 Switch canonical enforcement to the replacement gates
 - [x] 3.3 Delete the symbolic source analyzer, migration interpreter, and synthetic semantic fixtures
 - [x] 3.4 Run the full test suite, strict OpenSpec validation, and canonical verification
-- [ ] 3.5 Publish `codex/remove-symbolic-database-analyzer` on migration conformance
-- [ ] 3.6 Close PR 37 with links to the replacement stack
+- [x] 3.5 Publish `codex/remove-symbolic-database-analyzer` on migration conformance
+- [x] 3.6 Close PR 37 with links to the replacement stack
