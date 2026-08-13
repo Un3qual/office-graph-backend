@@ -2,10 +2,9 @@ ExUnit.start()
 Ecto.Adapters.SQL.Sandbox.mode(OfficeGraph.Repo, :manual)
 
 for path <- [
-      "credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex",
-      "credo_checks/office_graph/project_boundaries/database_boundary_gate.ex",
       "credo_checks/office_graph/project_boundaries/database_primitive_policy.ex",
       "credo_checks/office_graph/project_boundaries/database_primitive_scanner.ex",
+      "credo_checks/office_graph/project_boundaries/database_boundary_gate.ex",
       "credo_checks/office_graph/project_boundaries/database_dependency_audit.ex",
       "credo_checks/office_graph/project_boundaries/database_structural_gate.ex",
       "credo_checks/office_graph/project_boundaries/planning_boundary.ex",

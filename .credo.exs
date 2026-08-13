@@ -12,7 +12,11 @@
       requires: [
         Path.join(
           __DIR__,
-          "credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex"
+          "credo_checks/office_graph/project_boundaries/database_primitive_policy.ex"
+        ),
+        Path.join(
+          __DIR__,
+          "credo_checks/office_graph/project_boundaries/database_primitive_scanner.ex"
         ),
         Path.join(
           __DIR__,

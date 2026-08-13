@@ -121,6 +121,7 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitivePolicy do
                           :transaction
                         ])
   @postgres_connection_raw MapSet.new([:execute, :execute_ddl, :prepare_execute, :query])
+  @ecto_query_raw MapSet.new([:fragment, :unsafe_fragment])
   @postgres_adapter_direct MapSet.new([
                              :execute,
                              :lock_for_migrations,
@@ -186,6 +187,10 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitivePolicy do
           MapSet.member?(@postgres_connection_raw, operation) ->
         :raw_sql
 
+      module in ["Ecto.Query", "Ecto.Query.API"] and
+          MapSet.member?(@ecto_query_raw, operation) ->
+        :raw_sql
+
       MapSet.member?(@postgrex_modules, module) and
           MapSet.member?(@postgrex_raw, operation) ->
         :raw_sql
@@ -228,6 +233,8 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitivePolicy do
       "Ecto.Migration",
       "Ecto.Migrator",
       "Ecto.Multi",
+      "Ecto.Query",
+      "Ecto.Query.API",
       "OfficeGraph.Repo"
     ] or MapSet.member?(@postgrex_modules, module) or
       MapSet.member?(@private_direct_modules, module)
@@ -236,4 +243,32 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitivePolicy do
   @spec construct(String.t(), atom()) :: String.t()
   def construct("OfficeGraph.Repo", operation), do: "Repo.#{operation}"
   def construct(module, operation), do: "#{module}.#{operation}"
+
+  @spec database_receiver_operation?(atom(), atom()) :: boolean()
+  def database_receiver_operation?(receiver, operation)
+      when receiver in [:database, :db, :repo] do
+    not is_nil(classify("OfficeGraph.Repo", operation))
+  end
+
+  def database_receiver_operation?(receiver, operation)
+      when receiver in [:conn, :connection] do
+    not is_nil(classify("DBConnection", operation)) or
+      not is_nil(classify("Postgrex", operation))
+  end
+
+  def database_receiver_operation?(receiver, operation)
+      when receiver in [:adapter, :sql] do
+    not is_nil(classify("Ecto.Adapters.SQL", operation)) or
+      not is_nil(classify("Ecto.Adapters.Postgres", operation))
+  end
+
+  def database_receiver_operation?(_receiver, _operation), do: false
+
+  @spec canonical_module(String.t() | nil) :: String.t() | nil
+  def canonical_module("Repo"), do: "OfficeGraph.Repo"
+  def canonical_module("SQL"), do: "Ecto.Adapters.SQL"
+  def canonical_module("Migration"), do: "Ecto.Migration"
+  def canonical_module("Multi"), do: "Ecto.Multi"
+  def canonical_module("Query"), do: "Ecto.Query"
+  def canonical_module(module), do: module
 end

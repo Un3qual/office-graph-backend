@@ -2,9 +2,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseStructuralGate do
   @moduledoc """
   Combines the finite source scanner with module-level BEAM dependency evidence.
 
-  The existing database boundary remains active while this additive gate is
-  proven. Compiler imports reconcile only with an explicit source target in the
-  same tracked file; the gate performs no source or instruction dataflow.
+  Compiler imports reconcile only with an explicit source target in the same
+  tracked file; the gate performs no source or instruction dataflow.
   """
 
   alias OfficeGraph.ProjectQuality.DatabaseBoundaryGate
@@ -21,7 +20,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseStructuralGate do
 
     approved = DatabaseBoundaryGate.load_approved_inventory!(approved_path)
 
-    DatabaseBoundaryGate.compare(source, approved) ++ compiled_diagnostics(source, compiled)
+    case DatabaseBoundaryGate.validate_approved_inventory(root, approved) do
+      [] ->
+        DatabaseBoundaryGate.compare(source, approved) ++ compiled_diagnostics(source, compiled)
+
+      diagnostics ->
+        diagnostics
+    end
   end
 
   @spec compiled_diagnostics([map()], [map()]) :: [map()]

@@ -31,7 +31,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
                               ["fingerprint", "terminal_objects"] ++ @approved_metadata_fields
   @approval_evidence_file "database-exception-approvals.json"
 
-  alias OfficeGraph.ProjectQuality.DatabaseBoundaryScanner
+  alias OfficeGraph.ProjectQuality.DatabasePrimitiveScanner
 
   @spec compare([map()], [map()]) :: [map()]
   def compare(current, approved_exceptions) do
@@ -62,7 +62,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
         "openspec/specs/ecto-sql-boundaries/approved-database-exceptions.json"
       )
 
-    current = DatabaseBoundaryScanner.scan_repository(root) |> Enum.map(&normalize_entry/1)
+    current = DatabasePrimitiveScanner.scan_repository(root) |> Enum.map(&normalize_entry/1)
 
     approved_exceptions =
       approved_path
@@ -136,7 +136,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
   end
 
   defp approved_match(approved_exceptions, occurrence) do
-    if occurrence["approval"] == :unresolved_sql do
+    if occurrence["approval"] in [:unresolved_sql, :unsupported_indirection, :unsupported_source] do
       :unresolved
     else
       Enum.reduce_while(approved_exceptions, :new, fn approved_exception, match ->

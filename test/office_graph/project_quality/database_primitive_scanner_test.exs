@@ -52,6 +52,14 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScannerTest do
            }
   end
 
+  test "accounts for the piped argument in the compiled target arity" do
+    [occurrence] =
+      scan("lib/example.ex", "query |> OfficeGraph.Repo.all()")
+
+    assert occurrence.construct == "Repo.all"
+    assert occurrence.target_arity == 1
+  end
+
   test "rejects explicit low-level source indirection instead of resolving it" do
     sources = [
       {"lib/delegate.ex", "defdelegate all(query), to: OfficeGraph.Repo"},
@@ -67,6 +75,21 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScannerTest do
              {"lib/capture.ex", :unsupported_indirection},
              {"lib/apply.ex", :unsupported_indirection}
            ]
+  end
+
+  test "rejects database-shaped variable calls without following their dataflow" do
+    [occurrence] = scan("lib/example.ex", ~s'repo.query!("SELECT 1", [])')
+
+    assert occurrence.construct == "source.database_receiver_call"
+    assert occurrence.approval == :unsupported_indirection
+  end
+
+  test "rejects low-level imports in sources without a compiler artifact" do
+    [occurrence] =
+      scan("priv/repo/seeds.exs", "import Ecto.Adapters.SQL, only: [query!: 3]")
+
+    assert occurrence.construct == "source.uncompiled_low_level_directive"
+    assert occurrence.approval == :unsupported_indirection
   end
 
   test "does not classify inert Elixir syntax" do
@@ -96,6 +119,86 @@ defmodule OfficeGraph.ProjectQuality.DatabasePrimitiveScannerTest do
     assert occurrence.class == :raw_sql
     assert occurrence.construct == "Repo.query!"
     assert occurrence.approval == :unresolved_sql
+  end
+
+  test "classifies query fragments without resolving imports" do
+    [occurrence] = scan("lib/example.ex", ~s'fragment("lower(?)", name)')
+
+    assert occurrence.class == :raw_sql
+    assert occurrence.construct == "fragment"
+  end
+
+  test "classifies SQL-bearing AshPostgres DSL options" do
+    occurrences =
+      scan("lib/example.ex", """
+      postgres do
+        base_filter_sql "archived_at IS NULL"
+
+        custom_indexes do
+          index [:status], where: "archived_at IS NULL"
+        end
+
+        check_constraints do
+          check_constraint :status, "valid_status", check: "status <> ''"
+        end
+      end
+      """)
+
+    assert Enum.map(occurrences, & &1.construct) == [
+             "AshPostgres.base_filter_sql",
+             "AshPostgres.custom_index.where",
+             "AshPostgres.check_constraint.check"
+           ]
+  end
+
+  test "fingerprints a custom statement block and rejects dynamic payloads" do
+    [static] =
+      scan("lib/static.ex", """
+      postgres do
+        custom_statements do
+          statement :search_index do
+            up "CREATE INDEX search_index ON records (name)"
+            down "DROP INDEX search_index"
+          end
+        end
+      end
+      """)
+
+    [dynamic] =
+      scan("lib/dynamic.ex", """
+      postgres do
+        custom_statements do
+          statement :search_index do
+            up System.fetch_env!("CREATE_SQL")
+            down "DROP INDEX search_index"
+          end
+        end
+      end
+      """)
+
+    assert static.construct == "AshPostgres.custom_statements"
+    refute Map.has_key?(static, :approval)
+    assert dynamic.approval == :unresolved_sql
+  end
+
+  test "classifies a database client launched from Elixir" do
+    [occurrence] = scan("lib/example.ex", ~s'System.cmd("psql", ["--file", path])')
+
+    assert occurrence.construct == "System.cmd.psql"
+    assert occurrence.approval == :unsupported_script_token
+  end
+
+  test "continues scanning expressions passed to a database client" do
+    occurrences =
+      scan(
+        "lib/example.ex",
+        ~s'System.cmd("psql", [OfficeGraph.Repo.query!(sql, [])])'
+      )
+
+    assert occurrences |> Enum.map(& &1.construct) |> Enum.sort() == [
+             "Repo.query!",
+             "System.cmd.psql"
+           ]
   end
 
   test "uses one conservative token rule for executable scripts" do

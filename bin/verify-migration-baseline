@@ -12,7 +12,8 @@ mix ecto.rollback --all --quiet
 mix ecto.migrate --quiet
 mix run -e 'OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()'
 mix run \
-  -r credo_checks/office_graph/project_boundaries/database_boundary_scanner.ex \
+  -r credo_checks/office_graph/project_boundaries/database_primitive_policy.ex \
+  -r credo_checks/office_graph/project_boundaries/database_primitive_scanner.ex \
   -r credo_checks/office_graph/project_boundaries/database_boundary_gate.ex \
   -e 'OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!(OfficeGraph.ProjectQuality.DatabaseBoundaryGate.approved_terminal_objects!(File.cwd!()))'
 

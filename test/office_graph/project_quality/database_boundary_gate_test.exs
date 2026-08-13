@@ -1,7 +1,7 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
   use ExUnit.Case, async: true
 
-  alias OfficeGraph.ProjectQuality.{DatabaseBoundaryGate, DatabaseBoundaryScanner}
+  alias OfficeGraph.ProjectQuality.{DatabaseBoundaryGate, DatabasePrimitiveScanner}
 
   test "accepts a current occurrence with an exact approved exception" do
     current = [occurrence("sha256:current")]
@@ -19,6 +19,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     assert diagnostic.kind == :unresolved
     assert diagnostic.approval == :unresolved_sql
     assert diagnostic.fingerprint == "sha256:current"
+  end
+
+  test "does not allow an exact fingerprint to approve unsupported indirection" do
+    current = [Map.put(occurrence("sha256:current"), :approval, :unsupported_indirection)]
+    approved = [approved_entry("sha256:current")]
+
+    [diagnostic] = DatabaseBoundaryGate.compare(current, approved)
+
+    assert diagnostic.kind == :unresolved
+    assert diagnostic.approval == :unsupported_indirection
   end
 
   test "accepts nullable function metadata for module-level occurrences" do
@@ -363,7 +373,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
         fn path -> %{path: path, source: File.read!(path)} end
       )
 
-    assert DatabaseBoundaryScanner.scan_sources(sources) == []
+    assert DatabasePrimitiveScanner.scan_sources(sources) == []
   end
 
   defp occurrence(fingerprint) do
@@ -428,7 +438,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGateTest do
     {_output, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
 
     [occurrence] =
-      DatabaseBoundaryScanner.scan_sources([%{path: "lib/example.ex", source: source}])
+      DatabasePrimitiveScanner.scan_sources([%{path: "lib/example.ex", source: source}])
 
     test.(root, source, occurrence)
   end
