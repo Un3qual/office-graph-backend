@@ -113,6 +113,7 @@ defmodule OfficeGraph.ProjectQualityGateTest do
                 "ecto.rollback --all --quiet",
                 "ecto.migrate --quiet",
                 "run -e OfficeGraph.Release.setup!(); OfficeGraph.Release.setup!()",
+                "run -e OfficeGraph.TestSupport.MigrationConformanceSupport.verify_terminal_database!()",
                 "test test/office_graph/release_setup_test.exs",
                 "verify"
               ]}

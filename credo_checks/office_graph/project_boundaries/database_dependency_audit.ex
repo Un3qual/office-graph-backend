@@ -20,10 +20,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
                      "Postgrex.SimpleConnection"
                    ])
   @direct_modules MapSet.new([
+                    "Ecto.Adapters.Postgres",
+                    "Ecto.Migration.Runner",
                     "Ecto.Migrator",
                     "Ecto.Multi",
                     "Ecto.Repo.Queryable",
+                    "Ecto.Repo.Registry",
                     "Ecto.Repo.Schema",
+                    "Ecto.Repo.Supervisor",
                     "Ecto.Repo.Transaction"
                   ])
   @repo_raw_sql_operations MapSet.new([:query, :query!, :query_many, :query_many!])
@@ -49,6 +53,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
                             :insert_all,
                             :insert_or_update,
                             :insert_or_update!,
+                            :load,
                             :one,
                             :one!,
                             :preload,

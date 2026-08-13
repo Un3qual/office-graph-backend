@@ -23,7 +23,7 @@
 - [x] 4.1 Replace synthetic semantic scanner tests with direct source, compiled import, fingerprint, and false-positive tests
 - [x] 4.2 Add terminal dump parsing and migrated-baseline comparison tests for supported object classes
 - [ ] 4.3 Run focused tests, strict OpenSpec validation, and the canonical Nix verification pipeline
-- [ ] 4.4 Perform a final anti-slop review of module size, ownership, and finite policy tables
+- [x] 4.4 Perform a final anti-slop review of module size, ownership, and finite policy tables
 
 ## 5. Replacement Publication
 

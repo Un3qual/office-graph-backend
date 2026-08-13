@@ -18,6 +18,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :delete,
     :delete!,
     :delete_all,
+    :disconnect_all,
     :exists?,
     :get,
     :get!,
@@ -28,6 +29,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :insert,
     :insert!,
     :insert_all,
+    :insert_or_update,
+    :insert_or_update!,
+    :load,
     :one,
     :one!,
     :preload,
@@ -58,7 +62,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :query!,
     :stream
   ]
-  @postgrex_direct_operations [:close, :close!, :rollback, :start_link, :transaction]
+  @postgrex_direct_operations [
+    :child_spec,
+    :close,
+    :close!,
+    :parameters,
+    :rollback,
+    :start_link,
+    :transaction
+  ]
   @db_connection_raw_sql_operations [
     :execute,
     :execute!,
@@ -67,6 +79,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :prepare_execute,
     :prepare_execute!,
     :prepare_stream,
+    :reduce,
     :stream
   ]
   @db_connection_direct_operations [
@@ -78,7 +91,27 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :start_link,
     :transaction
   ]
-  @ecto_migrator_operations [:down, :run, :up, :with_repo]
+  @ecto_migrator_operations [
+    :down,
+    :migrated_versions,
+    :migrations,
+    :run,
+    :start_link,
+    :up,
+    :with_repo
+  ]
+  @postgres_adapter_operations [
+    :storage_down,
+    :storage_status,
+    :storage_up,
+    :structure_dump,
+    :structure_load
+  ]
+  @private_database_modules [
+    "Ecto.Migration.Runner",
+    "Ecto.Repo.Registry",
+    "Ecto.Repo.Supervisor"
+  ]
   @multi_operations [
     :all,
     :delete,
@@ -95,7 +128,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @query_fragment_operations [:fragment, :unsafe_fragment]
   @migration_raw_sql_operations [:execute, :execute_file]
   @migration_direct_operations [:insert]
-  @migration_control_flow [:case, :cond, :if, :receive, :try, :with]
+  @migration_control_flow [
+    :&&,
+    :and,
+    :case,
+    :cond,
+    :if,
+    :or,
+    :receive,
+    :try,
+    :unless,
+    :with,
+    :||
+  ]
   @syntax_operations [
     :%,
     :%{},
@@ -137,12 +182,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @database_modules [
     "DBConnection",
+    "Ecto.Adapters.Postgres",
     "Ecto.Adapters.SQL",
     "Ecto.Migration",
+    "Ecto.Migration.Runner",
     "Ecto.Migrator",
     "Ecto.Multi",
     "Ecto.Query",
     "Ecto.Query.API",
+    "Ecto.Repo.Registry",
+    "Ecto.Repo.Supervisor",
     "OfficeGraph.Repo",
     "Postgrex",
     "Postgrex.Notifications",
@@ -295,7 +344,33 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           []
       end)
 
-    scan_node(evaluated_arguments, env, occurrences)
+    quoted_body =
+      Enum.find_value(arguments, fn
+        options when is_list(options) ->
+          if Keyword.keyword?(options), do: Keyword.get(options, :do)
+
+        _argument ->
+          nil
+      end)
+
+    scan_node(evaluated_arguments ++ quoted_evaluations(quoted_body), env, occurrences)
+  end
+
+  defp scan_node({{:., _metadata, [callee]}, call_metadata, arguments} = node, env, occurrences)
+       when is_list(arguments) do
+    occurrences =
+      if migration_entrypoint?(env) do
+        [
+          occurrence(env, line(call_metadata), :direct_ecto, "migration.helper_call", node,
+            approval: :unresolved_sql
+          )
+          | occurrences
+        ]
+      else
+        occurrences
+      end
+
+    scan_children({callee, arguments}, env, occurrences)
   end
 
   defp scan_node({:for, metadata, arguments} = node, env, occurrences)
@@ -392,6 +467,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> scan_node(env, occurrences)
   end
 
+  defp quoted_evaluations({operation, _metadata, [argument]})
+       when operation in [:unquote, :unquote_splicing],
+       do: [argument]
+
+  defp quoted_evaluations(node) when is_tuple(node) do
+    node |> Tuple.to_list() |> Enum.flat_map(&quoted_evaluations/1)
+  end
+
+  defp quoted_evaluations(nodes) when is_list(nodes),
+    do: Enum.flat_map(nodes, &quoted_evaluations/1)
+
+  defp quoted_evaluations(_node), do: []
+
   defp classify_remote_call(receiver, operation, arguments, node, env) do
     receiver = receiver_name(receiver, env)
 
@@ -411,7 +499,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     with nil <- classify_migration_local(operation, arguments, node, env),
          nil <- classify_sql_bearing_call(imported_receiver, operation, arguments, node, env),
          receiver when not is_nil(receiver) <- imported_receiver do
-      classify_operation(receiver, operation, arity, node, env)
+      classify_operation(receiver, operation, arity, node, env) ||
+        classify_migration_remote_helper(receiver, operation, node, env)
     end
   end
 
@@ -508,6 +597,22 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp classify_operation("Ecto.Migrator", operation, _arity, node, env)
        when operation in @ecto_migrator_operations do
     occurrence(env, line_from_node(node), :direct_ecto, "Ecto.Migrator.#{operation}", node)
+  end
+
+  defp classify_operation("Ecto.Adapters.Postgres", operation, _arity, node, env)
+       when operation in @postgres_adapter_operations do
+    occurrence(
+      env,
+      line_from_node(node),
+      :direct_ecto,
+      "Ecto.Adapters.Postgres.#{operation}",
+      node
+    )
+  end
+
+  defp classify_operation(receiver, operation, _arity, node, env)
+       when receiver in @private_database_modules do
+    occurrence(env, line_from_node(node), :direct_ecto, "#{receiver}.#{operation}", node)
   end
 
   defp classify_operation("Ecto.Multi", operation, _arity, node, env)
@@ -672,6 +777,14 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp classify_migration_remote_helper("Ecto.Migration", _operation, _node, _env), do: nil
 
+  defp classify_migration_remote_helper(nil, _operation, node, env) do
+    if migration_entrypoint?(env) do
+      occurrence(env, line_from_node(node), :direct_ecto, "migration.helper_call", node,
+        approval: :unresolved_sql
+      )
+    end
+  end
+
   defp classify_migration_remote_helper(receiver, _operation, node, env)
        when is_binary(receiver) do
     if migration_entrypoint?(env) do
@@ -785,7 +898,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp module_name({:__aliases__, _metadata, parts}, env) do
     if Enum.all?(parts, &is_atom/1) do
-      name = Enum.map_join(parts, ".", &to_string/1)
+      name = parts |> Enum.map_join(".", &to_string/1) |> String.trim_leading("Elixir.")
       Map.get(env.aliases, name, name)
     end
   end

@@ -52,6 +52,8 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
           Postgrex.query(connection, "SELECT 1", [])
           DBConnection.prepare(connection, "query", [])
           Ecto.Migrator.run(OfficeGraph.Repo, "priv/repo/migrations", :up, all: true)
+          Ecto.Adapters.Postgres.storage_status([])
+          Ecto.Repo.Supervisor.start_link(:office_graph, OfficeGraph.Repo, [])
         end
       end
       """)
@@ -62,7 +64,9 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                {:direct_ecto, "Ecto.Multi.update"},
                {:raw_sql, "Postgrex.query"},
                {:raw_sql, "DBConnection.prepare"},
-               {:direct_ecto, "Ecto.Migrator.run"}
+               {:direct_ecto, "Ecto.Migrator.run"},
+               {:direct_ecto, "Ecto.Adapters.Postgres.storage_status"},
+               {:direct_ecto, "Ecto.Repo.Supervisor.start_link"}
              ])
   end
 
@@ -148,6 +152,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
             create_examples()
           end
 
+          System.get_env("CREATE_MORE") && create_more_examples()
+          helper = fn -> :ok end
+          helper.()
+          __MODULE__.create_even_more_examples()
+
           execute("ALTER TABLE examples ADD COLUMN label text")
           execute_file("priv/repo/sql/change.sql")
           OfficeGraph.Repo.insert!(%{})
@@ -204,6 +213,24 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              def note, do: quote(do: OfficeGraph.Repo.query!("SELECT 1", []))
            end
            """) == []
+  end
+
+  test "scans explicit unquote evaluation while leaving quoted syntax inert" do
+    [occurrence] =
+      scan("lib/example.ex", """
+      defmodule Example do
+        def quoted do
+          quote do
+            unquote(OfficeGraph.Repo.query!("SELECT 1", []))
+            OfficeGraph.Repo.query!("SELECT 2", [])
+          end
+        end
+      end
+      """)
+
+    assert occurrence.construct == "Repo.query!"
+    assert occurrence.function == "quoted/0"
+    assert occurrence.line == 4
   end
 
   test "tracks compound and case-insensitive SQL-like files by exact content" do
