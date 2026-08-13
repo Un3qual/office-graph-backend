@@ -142,11 +142,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryGate do
     |> Enum.map(&diagnostic(&1, :compiled_reference))
   end
 
+  @doc false
+  def compare_compiled(compiled, current) do
+    compiled = Enum.map(compiled, &normalize_entry/1)
+    current = Enum.map(current, &normalize_entry/1)
+    compiled_diagnostics(compiled, current)
+  end
+
   defp compiled_source_key(entry) do
     {
       Map.get(entry, "path"),
       Map.get(entry, "class"),
-      Map.get(entry, "construct")
+      Map.get(entry, "construct"),
+      Map.get(entry, "caller"),
+      Map.get(entry, "arity")
     }
   end
 

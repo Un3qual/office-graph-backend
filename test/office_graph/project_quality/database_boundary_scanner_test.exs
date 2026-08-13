@@ -1,7 +1,11 @@
 defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
   use ExUnit.Case, async: true
 
-  alias OfficeGraph.ProjectQuality.{DatabaseBoundaryScanner, DatabaseDependencyAudit}
+  alias OfficeGraph.ProjectQuality.{
+    DatabaseBoundaryGate,
+    DatabaseBoundaryScanner,
+    DatabaseDependencyAudit
+  }
 
   @uuidv7_approvals [
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "fragment",
@@ -86,6 +90,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
              &(&1.construct == "Ecto.Adapters.Postgres.Connection.query")
            )
            |> Map.has_key?(:approval)
+  end
+
+  test "classifies direct Ecto repository internals in uncompiled sources" do
+    occurrences =
+      scan("test/example_test.exs", """
+      defmodule OfficeGraph.ExampleTest do
+        def run(query, changeset) do
+          Ecto.Repo.Queryable.all(OfficeGraph.Repo, query, [])
+          Ecto.Repo.Schema.insert(OfficeGraph.Repo, :dynamic, changeset, :tuplet, [])
+          Ecto.Repo.Transaction.transaction(OfficeGraph.Repo, :dynamic, fn -> :ok end, [])
+        end
+      end
+      """)
+
+    assert Enum.map(occurrences, & &1.construct) == [
+             "Ecto.Repo.Queryable.all",
+             "Ecto.Repo.Schema.insert",
+             "Ecto.Repo.Transaction.transaction"
+           ]
   end
 
   test "classifies imported SQL adapter and query fragment calls" do
@@ -225,6 +248,30 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
            |> Enum.map(&Map.get(&1, :approval)) == [nil, :unresolved_sql]
   end
 
+  test "rejects fully qualified nondeclarative Ecto migration calls" do
+    occurrences =
+      scan("priv/repo/migrations/20260801000000_qualified_invalid.exs", """
+      defmodule OfficeGraph.Repo.Migrations.QualifiedInvalid do
+        use Ecto.Migration
+
+        def up do
+          Ecto.Migration.insert(:examples, [%{id: 1}])
+          Ecto.Migration.fragment("uuidv7()")
+          Ecto.Migration.repo()
+          Ecto.Migration.after_begin(fn -> :ok end)
+        end
+      end
+      """)
+
+    assert MapSet.new(occurrences, & &1.construct) ==
+             MapSet.new([
+               "migration.insert",
+               "fragment",
+               "migration.repo",
+               "migration.helper_call"
+             ])
+  end
+
   test "accepts ordinary declarative migration syntax" do
     assert scan("priv/repo/migrations/20260801000000_declarative.exs", """
            defmodule DeclarativeMigration do
@@ -317,6 +364,20 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert elixir_occurrence.construct == "Repo.query!"
   end
 
+  test "rejects literal database clients in tracked JavaScript scripts" do
+    [occurrence] =
+      scan("assets/scripts/database-task.mjs", """
+      import {execFile} from "node:child_process";
+      execFile("psql", [process.env.DATABASE_URL, "-c", "SELECT 1"]);
+      """)
+
+    assert occurrence.line == 2
+    assert occurrence.construct == "script.database_client.psql"
+    assert occurrence.approval == :unresolved_sql
+
+    assert scan("assets/src/database-copy.ts", "const label = 'psql documentation';") == []
+  end
+
   test "preserves only the exact approved UUIDv7 migration contexts" do
     assert repository_uuidv7_occurrences() == @uuidv7_approvals
 
@@ -356,6 +417,67 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
     assert occurrence.caller == "OfficeGraph.CompiledDatabaseBoundary"
     assert occurrence.module == "OfficeGraph.Repo"
     assert occurrence.arity == 2
+  end
+
+  test "compiled audit discovers tracked generated modules outside the OfficeGraph prefix" do
+    {root, source_path, beam_path} =
+      compile_fixture("compiled_generated_boundary", """
+      defmodule Inspect.OfficeGraph.CompiledGeneratedBoundary do
+        def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+      end
+      """)
+
+    ebin = Path.join(root, "_build/test/lib/office_graph/ebin")
+    File.mkdir_p!(ebin)
+    File.cp!(beam_path, Path.join(ebin, Path.basename(beam_path)))
+
+    [occurrence] =
+      DatabaseDependencyAudit.scan(root,
+        environments: [:test],
+        tracked_paths: MapSet.new([source_path])
+      )
+
+    assert occurrence.caller == "Inspect.OfficeGraph.CompiledGeneratedBoundary"
+    assert occurrence.construct == "Repo.query!"
+  end
+
+  test "compiled reconciliation requires the exact caller and arity" do
+    [source] =
+      scan("lib/example.ex", """
+      defmodule OfficeGraph.Example do
+        def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+      end
+      """)
+
+    assert DatabaseBoundaryGate.compare_compiled([compiled_occurrence(source, 2)], [source]) == []
+
+    [arity_diagnostic] =
+      DatabaseBoundaryGate.compare_compiled([compiled_occurrence(source, 3)], [source])
+
+    assert arity_diagnostic.kind == :compiled_reference
+    assert arity_diagnostic.arity == 3
+
+    [caller_diagnostic] =
+      DatabaseBoundaryGate.compare_compiled(
+        [compiled_occurrence(source, 2, "OfficeGraph.GeneratedExample")],
+        [source]
+      )
+
+    assert caller_diagnostic.kind == :compiled_reference
+    assert caller_diagnostic.caller == "OfficeGraph.GeneratedExample"
+  end
+
+  test "source occurrences use the compiled name of nested modules" do
+    [occurrence] =
+      scan("lib/example.ex", """
+      defmodule OfficeGraph.Example do
+        defmodule Nested.Loader do
+          def load, do: OfficeGraph.Repo.query!("SELECT 1", [])
+        end
+      end
+      """)
+
+    assert occurrence.caller == "OfficeGraph.Example.Nested.Loader"
   end
 
   test "compiled audit ignores generic callback imports" do
@@ -416,8 +538,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScannerTest do
                return_diagnostics: true
              )
 
-    [beam_path] = Path.wildcard(Path.join(ebin, "Elixir.OfficeGraph*.beam"))
+    [beam_path] = Path.wildcard(Path.join(ebin, "*.beam"))
     {root, source_path, beam_path}
+  end
+
+  defp compiled_occurrence(source, arity, caller \\ "OfficeGraph.Example") do
+    source
+    |> Map.merge(%{
+      arity: arity,
+      caller: caller,
+      module: "OfficeGraph.Repo",
+      operation: :query!
+    })
+    |> Map.put(:fingerprint, "sha256:compiled-#{caller}-#{arity}")
   end
 
   defp temporary_root(name) do

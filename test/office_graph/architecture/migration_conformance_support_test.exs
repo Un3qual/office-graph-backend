@@ -127,6 +127,47 @@ defmodule OfficeGraph.Architecture.MigrationConformanceSupportTest do
     assert inventory.extensions == MapSet.new(["plpgsql"])
   end
 
+  test "terminal inventory compares project-owned schemas" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("""
+      CREATE SCHEMA public;
+      CREATE SCHEMA audit;
+      CREATE TABLE audit.events (
+          id uuid NOT NULL
+      );
+      """)
+
+    assert inventory.schemas == MapSet.new(["audit", "public"])
+
+    errors =
+      inventory
+      |> synthetic_terminal_errors(%{"audit.events" => {nil, __MODULE__.AuditResource}})
+      |> without_framework_presence_errors()
+
+    refute Enum.any?(errors, &String.contains?(&1, "schema audit"))
+    refute Enum.any?(errors, &String.contains?(&1, "schema public"))
+
+    unexpected = MigrationConformanceSupport.parse_dump("CREATE SCHEMA shadow;")
+
+    assert "unexpected project schema shadow" in (unexpected
+                                                  |> synthetic_terminal_errors(%{})
+                                                  |> without_framework_presence_errors())
+  end
+
+  test "terminal inventory fails closed on unknown project-owned object DDL" do
+    inventory =
+      MigrationConformanceSupport.parse_dump("CREATE DOMAIN public.account_id AS uuid;")
+
+    assert inventory.unrecognized_ddl == MapSet.new(["CREATE DOMAIN public.account_id AS uuid"])
+
+    errors =
+      inventory
+      |> synthetic_terminal_errors(%{})
+      |> without_framework_presence_errors()
+
+    assert "unrecognized project DDL CREATE DOMAIN public.account_id AS uuid" in errors
+  end
+
   test "terminal inventory pins the Oban job-state enum labels and order" do
     inventory =
       MigrationConformanceSupport.parse_dump("""

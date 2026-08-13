@@ -141,8 +141,11 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   @private_database_modules [
     "DBConnection.Holder",
     "Ecto.Migration.Runner",
+    "Ecto.Repo.Queryable",
     "Ecto.Repo.Registry",
-    "Ecto.Repo.Supervisor"
+    "Ecto.Repo.Schema",
+    "Ecto.Repo.Supervisor",
+    "Ecto.Repo.Transaction"
   ]
   @multi_operations [
     :all,
@@ -160,7 +163,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   ]
   @query_fragment_operations [:fragment, :unsafe_fragment]
   @migration_raw_sql_operations [:execute, :execute_file]
-  @migration_direct_operations [:insert]
+  @migration_direct_operations [:insert, :repo]
   @migration_control_flow [
     :&&,
     :and,
@@ -214,27 +217,25 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     :unique_index
   ]
   @database_modules [
-    "DBConnection",
-    "DBConnection.Holder",
-    "Ecto.Adapters.Postgres",
-    "Ecto.Adapters.Postgres.Connection",
-    "Ecto.Adapters.SQL",
-    "Ecto.Migration",
-    "Ecto.Migration.Runner",
-    "Ecto.Migrator",
-    "Ecto.Multi",
-    "Ecto.Query",
-    "Ecto.Query.API",
-    "Ecto.Repo.Registry",
-    "Ecto.Repo.Supervisor",
-    "OfficeGraph.Repo",
-    "Postgrex",
-    "Postgrex.Notifications",
-    "Postgrex.ReplicationConnection",
-    "Postgrex.SimpleConnection"
-  ]
+                      "DBConnection",
+                      "Ecto.Adapters.Postgres",
+                      "Ecto.Adapters.Postgres.Connection",
+                      "Ecto.Adapters.SQL",
+                      "Ecto.Migration",
+                      "Ecto.Migrator",
+                      "Ecto.Multi",
+                      "Ecto.Query",
+                      "Ecto.Query.API",
+                      "OfficeGraph.Repo",
+                      "Postgrex",
+                      "Postgrex.Notifications",
+                      "Postgrex.ReplicationConnection",
+                      "Postgrex.SimpleConnection"
+                    ] ++ @private_database_modules
   @sql_file_pattern ~r/\.(?:pgsql|psql|sql)(?:\.(?:eex|heex|leex))?\z/i
   @database_client_pattern ~r/(?:\A|&&|\|\||[;|]|\$\(|`)\s*(?:(?:if|then|do|while|until|env|command|exec|sudo)\s+|!\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|[;&|)`]|\z)/
+  @javascript_script_extensions [".cjs", ".js", ".mjs", ".ts"]
+  @javascript_database_client_pattern ~r/(?:\A|[=({,;]\s*)(?:await\s+)?(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?(?:exec|execFile|execFileSync|execSync|spawn|spawnSync)\s*\(\s*["'`](?:[^"'`\s]*\/)?(?<client>clusterdb|createdb|createuser|dropdb|dropuser|pgbench|pg_dump|pg_restore|psql|reindexdb|vacuumdb)(?=\s|["'`])/
 
   @preserved_fingerprints %{
     {"priv/repo/migrations/20260729233957_initial.exs", 4892, "raw_sql", "fragment", "up/0", 1} =>
@@ -311,7 +312,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     |> String.split("\n")
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {line, line_number} ->
-      for [client] <- Regex.scan(@database_client_pattern, line, capture: :all_names) do
+      for client <- database_clients(path, line) do
         occurrence(path, line_number, nil, :raw_sql, "script.database_client.#{client}", line,
           approval: :unresolved_sql
         )
@@ -328,6 +329,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
           function: nil,
           imports: %{},
           migration?: migration_path?(path),
+          module: nil,
           path: path,
           preserve_uuidv7?: approved_uuidv7_context?(path, source)
         }
@@ -344,8 +346,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     end
   end
 
-  defp scan_node({:defmodule, _metadata, [_module, [do: body]]}, env, occurrences) do
-    module_env = %{env | aliases: %{}, ash_postgres?: false, imports: %{}}
+  defp scan_node({:defmodule, _metadata, [module, [do: body]]}, env, occurrences) do
+    module_env = %{
+      env
+      | aliases: %{},
+        ash_postgres?: false,
+        imports: %{},
+        module: declared_module(module, env)
+    }
+
     {_module_env, occurrences} = scan_node(body, module_env, occurrences)
     {env, occurrences}
   end
@@ -711,6 +720,18 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
     occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
   end
 
+  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
+       when operation in @query_fragment_operations do
+    construct = to_string(operation)
+    approval = approval_marker(:raw_sql, construct, call_arguments(node))
+    occurrence(env, line_from_node(node), :raw_sql, construct, node, approval: approval)
+  end
+
+  defp classify_operation("Ecto.Migration", operation, _arity, node, env)
+       when operation in @migration_direct_operations do
+    occurrence(env, line_from_node(node), :direct_ecto, "migration.#{operation}", node)
+  end
+
   defp classify_operation("Ecto.Migration.repo()", operation, _arity, node, env)
        when operation in @repo_raw_sql_operations do
     construct = "Repo.#{operation}"
@@ -852,7 +873,13 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
        when operation in [:up, :down] and env.preserve_uuidv7?,
        do: nil
 
-  defp classify_migration_remote_helper("Ecto.Migration", _operation, _node, _env), do: nil
+  defp classify_migration_remote_helper("Ecto.Migration", operation, node, env) do
+    if migration_entrypoint?(env) and operation not in @allowed_migration_locals do
+      occurrence(env, line_from_node(node), :direct_ecto, "migration.helper_call", node,
+        approval: :unresolved_sql
+      )
+    end
+  end
 
   defp classify_migration_remote_helper(nil, _operation, node, env) do
     if migration_entrypoint?(env) do
@@ -994,6 +1021,16 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   end
 
   defp module_name(_node, _env), do: nil
+
+  defp declared_module({:__aliases__, _metadata, parts} = module, %{module: parent})
+       when is_list(parts) and parts != [] and is_binary(parent) do
+    case module_name(module, %{aliases: %{}}) do
+      name when is_binary(name) -> parent <> "." <> name
+      _invalid -> nil
+    end
+  end
+
+  defp declared_module(module, env), do: module_name(module, env)
 
   defp alias_modules(
          {{:., _metadata, [prefix, :{}]}, _call_metadata, suffixes},
@@ -1158,12 +1195,19 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp keyword_option(_options, _key), do: nil
 
   defp occurrence(env, line, class, construct, node, opts \\ []) do
-    opts = Keyword.put(opts, :preserve_fingerprint?, env.preserve_uuidv7?)
+    opts =
+      opts
+      |> Keyword.put(:preserve_fingerprint?, env.preserve_uuidv7?)
+      |> Keyword.put_new(:caller, env.module || "unknown")
+      |> Keyword.put_new(:arity, call_arity(node))
+
     occurrence(env.path, line, env.function, class, construct, node, opts)
   end
 
   defp occurrence(path, line, function, class, construct, node, opts) do
     base = %{
+      arity: Keyword.get(opts, :arity),
+      caller: Keyword.get(opts, :caller),
       class: class,
       construct: construct,
       fingerprint: nil,
@@ -1270,6 +1314,15 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
   defp error_line(metadata) when is_list(metadata), do: Keyword.get(metadata, :line, 1)
   defp error_line(_location), do: 1
 
+  defp call_arity({{:., _metadata, _receiver}, _call_metadata, arguments})
+       when is_list(arguments),
+       do: length(arguments)
+
+  defp call_arity({_operation, _metadata, arguments}) when is_list(arguments),
+    do: length(arguments)
+
+  defp call_arity(_node), do: nil
+
   defp tracked_sources(root) do
     {output, 0} = System.cmd("git", ["ls-files", "-z"], cd: root)
 
@@ -1288,7 +1341,31 @@ defmodule OfficeGraph.ProjectQuality.DatabaseBoundaryScanner do
 
   defp script_source?(path) do
     String.starts_with?(path, "bin/") or
-      String.downcase(Path.extname(path)) in [".bash", ".sh", ".zsh"]
+      String.downcase(Path.extname(path)) in [".bash", ".sh", ".zsh"] or
+      javascript_script_source?(path)
+  end
+
+  defp javascript_script_source?(path) do
+    String.downcase(Path.extname(path)) in @javascript_script_extensions and
+      "scripts" in Path.split(path)
+  end
+
+  defp database_clients(path, line) do
+    pattern =
+      if javascript_script_source?(path),
+        do: @javascript_database_client_pattern,
+        else: @database_client_pattern
+
+    if javascript_comment_line?(path, line) do
+      []
+    else
+      for [client] <- Regex.scan(pattern, line, capture: :all_names), do: client
+    end
+  end
+
+  defp javascript_comment_line?(path, line) do
+    javascript_script_source?(path) and
+      line |> String.trim_leading() |> String.starts_with?(["//", "/*", "*"])
   end
 
   defp migration_path?(path), do: String.starts_with?(path, "priv/repo/migrations/")

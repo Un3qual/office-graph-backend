@@ -104,7 +104,7 @@ defmodule OfficeGraph.ProjectQuality.DatabaseDependencyAudit do
         Enum.reduce(environments, {[], []}, fn environment, {paths, missing} ->
           environment_paths =
             root
-            |> Path.join("_build/#{environment}/lib/office_graph/ebin/Elixir.OfficeGraph*.beam")
+            |> Path.join("_build/#{environment}/lib/office_graph/ebin/*.beam")
             |> Path.wildcard()
 
           if environment_paths == [] do

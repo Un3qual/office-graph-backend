@@ -5,6 +5,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
   @framework_objects %{
     enum: MapSet.new(["oban_job_state"]),
+    schema: MapSet.new(["public"]),
     table: MapSet.new(["oban_jobs", "oban_peers", "schema_migrations"]),
     sequence: MapSet.new(["oban_jobs_id_seq"])
   }
@@ -161,6 +162,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
         approved_terminal_objects \\ approved_terminal_objects()
       ) do
     expected_tables = expected_resources |> resource_table_identities() |> MapSet.new()
+    expected_schemas = expected_schemas(expected_resources)
     project_tables = reject_framework_objects(inventory.tables, :table)
 
     missing_tables =
@@ -186,12 +188,22 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       |> MapSet.difference(expected_sequences)
       |> Enum.map(&"unexpected project sequence #{&1}")
 
-    prohibited_objects = terminal_object_errors(inventory, approved_terminal_objects)
+    missing_schemas =
+      expected_schemas
+      |> MapSet.difference(inventory.schemas)
+      |> Enum.map(&"missing Ash-owned schema #{&1}")
+
+    prohibited_objects =
+      terminal_object_errors(inventory, approved_terminal_objects, expected_schemas)
+
+    unrecognized_ddl =
+      Enum.map(inventory.unrecognized_ddl, &"unrecognized project DDL #{&1}")
 
     (missing_tables ++
        unexpected_tables ++
        missing_sequences ++
        unexpected_sequences ++
+       missing_schemas ++
        framework_presence_errors(inventory) ++
        framework_enum_definition_errors(inventory) ++
        relation_kind_errors(inventory, expected_tables) ++
@@ -199,6 +211,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
        table_shape_errors(inventory, expected_resources, project_tables) ++
        framework_table_shape_errors(inventory) ++
        prohibited_objects ++
+       unrecognized_ddl ++
        migration_foreign_key_relationship_errors(expected_resources, inventory))
     |> Enum.sort()
   end
@@ -341,11 +354,13 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       relations: %{},
       rls_states: MapSet.new(),
       routines: MapSet.new(),
+      schemas: MapSet.new(),
       sequence_definitions: %{},
       sequences: MapSet.new(),
       tables: MapSet.new(),
       terminal_objects: MapSet.new(),
       triggers: MapSet.new(),
+      unrecognized_ddl: MapSet.new(),
       views: MapSet.new()
     }
 
@@ -364,14 +379,15 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Map.put(:enums, enum_definitions(dump))
     |> Map.put(:sequence_definitions, sequence_definitions(dump))
     |> Map.put(:terminal_objects, terminal_objects(dump))
+    |> Map.put(:unrecognized_ddl, unrecognized_project_ddl(dump))
   end
 
-  defp terminal_object_errors(inventory, approved_terminal_objects) do
+  defp terminal_object_errors(inventory, approved_terminal_objects, expected_schemas) do
     actual =
       inventory
       |> Map.get(:terminal_objects, MapSet.new())
       |> Enum.reject(fn {class, identity, _fingerprint} ->
-        allowed_terminal_object?(class, identity)
+        allowed_terminal_object?(class, identity, expected_schemas)
       end)
       |> Enum.group_by(fn {class, identity, _fingerprint} -> {class, identity} end, fn {
                                                                                          _class,
@@ -400,6 +416,10 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     missing_definitions =
       inventory
       |> prohibited_terminal_identities()
+      |> Enum.reject(fn {class, identity} ->
+        allowed_terminal_object?(class, identity, expected_schemas)
+      end)
+      |> MapSet.new()
       |> MapSet.difference(actual_keys)
       |> Enum.map(fn {class, identity} ->
         "terminal definition unavailable for project #{class} #{identity}"
@@ -432,6 +452,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
   defp prohibited_terminal_identities(inventory) do
     [
       {"view", inventory.views},
+      {"schema", inventory.schemas},
       {"materialized view", inventory.materialized_views},
       {"materialized view index", materialized_view_index_identities(inventory)},
       {"enum", inventory.enums |> Map.keys() |> reject_framework_objects(:enum)},
@@ -448,12 +469,16 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> MapSet.new()
   end
 
-  defp allowed_terminal_object?("extension", identity),
+  defp allowed_terminal_object?("extension", identity, _expected_schemas),
     do: MapSet.member?(@allowed_extensions, identity)
 
-  defp allowed_terminal_object?("enum", identity), do: framework_owned?(:enum, identity)
+  defp allowed_terminal_object?("enum", identity, _expected_schemas),
+    do: framework_owned?(:enum, identity)
 
-  defp allowed_terminal_object?(_class, _identity), do: false
+  defp allowed_terminal_object?("schema", identity, expected_schemas),
+    do: framework_owned?(:schema, identity) or MapSet.member?(expected_schemas, identity)
+
+  defp allowed_terminal_object?(_class, _identity, _expected_schemas), do: false
 
   defp approved_terminal_objects do
     @approved_exceptions_path
@@ -511,6 +536,36 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       end
     end)
     |> MapSet.new()
+  end
+
+  defp unrecognized_project_ddl(dump) do
+    dump
+    |> sql_statements()
+    |> Enum.filter(&unrecognized_create_statement?/1)
+    |> Enum.map(&normalize_definition/1)
+    |> MapSet.new()
+  end
+
+  defp unrecognized_create_statement?(statement) do
+    statement = String.trim_leading(statement)
+
+    String.starts_with?(statement, "CREATE ") and
+      not inventory_backed_create_statement?(statement) and
+      is_nil(terminal_object_identity(statement, MapSet.new(), MapSet.new()))
+  end
+
+  defp inventory_backed_create_statement?(statement) do
+    Enum.any?(
+      [
+        "CREATE TABLE ",
+        "CREATE UNLOGGED TABLE ",
+        "CREATE FOREIGN TABLE ",
+        "CREATE SEQUENCE ",
+        "CREATE INDEX ",
+        "CREATE UNIQUE INDEX "
+      ],
+      &String.starts_with?(statement, &1)
+    )
   end
 
   defp enum_definitions(dump) do
@@ -627,6 +682,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     enum = enum_definition(statement)
 
     cond do
+      identity = prefixed_identity(statement, "CREATE SCHEMA ") ->
+        {"schema", identity}
+
       identity = prefixed_identity(statement, "CREATE MATERIALIZED VIEW ") ->
         {"materialized view", identity}
 
@@ -981,6 +1039,7 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
           inventory
           |> Map.update!(:tables, &MapSet.put(&1, table))
           |> Map.update!(:relations, &Map.put(&1, table, kind))
+          |> put_identity_schema(table)
 
         {inventory, {:create_table, table}}
 
@@ -1023,6 +1082,9 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
       match?({:alter_table, _table}, current_table) ->
         {:alter_table, table} = current_table
         {parse_alter_table_line(line, table, inventory), nil}
+
+      schema = prefixed_identity(line, "CREATE SCHEMA ") ->
+        {Map.update!(inventory, :schemas, &MapSet.put(&1, schema)), current_table}
 
       sequence = prefixed_identity(line, "CREATE SEQUENCE ") ->
         {Map.update!(inventory, :sequences, &MapSet.put(&1, sequence)), current_table}
@@ -1079,6 +1141,23 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
 
       nil ->
         inventory
+    end
+  end
+
+  defp put_identity_schema(inventory, identity) do
+    case identity_schema(identity) do
+      nil -> inventory
+      schema -> Map.update!(inventory, :schemas, &MapSet.put(&1, schema))
+    end
+  end
+
+  defp identity_schema(identity) do
+    case PostgresDump.identifier_parts(identity) do
+      parts when is_list(parts) and length(parts) > 1 ->
+        parts |> Enum.drop(-1) |> Enum.join(".")
+
+      _unqualified ->
+        nil
     end
   end
 
@@ -1256,6 +1335,17 @@ defmodule OfficeGraph.TestSupport.MigrationConformanceSupport do
     |> Map.new(fn {domain, resource} ->
       {resource_table_identity(resource), {domain, resource}}
     end)
+  end
+
+  defp expected_schemas(expected_resources) do
+    expected_resources
+    |> Enum.flat_map(fn {_table, {_domain, resource}} ->
+      case AshPostgres.DataLayer.Info.schema(resource) do
+        schema when schema in [nil, :public, "public"] -> []
+        schema -> [PostgresDump.configured_identifier(schema)]
+      end
+    end)
+    |> MapSet.new()
   end
 
   defp matching_belongs_to?(
